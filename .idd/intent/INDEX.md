@@ -21,7 +21,7 @@ Implementation-only durable constraints belong in the optional
 
 ## Current documents
 
-No current `IDD-NNNN` documents have been created yet.
+Current documents are listed below.
 
 The `Document` column contains stable `IDD-NNNN` identifiers only. Do not put
 filenames, file paths, or Markdown links in this column. Resolve an identifier to
@@ -30,3 +30,18 @@ opened.
 
 | Document | Role | Area | Notes |
 | --- | --- | --- | --- |
+| IDD-0001 | Spec | Продукт | Назначение и границы |
+| IDD-0002 | Spec | Переносимость | Профиль и соответствие |
+| IDD-0003 | Spec | Документ | Модель и формат |
+| IDD-0004 | Spec | Редактор | Холст и доступность |
+| IDD-0005 | Spec | Компоновка | Геометрия и ограничения |
+| IDD-0006 | Spec | Дизайн-система | Компоненты и токены |
+| IDD-0007 | Spec | Прототип | Сценарии и данные |
+| IDD-0008 | Spec | Команды | Совместная работа |
+| IDD-0009 | Spec | Сохранение | Версии и восстановление |
+| IDD-0010 | Spec | API | Программный доступ |
+| IDD-0011 | Spec | Экспорт | Генерация и соответствие |
+| IDD-0012 | Spec | Безопасность | Доступ и аудит |
+| IDD-0013 | Spec | Эксплуатация | Среды и измерения |
+| IDD-0014 | Spike | Переносимость | Проверка профиля |
+| IDD-0015 | Spec | Релизы | Минимальный состав MVP и V1 |
