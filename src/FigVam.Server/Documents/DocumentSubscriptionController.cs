@@ -1,0 +1,61 @@
+using System.Text.Json;
+using FigVam.Application.Documents;
+using FigVam.Server.Authentication;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc;
+
+namespace FigVam.Server.Documents;
+
+[ApiController, Authorize, Route("api/v1/documents/{documentId}/events")]
+public sealed class DocumentSubscriptionController(IDocumentReconnectReader reader,
+    IDocumentSubscriptions subscriptions, DocumentSubscriptionLimits limits) : ControllerBase
+{
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+
+    /// <summary>Stream committed changes as SSE after lastSeenRevision. On RECONNECT_REQUIRED or EOF use reconnect, then subscribe from the recovered revision.</summary>
+    /// <remarks>Bearer header required. Data is DocumentSubscriptionMessage JSON. Only CHANGE advances the cursor; its SSE id equals revision. READY and HEARTBEAT do not confirm new state. FORBIDDEN terminates after access revocation. No Last-Event-ID or query tokens. Maximum 5 streams per actor and 128 per process, 5 second write deadline, 1 hour lifetime bounded by token expiry. Journal polling interval is 100 ms.</remarks>
+    [HttpGet, EndpointSummary("Subscribe to committed document changes")]
+    [EndpointDescription("SSE frames: event is the code, data is DocumentSubscriptionMessage JSON. READY opens the requested cursor; CHANGE carries a committed event and its SSE id equals revision; HEARTBEAT does not advance the cursor. FORBIDDEN terminates on revoked read access. On RECONNECT_REQUIRED, EOF or a revision gap call GET reconnect with the last applied revision, apply its events/snapshot and subscribe from the resulting revision. Requires Authorization bearer header; only lastSeenRevision is accepted in query. Last-Event-ID is ignored. Ordered shared-journal polling every 100ms; limits: 5 streams per actor, 128 per process, 5s write deadline, 1h/token-expiry lifetime. No exactly-once network delivery guarantee.")]
+    [ProducesResponseType<DocumentSubscriptionMessage>(200, "text/event-stream")]
+    [ProducesResponseType<ApiError>(400), ProducesResponseType<ApiError>(401), ProducesResponseType<ApiError>(403), ProducesResponseType<ApiError>(429)]
+    public async Task<IActionResult> Read(Guid documentId, [FromQuery] long? lastSeenRevision, CancellationToken cancellationToken)
+    {
+        if (Request.Query.Count != 1 || !Request.Query.TryGetValue("lastSeenRevision", out var value) || value.Count != 1 || lastSeenRevision is null)
+            return BadRequest(ApiErrors.Create(400, "INVALID_REVISION"));
+        var actor = User.GetDocumentActor();
+        using var lease = limits.TryAcquire(actor.Id);
+        if (lease is null) return StatusCode(429, ApiErrors.Create(429));
+        var initialCode = (await reader.ReadAsync(documentId, lastSeenRevision.Value, actor, cancellationToken)).Code;
+        if (initialCode is not ("EVENTS" or "SNAPSHOT"))
+        {
+            var status = initialCode switch { "FORBIDDEN" => 403, "INVALID_ID" or "INVALID_REVISION" => 400, "DOCUMENT_NOT_FOUND" => 404, _ => 500 };
+            return StatusCode(status, ApiErrors.Create(status, status == 500 ? "INTERNAL_ERROR" : initialCode));
+        }
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var duration = TimeSpan.FromHours(1);
+        if (long.TryParse(User.FindFirst("exp")?.Value, out var expiry))
+            duration = TimeSpan.FromSeconds(Math.Min(duration.TotalSeconds, expiry - DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
+        if (duration <= TimeSpan.Zero) return Unauthorized(ApiErrors.Create(401));
+        lifetime.CancelAfter(duration);
+        Response.ContentType = "text/event-stream";
+        Response.Headers.CacheControl = "no-store";
+        Response.Headers["X-Accel-Buffering"] = "no";
+        HttpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+        try
+        {
+            await foreach (var message in subscriptions.ReadAsync(documentId, lastSeenRevision.Value, actor, lifetime.Token))
+            {
+                using var write = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                write.CancelAfter(TimeSpan.FromSeconds(5));
+                var id = message.Code == "CHANGE" ? $"id: {message.Revision}\n" : "";
+                await Response.WriteAsync($"{id}event: {message.Code}\ndata: {JsonSerializer.Serialize(message, Json)}\n\n", write.Token);
+                await Response.Body.FlushAsync(write.Token);
+            }
+        }
+        catch (OperationCanceledException) { HttpContext.Abort(); }
+        catch (IOException) { HttpContext.Abort(); }
+        return new EmptyResult();
+    }
+}
+

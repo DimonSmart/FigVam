@@ -1,0 +1,360 @@
+using System.Collections.Immutable;
+using FigVam.Domain.Tokens;
+using FigVam.Domain.Components;
+
+namespace FigVam.Domain.Documents;
+
+// The profile registry owns node kinds and their structural capabilities.
+public interface INodeProfile
+{
+    NodePropertyDefinition? GetProperty(string kind, string property);
+    bool IsKnownKind(string kind);
+    bool CanContainChildren(string kind);
+}
+
+public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pages,
+    IReadOnlyList<ScreenStructure> Screens, IReadOnlyList<NodeStructure> Nodes)
+{
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<DocumentDataset> Datasets { get; init; } = [];
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<DesignToken> Tokens { get; init; } = [];
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<ComponentDefinition> ComponentDefinitions { get; init; } = [];
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<ComponentInstance> ComponentInstances { get; init; } = [];
+}
+
+public sealed record PageStructure(Guid Id, IReadOnlyList<Guid> ScreenIds);
+public sealed record ScreenStructure(Guid Id, IReadOnlyList<Guid> ChildIds)
+{
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<ScreenVariant> Variants { get; init; } = [];
+}
+public sealed record NodeStructure(Guid Id, string Kind, IReadOnlyList<Guid> ChildIds)
+{
+    [System.Text.Json.Serialization.JsonRequired]
+    public NodeRepeater? Repeater { get; init; }
+
+    [System.Text.Json.Serialization.JsonRequired]
+    public string Name { get; init; } = "";
+    [System.Text.Json.Serialization.JsonRequired]
+    public string? SemanticKey { get; init; }
+
+    private readonly ImmutableSortedDictionary<string, NodeDataBinding> dataBindings
+        = ImmutableSortedDictionary<string, NodeDataBinding>.Empty.WithComparers(StringComparer.Ordinal);
+    [System.Text.Json.Serialization.JsonRequired]
+    public ImmutableSortedDictionary<string, NodeDataBinding> DataBindings
+    {
+        get => dataBindings;
+        init => dataBindings = value?.WithComparers(StringComparer.Ordinal)!;
+    }
+
+    private readonly ImmutableSortedDictionary<string, NodePropertyValue> properties
+        = ImmutableSortedDictionary<string, NodePropertyValue>.Empty.WithComparers(StringComparer.Ordinal);
+
+    [System.Text.Json.Serialization.JsonRequired]
+    public ImmutableSortedDictionary<string, NodePropertyValue> Properties
+    {
+        get => properties;
+        init => properties = value?.WithComparers(StringComparer.Ordinal)!;
+    }
+}
+
+public static class DocumentStructureEditor
+{
+    public static DocumentStructure SetNodeRepeater(DocumentStructure document, Guid nodeId, NodeRepeater? repeater)
+        => document with { Nodes = document.Nodes.Select(n => n.Id == nodeId ? n with { Repeater = repeater } : n).ToArray() };
+
+    public static DocumentStructure SetNodeDataBinding(DocumentStructure document, Guid nodeId, string property, NodeDataBinding? binding)
+        => document with { Nodes = document.Nodes.Select(n => n.Id == nodeId ? n with { DataBindings = binding is null
+            ? n.DataBindings.Remove(property) : n.DataBindings.SetItem(property, binding) } : n).ToArray() };
+
+    public static DocumentStructure AddComponentSlot(DocumentStructure document, Guid definitionId, ComponentSlot slot)
+    {
+        if (!document.ComponentDefinitions.Any(d => d.Id == definitionId)) throw new InvalidOperationException("Component definition does not exist.");
+        return document with { ComponentDefinitions = document.ComponentDefinitions.Select(d => d.Id == definitionId
+            ? d with { Slots = [.. d.Slots, slot] } : d).ToArray() };
+    }
+
+    public static DocumentStructure SetComponentSlotContent(DocumentStructure document, Guid nodeId, Guid slotId, IReadOnlyList<Guid> contentNodeIds)
+    {
+        if (!document.ComponentInstances.Any(i => i.NodeId == nodeId)) throw new InvalidOperationException("Node is not a component instance.");
+        return document with { ComponentInstances = document.ComponentInstances.Select(i =>
+        {
+            if (i.NodeId != nodeId) return i;
+            var slots = i.SlotContent.ToDictionary(p => p.Key, p => p.Value);
+            if (contentNodeIds.Count == 0) slots.Remove(slotId); else slots[slotId] = contentNodeIds.ToArray();
+            return i with { SlotContent = slots };
+        }).ToArray() };
+    }
+
+    public static DocumentStructure AddComponentVariant(DocumentStructure document, Guid definitionId, ComponentVariant variant)
+    {
+        if (!document.ComponentDefinitions.Any(d => d.Id == definitionId)) throw new InvalidOperationException("Component definition does not exist.");
+        return document with { ComponentDefinitions = document.ComponentDefinitions.Select(d => d.Id == definitionId
+            ? d with { Variants = [.. d.Variants, variant with { ParameterChanges = variant.ParameterChanges.ToDictionary(p => p.Key, p => p.Value) }] } : d).ToArray() };
+    }
+
+    public static DocumentStructure SetComponentInstanceVariant(DocumentStructure document, Guid nodeId, Guid? variantId)
+    {
+        if (!document.ComponentInstances.Any(i => i.NodeId == nodeId)) throw new InvalidOperationException("Node is not a component instance.");
+        return document with { ComponentInstances = document.ComponentInstances.Select(i => i.NodeId == nodeId ? i with { VariantId = variantId } : i).ToArray() };
+    }
+
+    public static DocumentStructure SetComponentParameterOverride(DocumentStructure document, Guid nodeId, Guid parameterId, ComponentValue? value)
+    {
+        if (!document.ComponentInstances.Any(i => i.NodeId == nodeId)) throw new InvalidOperationException("Node is not a component instance.");
+        return document with { ComponentInstances = document.ComponentInstances.Select(instance =>
+        {
+            if (instance.NodeId != nodeId) return instance;
+            var overrides = instance.ParameterOverrides.ToDictionary(p => p.Key, p => p.Value);
+            if (value is null) overrides.Remove(parameterId); else overrides[parameterId] = value;
+            return instance with { ParameterOverrides = overrides };
+        }).ToArray() };
+    }
+
+    public static DocumentStructure SetComponentVariantParameterChange(DocumentStructure document, Guid definitionId, Guid variantId, Guid parameterId, ComponentValue? value)
+    {
+        var definition = document.ComponentDefinitions.FirstOrDefault(d => d.Id == definitionId)
+            ?? throw new InvalidOperationException("Component definition does not exist.");
+        if (!definition.Parameters.Any(p => p.Id == parameterId) || !definition.Variants.Any(v => v.Id == variantId))
+            throw new InvalidOperationException("Variant and parameter must belong to the component definition.");
+        return document with { ComponentDefinitions = document.ComponentDefinitions.Select(d => d.Id == definitionId
+            ? d with { Variants = d.Variants.Select(v =>
+            {
+                if (v.Id != variantId) return v;
+                var changes = v.ParameterChanges.ToDictionary(p => p.Key, p => p.Value);
+                if (value is null) changes.Remove(parameterId); else changes[parameterId] = value;
+                return v with { ParameterChanges = changes };
+            }).ToArray() } : d).ToArray() };
+    }
+
+    public static DocumentStructure SetComponentParameterDefault(DocumentStructure document, Guid definitionId, Guid parameterId, ComponentValue value)
+    {
+        var definition = document.ComponentDefinitions.FirstOrDefault(d => d.Id == definitionId)
+            ?? throw new InvalidOperationException("Component definition does not exist.");
+        if (!definition.Parameters.Any(p => p.Id == parameterId)) throw new InvalidOperationException("Component parameter does not exist.");
+        return document with { ComponentDefinitions = document.ComponentDefinitions.Select(d => d.Id == definitionId
+            ? d with { Parameters = d.Parameters.Select(p => p.Id == parameterId ? p with { DefaultValue = value } : p).ToArray() } : d).ToArray() };
+    }
+
+    public static DocumentStructure AddComponentParameter(DocumentStructure document, Guid definitionId,
+        ComponentParameter parameter, ComponentParameterBinding binding)
+    {
+        if (!document.ComponentDefinitions.Any(d => d.Id == definitionId)) throw new InvalidOperationException("Component definition does not exist.");
+        return document with { ComponentDefinitions = document.ComponentDefinitions.Select(d => d.Id == definitionId
+            ? d with { Parameters = [.. d.Parameters, parameter], Bindings = [.. d.Bindings, binding] } : d).ToArray() };
+    }
+
+    public static DocumentStructure SetNodeProperty(DocumentStructure document, Guid nodeId, string property, NodePropertyValue value)
+    {
+        if (!document.Nodes.Any(n => n.Id == nodeId)) throw new InvalidOperationException("Node does not exist.");
+        return document with { Nodes = document.Nodes.Select(n => n.Id == nodeId
+            ? n with { Properties = n.Properties.SetItem(property, value) } : n).ToArray() };
+    }
+
+    public static DocumentStructure InsertComponentInstance(DocumentStructure document, Guid parentId, int position,
+        NodeStructure anchor, ComponentInstance instance)
+    {
+        IReadOnlyList<Guid> Insert(IReadOnlyList<Guid> children)
+        {
+            var result = children.ToList();
+            result.Insert(position, anchor.Id);
+            return result.ToArray();
+        }
+        return document with
+        {
+            Screens = document.Screens.Select(s => s.Id == parentId ? s with { ChildIds = Insert(s.ChildIds) } : s).ToArray(),
+            Nodes = document.Nodes.Select(n => n.Id == parentId ? n with { ChildIds = Insert(n.ChildIds) } : n).Append(anchor).ToArray(),
+            ComponentInstances = [.. document.ComponentInstances, instance]
+        };
+    }
+
+    // Position is the index in the target children after removing the node from its old parent.
+    public static DocumentStructure MoveNode(DocumentStructure document, Guid nodeId, Guid targetParentId, int position)
+    {
+        IReadOnlyList<Guid> Children(Guid parentId, IReadOnlyList<Guid> children)
+        {
+            var result = children.Where(id => id != nodeId).ToList();
+            if (parentId == targetParentId) result.Insert(position, nodeId);
+            return result.ToArray();
+        }
+        return document with
+        {
+            Screens = document.Screens.Select(s => s with { ChildIds = Children(s.Id, s.ChildIds) }).ToArray(),
+            Nodes = document.Nodes.Select(n => n with { ChildIds = Children(n.Id, n.ChildIds) }).ToArray()
+        };
+    }
+
+    public static DocumentStructure DeleteNode(DocumentStructure document, Guid nodeId)
+    {
+        var nodes = document.Nodes.ToDictionary(n => n.Id);
+        if (!nodes.ContainsKey(nodeId)) throw new InvalidOperationException("Node does not exist.");
+        var removed = new HashSet<Guid>();
+        var pending = new Stack<Guid>();
+        pending.Push(nodeId);
+        while (pending.TryPop(out var id))
+        {
+            if (!removed.Add(id)) continue;
+            foreach (var child in nodes[id].ChildIds) pending.Push(child);
+        }
+        return document with
+        {
+            Screens = document.Screens.Select(s => s with { ChildIds = s.ChildIds.Where(id => id != nodeId).ToArray() }).ToArray(),
+            ComponentInstances = document.ComponentInstances.Where(i => !removed.Contains(i.NodeId)).ToArray(),
+            Nodes = document.Nodes.Where(n => !removed.Contains(n.Id))
+                .Select(n => n with { ChildIds = n.ChildIds.Where(id => id != nodeId).ToArray() }).ToArray()
+        };
+    }
+}
+
+public sealed record StructureError(string Code, Guid ObjectId, Guid? ReferenceId, string Message, string? Property = null);
+
+public static class DocumentStructureValidator
+{
+    public static IReadOnlyList<StructureError> Validate(DocumentStructure document, INodeProfile profile)
+    {
+        var structureErrors = ValidateStructure(document, profile);
+        if (structureErrors.Count != 0) return structureErrors;
+        if (document.ComponentInstances is null || document.ComponentInstances.Any(i => i is null ||
+                i.ParameterOverrides is null || i.SlotContent is null || i.SlotContent.Values.Any(v => v is null)) ||
+            document.ComponentDefinitions is null || document.ComponentDefinitions.Any(d => d is null ||
+                d.Parameters is null || d.Slots is null || d.Variants is null || d.Bindings is null))
+            return [new("invalid-components", document.Id, null, "Component definitions, instances and their contracts are required.")];
+        return ComponentValidator.Validate(new(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, []), profile)
+            .Select(e => new StructureError(e.Code, e.ObjectId, e.ReferenceId, e.Message, e.Property)).ToArray();
+    }
+
+    internal static IReadOnlyList<StructureError> ValidateStructure(DocumentStructure document, INodeProfile profile, bool validateRepeaters = true)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(profile);
+        var errors = new List<StructureError>();
+        var kinds = new Dictionary<Guid, string>();
+        void Register(Guid id, string kind)
+        {
+            if (id == Guid.Empty)
+                errors.Add(new("empty-id", id, null, $"{kind} must have a nonempty ID."));
+            if (!kinds.TryAdd(id, kind))
+                errors.Add(new("duplicate-id", id, null, $"ID is used by more than one object, including {kind}."));
+        }
+        if (document.Tokens is null || document.Tokens.Any(t => t is null)) { errors.Add(new("invalid-tokens", document.Id, null, "Tokens are required.")); return errors; }
+        if (!DatasetValidator.IsValid(document.Datasets)) { errors.Add(new("INVALID_DATASET", document.Id, null, "Datasets or fixtures are invalid or exceed their limits.")); return errors; }
+        foreach (var dataset in document.Datasets) Register(dataset.Id, "dataset");
+        foreach (var token in document.Tokens) Register(token.Id, "token");
+        errors.AddRange(DesignTokenValidator.Validate(document.Tokens).Select(e => new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message)));
+        Register(document.Id, "document");
+        foreach (var page in document.Pages) Register(page.Id, "page");
+        foreach (var screen in document.Screens) Register(screen.Id, "screen");
+        foreach (var node in document.Nodes) Register(node.Id, "node");
+        foreach (var screen in document.Screens)
+        {
+            if (screen.Variants is null) { errors.Add(new("INVALID_SCREEN_VARIANT", screen.Id, null, "Screen variants are required.")); continue; }
+            foreach (var variant in screen.Variants)
+                if (variant is not null) Register(variant.Id, "screen variant");
+            errors.AddRange(ScreenVariantValidator.Validate(document, screen, profile));
+        }
+
+        bool Reference(Guid owner, Guid target, string expected)
+        {
+            if (!kinds.TryGetValue(target, out var actual))
+            {
+                errors.Add(new("missing-reference", owner, target, $"Referenced {expected} does not exist."));
+                return false;
+            }
+            if (actual != expected)
+            {
+                errors.Add(new("wrong-reference-type", owner, target, $"Expected {expected}, found {actual}."));
+                return false;
+            }
+            return true;
+        }
+
+        foreach (var page in document.Pages)
+            foreach (var id in page.ScreenIds)
+                Reference(page.Id, id, "screen");
+
+        var parents = new Dictionary<Guid, int>();
+        var edges = new Dictionary<Guid, List<Guid>>();
+        void Children(Guid owner, IReadOnlyList<Guid> children)
+        {
+            if (!edges.TryGetValue(owner, out var targets)) edges[owner] = targets = [];
+            foreach (var id in children)
+            {
+                if (!Reference(owner, id, "node")) continue;
+                targets.Add(id);
+                parents[id] = parents.GetValueOrDefault(id) + 1;
+            }
+        }
+        foreach (var screen in document.Screens) Children(screen.Id, screen.ChildIds);
+        foreach (var node in document.Nodes)
+        {
+            if (!NodeMetadataValidator.IsValidName(node.Name) || !NodeMetadataValidator.IsValidSemanticKey(node.SemanticKey))
+                errors.Add(new("INVALID_NODE_METADATA", node.Id, null, "Node metadata exceeds its limits or contains control characters."));
+            if (!profile.IsKnownKind(node.Kind))
+                errors.Add(new("unknown-node-kind", node.Id, null, $"Node kind '{node.Kind}' is not in the profile."));
+            else if (node.ChildIds.Count > 0 && !profile.CanContainChildren(node.Kind))
+                errors.Add(new("children-not-allowed", node.Id, null, $"Node kind '{node.Kind}' cannot contain children."));
+            if (node.Properties is null)
+                errors.Add(new("invalid-properties", node.Id, null, "Properties are required."));
+            else foreach (var (property, value) in node.Properties)
+            {
+                if (NodePropertyValidator.Validate(profile, node.Kind, property, value) is { } error)
+                    errors.Add(new(error.Code, node.Id, null, error.Reason, property));
+                if (value is NodeTokenValue reference)
+                {
+                    var token = document.Tokens.FirstOrDefault(t => t.Id == reference.TokenId);
+                    if (token is null) errors.Add(new("missing-reference", node.Id, reference.TokenId, "Referenced token does not exist.", property));
+                    else if (profile.GetProperty(node.Kind, property)?.TokenType is { } expected && token.Type != expected)
+                        errors.Add(new("type-mismatch", node.Id, reference.TokenId, "Token type does not match the property.", property));
+                }
+            }
+            if (node.DataBindings is null) errors.Add(new("INVALID_DATA_BINDING", node.Id, null, "Data bindings are required."));
+            else foreach (var (property, binding) in node.DataBindings)
+                if (NodeDataBindingEvaluator.Validate(document, node, property, binding, profile) is { } bindingError)
+                    errors.Add(new(bindingError.Code, node.Id, binding?.DatasetId, bindingError.Message, property));
+            if (validateRepeaters && node.Repeater is { } repeater && NodeRepeaterEvaluator.Validate(document, node, repeater, profile) is { } repeaterError)
+                errors.Add(new(repeaterError.Code, node.Id, repeater.DatasetId, repeaterError.Message, "repeater"));
+            Children(node.Id, node.ChildIds);
+        }
+        foreach (var node in document.Nodes)
+            if (parents.GetValueOrDefault(node.Id) != 1)
+                errors.Add(new("node-ownership", node.Id, null, "Node must have exactly one structural parent."));
+
+        // Check every component, including disconnected cycles, without recursive stack growth.
+        var color = new Dictionary<Guid, int>();
+        foreach (var start in edges.Keys)
+        {
+            if (color.GetValueOrDefault(start) != 0) continue;
+            var stack = new Stack<(Guid Id, int Next)>();
+            color[start] = 1;
+            stack.Push((start, 0));
+            while (stack.TryPop(out var frame))
+            {
+                if (!edges.TryGetValue(frame.Id, out var children) || frame.Next == children.Count)
+                {
+                    color[frame.Id] = 2;
+                    continue;
+                }
+                stack.Push((frame.Id, frame.Next + 1));
+                var child = children[frame.Next];
+                if (color.GetValueOrDefault(child) == 1)
+                    errors.Add(new("cycle", frame.Id, child, "Structural references form a cycle."));
+                else if (color.GetValueOrDefault(child) == 0)
+                {
+                    color[child] = 1;
+                    stack.Push((child, 0));
+                }
+            }
+        }
+        return errors;
+    }
+}
+
+
+public static class NodeMetadataValidator
+{
+    public static bool IsValidName(string? value) => value is not null && value.Length <= 256 && !value.Any(char.IsControl);
+    public static bool IsValidSemanticKey(string? value) => value is null || value.Length is > 0 and <= 256 && !string.IsNullOrWhiteSpace(value) && !value.Any(char.IsControl);
+}

@@ -1,0 +1,102 @@
+namespace FigVam.Server.Documents;
+
+public static class ApiErrors
+{
+    public static IReadOnlyList<string> Codes { get; } = Array.AsReadOnly(new[]
+    {
+        "INVALID_SCREEN_VARIANT", "INVALID_VARIANT_NODE", "SCREEN_VARIANT_IN_USE", "SCREEN_VARIANT_NOT_FOUND", "VARIANT_OVERRIDE_NOT_FOUND", "INVALID_TOKEN_IMPORT", "REPEATER_NOT_FOUND", "INVALID_REPEATER", "DATA_REPEATER_LIMIT", "INVALID_DATA_BINDING", "DATA_BINDING_NOT_FOUND", "DATASET_IN_USE", "DATA_MISSING_VALUE", "DATA_INCOMPATIBLE_TYPE", "DATA_INVALID_FIXTURE", "DATA_INVALID_PATH", "INVALID_CSV_FIXTURE", "INVALID_DATASET", "INVALID_DATASET_FIXTURE", "DATASET_LIMIT_EXCEEDED", "DATASET_NOT_FOUND", "INVALID_PRESENCE", "INVALID_PAGE", "INVALID_QUERY", "INVALID_REVISION", "REVISION_UNAVAILABLE", "SCREEN_NOT_FOUND", "INVALID_REQUEST", "INVALID_ID", "INVALID_MEMBER", "INVALID_ROLE", "UNAUTHENTICATED", "FORBIDDEN",
+        "DOCUMENT_EXISTS", "LAST_OWNER", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "RATE_LIMITED",
+        "NOT_FOUND", "METHOD_NOT_ALLOWED", "INTERNAL_ERROR",
+        "COMPONENT_IN_USE", "INVALID_COMPONENT_REPLACEMENT", "REVISION_CONFLICT", "NOT_COMPONENT_INSTANCE", "COMPONENT_NOT_FOUND", "DOCUMENT_NOT_FOUND", "TOKEN_NOT_FOUND", "PAGE_NOT_FOUND", "NODE_NOT_FOUND", "PARENT_NOT_FOUND", "VERSION_NOT_FOUND",
+        "DUPLICATE_ID", "INVALID_LAYOUT_CONTEXT", "INVALID_NODE_TYPE", "INVALID_PARENT_TYPE", "CHILDREN_NOT_ALLOWED",
+        "CYCLE_NOT_ALLOWED", "INVALID_POSITION", "UNSUPPORTED_NODE_KIND", "UNSUPPORTED_PROPERTY", "INVALID_PROPERTY_TYPE",
+        "INVALID_COMPONENT", "INVALID_TOKEN", "INVALID_NODE_METADATA", "INVALID_PROPERTY_VALUE", "INVALID_VERSION_NAME", "INVALID_DOCUMENT", "INVALID_VERSION", "UNDO_NOT_APPLICABLE", "REDO_NOT_APPLICABLE"
+    });
+    public static ApiError Create(int status, string? code = null)
+    {
+        code ??= status switch
+        {
+            400 => "INVALID_REQUEST", 401 => "UNAUTHENTICATED", 403 => "FORBIDDEN",
+            404 => "NOT_FOUND", 405 => "METHOD_NOT_ALLOWED", 413 => "REQUEST_TOO_LARGE",
+            415 => "UNSUPPORTED_MEDIA_TYPE", 429 => "RATE_LIMITED", _ => "INTERNAL_ERROR"
+        };
+        var detail = code switch
+        {
+            "INVALID_SCREEN_VARIANT" => "A screen variant requires a unique ID, a nonblank bounded name and distinct typed node property differences.",
+            "INVALID_VARIANT_NODE" => "Override node must belong to the variant screen.",
+            "SCREEN_VARIANT_IN_USE" => "Remove affected screen variant overrides before deleting nodes or moving them to another screen.",
+            "SCREEN_VARIANT_NOT_FOUND" => "The variant does not exist on the specified screen at this revision.",
+            "VARIANT_OVERRIDE_NOT_FOUND" => "The variant has no override for this node property.",
+            "INVALID_TOKEN_IMPORT" => "DTCG import failed validation; inspect diagnostics for codes and paths. No tokens were imported.",
+            "REPEATER_NOT_FOUND" => "The node has no repeater configuration in this document revision.",
+            "INVALID_REPEATER" => "A repeater requires a local array, exclusively owned concrete template and empty view, and distinct relative scalar bindings within the template.",
+            "DATA_REPEATER_LIMIT" => "The repeater exceeds its item or shared expanded node and path work budget.",
+            "INVALID_DATA_BINDING" => "A local dataset binding must contain a bounded path and a supported operation and output type.",
+            "DATA_BINDING_NOT_FOUND" => "The node property has no data binding.",
+            "DATASET_IN_USE" => "Remove all scalar and repeater bindings referencing this dataset before deleting it.",
+            "DATA_MISSING_VALUE" => "The fixture does not contain the requested field or array item.",
+            "DATA_INCOMPATIBLE_TYPE" => "The fixture value does not match the binding operation or output type.",
+            "DATA_INVALID_FIXTURE" => "The local fixture is invalid.",
+            "DATA_INVALID_PATH" => "The binding path is invalid.",
+            "DATASET_NOT_FOUND" => "The dataset does not exist in this document revision.",
+            "INVALID_DATASET" => "Dataset names must be nonblank and at most 256 characters without control characters.",
+            "INVALID_CSV_FIXTURE" => "CSV is malformed, ambiguous, or exceeds the input or resulting fixture limit.",
+            "INVALID_DATASET_FIXTURE" => "A fixture must be one valid JSON value with unique object keys, at most 65536 UTF-8 bytes and depth 32.",
+            "DATASET_LIMIT_EXCEEDED" => "A document supports at most 1000 datasets and 8 MiB of saved fixture data.",
+            "REVISION_CONFLICT" => "The document revision no longer matches the command precondition.",
+            "COMPONENT_IN_USE" => "Detach all instances or provide an explicit compatible replacement before deleting the definition.",
+            "INVALID_COMPONENT_REPLACEMENT" => "Replacement must be a different existing definition with explicit compatible parameter, slot and variant mappings for every referenced member; mappings cannot merge members or create cycles.",
+            "NOT_COMPONENT_INSTANCE" => "The node is not linked to a component definition.",
+            "COMPONENT_NOT_FOUND" => "The component definition does not exist in this document.",
+            "INVALID_COMPONENT" => "The component definition, variant, slot, instance binding or subtree references are invalid. Slots require a valid name and a unique container in the definition subtree; assigned nodes must be distinct direct children of the instance and fill only one slot. Variants require a valid name, a unique built-in kind, parameter values of the declared types and an acyclic base in the same definition; instance selection must belong to its definition. Component names must be nonblank, at most 256 characters without control characters; descriptions must be at most 4096 characters.",
+            "INVALID_PRESENCE" => "Presence data is invalid or exceeds the allowed limits.",
+            "INVALID_PAGE" => "The page parameters are invalid or exceed the allowed limits.",
+            "INVALID_REVISION" => "The revision is invalid or ahead of the current document.",
+            "REVISION_UNAVAILABLE" => "The requested document revision cannot be reconstructed from the available history.",
+            "INVALID_QUERY" => "The query parameters are invalid or exceed the allowed limits.",
+            "SCREEN_NOT_FOUND" => "The screen does not exist in this document.",
+            "INVALID_REQUEST" => "The request does not match the API contract.",
+            "INVALID_ID" => "All IDs must be nonempty.",
+            "DOCUMENT_NOT_FOUND" => "The document does not exist.",
+            "TOKEN_NOT_FOUND" => "The token does not exist in this document revision.",
+            "PAGE_NOT_FOUND" => "The page does not exist in this document.",
+            "NODE_NOT_FOUND" => "The node does not exist in this document.",
+            "PARENT_NOT_FOUND" => "The parent does not exist in this document.",
+            "VERSION_NOT_FOUND" => "The version does not exist in this document.",
+            "DUPLICATE_ID" => "The object ID is already in use.",
+            "INVALID_LAYOUT_CONTEXT" => "The node no longer has the expected parent.",
+            "INVALID_NODE_TYPE" => "The target is not a node.",
+            "INVALID_PARENT_TYPE" => "The target cannot be a parent.",
+            "CHILDREN_NOT_ALLOWED" => "The parent cannot contain children.",
+            "CYCLE_NOT_ALLOWED" => "The operation would create a structural or component dependency cycle.",
+            "INVALID_POSITION" => "The position is outside the child list.",
+            "UNSUPPORTED_NODE_KIND" => "The node kind is not supported by the current profile.",
+            "UNSUPPORTED_PROPERTY" => "The property is not supported by the current profile.",
+            "INVALID_PROPERTY_TYPE" => "The property value has an invalid type.",
+            "INVALID_TOKEN" => "Token name, type, theme values or alias references are invalid; aliases must be acyclic and include Light and Dark.",
+            "INVALID_NODE_METADATA" => "Names must be at most 256 characters without control characters; semantic keys must also be nonblank or null to clear them.",
+            "INVALID_PROPERTY_VALUE" => "The property value is invalid for the current profile.",
+            "INVALID_VERSION_NAME" => "The version name must be nonblank and no longer than 256 characters.",
+            "INVALID_DOCUMENT" => "The document cannot be restored in its current state.",
+            "INVALID_VERSION" => "The saved version cannot be restored.",
+            "UNDO_NOT_APPLICABLE" => "No safe undo is applicable to the current state.",
+            "REDO_NOT_APPLICABLE" => "No safe redo is applicable to the current state.",
+            "INVALID_MEMBER" => "A nonempty member ID is required.",
+            "INVALID_ROLE" => "The role must be Owner, Editor or Viewer.",
+            "UNAUTHENTICATED" => "A valid bearer token is required.",
+            "FORBIDDEN" => "The operation is not permitted for this document.",
+            "DOCUMENT_EXISTS" => "The document ID is already in use.",
+            "LAST_OWNER" => "The last Owner cannot be removed or demoted.",
+            "REQUEST_TOO_LARGE" => "The request exceeds the size limit.",
+            "UNSUPPORTED_MEDIA_TYPE" => "The request requires application/json.",
+            "RATE_LIMITED" => "The request rate limit was exceeded.",
+            "NOT_FOUND" => "The API resource was not found.",
+            "METHOD_NOT_ALLOWED" => "The HTTP method is not allowed.",
+            _ => "The server could not complete the operation."
+        };
+        return new("urn:figvam:error:" + code.ToLowerInvariant(), code, status, code, detail);
+    }
+}
+
+
+
