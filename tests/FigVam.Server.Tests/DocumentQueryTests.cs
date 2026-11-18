@@ -30,7 +30,7 @@ public sealed class DocumentQueryTests
     public async Task MetadataFiltersComposeBeforePaginationAndAllowDuplicateNames()
     {
         var doc = Guid.NewGuid(); var screen = Guid.NewGuid(); var a = Guid.NewGuid(); var b = Guid.NewGuid(); var c = Guid.NewGuid();
-        var structure = new DocumentStructure(doc, [], [new(screen, [c, b, a])], [
+        var structure = new DocumentStructure(doc, [], [new(screen, [c, b, a], new(800, 600))], [
             new(a, "Text", []) { Name = "Button", SemanticKey = "submit" },
             new(b, "Text", []) { Name = "Button", SemanticKey = "submit" },
             new(c, "Text", []) { Name = "button", SemanticKey = "other" }]);
@@ -49,10 +49,25 @@ public sealed class DocumentQueryTests
     }
 
     [Fact]
+    public async Task PageScreensAreOrderedPaginatedAndAuthorized()
+    {
+        var doc = Guid.NewGuid(); var page = Guid.NewGuid();
+        var ids = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid()).ToArray();
+        var structure = new DocumentStructure(doc, [new(page, ids)], ids.Select(id => new ScreenStructure(id, [], new(800, 600))).ToArray(), []);
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 7)));
+        var first = (await service.QueryAsync(doc, new("page-screens", page, Limit: 100, Fields: "dimensions"), new("reader"))).Response!;
+        Assert.Equal(101, first.Total); Assert.Equal(ids.Take(100), first.Items.Select(i => i.Id));
+        var last = (await service.QueryAsync(doc, new("page-screens", page, Offset: 100), new("reader"))).Response!;
+        Assert.Equal(ids[100], Assert.Single(last.Items).Id); Assert.Equal(7, last.Revision);
+        Assert.Equal("PAGE_NOT_FOUND", (await service.QueryAsync(doc, new("page-screens", Guid.NewGuid()), new("reader"))).Code);
+        Assert.Equal("FORBIDDEN", (await service.QueryAsync(doc, new("page-screens", page), new("other"))).Code);
+    }
+
+    [Fact]
     public async Task QueriesBoundDepthAndFieldsAndPreserveChildOrder()
     {
         var doc = Guid.NewGuid(); var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var a = Guid.NewGuid(); var b = Guid.NewGuid(); var c = Guid.NewGuid();
-        var structure = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [b, a])], [new(a, "Text", []), new(b, "Frame", [c]), new(c, "Text", [])]);
+        var structure = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [b, a], new(800, 600))], [new(a, "Text", []), new(b, "Frame", [c]), new(c, "Text", [])]);
         var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 9)));
         var actor = new DocumentActor("reader");
         var children = (await service.QueryAsync(doc, new("children", screen, 0, 1), actor)).Response!;
@@ -83,10 +98,10 @@ public sealed class DocumentQueryTests
         var root = $"/api/v1/documents/{doc}";
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = doc })).StatusCode);
         Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-page", new { commandId = Guid.NewGuid(), pageId = page })).StatusCode);
-        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = page, screenId = screen })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = page, screenId = screen , dimensions = new { width = 800, height = 600 } })).StatusCode);
         Assert.Equal(200, (int)(await client.PutAsJsonAsync(root + "/members", new { memberId = "viewer", role = "Viewer" })).StatusCode);
         Actor("viewer");
-        var routes = new[] { "", "/pages", $"/pages/{page}", "/screens", $"/screens/{screen}", "/nodes", $"/nodes/{missing}", $"/children/{screen}" };
+        var routes = new[] { "", "/pages", $"/pages/{page}", $"/pages/{page}/screens", "/screens", $"/screens/{screen}", "/nodes", $"/nodes/{missing}", $"/children/{screen}" };
         foreach (var route in routes)
         {
             using var response = await client.GetAsync(root + route + "?revision=2");
@@ -116,7 +131,7 @@ public sealed class DocumentQueryTests
         Assert.Equal(401, (int)(await client.GetAsync(root + "?revision=0")).StatusCode);
         Actor("owner");
         var api = JsonNode.Parse(await client.GetStringAsync("/openapi/v1.json"))!;
-        foreach (var route in new[] { "", "/pages", "/pages/{pageId}", "/screens", "/screens/{screenId}", "/nodes", "/nodes/{nodeId}", "/children/{parentId}" })
+        foreach (var route in new[] { "", "/pages", "/pages/{pageId}", "/pages/{pageId}/screens", "/screens", "/screens/{screenId}", "/nodes", "/nodes/{nodeId}", "/children/{parentId}" })
         {
             var operation = api["paths"]!["/api/v1/documents/{documentId}" + route]!["get"]!;
             var revision = operation["parameters"]!.AsArray().Single(p => p!["name"]!.GetValue<string>().Equals("revision", StringComparison.OrdinalIgnoreCase))!;

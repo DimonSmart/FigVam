@@ -3,7 +3,7 @@ using FigVam.Domain.Documents;
 
 namespace FigVam.Application.Documents;
 
-public sealed record DatasetSummary(Guid Id, string Name, int FixtureBytes);
+public sealed record DatasetSummary(Guid Id, string Name, int FixtureBytes, string? ConnectorId = null);
 public sealed record DatasetListResponse(Guid DocumentId, long Revision, IReadOnlyList<DatasetSummary> Items, int Offset, int Limit, int Total);
 public sealed record DatasetResponse(Guid DocumentId, long Revision, DatasetSummary Dataset);
 public sealed record DatasetFixtureResponse(Guid DocumentId, long Revision, Guid DatasetId, string FixtureJson);
@@ -28,7 +28,7 @@ public sealed class DocumentDatasetQueries(IDocumentAuthorization authorization,
         return await reader.ReadAsync(documentId, revision, ct);
     }
 
-    private static DatasetSummary Summary(DocumentDataset dataset) => new(dataset.Id, dataset.Name, Encoding.UTF8.GetByteCount(dataset.FixtureJson));
+    private static DatasetSummary Summary(DocumentDataset dataset) => new(dataset.Id, dataset.Name, Encoding.UTF8.GetByteCount(dataset.FixtureJson), dataset.ConnectorId);
 
     public async Task<DatasetQueryResult<DatasetListResponse>> ListAsync(Guid documentId, long? revision, int offset, int limit, DocumentActor actor, CancellationToken ct = default)
     {

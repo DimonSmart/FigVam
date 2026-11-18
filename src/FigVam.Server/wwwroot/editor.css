@@ -1,0 +1,65 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; color: #202b3b; background: #f3f5f8; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+a { color: #184fb8; text-underline-offset: 3px; }
+button, input { font: inherit; padding: .65rem .9rem; border: 1px solid #738198; border-radius: 6px; }
+button { background: #fff; color: #193d78; cursor: pointer; }
+button[type=submit] { background: #214da6; color: white; border-color: #214da6; }
+button:disabled { color: #677080; background: #e8ebef; cursor: default; }
+input { min-width: 0; background: white; color: #202b3b; }
+:focus-visible { outline: 3px solid #7c2eb8; outline-offset: 4px; }
+h1 { font-size: 1.7rem; margin: .25rem 0 1rem; }
+h2 { font-size: 1rem; }
+p { line-height: 1.6; }
+.brand { padding: 1rem 2rem; background: #fff; border-bottom: 1px solid #ccd3df; display: flex; gap: 2rem; align-items: center; flex-wrap: wrap; }
+.brand > a { font-size: 1.4rem; font-weight: 750; text-decoration: none; }
+.brand > span { flex: 1; }
+#authentication, #documents-view { max-width: 1000px; margin: 3rem auto; padding: 0 2rem; }
+#authentication { max-width: 650px; }
+#authentication-form { display: grid; gap: .7rem; }
+#token-help { margin: 0; color: #48536a; font-size: .9rem; }
+.heading, .document-panel { display: flex; justify-content: space-between; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.eyebrow { text-transform: uppercase; font-size: .75rem; letter-spacing: .12em; color: #465675; }
+.create { padding: 1.3rem; border: 1px solid #ccd3df; border-radius: 8px; background: white; display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+.create input { flex: 1; }
+#document-list { padding: 0; list-style: none; }
+#document-list li { padding: 1.2rem; margin: .6rem 0; border: 1px solid #ccd3df; border-radius: 8px; background: white; display: flex; justify-content: space-between; gap: 1rem; }
+#document-list a { overflow-wrap: anywhere; font-weight: 600; }
+.pagination { display: flex; gap: 1rem; align-items: center; justify-content: center; }
+.document-panel { background: #fff; padding: 1rem 2rem; border-bottom: 1px solid #ccd3df; }
+.document-panel h1 { margin: 0; overflow-wrap: anywhere; }
+.notice { padding: .8rem 2rem; background: #fff2ce; margin: 0; }
+.workspace { display: grid; grid-template-columns: 240px minmax(200px, 1fr) 260px; min-height: 60vh; }
+.workspace > * { padding: 1.5rem; border: 1px solid #ccd3df; }
+.workspace aside { background: white; }
+.canvas { background: #e9edf4; min-width: 0; }
+.feedback { max-width: 1000px; margin: 1rem auto; padding: 0 2rem 2rem; }
+#error { color: #a01e2c; font-weight: 600; }
+.skip { position: absolute; top: -100px; left: 1rem; background: white; padding: 1rem; z-index: 1; }
+.skip:focus { top: 0; }
+@media (max-width: 800px) { .workspace { grid-template-columns: 1fr; } .brand { padding: 1rem; } .create { align-items: stretch; flex-direction: column; } }
+
+#pages { padding: 0; list-style: none; }
+#pages li { margin: .4rem 0; }
+#pages button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+#pages button[aria-pressed=true] { border: 2px solid #214da6; font-weight: 700; }
+#page-edit, #page-rename { display: grid; gap: .6rem; margin-top: 1rem; }
+.workspace .pagination { flex-wrap: wrap; }
+
+#screens { padding: 0; list-style: none; }
+#screens li { margin: .4rem 0; }
+#screens button { width: 100%; text-align: left; overflow-wrap: anywhere; }
+#screens button[aria-pressed=true] { border: 2px solid #214da6; font-weight: 700; }
+#screen-create { display: grid; gap: .6rem; margin-top: 1rem; }
+
+.viewport-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+#zoom-level { min-width: 4rem; text-align: center; }
+#viewport { position: relative; overflow: hidden; height: 60vh; min-height: 300px; margin-top: .5rem; border: 1px solid #738198; background-color: #eef1f6; background-image: radial-gradient(#8995a7 1px, transparent 1px); background-size: 20px 20px; touch-action: none; cursor: grab; }
+#viewport:active { cursor: grabbing; }
+#screen-boundary { position: absolute; left: 0; top: 0; background: white; outline: 2px solid #214da6; transform-origin: 0 0; pointer-events: none; }
+
+#layers [role=treeitem] { overflow-wrap: anywhere; }
+#layers [role=group] { margin-left: 1rem; }
+.layer-label { display: block; padding: .45rem; cursor: pointer; border: 1px solid transparent; border-radius: 4px; }
+#layers [aria-selected=true] > .layer-label { border-color: #214da6; background: #e8efff; font-weight: 700; }

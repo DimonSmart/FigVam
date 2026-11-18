@@ -70,7 +70,7 @@ public sealed class ReconnectApiTests
     {
         var id = Guid.NewGuid();
         var document = new DocumentStructure(id, [], [], []);
-        DocumentEvent[] payloads = [new PageAdded(id), new ScreenAdded(id,id), new NodeAdded(id,id,"kind"),
+        DocumentEvent[] payloads = [new PageAdded(id), new ScreenAdded(id,id, new(800, 600)), new ScreenResized(id, new(1024, 768)), new NodeAdded(id,id,"kind"),
             new NodeMoved(id,id,0), new NodeDeleted(id), new NodePropertySet(id,"text",new NodeStringValue("value")),
             new VersionSaved(id), new VersionRestored(id,document), new HistoryCompensated(id,false,new DocumentPatch([],[],[]))];
         using var doc = JsonDocument.Parse(DocumentSchemas.Create(typeof(CommittedDocumentEvent)).ToJsonString());

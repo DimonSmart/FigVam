@@ -25,6 +25,10 @@ public sealed class DocumentPresenceTests
     }
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => false;
         public bool CanContainChildren(string kind) => false;

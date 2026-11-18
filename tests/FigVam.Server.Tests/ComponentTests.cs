@@ -8,6 +8,10 @@ public class ComponentTests
 {
     private sealed class TestProfile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => kind is "container" or "leaf";
         public bool CanContainChildren(string kind) => kind == "container";
@@ -21,7 +25,7 @@ public class ComponentTests
         var definition = new ComponentDefinition(Guid.NewGuid(), "Card", "A reusable card", root,
             [new(Guid.NewGuid(), "Title", ComponentParameterType.Text, new ComponentText("Base"))],
             [new(Guid.NewGuid(), "Content", slot)], []);
-        var structure = new DocumentStructure(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor])],
+        var structure = new DocumentStructure(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor], new(800, 600))],
             [new(root, "container", [slot]), new(slot, "container", []), new(anchor, "container", [content]), new(content, "leaf", [])]);
         return new(structure, [definition], [new(anchor, definition.Id, null, NoChanges,
             new Dictionary<Guid, IReadOnlyList<Guid>> { [definition.Slots[0].Id] = [content] })], [], []);

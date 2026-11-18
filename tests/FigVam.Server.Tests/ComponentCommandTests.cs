@@ -20,6 +20,10 @@ public sealed class ComponentCommandTests
 {
     private sealed class TestProfile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind is "test" or "leaf";
         public bool CanContainChildren(string kind) => kind == "test";
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -43,7 +47,7 @@ public sealed class ComponentCommandTests
             await Journal.SetMemberAsync(Id, Editor.Id, DocumentRole.Editor, Owner);
             await Journal.SetMemberAsync(Id, "viewer", DocumentRole.Viewer, Owner);
             Assert.True((await Handler.HandleAsync(new AddPageCommand(Id, Guid.NewGuid(), Page), Editor)).Accepted);
-            Assert.True((await Handler.HandleAsync(new AddScreenCommand(Id, Guid.NewGuid(), Page, Screen), Editor)).Accepted);
+            Assert.True((await Handler.HandleAsync(new AddScreenCommand(Id, Guid.NewGuid(), Page, Screen, new(800, 600)), Editor)).Accepted);
             Assert.True((await Handler.HandleAsync(new AddNodeCommand(Id, Guid.NewGuid(), Screen, Root, "test"), Editor)).Accepted);
             Assert.True((await Handler.HandleAsync(new AddNodeCommand(Id, Guid.NewGuid(), Root, Child, "test"), Editor)).Accepted);
         }
@@ -216,7 +220,7 @@ public sealed class ComponentCommandTests
     {
         var documentId = Guid.NewGuid(); var screenId = Guid.NewGuid();
         var rootId = Guid.NewGuid(); var anchorId = Guid.NewGuid(); var definitionId = Guid.NewGuid(); var parameterId = Guid.NewGuid();
-        var document = new DocumentStructure(documentId, [], [new(screenId, [rootId, anchorId])], [new(rootId, "test", []), new(anchorId, "test", [])])
+        var document = new DocumentStructure(documentId, [], [new(screenId, [rootId, anchorId], new(800, 600))], [new(rootId, "test", []), new(anchorId, "test", [])])
         {
             ComponentDefinitions = [new(definitionId, "Card", "", rootId, [new(parameterId, "active", ComponentParameterType.Bool, new ComponentBool(false))], [], [])],
             ComponentInstances = [new(anchorId, definitionId, null, new Dictionary<Guid, ComponentValue> { [parameterId] = new ComponentBool(true) }, new Dictionary<Guid, IReadOnlyList<Guid>>())]
@@ -287,7 +291,7 @@ public sealed class ComponentCommandTests
         Assert.Equal("FORBIDDEN", (await f.Handler.HandleAsync(command, new("viewer"))).Code);
         Assert.Equal("FORBIDDEN", (await f.Handler.HandleAsync(command, new("outsider"))).Code);
         Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddPageCommand(f.Id, Guid.NewGuid(), command.ComponentId), f.Owner)).Code);
-        Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddScreenCommand(f.Id, Guid.NewGuid(), f.Page, command.ComponentId), f.Owner)).Code);
+        Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddScreenCommand(f.Id, Guid.NewGuid(), f.Page, command.ComponentId, new(800, 600)), f.Owner)).Code);
         Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddNodeCommand(f.Id, Guid.NewGuid(), f.Screen, command.ComponentId, "test"), f.Owner)).Code);
         Assert.Equal("INVALID_COMPONENT", (await f.Handler.HandleAsync(new DeleteNodeCommand(f.Id, Guid.NewGuid(), f.Root), f.Editor)).Code);
         Assert.Equal(result.Revision, (await f.Journal.ReadAsync(f.Id))!.Revision);

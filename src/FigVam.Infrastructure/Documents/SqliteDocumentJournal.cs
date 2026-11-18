@@ -10,7 +10,7 @@ namespace FigVam.Infrastructure.Documents;
 // All server instances must use this same local durable directory. SQLite's file locks,
 // rather than process-local locks or caches, establish the authoritative document stream.
 public sealed partial class SqliteDocumentJournal
-    : IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader
+    : IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
 {
     private const int SnapshotInterval = 32;
     private const int MaxReconnectEvents = 100;
@@ -36,6 +36,7 @@ public sealed partial class SqliteDocumentJournal
         using var command = connection.CreateCommand();
         command.CommandText = """
             PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS asset_content(sha256 TEXT PRIMARY KEY, content BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS members(actor_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('Owner','Editor','Viewer')));
             CREATE TABLE IF NOT EXISTS command_history(command_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, result TEXT NOT NULL,
                 type TEXT NOT NULL, patch TEXT, status TEXT NOT NULL, history_order INTEGER NOT NULL);
@@ -159,7 +160,7 @@ public sealed partial class SqliteDocumentJournal
         var subjectId = Guid.Parse(reader.GetString(2));
         return reader.GetString(1) switch
         {
-            "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" when !reader.IsDBNull(14)
+            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
             "SET_NODE_PROPERTY" when !reader.IsDBNull(12) && !reader.IsDBNull(13)
                 => new NodePropertySet(subjectId, reader.GetString(12), JsonSerializer.Deserialize<NodePropertyValue>(reader.GetString(13))
@@ -174,8 +175,6 @@ public sealed partial class SqliteDocumentJournal
                 => new VersionSaved(subjectId),
             "ADD_PAGE" when reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
                 => new PageAdded(subjectId),
-            "ADD_SCREEN" when !reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
-                => new ScreenAdded(subjectId, Guid.Parse(reader.GetString(3))),
             "ADD_NODE" when reader.IsDBNull(3) && !reader.IsDBNull(4) && !reader.IsDBNull(5) && reader.IsDBNull(6)
                 => new NodeAdded(subjectId, Guid.Parse(reader.GetString(4)), reader.GetString(5)),
             "MOVE_NODE" when reader.IsDBNull(3) && reader.IsDBNull(4) && !reader.IsDBNull(6) && !reader.IsDBNull(7)
@@ -226,13 +225,19 @@ public sealed partial class SqliteDocumentJournal
                         => ("RESTORE_VERSION", restored.VersionId, (Guid?)null, (Guid?)null, (string?)null),
                     VersionSaved saved when change.Result.VersionId == saved.VersionId && change.Version is not null
                         => ("SAVE_VERSION", saved.VersionId, (Guid?)null, (Guid?)null, (string?)null),
+                    AssetAdded asset => ("UPLOAD_ASSET", asset.Asset.Id, (Guid?)null, (Guid?)null, (string?)null),
+                    PageDeleted page when change.Result.PageId == page.PageId
+                        => ("DELETE_PAGE", page.PageId, (Guid?)null, (Guid?)null, (string?)null),
                     PageAdded page when change.Version is null && change.Result.PageId == page.PageId && change.Result.ScreenId is null
                         => ("ADD_PAGE", page.PageId, (Guid?)null, (Guid?)null, (string?)null),
                     ScreenAdded screen when change.Result.PageId == screen.PageId && change.Result.ScreenId == screen.ScreenId
                         => ("ADD_SCREEN", screen.PageId, (Guid?)screen.ScreenId, (Guid?)null, (string?)null),
+                    ScreenResized screen => ("RESIZE_SCREEN", screen.ScreenId, (Guid?)null, (Guid?)null, (string?)null),
+                    ScenarioChanged scenario => (scenario.Operation, scenario.ScenarioId, (Guid?)null, (Guid?)null, (string?)null),
                     ScreenVariantChanged variant => (variant.Operation, variant.ScreenId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeRepeaterSet repeater => ("SET_NODE_REPEATER", repeater.NodeId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeDataBindingSet binding => (binding.Binding is null ? "UNBIND_NODE_DATA" : "BIND_NODE_DATA", binding.NodeId, (Guid?)null, (Guid?)null, (string?)null),
+                    DatasetConnectorSet dataset => (dataset.ConnectorId is null ? "REMOVE_DATASET_CONNECTOR" : "SET_DATASET_CONNECTOR", dataset.DatasetId, (Guid?)null, (Guid?)null, (string?)null),
                     DatasetDeleted dataset => ("DELETE_DATASET", dataset.DatasetId, (Guid?)null, (Guid?)null, (string?)null),
                     DatasetAdded dataset => ("ADD_DATASET", dataset.Dataset.Id, (Guid?)null, (Guid?)null, (string?)null),
                     DatasetFixtureReplaced dataset => ("REPLACE_DATASET_FIXTURE", dataset.DatasetId, (Guid?)null, (Guid?)null, (string?)null),
@@ -255,6 +260,9 @@ public sealed partial class SqliteDocumentJournal
                     ComponentDefinitionAdded component => ("ADD_COMPONENT_DEFINITION", component.Definition.Id, (Guid?)null, (Guid?)null, (string?)null),
                     TokensImported => ("IMPORT_DESIGN_TOKENS", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     TokenAdded token => ("ADD_TOKEN", token.Token.Id, (Guid?)null, (Guid?)null, (string?)null),
+                    DocumentRenamed => ("RENAME_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
+                    PageRenamed page when change.Result.PageId == page.PageId
+                        => ("RENAME_PAGE", page.PageId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeNameSet name when change.Result.NodeId == name.NodeId
                         => ("SET_NODE_NAME", name.NodeId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeSemanticKeySet key when change.Result.NodeId == key.NodeId
@@ -269,6 +277,8 @@ public sealed partial class SqliteDocumentJournal
                         => ("ADD_NODE", node.ParentId, (Guid?)null, (Guid?)node.NodeId, node.Kind),
                     _ => throw new InvalidOperationException("Invalid document event.")
                 };
+                StoreAssetContent(connection, transaction, change);
+                ValidateStoredAssets(connection, transaction, next.Document);
                 if (change.Event is VersionSaved savedEvent)
                 {
                     var version = change.Version!;
@@ -317,7 +327,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize<DocumentEvent>(change.Event));
@@ -484,6 +494,7 @@ public sealed partial class SqliteDocumentJournal
         if (!reader.Read()) return new("VERSION_NOT_FOUND");
         var version = VerifyVersion(reader.GetString(0), (byte[])reader[1], documentId, versionId);
         if (version.Snapshot.Revision != reader.GetInt64(2)) throw new InvalidDataException("Saved version revision mismatch.");
+        ValidateStoredAssets(connection, transaction, version.Snapshot.Document);
         return new("VERSION", version);
     }
 
@@ -524,6 +535,7 @@ public sealed partial class SqliteDocumentJournal
             state = new(JsonSerializer.Deserialize<DocumentStructure>(reader.GetString(1))!, reader.GetInt64(0));
         }
         if (state.Document.Id != documentId) throw new InvalidDataException("Document identity mismatch.");
+        ValidateProfile(state.Document);
         command.CommandText = "SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,e.command_id,e.actor_id,r.document,c.payload,p.property,p.value,d.payload FROM events e LEFT JOIN screen_events s ON s.revision=e.revision LEFT JOIN node_events n ON n.revision=e.revision LEFT JOIN move_events m ON m.revision=e.revision LEFT JOIN restore_events r ON r.revision=e.revision LEFT JOIN compensation_events c ON c.revision=e.revision LEFT JOIN property_events p ON p.revision=e.revision LEFT JOIN payload_events d ON d.revision=e.revision WHERE e.revision>$revision AND e.revision<=$target ORDER BY e.revision";
         command.Parameters.AddWithValue("$revision", state.Revision);
         using (var reader = command.ExecuteReader())
@@ -536,6 +548,9 @@ public sealed partial class SqliteDocumentJournal
                     throw new InvalidDataException("Invalid document journal sequence.");
                 switch (ReadEvent(reader))
                 {
+                    case AssetAdded asset:
+                        document = document with { Assets = [.. document.Assets, asset.Asset] };
+                        break;
                     case HistoryCompensated compensation:
                         document = compensation.Patch.Apply(document)
                             ?? throw new InvalidDataException("Compensation preconditions failed during recovery.");
@@ -548,6 +563,9 @@ public sealed partial class SqliteDocumentJournal
                         break;
                     case VersionSaved:
                         break;
+                    case ScenarioChanged scenario:
+                        document = DocumentScenarioEditor.Set(document, scenario.ScenarioId, scenario.Scenario);
+                        break;
                     case ScreenVariantChanged variant:
                         document = ScreenVariantEditor.Set(document, variant.ScreenId, variant.Variant);
                         break;
@@ -557,6 +575,10 @@ public sealed partial class SqliteDocumentJournal
                     case NodeDataBindingSet binding:
                         if (!document.Nodes.Any(n => n.Id == binding.NodeId)) throw new InvalidDataException("Binding node does not exist.");
                         document = DocumentStructureEditor.SetNodeDataBinding(document, binding.NodeId, binding.Property, binding.Binding);
+                        break;
+                    case DatasetConnectorSet dataset:
+                        if (!document.Datasets.Any(d => d.Id == dataset.DatasetId)) throw new InvalidDataException("Dataset does not exist.");
+                        document = document with { Datasets = document.Datasets.Select(d => d.Id == dataset.DatasetId ? d with { ConnectorId = dataset.ConnectorId } : d).ToArray() };
                         break;
                     case DatasetDeleted dataset:
                         if (!document.Datasets.Any(d => d.Id == dataset.DatasetId)) throw new InvalidDataException("Dataset does not exist.");
@@ -626,8 +648,23 @@ public sealed partial class SqliteDocumentJournal
                     case TokenAdded token:
                         document = document with { Tokens = document.Tokens.Append(token.Token).ToArray() };
                         break;
+                    case DocumentRenamed renamed:
+                        if (!DocumentNameValidator.IsValid(renamed.Name)) throw new InvalidDataException("Invalid document rename event.");
+                        document = document with { Name = renamed.Name };
+                        break;
+                    case PageRenamed page:
+                        if (!document.Pages.Any(p => p.Id == page.PageId) || !PageNameValidator.IsValid(page.Name)) throw new InvalidDataException("Invalid page rename event.");
+                        document = document with { Pages = document.Pages.Select(p => p.Id == page.PageId ? p with { Name = page.Name } : p).ToArray() };
+                        break;
+                    case PageDeleted page:
+                        document = DocumentStructureEditor.DeletePage(document, page.PageId);
+                        break;
                     case PageAdded page:
                         document = document with { Pages = document.Pages.Append(new PageStructure(page.PageId, [])).ToArray() };
+                        break;
+                    case ScreenResized screen:
+                        if (!document.Screens.Any(s => s.Id == screen.ScreenId) || !ScreenDimensions.IsValid(screen.Dimensions)) throw new InvalidDataException("Invalid screen resize event.");
+                        document = document with { Screens = document.Screens.Select(s => s.Id == screen.ScreenId ? s with { Dimensions = screen.Dimensions } : s).ToArray() };
                         break;
                     case ScreenAdded screen:
                         if (!document.Pages.Any(p => p.Id == screen.PageId))
@@ -636,7 +673,7 @@ public sealed partial class SqliteDocumentJournal
                         {
                             Pages = document.Pages.Select(p => p.Id == screen.PageId
                                 ? p with { ScreenIds = p.ScreenIds.Append(screen.ScreenId).ToArray() } : p).ToArray(),
-                            Screens = document.Screens.Append(new ScreenStructure(screen.ScreenId, [])).ToArray()
+                            Screens = document.Screens.Append(new ScreenStructure(screen.ScreenId, [], screen.Dimensions)).ToArray()
                         };
                         break;
                     case NodeAdded node:
@@ -686,6 +723,7 @@ public sealed partial class SqliteDocumentJournal
             state = new(document, revision);
         }
         Validate(state.Document);
+        ValidateStoredAssets(connection, transaction, state.Document);
         if (targetRevision is { } requestedRevision && state.Revision != requestedRevision)
             throw new InvalidDataException("The requested revision is not available in the journal.");
         return state;
@@ -693,12 +731,19 @@ public sealed partial class SqliteDocumentJournal
 
     private void Validate(DocumentStructure document)
     {
+        ValidateProfile(document);
         if (document.Pages is null || document.Screens is null || document.Nodes is null ||
             document.Pages.Any(p => p is null || p.ScreenIds is null) ||
             document.Screens.Any(s => s is null || s.ChildIds is null) ||
             document.Nodes.Any(n => n is null || n.Kind is null || n.ChildIds is null) ||
             DocumentStructureValidator.Validate(document, profile).Count != 0)
             throw new InvalidDataException("Document structure is invalid.");
+    }
+
+    private void ValidateProfile(DocumentStructure document)
+    {
+        if (PortableUiProfileResolver.Validate(document.Profile, profile) is { } error)
+            throw new PortableUiProfileException(error);
     }
 }
 

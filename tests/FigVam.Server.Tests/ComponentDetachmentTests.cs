@@ -10,6 +10,10 @@ public sealed class ComponentDetachmentTests
 {
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind is "container" or "text";
         public bool CanContainChildren(string kind) => kind == "container";
         public NodePropertyDefinition? GetProperty(string kind, string property) => property == "text" ? new(NodePropertyType.String) : null;
@@ -26,7 +30,7 @@ public sealed class ComponentDetachmentTests
             new Dictionary<Guid, ComponentValue> { [parameter.Id] = new ComponentText("Variant") });
         var definition = new ComponentDefinition(Guid.NewGuid(), "Card", "", root, [parameter], [new(Guid.NewGuid(), "Body", slot)], [variant])
         { Bindings = [new(parameter.Id, label, "text")] };
-        return new(new(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor])],
+        return new(new(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor], new(800, 600))],
             [new(root, "container", [label, slot]), new(label, "text", []), new(slot, "container", [fallback]),
              new(fallback, "text", []), new(anchor, "container", [content]), new(content, "text", [])]),
             [definition], [new(anchor, definition.Id, variant.Id, NoChanges,
@@ -178,7 +182,7 @@ public sealed class ComponentDetachmentTests
     {
         var root = Guid.NewGuid(); var anchor = Guid.NewGuid(); var child = Guid.NewGuid();
         var definition = new ComponentDefinition(Guid.NewGuid(), "Leaf", "", root, [], [], []);
-        var document = new DocumentStructure(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor])],
+        var document = new DocumentStructure(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor], new(800, 600))],
             [new(root, "text", []), new(anchor, "container", [child]), new(child, "text", [])])
         {
             ComponentDefinitions = [definition],

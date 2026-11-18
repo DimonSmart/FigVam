@@ -20,7 +20,7 @@ public sealed partial class NodeRepeaterTests
         var document = Document(fixture);
         return document with
         {
-            Screens = [new(screen, [owner, root])],
+            Screens = [new(screen, [owner, root], new(800, 600))],
             Nodes = [document.Nodes[0], new(template, "container", [content]), new(empty, "container", [emptyContent]),
                 new(content, "text", []), new(emptyContent, "text", []),
                 new(root, "container", [label, slotContainer]), new(label, "text", []), new(slotContainer, "container", [])],
@@ -87,7 +87,7 @@ public sealed partial class NodeRepeaterTests
         invalid = document with { Nodes = document.Nodes.Select(n => n.Id == root ? n with { Repeater = config } : n).ToArray() };
         Assert.Equal("INVALID_REPEATER", NodeRepeaterEvaluator.Evaluate(invalid, invalid.Nodes[0], config, profile).Diagnostic!.Code);
         var slotContent = instance.SlotContent.Single().Value.Single();
-        invalid = document with { Screens = [new(screen, [owner, root, slotContent])] };
+        invalid = document with { Screens = [new(screen, [owner, root, slotContent], new(800, 600))] };
         Assert.Equal("INVALID_REPEATER", NodeRepeaterEvaluator.Evaluate(invalid, invalid.Nodes[0], config, profile).Diagnostic!.Code);
     }
 
@@ -125,7 +125,7 @@ public sealed partial class NodeRepeaterTests
                 definitions.Add(new(id, "Level " + i, "", root, [], [], []));
             }
             instances.Add(new(template, definitions[^1].Id, null, new Dictionary<Guid, ComponentValue>(), new Dictionary<Guid, IReadOnlyList<Guid>>()));
-            return document with { Screens = [new(screen, [owner, .. definitions.Select(d => d.RootNodeId)])], Nodes = nodes,
+            return document with { Screens = [new(screen, [owner, .. definitions.Select(d => d.RootNodeId)], new(800, 600))], Nodes = nodes,
                 ComponentDefinitions = definitions, ComponentInstances = instances };
         }
         var config = Config() with { Bindings = [] };

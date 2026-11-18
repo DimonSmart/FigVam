@@ -1,20 +1,42 @@
+using FigVam.Domain.Tokens;
+
 namespace FigVam.Domain.Preview;
 
 public enum PreviewEvent { Click, Change, Hover, Leave }
+public sealed record PreviewVariant(Guid Id, Guid ScreenId);
 public sealed record PreviewScreen(Guid Id, IReadOnlyList<Guid> NodeIds);
-public sealed record PreviewScenario(Guid Id, Guid ScreenId, Guid NodeId, PreviewEvent Event, IReadOnlyList<PreviewAction> Actions);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record PreviewScenario(
+    [property: System.Text.Json.Serialization.JsonRequired] Guid Id,
+    [property: System.Text.Json.Serialization.JsonRequired] Guid ScreenId,
+    [property: System.Text.Json.Serialization.JsonRequired] Guid NodeId,
+    [property: System.Text.Json.Serialization.JsonRequired] PreviewEvent Event,
+    [property: System.Text.Json.Serialization.JsonRequired] IReadOnlyList<PreviewAction> Actions);
+[System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(Navigate), "navigate")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ShowVariant), "showVariant")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(SetDemoValue), "setDemoValue")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(SelectDataset), "selectDataset")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(OpenOverlay), "openOverlay")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(CloseOverlay), "closeOverlay")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ResetPreview), "resetPreview")]
 public abstract record PreviewAction;
-public sealed record Navigate(Guid ScreenId) : PreviewAction;
-public sealed record ShowVariant(Guid? VariantId) : PreviewAction;
-public sealed record SetDemoValue(Guid NodeId, string? Value) : PreviewAction;
-public sealed record SelectDataset(Guid? DatasetId) : PreviewAction;
-public sealed record OpenOverlay(Guid ScreenId) : PreviewAction;
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record Navigate([property: System.Text.Json.Serialization.JsonRequired] Guid ScreenId) : PreviewAction;
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record ShowVariant([property: System.Text.Json.Serialization.JsonRequired] Guid? VariantId) : PreviewAction;
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record SetDemoValue([property: System.Text.Json.Serialization.JsonRequired] Guid NodeId, [property: System.Text.Json.Serialization.JsonRequired] string? Value) : PreviewAction;
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record SelectDataset([property: System.Text.Json.Serialization.JsonRequired] Guid? DatasetId) : PreviewAction;
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record OpenOverlay([property: System.Text.Json.Serialization.JsonRequired] Guid ScreenId) : PreviewAction;
 public sealed record CloseOverlay : PreviewAction;
 public sealed record ResetPreview : PreviewAction;
 public sealed record PreviewViewport(double Width, double Height);
-public sealed record PreviewSelection(Guid ScreenId, Guid? VariantId, Guid? DatasetId, Guid? ThemeId, PreviewViewport Viewport);
-public sealed record PreviewDefinition(IReadOnlyList<PreviewScreen> Screens, IReadOnlyList<Guid> VariantIds,
-    IReadOnlyList<Guid> DatasetIds, IReadOnlyList<Guid> ThemeIds, IReadOnlyList<PreviewScenario> Scenarios, PreviewSelection InitialSelection);
+public sealed record PreviewSelection(Guid ScreenId, Guid? VariantId, Guid? DatasetId, TokenTheme Theme, PreviewViewport Viewport);
+public sealed record PreviewDefinition(IReadOnlyList<PreviewScreen> Screens, IReadOnlyList<PreviewVariant> Variants,
+    IReadOnlyList<Guid> DatasetIds, IReadOnlyList<PreviewScenario> Scenarios, PreviewSelection InitialSelection);
 public sealed record PreviewDiagnostic(string Code, Guid ObjectId, Guid? ReferenceId, string Message);
 
 public static class PreviewValidator
@@ -30,9 +52,8 @@ public static class PreviewValidator
             if (!kinds.TryAdd(id, kind)) errors.Add(new("duplicate-id", id, null, "ID must identify one object."));
         }
         foreach (var screen in definition.Screens) { Register(screen.Id, "screen"); foreach (var node in screen.NodeIds) Register(node, "node"); }
-        foreach (var id in definition.VariantIds) Register(id, "variant");
+        foreach (var variant in definition.Variants) Register(variant.Id, "variant");
         foreach (var id in definition.DatasetIds) Register(id, "dataset");
-        foreach (var id in definition.ThemeIds) Register(id, "theme");
         foreach (var scenario in definition.Scenarios) Register(scenario.Id, "scenario");
         void Reference(Guid owner, Guid id, string expected)
         {
@@ -43,7 +64,10 @@ public static class PreviewValidator
         Reference(Guid.Empty, selection.ScreenId, "screen");
         if (selection.VariantId is Guid v) Reference(Guid.Empty, v, "variant");
         if (selection.DatasetId is Guid d) Reference(Guid.Empty, d, "dataset");
-        if (selection.ThemeId is Guid t) Reference(Guid.Empty, t, "theme");
+        if (!Enum.IsDefined(selection.Theme)) errors.Add(new("invalid-theme", Guid.Empty, null, "Theme is not supported."));
+        foreach (var variant in definition.Variants) Reference(variant.Id, variant.ScreenId, "screen");
+        if (selection.VariantId is Guid variantId && definition.Variants.FirstOrDefault(v => v.Id == variantId) is { } selectedVariant && selectedVariant.ScreenId != selection.ScreenId)
+            errors.Add(new("variant-screen-mismatch", selection.ScreenId, variantId, "Variant must belong to the selected screen."));
         if (selection.Viewport is null || !double.IsFinite(selection.Viewport.Width) || !double.IsFinite(selection.Viewport.Height) || selection.Viewport.Width <= 0 || selection.Viewport.Height <= 0)
             errors.Add(new("invalid-viewport", Guid.Empty, null, "Viewport dimensions must be finite and positive."));
         foreach (var scenario in definition.Scenarios)
@@ -52,6 +76,11 @@ public static class PreviewValidator
             if (definition.Screens.FirstOrDefault(s => s.Id == scenario.ScreenId) is { } screen && !screen.NodeIds.Contains(scenario.NodeId))
                 errors.Add(new("node-screen-mismatch", scenario.Id, scenario.NodeId, "Event node must belong to its screen."));
             if (!Enum.IsDefined(scenario.Event)) errors.Add(new("invalid-event", scenario.Id, null, "Event is not supported."));
+            if (scenario.Actions is null || scenario.Actions.Count is < 1 or > 32)
+            {
+                errors.Add(new("invalid-actions", scenario.Id, null, "Scenario requires 1-32 actions."));
+                continue;
+            }
             foreach (var action in scenario.Actions)
                 switch (action)
                 {
@@ -89,8 +118,7 @@ public sealed class PreviewSession
         var copy = definition with
         {
             Screens = Array.AsReadOnly(definition.Screens.Select(s => s with { NodeIds = Array.AsReadOnly(s.NodeIds.ToArray()) }).ToArray()),
-            VariantIds = Array.AsReadOnly(definition.VariantIds.ToArray()), DatasetIds = Array.AsReadOnly(definition.DatasetIds.ToArray()),
-            ThemeIds = Array.AsReadOnly(definition.ThemeIds.ToArray()),
+            Variants = Array.AsReadOnly(definition.Variants.ToArray()), DatasetIds = Array.AsReadOnly(definition.DatasetIds.ToArray()),
             Scenarios = Array.AsReadOnly(definition.Scenarios.Select(s => s with { Actions = Array.AsReadOnly(s.Actions.ToArray()) }).ToArray())
         };
         var start = new Snapshot(copy.InitialSelection, EmptyValues(), Array.AsReadOnly(Array.Empty<Guid>()));
@@ -100,7 +128,7 @@ public sealed class PreviewSession
     {
         var errors = PreviewValidator.Validate(definition with { InitialSelection = selection });
         if (errors.Count > 0) throw new InvalidOperationException(string.Join("; ", errors.Select(e => $"{e.Code}: {e.Message}")));
-        return Commit(current with { Selection = selection });
+        return Commit(current with { Selection = selection, Overlays = selection.ScreenId == current.Selection.ScreenId ? current.Overlays : Array.AsReadOnly(Array.Empty<Guid>()) });
     }
     public PreviewSession Trigger(Guid nodeId, PreviewEvent @event)
     {
@@ -111,7 +139,11 @@ public sealed class PreviewSession
         var scenarios = definition.Scenarios.Where(s => s.ScreenId == screen.Id && s.NodeId == nodeId && s.Event == @event).ToArray();
         if (scenarios.Length == 0) return this;
         var next = current;
-        foreach (var action in scenarios.SelectMany(s => s.Actions)) next = Apply(next, action);
+        foreach (var action in scenarios.SelectMany(s => s.Actions))
+        {
+            ValidateAction(next, action);
+            next = Apply(next, action);
+        }
         return Commit(next);
     }
     public PreviewSession Back() => history.Count == 0 ? this : new(definition, initial, history[^1], history.Take(history.Count - 1).ToArray());
@@ -120,7 +152,7 @@ public sealed class PreviewSession
     private PreviewSession Commit(Snapshot next) => new(definition, initial, next, [.. history, current]);
     private Snapshot Apply(Snapshot state, PreviewAction action) => action switch
     {
-        Navigate a => state with { Selection = state.Selection with { ScreenId = a.ScreenId }, Overlays = Array.AsReadOnly(Array.Empty<Guid>()) },
+        Navigate a => state with { Selection = state.Selection with { ScreenId = a.ScreenId, VariantId = a.ScreenId == state.Selection.ScreenId ? state.Selection.VariantId : null }, Overlays = Array.AsReadOnly(Array.Empty<Guid>()) },
         ShowVariant a => state with { Selection = state.Selection with { VariantId = a.VariantId } },
         SetDemoValue a => state with { Values = SetValue(state.Values, a.NodeId, a.Value) },
         SelectDataset a => state with { Selection = state.Selection with { DatasetId = a.DatasetId } },
@@ -129,6 +161,18 @@ public sealed class PreviewSession
         ResetPreview => initial,
         _ => throw new InvalidOperationException("Unsupported action.")
     };
+    private void ValidateAction(Snapshot state, PreviewAction action)
+    {
+        if (action is ShowVariant { VariantId: Guid id } && !definition.Variants.Any(v => v.Id == id && v.ScreenId == state.Selection.ScreenId))
+            throw new InvalidOperationException("Variant must belong to the navigation screen at this action.");
+        if (action is SetDemoValue value)
+        {
+            var active = state.Overlays.Count > 0 ? state.Overlays[^1] : state.Selection.ScreenId;
+            if (!definition.Screens.Single(s => s.Id == active).NodeIds.Contains(value.NodeId))
+                throw new InvalidOperationException("Demo value target must belong to the active screen at this action.");
+            if (value.Value?.Length > 4096) throw new InvalidOperationException("Demo values are limited to 4096 characters.");
+        }
+    }
     private static IReadOnlyDictionary<Guid, string?> EmptyValues() => new System.Collections.ObjectModel.ReadOnlyDictionary<Guid, string?>(new Dictionary<Guid, string?>());
     private static IReadOnlyDictionary<Guid, string?> SetValue(IReadOnlyDictionary<Guid, string?> source, Guid id, string? value)
     {

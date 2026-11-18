@@ -38,15 +38,16 @@ public sealed class DocumentRevisionDiff(IDocumentAuthorization authorization, I
     private static Dictionary<(string Type, Guid Id), Dictionary<string, object?>> Flatten(DocumentStructure doc)
     {
         var result = new Dictionary<(string, Guid), Dictionary<string, object?>>();
+        result[("document", doc.Id)] = new() { ["name"] = doc.Name };
         for (var i = 0; i < doc.Pages.Count; i++)
         {
             var page = doc.Pages[i];
-            result[("page", page.Id)] = new() { ["position"] = i, ["screenIds"] = string.Join(',', page.ScreenIds) };
+            result[("page", page.Id)] = new() { ["position"] = i, ["name"] = page.Name, ["screenIds"] = string.Join(',', page.ScreenIds) };
         }
         for (var i = 0; i < doc.Screens.Count; i++)
         {
             var screen = doc.Screens[i];
-            result[("screen", screen.Id)] = new() { ["position"] = i };
+            result[("screen", screen.Id)] = new() { ["position"] = i, ["dimensions.width"] = screen.Dimensions.Width, ["dimensions.height"] = screen.Dimensions.Height };
             foreach (var variant in screen.Variants)
             {
                 var values = new Dictionary<string, object?> { ["screenId"] = screen.Id, ["name"] = variant.Name };
@@ -54,8 +55,12 @@ public sealed class DocumentRevisionDiff(IDocumentAuthorization authorization, I
                 result[("screenVariant", variant.Id)] = values;
             }
         }
+        foreach (var scenario in doc.Scenarios)
+            result[("scenario", scenario.Id)] = new() { ["screenId"] = scenario.ScreenId, ["nodeId"] = scenario.NodeId, ["event"] = scenario.Event, ["actions"] = System.Text.Json.JsonSerializer.Serialize(scenario.Actions) };
+        foreach (var asset in doc.Assets)
+            result[("asset", asset.Id)] = new() { ["sha256"] = asset.Sha256, ["contentType"] = asset.ContentType, ["byteLength"] = asset.ByteLength, ["width"] = asset.Width, ["height"] = asset.Height };
         foreach (var dataset in doc.Datasets)
-            result[("dataset", dataset.Id)] = new() { ["name"] = dataset.Name, ["fixtureJson"] = dataset.FixtureJson };
+            result[("dataset", dataset.Id)] = new() { ["name"] = dataset.Name, ["fixtureJson"] = dataset.FixtureJson, ["connectorId"] = dataset.ConnectorId };
         foreach (var node in doc.Nodes)
         {
             var values = new Dictionary<string, object?> { ["kind"] = node.Kind, ["name"] = node.Name, ["semanticKey"] = node.SemanticKey };

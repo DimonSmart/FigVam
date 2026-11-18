@@ -27,7 +27,17 @@ public static class NodeDataBindingEvaluator
     public static NodeDataResult Evaluate(DocumentStructure document, NodeStructure node, string property, NodeDataBinding binding, INodeProfile profile)
     {
         if (Validate(document, node, property, binding, profile) is { } error) return new(null, error);
-        var result = DataBindingEvaluator.EvaluateFixture(document.Datasets.Single(d => d.Id == binding.DatasetId).FixtureJson, binding.Binding);
+        var fixture = document.Datasets.Single(d => d.Id == binding.DatasetId).FixtureJson;
+        if (!DatasetValidator.IsValidFixture(fixture)) return new(null, new("DATA_INVALID_FIXTURE", "Fixture is invalid or exceeds its limits."));
+        using var json = JsonDocument.Parse(fixture);
+        return Evaluate(document, node, property, binding, profile, json.RootElement);
+    }
+
+    public static NodeDataResult Evaluate(DocumentStructure document, NodeStructure node, string property, NodeDataBinding binding,
+        INodeProfile profile, JsonElement data)
+    {
+        if (Validate(document, node, property, binding, profile) is { } error) return new(null, error);
+        var result = DataBindingEvaluator.Evaluate(data, binding.Binding);
         if (result.Diagnostic is { } diagnostic) return new(null, new("DATA_" + diagnostic.Code.Replace('-', '_').ToUpperInvariant(), diagnostic.Message));
         var scalar = ToPropertyValue(result.Value!.Value);
         if (NodePropertyValidator.Validate(profile, node.Kind, property, scalar) is { } invalid) return new(null, new(invalid.Code, invalid.Reason));

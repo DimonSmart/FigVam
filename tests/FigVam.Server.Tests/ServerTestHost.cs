@@ -70,7 +70,8 @@ internal sealed class ServerProcess : IAsyncDisposable
 
     public HttpClient CreateClient() => new(new DiagnosticHandler(this))
     {
-        BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(3)
+        // Bound the complete request, including cold endpoint activation and response buffering.
+        BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(15)
     };
 
     public async Task WaitUntilReadyAsync(TimeSpan? timeout = null)
@@ -138,15 +139,16 @@ internal sealed class ServerProcess : IAsyncDisposable
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            var elapsed = Stopwatch.StartNew();
             try { return await base.SendAsync(request, cancellationToken); }
             catch (OperationCanceledException exception)
             {
                 // Keep cancellation semantics so the readiness polling deadline remains effective.
-                throw new OperationCanceledException($"{request.Method} {request.RequestUri} canceled. {server.Diagnostics()}", exception, cancellationToken);
+                throw new OperationCanceledException($"{request.Method} {request.RequestUri} canceled after {elapsed.Elapsed}. {server.Diagnostics()}", exception, cancellationToken);
             }
             catch (HttpRequestException exception)
             {
-                throw new HttpRequestException($"{request.Method} {request.RequestUri} failed. {server.Diagnostics()}", exception);
+                throw new HttpRequestException($"{request.Method} {request.RequestUri} failed after {elapsed.Elapsed}. {server.Diagnostics()}", exception);
             }
         }
     }

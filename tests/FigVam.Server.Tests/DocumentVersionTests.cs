@@ -12,6 +12,10 @@ public sealed class DocumentVersionTests : IDisposable
     private readonly DocumentActor actor = new("authenticated-editor");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => kind == "container";
         public bool CanContainChildren(string kind) => kind == "container";
@@ -216,7 +220,7 @@ public sealed class DocumentVersionTests : IDisposable
         Assert.Equal(pageId, Assert.Single(restored.Document.Pages).Id);
         Assert.Equal(5, (await Journal().ReadEventsAsync(documentId, 0)).Events!.Count);
         // Subsequent journal replay continues from the restored tree.
-        await Handler().HandleAsync(new AddScreenCommand(documentId, Guid.NewGuid(), pageId, Guid.NewGuid()), actor);
+        await Handler().HandleAsync(new AddScreenCommand(documentId, Guid.NewGuid(), pageId, Guid.NewGuid(), new(800, 600)), actor);
         Assert.Single((await Journal().ReadAsync(documentId))!.Document.Screens);
     }
 

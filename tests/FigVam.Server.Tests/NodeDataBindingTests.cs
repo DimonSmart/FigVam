@@ -20,6 +20,10 @@ public sealed class NodeDataBindingTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => property switch {
@@ -33,7 +37,7 @@ public sealed class NodeDataBindingTests : IDisposable
     }
     private SqliteDocumentJournal Journal() => new(directory, new Profile());
     private DocumentCommandHandler Handler(bool edit = true) => new(new Authorization(edit), Journal(), new Profile());
-    private Task Seed() => Journal().InitializeAsync(new(doc, [], [new(Guid.NewGuid(), [node])], [new(node, "test", []) { Properties = ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("literal")) }]) {
+    private Task Seed() => Journal().InitializeAsync(new(doc, [], [new(Guid.NewGuid(), [node], new(800, 600))], [new(node, "test", []) { Properties = ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("literal")) }]) {
         Datasets = [new(dataset, "fixture", "{\"rows\":[{\"name\":\"Alice\"}],\"negative\":-1}")] });
     private BindNodeDataCommand Bind(string property = "text", DataBinding? binding = null) => new(doc, Guid.NewGuid(), node, property,
         new(dataset, binding ?? new([new DataProperty("rows"), new DataIndex(0), new DataProperty("name")], ExpectedType: DataExpectedType.String)));

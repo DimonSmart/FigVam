@@ -17,6 +17,10 @@ public sealed class TokenCommandTests
 {
     private sealed class TokenProfile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => kind == "test" && property == "space" ? new(NodePropertyType.TokenReference, TokenType: TokenType.Spacing) : null;
@@ -101,7 +105,7 @@ public sealed class TokenCommandTests
             await journal.SetMemberAsync(id, "editor", DocumentRole.Editor, actor);
             var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var node = Guid.NewGuid();
             await handler.HandleAsync(new AddPageCommand(id, Guid.NewGuid(), page), actor);
-            await handler.HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, screen), actor);
+            await handler.HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, screen, new(800, 600)), actor);
             await handler.HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), screen, node, "test"), actor);
             var token = Token();
             Assert.True((await handler.HandleAsync(new AddTokenCommand(id, Guid.NewGuid(), token), actor)).Accepted);
@@ -149,7 +153,7 @@ public sealed class TokenCommandTests
             await Journal().SetMemberAsync(id, "viewer", DocumentRole.Viewer, owner);
             var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var node = Guid.NewGuid();
             await Handler().HandleAsync(new AddPageCommand(id, Guid.NewGuid(), page), owner);
-            await Handler().HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, screen), owner);
+            await Handler().HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, screen, new(800, 600)), owner);
             await Handler().HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), screen, node, "test"), owner);
             var token = Token(); var alias = Token(expression: new TokenAlias(token.Id));
             await Handler().HandleAsync(new AddTokenCommand(id, Guid.NewGuid(), token), owner);

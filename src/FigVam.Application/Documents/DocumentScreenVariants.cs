@@ -49,7 +49,7 @@ public sealed partial class DocumentCommandHandler
             }
             var changed = ScreenVariantEditor.Set(state.Document, screenId, variant);
             if (DocumentStructureValidator.Validate(changed, profile).FirstOrDefault() is { } invalid)
-                return new(Result(invalid.Code, explanation: invalid.Message), null);
+                return new(Result(invalid.Code == "duplicate-id" ? "DUPLICATE_ID" : invalid.Code, explanation: invalid.Message), null);
             var next = new DocumentState(changed, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new ScreenVariantChanged(screenId, variant, operation));
         }, ct, authorize: async () => await authorization.CanEditAsync(actor, documentId, ct) ? null : Result("FORBIDDEN"));

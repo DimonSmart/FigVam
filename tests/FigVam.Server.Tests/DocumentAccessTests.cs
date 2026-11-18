@@ -11,11 +11,32 @@ public sealed class DocumentAccessTests : IDisposable
     private readonly DocumentActor owner = new("authenticated-owner");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => false;
         public bool CanContainChildren(string kind) => false;
     }
     private SqliteDocumentJournal Journal() => new(directory, new Profile());
+
+    [Fact]
+    public async Task CreationNameAndSavedVersionRemainDurable()
+    {
+        var store = Journal(); var id = Guid.NewGuid();
+        Assert.Equal("INVALID_DOCUMENT_NAME", (await store.CreateAsync(new(id, " "), owner)).Code);
+        Assert.True((await store.CreateAsync(new(id, "Initial"), owner)).Accepted);
+        var handler = new DocumentCommandHandler(store, store, new Profile());
+        Assert.True((await handler.HandleAsync(new RenameDocumentCommand(id, Guid.NewGuid(), "Renamed"), owner)).Accepted);
+        var saved = await handler.HandleAsync(new SaveDocumentCommand(id, Guid.NewGuid(), "Milestone"), owner);
+        Assert.True(saved.Accepted);
+        Assert.True((await handler.HandleAsync(new RenameDocumentCommand(id, Guid.NewGuid(), "Later"), owner)).Accepted);
+        store = Journal();
+        Assert.Equal("Initial", (await store.ReadAsync(id, 0)).State!.Document.Name);
+        Assert.Equal("Renamed", (await store.ReadVersionAsync(id, saved.VersionId!.Value)).Version!.Snapshot.Document.Name);
+        Assert.Equal("Later", (await store.ReadAsync(id))!.Document.Name);
+    }
 
     [Fact]
     public async Task CreationAndRolesSurviveRestartAndDocumentsRemainIsolated()

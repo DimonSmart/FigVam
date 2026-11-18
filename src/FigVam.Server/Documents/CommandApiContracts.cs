@@ -5,9 +5,16 @@ using FigVam.Domain.Documents;
 namespace FigVam.Server.Documents;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class DeletePageRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; } }
+public sealed class RenameDocumentRequest { public required Guid CommandId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Name { get; init; } }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class RenamePageRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Name { get; init; } }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class AddPageRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class AddScreenRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } public required Guid ScreenId { get; init; } }
+public sealed class AddScreenRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class ResizeScreenRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class AddNodeRequest { public required Guid CommandId { get; init; } public required Guid ParentId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Kind { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -277,3 +284,28 @@ public sealed class AddScreenVariantRequest { public required Guid CommandId { g
 public sealed class SetScreenVariantOverrideRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } public required Guid VariantId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } [Required] public required NodePropertyValue Value { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RemoveScreenVariantOverrideRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } public required Guid VariantId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } }
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed class CreateScenarioRequest { public required Guid CommandId { get; init; } [Required] public required FigVam.Domain.Preview.PreviewScenario Scenario { get; init; } }
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed class UpdateScenarioRequest { public required Guid CommandId { get; init; } [Required] public required FigVam.Domain.Preview.PreviewScenario Scenario { get; init; } [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; } }
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed class DeleteScenarioRequest { public required Guid CommandId { get; init; } public required Guid ScenarioId { get; init; } [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; } }
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed class SetDatasetConnectorRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid DatasetId { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+    [Required, StringLength(128, MinimumLength = 1), RegularExpression(@"^[A-Za-z0-9_.-]+$")]
+    public required string ConnectorId { get; init; }
+}
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed class RemoveDatasetConnectorRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid DatasetId { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+}

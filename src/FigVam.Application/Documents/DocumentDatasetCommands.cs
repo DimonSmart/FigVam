@@ -49,15 +49,15 @@ public sealed partial class DocumentCommandHandler
             }
             else
             {
-                if (existing is not null || document.Id == datasetId || document.Pages.Any(p => p.Id == datasetId) ||
-                    document.Screens.Any(s => s.Id == datasetId) || document.Nodes.Any(n => n.Id == datasetId) || document.Tokens.Any(t => t.Id == datasetId) ||
+                if (existing is not null || document.Scenarios.Any(s => s.Id == datasetId) || document.Id == datasetId || document.Pages.Any(p => p.Id == datasetId) ||
+                    document.Screens.Any(s => s.Id == datasetId || s.Variants.Any(v => v.Id == datasetId)) || document.Nodes.Any(n => n.Id == datasetId) || document.Tokens.Any(t => t.Id == datasetId) ||
                     document.ComponentDefinitions.Any(d => d.Id == datasetId || d.Parameters.Any(p => p.Id == datasetId) || d.Slots.Any(s => s.Id == datasetId) || d.Variants.Any(v => v.Id == datasetId)))
                     return new(Result("DUPLICATE_ID"), null);
                 if (!DatasetValidator.IsValidName(name)) return new(Result("INVALID_DATASET"), null);
             }
             if (csv && !CsvDatasetImporter.TryConvert(fixtureJson, out fixtureJson)) return new(Result("INVALID_CSV_FIXTURE"), null);
             if (!DatasetValidator.IsValidFixture(fixtureJson)) return new(Result("INVALID_DATASET_FIXTURE"), null);
-            var dataset = new DocumentDataset(datasetId, existing?.Name ?? name!, fixtureJson);
+            var dataset = new DocumentDataset(datasetId, existing?.Name ?? name!, fixtureJson, existing?.ConnectorId);
             var changed = document with { Datasets = expectedRevision is null ? [.. document.Datasets, dataset] : document.Datasets.Select(d => d.Id == datasetId ? dataset : d).ToArray() };
             if (!DatasetValidator.IsValid(changed.Datasets)) return new(Result("DATASET_LIMIT_EXCEEDED"), null);
             var next = new DocumentState(changed, checked(state.Revision + 1));
@@ -77,6 +77,7 @@ public sealed partial class DocumentCommandHandler
             if (!state.Document.Datasets.Any(d => d.Id == command.DatasetId)) return new(Result("DATASET_NOT_FOUND"), null);
             if (state.Revision != command.ExpectedRevision) return new(Result("REVISION_CONFLICT"), null);
             if (state.Document.Nodes.Any(n => n.Repeater?.DatasetId == command.DatasetId || n.DataBindings.Values.Any(b => b.DatasetId == command.DatasetId))) return new(Result("DATASET_IN_USE"), null);
+            if (state.Document.Scenarios.Any(s => s.Actions.OfType<FigVam.Domain.Preview.SelectDataset>().Any(a => a.DatasetId == command.DatasetId))) return new(Result("SCENARIO_IN_USE"), null);
             var next = new DocumentState(state.Document with { Datasets = state.Document.Datasets.Where(d => d.Id != command.DatasetId).ToArray() }, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new DatasetDeleted(command.DatasetId));
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));

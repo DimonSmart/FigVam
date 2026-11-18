@@ -11,6 +11,10 @@ public sealed class DocumentCommandTests : IDisposable
     private readonly DocumentActor actor = new("server-authenticated-editor");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => kind is "container" or "leaf";
         public bool CanContainChildren(string kind) => kind == "container";
@@ -163,7 +167,7 @@ public sealed class DocumentCommandTests : IDisposable
         var handler = Handler(journal);
         var page = Command();
         await handler.HandleAsync(page, actor);
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         Assert.Equal("FORBIDDEN", (await Handler(journal, false).HandleAsync(screen, actor)).Code);
         Assert.Equal("INVALID_ID", (await handler.HandleAsync(screen with { ScreenId = Guid.Empty }, actor)).Code);
         Assert.Equal("INVALID_ID", (await handler.HandleAsync(screen with { PageId = Guid.Empty }, actor)).Code);
@@ -194,7 +198,7 @@ public sealed class DocumentCommandTests : IDisposable
         var page = Command();
         await Handler(Journal()).HandleAsync(page, actor);
         var commands = Enumerable.Range(0, 20).Select(_ =>
-            new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid())).ToArray();
+            new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600))).ToArray();
         var results = await Task.WhenAll(commands.Select(c => Handler(Journal()).HandleAsync(c, actor)));
         Assert.Equal(Enumerable.Range(2, 20).Select(i => (long?)i), results.Select(r => r.Revision).Order());
         var retry = await Task.WhenAll(Enumerable.Range(0, 8).Select(_ =>
@@ -218,7 +222,7 @@ public sealed class DocumentCommandTests : IDisposable
             var page = Command();
             pages.Add(page);
             await Handler(Journal()).HandleAsync(page, actor);
-            var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+            var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
             screens.Add(screen);
             last = await Handler(Journal()).HandleAsync(screen, actor);
         }
@@ -239,7 +243,7 @@ public sealed class DocumentCommandTests : IDisposable
         var handler = Handler(journal);
         var page = Command();
         await handler.HandleAsync(page, actor);
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         await handler.HandleAsync(screen, actor);
         var node = new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "container");
         Assert.Equal("FORBIDDEN", (await Handler(journal, false).HandleAsync(node, actor)).Code);
@@ -279,7 +283,7 @@ public sealed class DocumentCommandTests : IDisposable
         var handler = Handler(Journal());
         var page = Command();
         await handler.HandleAsync(page, actor);
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         await handler.HandleAsync(screen, actor);
         var nodes = Enumerable.Range(0, 35).Select(_ => new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "leaf")).ToArray();
         foreach (var node in nodes) Assert.True((await handler.HandleAsync(node, actor)).Accepted);
@@ -296,7 +300,7 @@ public sealed class DocumentCommandTests : IDisposable
         var handler = Handler(Journal());
         var page = Command();
         await handler.HandleAsync(page, actor);
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         await handler.HandleAsync(screen, actor);
         var root = new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "container");
         var child = new AddNodeCommand(documentId, Guid.NewGuid(), root.NodeId, Guid.NewGuid(), "container");
@@ -337,7 +341,7 @@ public sealed class DocumentCommandTests : IDisposable
         var handler = Handler(Journal());
         var page = Command();
         await handler.HandleAsync(page, actor);
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         await handler.HandleAsync(screen, actor);
         for (var i = 0; i < 30; i++)
             await handler.HandleAsync(new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "leaf"), actor);
@@ -362,7 +366,7 @@ public sealed class DocumentCommandTests : IDisposable
         var handler = Handler(Journal());
         var page = Command();
         await handler.HandleAsync(page, actor);
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         await handler.HandleAsync(screen, actor);
         var a = new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "container");
         var b = new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "container");
@@ -407,7 +411,7 @@ public sealed class DocumentCommandTests : IDisposable
         var root = Guid.NewGuid();
         var child = Guid.NewGuid();
         var other = Guid.NewGuid();
-        await Journal().InitializeAsync(new(documentId, [], [new(screen, [root, other])],
+        await Journal().InitializeAsync(new(documentId, [], [new(screen, [root, other], new(800, 600))],
             [new(root, "container", [child]), new(child, "container", []), new(other, "container", [])]));
         var cycle = new MoveNodeCommand(documentId, Guid.NewGuid(), root, screen, child, 0);
         Assert.Equal("CYCLE_NOT_ALLOWED", (await Handler(Journal()).HandleAsync(cycle, actor)).Code);

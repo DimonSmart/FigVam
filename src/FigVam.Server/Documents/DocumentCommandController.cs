@@ -13,6 +13,13 @@ namespace FigVam.Server.Documents;
 [ProducesResponseType<ApiError>(415), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
 public sealed class DocumentCommandController(IDocumentCommandHandler handler) : ControllerBase
 {
+    [HttpPost("create-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Create a saved prototype event and ordered actions")]
+    [EndpointDescription("Scenario requires a globally unique ID, screenId, nodeId, numeric event (Click=0, Change=1, Hover=2, Leave=3), and 1-32 typed actions. Profile must explicitly support the event, actions and demo value targets.")]
+    public async Task<IActionResult> CreateScenario(Guid documentId, CreateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new CreateScenarioCommand(documentId, request.CommandId, request.Scenario), User.GetDocumentActor(), ct));
+    [HttpPost("update-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Replace one saved scenario with an exact revision precondition")]
+    public async Task<IActionResult> UpdateScenario(Guid documentId, UpdateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new UpdateScenarioCommand(documentId, request.CommandId, request.Scenario, request.ExpectedRevision), User.GetDocumentActor(), ct));
+    [HttpPost("delete-scenario"), EndpointSummary("Delete one saved scenario with an exact revision precondition")]
+    public async Task<IActionResult> DeleteScenario(Guid documentId, DeleteScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeleteScenarioCommand(documentId, request.CommandId, request.ScenarioId, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("add-screen-variant"), EndpointSummary("Create an empty screen variant inheriting base node properties")]
     public async Task<IActionResult> AddScreenVariant(Guid documentId, AddScreenVariantRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenVariantCommand(documentId, request.CommandId, request.ScreenId, request.VariantId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("set-screen-variant-override"), EndpointSummary("Set a typed property difference for a node belonging to the screen")]
@@ -68,6 +75,11 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     public async Task<IActionResult> UnbindNodeData(Guid documentId, UnbindNodeDataRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new UnbindNodeDataCommand(documentId, request.CommandId, request.NodeId, request.Property), User.GetDocumentActor(), ct));
     [HttpPost("delete-dataset"), EndpointSummary("Delete an unreferenced local dataset at the expected revision")]
     public async Task<IActionResult> DeleteDataset(Guid documentId, DeleteDatasetRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeleteDatasetCommand(documentId, request.CommandId, request.DatasetId, request.ExpectedRevision), User.GetDocumentActor(), ct));
+    [HttpPost("set-dataset-connector"), RequestSizeLimit(4096), EndpointSummary("Assign an administrator-configured JSON connector ID without fetching data")]
+    [EndpointDescription("Requires the current revision and an allowed server connector ID. Preserves the offline fixture. URLs, secrets and unknown request members are rejected.")]
+    public async Task<IActionResult> SetDatasetConnector(Guid documentId, SetDatasetConnectorRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetDatasetConnectorCommand(documentId, request.CommandId, request.DatasetId, request.ExpectedRevision, request.ConnectorId), User.GetDocumentActor(), ct));
+    [HttpPost("remove-dataset-connector"), RequestSizeLimit(4096), EndpointSummary("Remove a dataset connector link while preserving its offline fixture")]
+    public async Task<IActionResult> RemoveDatasetConnector(Guid documentId, RemoveDatasetConnectorRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new RemoveDatasetConnectorCommand(documentId, request.CommandId, request.DatasetId, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("add-dataset"), RequestSizeLimit(512 * 1024), EndpointSummary("Create a local dataset and its saved JSON fixture")]
     [EndpointDescription("Name is nonblank, at most 256 characters without control characters. FixtureJson is a JSON string containing one valid JSON value, at most 65536 UTF-8 bytes and depth 32, with unique object keys. At most 1000 datasets and 8 MiB of fixtures per document. Request body limit is 512 KiB. Duplicate names are allowed; IDs are unique. Fixture contents are persisted with the document.")]
     public async Task<IActionResult> AddDataset(Guid documentId, AddDatasetRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddDatasetCommand(documentId, request.CommandId, request.DatasetId, request.Name, request.FixtureJson), User.GetDocumentActor(), ct));
@@ -76,10 +88,23 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     public async Task<IActionResult> ReplaceDatasetFixture(Guid documentId, ReplaceDatasetFixtureRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ReplaceDatasetFixtureCommand(documentId, request.CommandId, request.DatasetId, request.ExpectedRevision, request.FixtureJson), User.GetDocumentActor(), ct));
     [HttpPost("add-token"), EndpointSummary("Add a typed design token with Light and Dark values")]
     public async Task<IActionResult> AddToken(Guid documentId, AddTokenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddTokenCommand(documentId, request.CommandId, new(request.TokenId, request.Name, request.Type, request.Values)), User.GetDocumentActor(), ct));
+    [HttpPost("delete-page"), EndpointSummary("Delete a page and its screens and node subtrees at an expected revision")]
+    [EndpointDescription("Requires edit permission and expectedRevision matching the current draft. Deletes contained component instances and screen variants. Retained references from pages, scenarios or component definitions cause PAGE_IN_USE (409); remove those references explicitly first. Missing page returns PAGE_NOT_FOUND (404), stale revision REVISION_CONFLICT (409). Refusal preserves the document and revision. Reusing commandId returns its original result. Undo/Redo use the shared safe compensation history.")]
+    public async Task<IActionResult> DeletePage(Guid documentId, DeletePageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeletePageCommand(documentId, request.CommandId, request.PageId, request.ExpectedRevision), User.GetDocumentActor(), ct));
+    [HttpPost("rename-document"), EndpointSummary("Rename a document without changing its technical ID")]
+    [EndpointDescription("Names must be nonblank, at most 256 characters and contain no control characters.")]
+    public async Task<IActionResult> RenameDocument(Guid documentId, RenameDocumentRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new RenameDocumentCommand(documentId, request.CommandId, request.Name), User.GetDocumentActor(), ct));
+    [HttpPost("rename-page"), EndpointSummary("Rename a page without changing its technical ID")]
+    [EndpointDescription("Names must be nonblank, at most 256 characters and contain no control characters. Duplicate names are allowed.")]
+    public async Task<IActionResult> RenamePage(Guid documentId, RenamePageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new RenamePageCommand(documentId, request.CommandId, request.PageId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("add-page"), EndpointSummary("Add a page")]
     public async Task<IActionResult> AddPage(Guid documentId, AddPageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddPageCommand(documentId, request.CommandId, request.PageId), User.GetDocumentActor(), ct));
+    [HttpPost("resize-screen"), EndpointSummary("Set finite, non-negative screen dimensions in logical uiUnits")]
+    [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid. Children retain their properties.")]
+    public async Task<IActionResult> ResizeScreen(Guid documentId, ResizeScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ResizeScreenCommand(documentId, request.CommandId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));
     [HttpPost("add-screen"), EndpointSummary("Add a screen to a page")]
-    public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId), User.GetDocumentActor(), ct));
+    [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid.")]
+    public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));
     [HttpPost("add-node"), EndpointSummary("Add a node to a screen or container")]
     public async Task<IActionResult> AddNode(Guid documentId, AddNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddNodeCommand(documentId, request.CommandId, request.ParentId, request.NodeId, request.Kind), User.GetDocumentActor(), ct));
     [HttpPost("delete-node"), EndpointSummary("Delete a node")]
@@ -109,10 +134,11 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
         var status = result.Code switch
         {
             "FORBIDDEN" => 403,
-            "SCREEN_NOT_FOUND" or "SCREEN_VARIANT_NOT_FOUND" or "VARIANT_OVERRIDE_NOT_FOUND" or "DATA_BINDING_NOT_FOUND" or "DATASET_NOT_FOUND" or "COMPONENT_NOT_FOUND" or "DOCUMENT_NOT_FOUND" or "TOKEN_NOT_FOUND" or "PAGE_NOT_FOUND" or "NODE_NOT_FOUND" or "PARENT_NOT_FOUND" or "VERSION_NOT_FOUND" => 404,
-            "INVALID_SCREEN_VARIANT" or "INVALID_VARIANT_NODE" or "INVALID_TOKEN_IMPORT" or "INVALID_REPEATER" or "DATA_REPEATER_LIMIT" or "INVALID_DATA_BINDING" or "DATA_MISSING_VALUE" or "DATA_INCOMPATIBLE_TYPE" or "DATA_INVALID_FIXTURE" or "DATA_INVALID_PATH" or "INVALID_CSV_FIXTURE" or "INVALID_DATASET" or "INVALID_DATASET_FIXTURE" or "DATASET_LIMIT_EXCEEDED" or "INVALID_COMPONENT_REPLACEMENT" or "INVALID_REVISION" or "INVALID_COMPONENT" or "INVALID_TOKEN" or "INVALID_NODE_METADATA" or "INVALID_ID" or "INVALID_VERSION_NAME" or "INVALID_POSITION" or "INVALID_PROPERTY_TYPE" or "INVALID_PROPERTY_VALUE" or "UNSUPPORTED_PROPERTY" or "UNSUPPORTED_NODE_KIND" => 400,
+            "DATASET_CONNECTOR_NOT_FOUND" or "SCREEN_NOT_FOUND" or "SCENARIO_NOT_FOUND" or "SCREEN_VARIANT_NOT_FOUND" or "VARIANT_OVERRIDE_NOT_FOUND" or "DATA_BINDING_NOT_FOUND" or "DATASET_NOT_FOUND" or "COMPONENT_NOT_FOUND" or "DOCUMENT_NOT_FOUND" or "TOKEN_NOT_FOUND" or "PAGE_NOT_FOUND" or "NODE_NOT_FOUND" or "PARENT_NOT_FOUND" or "VERSION_NOT_FOUND" => 404,
+            "INVALID_DOCUMENT_NAME" or "INVALID_SCREEN_DIMENSIONS" or "INVALID_PAGE" or "CONNECTOR_NOT_ALLOWED" or "INVALID_SCENARIO" or "INVALID_SCREEN_VARIANT" or "INVALID_VARIANT_NODE" or "INVALID_TOKEN_IMPORT" or "INVALID_REPEATER" or "DATA_REPEATER_LIMIT" or "INVALID_DATA_BINDING" or "DATA_MISSING_VALUE" or "DATA_INCOMPATIBLE_TYPE" or "DATA_INVALID_FIXTURE" or "DATA_INVALID_PATH" or "INVALID_CSV_FIXTURE" or "INVALID_DATASET" or "INVALID_DATASET_FIXTURE" or "DATASET_LIMIT_EXCEEDED" or "INVALID_COMPONENT_REPLACEMENT" or "INVALID_REVISION" or "INVALID_COMPONENT" or "INVALID_TOKEN" or "INVALID_NODE_METADATA" or "INVALID_ID" or "INVALID_VERSION_NAME" or "INVALID_POSITION" or "INVALID_PROPERTY_TYPE" or "INVALID_PROPERTY_VALUE" or "UNSUPPORTED_PROPERTY" or "UNSUPPORTED_NODE_KIND" => 400,
             _ => 409
         };
         return StatusCode(status, ApiErrors.Create(status, result.Code) with { Diagnostics = result.Diagnostics, NodeId = result.NodeId, Property = result.Property, Detail = result.Explanation ?? ApiErrors.Create(status, result.Code).Detail });
     }
 }
+

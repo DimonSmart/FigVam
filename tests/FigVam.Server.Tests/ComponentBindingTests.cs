@@ -9,6 +9,10 @@ public sealed class ComponentBindingTests
 {
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => true;
         public NodePropertyDefinition? GetProperty(string kind, string property) => property switch
@@ -38,7 +42,7 @@ public sealed class ComponentBindingTests
         string[] names = ["text", "number", "bool", "asset", "token", "enum"];
         var definition = new ComponentDefinition(Guid.NewGuid(), "Card", "", root, parameters, [], [])
         { Bindings = parameters.Select((p, i) => new ComponentParameterBinding(p.Id, child, names[i])).ToArray() };
-        return new(new(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor])],
+        return new(new(Guid.NewGuid(), [], [new(Guid.NewGuid(), [root, anchor], new(800, 600))],
             [new(root, "test", [child]), new NodeStructure(child, "test", [])
             { Properties = new NodeStructure(child, "test", []).Properties.Add("unbound", new NodeStringValue("Kept")) },
             new(anchor, "test", [])]), [definition], [new(anchor, definition.Id, null,

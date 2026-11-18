@@ -13,6 +13,10 @@ public sealed class DocumentRevisionTests : IDisposable
     private readonly DocumentActor actor = new("reader");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "Frame";
         public bool CanContainChildren(string kind) => true;
         public NodePropertyDefinition? GetProperty(string kind, string property) => property == "text" ? new(NodePropertyType.String) : null;
@@ -47,7 +51,7 @@ public sealed class DocumentRevisionTests : IDisposable
         }
         var handler = Handler();
         await Record(await handler.HandleAsync(new AddPageCommand(id, Guid.NewGuid(), page), actor));
-        await Record(await handler.HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, screen), actor));
+        await Record(await handler.HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, screen, new(800, 600)), actor));
         await Record(await handler.HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), screen, node, "Frame"), actor));
         await Record(await handler.HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), node, child, "Frame"), actor));
         await Record(await handler.HandleAsync(new SetNodeNameCommand(id, Guid.NewGuid(), node, "Before"), actor));

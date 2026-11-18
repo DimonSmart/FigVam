@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FigVam — документы</title>
+  <link rel="stylesheet" href="/editor.css">
+  <script type="module" src="/editor.js"></script>
+</head>
+<body>
+  <a class="skip" href="#content">К содержимому</a>
+  <header class="brand"><a href="/" data-navigation>FigVam</a><span>Переносимые интерфейсы · начальная версия</span><button id="disconnect" hidden>Забыть токен</button></header>
+  <section id="authentication" aria-labelledby="authentication-title">
+    <h1 id="authentication-title">Открыть рабочее пространство</h1>
+    <p>Введите уже выданный bearer-токен. Он хранится только в памяти этой вкладки, очищается при выходе или перезагрузке и отправляется только API этого сервера. В production используйте HTTPS.</p>
+    <form id="authentication-form" autocomplete="off">
+      <label for="token">Bearer-токен</label>
+      <input id="token" type="password" required autocomplete="off" spellcheck="false" aria-describedby="token-help">
+      <p id="token-help">Без префикса Bearer. Получение токена находится вне FigVam.</p>
+      <button type="submit">Продолжить</button>
+    </form>
+  </section>
+  <main id="content" tabindex="-1" hidden>
+    <div id="documents-view" hidden>
+      <div class="heading"><div><p class="eyebrow">Рабочее пространство</p><h1>Документы</h1></div><button id="refresh">Обновить список</button></div>
+      <form id="create-form" class="create">
+        <label for="document-name">Имя нового документа</label>
+        <input id="document-name" required maxlength="256" autocomplete="off">
+        <button type="submit">Создать документ</button>
+      </form>
+      <ul id="document-list" aria-label="Доступные документы"></ul>
+      <nav class="pagination" aria-label="Страницы списка"><button id="previous" disabled>Предыдущая</button><span id="page-number"></span><button id="next" disabled>Следующая</button></nav>
+    </div>
+    <div id="editor-view" hidden>
+      <header class="document-panel" aria-label="Панель документа"><a href="/" data-navigation>← Документы</a><h1 id="document-title"></h1><span id="revision"></span><span>Design · каркас редактора</span></header>
+      <p id="connection-status" aria-live="polite"></p>
+      <form id="version-save" hidden>
+        <label for="version-name">Имя версии (необязательно)</label>
+        <input id="version-name" maxlength="256" autocomplete="off">
+        <button type="submit">Создать версию</button>
+        <p id="version-result" role="status" aria-live="polite"></p>
+        <p id="version-error" role="alert"></p>
+      </form>
+      <section aria-labelledby="versions-title">
+        <h2 id="versions-title">Сохранённые версии</h2>
+        <p>Текущий общий черновик показан в редакторе; сохранённые версии остаются неизменными.</p>
+        <button id="versions-refresh" type="button">Обновить историю</button>
+        <p id="versions-status" role="status" aria-live="polite"></p>
+        <p id="versions-error" role="alert"></p>
+        <ul id="versions-list" aria-label="История сохранённых версий"></ul>
+        <nav class="pagination" aria-label="Навигация по истории версий"><button id="versions-previous" type="button">Предыдущие версии</button><span id="versions-number"></span><button id="versions-next" type="button">Следующие версии</button></nav>
+        <p id="restore-status" role="status" aria-live="polite"></p>
+        <p id="restore-error" role="alert"></p>
+        <button id="restore-retry" type="button" hidden>Повторить восстановление</button>
+      </section>
+      <p class="notice">Управление страницами и экранами доступно ниже. Редактирование содержимого экранов, Preview и экспорт через интерфейс пока недоступны. Поддержка целевых платформ здесь не заявлена.</p>
+      <div class="workspace">
+        <aside aria-labelledby="tree-title"><h2 id="tree-title">Страницы и слои</h2>
+          <p id="page-access"></p><button id="page-refresh" type="button">Обновить страницы</button>
+          <ul id="pages" aria-label="Страницы документа"></ul>
+          <nav class="pagination" aria-label="Навигация по страницам документа"><button id="pages-previous" type="button">Предыдущие страницы</button><span id="pages-number"></span><button id="pages-next" type="button">Следующие страницы</button></nav>
+          <div id="page-edit" hidden><button id="page-create" type="button">Создать страницу</button>
+            <form id="page-rename"><label for="page-name">Имя выбранной страницы</label><input id="page-name" maxlength="256" required><button type="submit">Переименовать страницу</button></form>
+            <button id="page-delete" type="button">Удалить страницу</button></div>
+          <section aria-labelledby="screens-title"><h2 id="screens-title">Экраны выбранной страницы</h2>
+            <ul id="screens" aria-label="Экраны"></ul>
+            <nav class="pagination" aria-label="Навигация по экранам"><button id="screens-previous" type="button">Предыдущие экраны</button><span id="screens-number"></span><button id="screens-next" type="button">Следующие экраны</button></nav>
+            <form id="screen-create" hidden><label for="screen-width">Ширина экрана</label><input id="screen-width" type="number" min="0" step="any" required><label for="screen-height">Высота экрана</label><input id="screen-height" type="number" min="0" step="any" required><button type="submit">Создать экран</button></form>
+          </section>
+          <section aria-labelledby="layers-title"><h2 id="layers-title">Слои выбранного экрана</h2>
+            <p id="layers-status" role="status" aria-live="polite">Выберите экран.</p>
+            <div id="layers" role="tree" aria-label="Слои экрана"></div>
+          </section>
+        </aside>
+        <section class="canvas" aria-labelledby="canvas-title"><h2 id="canvas-title">Холст</h2>
+          <p id="canvas-selection">Выберите экран, чтобы показать его на холсте.</p>
+          <div class="viewport-controls" role="group" aria-label="Управление холстом">
+            <button id="zoom-out" type="button">Уменьшить</button><output id="zoom-level" aria-label="Масштаб">100%</output><button id="zoom-in" type="button">Увеличить</button>
+            <button id="fit-screen" type="button">Вместить экран</button><button id="actual-size" type="button">100%</button>
+          </div>
+          <p id="canvas-help">Перетащите холст указателем или используйте стрелки для панорамирования. Колесо мыши меняет масштаб.</p>
+          <div id="viewport" tabindex="0" role="region" aria-label="Область холста" aria-describedby="canvas-help"><div id="screen-boundary" hidden></div></div>
+        </section>
+        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><p>Параметры элементов пока недоступны.</p></aside>
+      </div>
+    </div>
+  </main>
+  <div class="feedback"><p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p><button id="retry" hidden>Повторить запрос</button></div>
+</body>
+</html>

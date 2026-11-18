@@ -21,7 +21,8 @@ public sealed record StructureItem(Guid Id, string Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? SemanticKey = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, NodeDataBinding>? DataBindings = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NodeRepeater? Repeater = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NodeRepeater? Repeater = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ScreenDimensions? Dimensions = null);
 public sealed record StructureResponse(Guid DocumentId, long Revision, IReadOnlyList<StructureItem> Items,
     int Offset, int Limit, int Total);
 public sealed record StructureQueryResult(string Code, StructureResponse? Response = null);
@@ -37,8 +38,8 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
     {
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanReadAsync(actor, documentId, cancellationToken)) return new("FORBIDDEN");
         if (documentId == Guid.Empty || query.ObjectId == Guid.Empty || query.ScreenId == Guid.Empty) return new("INVALID_ID");
-        var fields = query.Fields is null ? new HashSet<string>(["kind", "properties", "childCount", "name", "semanticKey", "dataBindings", "repeater"], StringComparer.Ordinal) : query.Fields.Split(',').ToHashSet(StringComparer.Ordinal);
-        if (query.Offset < 0 || query.Limit is < 1 or > 100 || query.Depth is < 0 or > 2 || fields.Any(f => f is not ("kind" or "properties" or "childCount" or "name" or "semanticKey" or "dataBindings" or "repeater")) || query.Kind?.Length > 256 || query.SemanticKey?.Length > 256 || query.NamePrefix?.Length > 256)
+        var fields = query.Fields is null ? new HashSet<string>(["kind", "properties", "childCount", "name", "semanticKey", "dataBindings", "repeater", "dimensions"], StringComparer.Ordinal) : query.Fields.Split(',').ToHashSet(StringComparer.Ordinal);
+        if (query.Offset < 0 || query.Limit is < 1 or > 100 || query.Depth is < 0 or > 2 || fields.Any(f => f is not ("kind" or "properties" or "childCount" or "name" or "semanticKey" or "dataBindings" or "repeater" or "dimensions")) || query.Kind?.Length > 256 || query.SemanticKey?.Length > 256 || query.NamePrefix?.Length > 256)
             return new("INVALID_QUERY");
         if (query.ScreenId is not null && query.Resource != "nodes" || (query.Kind is not null || query.SemanticKey is not null || query.NamePrefix is not null) && query.Resource is not ("nodes" or "children")) return new("INVALID_QUERY");
         if (query.Revision < 0) return new("INVALID_REVISION");
@@ -62,6 +63,10 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
             case "document": items = [(doc.Id, "document")]; break;
             case "pages": items = doc.Pages.Select(p => (p.Id, "page")); break;
             case "page": if (!doc.Pages.Any(p => p.Id == query.ObjectId)) return new("PAGE_NOT_FOUND"); items = [(query.ObjectId!.Value, "page")]; break;
+            case "page-screens":
+                var page = doc.Pages.FirstOrDefault(p => p.Id == query.ObjectId);
+                if (page is null) return new("PAGE_NOT_FOUND");
+                items = page.ScreenIds.Select(id => (id, "screen")); break;
             case "screens": items = doc.Screens.Select(s => (s.Id, "screen")); break;
             case "screen": if (!screens.ContainsKey(query.ObjectId!.Value)) return new("SCREEN_NOT_FOUND"); items = [(query.ObjectId.Value, "screen")]; break;
             case "nodes": items = (query.ScreenId is { } sid ? Descendants(sid).Select(id => nodes[id]) : doc.Nodes).Where(Matches).Select(n => (n.Id, "node")); break;
@@ -75,8 +80,8 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         }
         var all = items.ToArray();
         // Expansion is bounded independently of tree width; use children pagination for larger trees.
-        var page = all.Skip(query.Offset).Take(query.Limit).ToArray();
-        var budget = 100 - page.Length;
+        var resultPage = all.Skip(query.Offset).Take(query.Limit).ToArray();
+        var budget = 100 - resultPage.Length;
         StructureItem Project((Guid Id, string Type) item, int depth)
         {
 
@@ -95,9 +100,9 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
                 children = expanded;
             }
             var node = item.Type == "node" ? nodes[item.Id] : null;
-            return new(item.Id, item.Type, fields.Contains("kind") ? node?.Kind : null, fields.Contains("properties") ? node?.Properties : null, children, fields.Contains("childCount") ? ids.Length : null, children is not null && children.Count < ids.Length ? true : null, fields.Contains("name") ? node?.Name : null, fields.Contains("semanticKey") ? node?.SemanticKey : null, fields.Contains("dataBindings") ? node?.DataBindings : null, fields.Contains("repeater") ? node?.Repeater : null);
+            return new(item.Id, item.Type, fields.Contains("kind") ? node?.Kind : null, fields.Contains("properties") ? node?.Properties : null, children, fields.Contains("childCount") ? ids.Length : null, children is not null && children.Count < ids.Length ? true : null, fields.Contains("name") ? (item.Type == "document" ? doc.Name : item.Type == "page" ? doc.Pages.First(p => p.Id == item.Id).Name : node?.Name) : null, fields.Contains("semanticKey") ? node?.SemanticKey : null, fields.Contains("dataBindings") ? node?.DataBindings : null, fields.Contains("repeater") ? node?.Repeater : null, fields.Contains("dimensions") && item.Type == "screen" ? screens[item.Id].Dimensions : null);
         }
-        return new("OK", new(documentId, state.Revision, page.Select(x => Project(x, query.Depth)).ToArray(), query.Offset, query.Limit, all.Length));
+        return new("OK", new(documentId, state.Revision, resultPage.Select(x => Project(x, query.Depth)).ToArray(), query.Offset, query.Limit, all.Length));
     }
 }
 

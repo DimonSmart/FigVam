@@ -5,6 +5,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using FigVam.Application.Documents;
 using FigVam.Domain.Documents;
+using FigVam.Domain.Components;
+using FigVam.Domain.Tokens;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
@@ -19,10 +21,14 @@ public sealed class ScreenVariantTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => true;
         public NodePropertyDefinition? GetProperty(string kind, string property) => property switch {
-            "text" => new(NodePropertyType.String), "number" => new(NodePropertyType.Number, v => ((NodeNumberValue)v).Value >= 0 ? null : "Must be nonnegative."), "token" => new(NodePropertyType.TokenReference), _ => null };
+            "text" => new(NodePropertyType.String), "number" => new(NodePropertyType.Number, v => ((NodeNumberValue)v).Value >= 0 ? null : "Must be nonnegative."), "token" => new(NodePropertyType.TokenReference, TokenType: TokenType.Spacing), "asset" => new(NodePropertyType.Asset), "choice" => new(NodePropertyType.Enum, EnumValues: ["first", "second"]), _ => null };
     }
     private sealed class Authorization : IDocumentAuthorization
     {
@@ -31,9 +37,38 @@ public sealed class ScreenVariantTests : IDisposable
     }
     private SqliteDocumentJournal Journal() => new(directory, new Profile());
     private DocumentCommandHandler Handler() => new(new Authorization(), Journal(), new Profile());
-    private Task Seed() => Journal().InitializeAsync(new(doc, [], [new(screen, [node]), new(other, [foreign])], [new(node, "test", []) { Properties = ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("base")) }, new(foreign, "test", [])]));
+    private Task Seed() => Journal().InitializeAsync(new(doc, [], [new(screen, [node], new(800, 600)), new(other, [foreign], new(800, 600))], [new(node, "test", []) { Properties = ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("base")) }, new(foreign, "test", [])]));
     private AddScreenVariantCommand Add(Guid? id = null) => new(doc, Guid.NewGuid(), screen, id ?? variant, "Alternate");
     private SetScreenVariantOverrideCommand Set(Guid? id = null) => new(doc, Guid.NewGuid(), screen, id ?? variant, node, "text", new NodeStringValue("difference"));
+
+    [Fact]
+    public async Task ComparisonUsesEffectiveValuesRevisionOwnershipAndPagination()
+    {
+        await Seed(); var second = Guid.NewGuid();
+        Assert.True((await Handler().HandleAsync(Add(), actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(Add(second), actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(Set(), actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(Set(second) with { Value = new NodeStringValue("base") }, actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(Set() with { Property = "number", Value = new NodeNumberValue(2) }, actor)).Accepted);
+        var query = new DocumentScreenVariantDiff(new Authorization(), Journal());
+        async Task<ScreenVariantDiffResult> Compare(Guid? from = null, Guid? to = null, long? revision = null, int offset = 0, int limit = 100, DocumentActor? user = null)
+            => await query.CompareAsync(doc, screen, from, to, revision, offset, limit, user ?? actor);
+        var diff = (await Compare(null, variant)).Response!;
+        Assert.Equal(2, diff.Total);
+        Assert.Equal(new[] { "number", "text" }, diff.Items.Select(x => x.Property));
+        Assert.Equal("text", Assert.Single((await Compare(variant, second, offset: 1, limit: 1)).Response!.Items).Property);
+        Assert.Empty((await Compare(null, second)).Response!.Items);
+        Assert.Empty((await Compare(null, variant, 2)).Response!.Items);
+        Assert.Equal("SCREEN_VARIANT_NOT_FOUND", (await Compare(null, second, 1)).Code);
+        Assert.Equal("FORBIDDEN", (await Compare(null, variant, user: new("outsider"))).Code);
+        Assert.Equal("INVALID_ID", (await Compare(Guid.Empty)).Code);
+        Assert.Equal("INVALID_REVISION", (await Compare(revision: -1)).Code);
+        Assert.Equal("INVALID_REVISION", (await Compare(revision: 1000)).Code);
+        Assert.Equal("INVALID_QUERY", (await Compare(limit: 101)).Code);
+        Assert.Equal("SCREEN_VARIANT_NOT_FOUND", (await query.CompareAsync(doc, other, variant, null, null, 0, 10, actor)).Code);
+        Assert.Equal("SCREEN_NOT_FOUND", (await query.CompareAsync(doc, Guid.NewGuid(), null, null, null, 0, 10, actor)).Code);
+        Assert.Equal(5, (await Journal().ReadAsync(doc))!.Revision);
+    }
 
     [Fact]
     public async Task DifferencesAreIndependentDurableRevisionAwareAndUndoable()
@@ -89,7 +124,7 @@ public sealed class ScreenVariantTests : IDisposable
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = doc })).StatusCode);
         var root = $"/api/v1/documents/{doc}"; var page = Guid.NewGuid();
         Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-page", new { commandId = Guid.NewGuid(), pageId = page })).StatusCode);
-        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = page, screenId = screen })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = page, screenId = screen , dimensions = new { width = 800, height = 600 } })).StatusCode);
         var request = new AddScreenVariantRequest { CommandId = Guid.NewGuid(), ScreenId = screen, VariantId = variant, Name = "Alternate" };
         using var schemaDoc = JsonDocument.Parse(await client.GetStringAsync("/api/v1/schemas/AddScreenVariantRequest.json"));
         var schema = JsonSchema.Build(schemaDoc.RootElement.Clone());
@@ -97,15 +132,120 @@ public sealed class ScreenVariantTests : IDisposable
         Assert.False(schema.EvaluateNode(JsonNode.Parse("{}")!).IsValid);
         Assert.Contains("set-screen-variant-override", await client.GetStringAsync("/openapi/v1.json"));
         Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen-variant", request)).StatusCode);
+        var diffUrl = root + $"/screens/{screen}/variant-diff?toVariantId={variant}";
+        var diff = (await client.GetFromJsonAsync<ScreenVariantDiffResponse>(diffUrl))!;
+        Assert.Empty(diff.Items);
+        using (var diffSchema = JsonDocument.Parse(await client.GetStringAsync("/api/v1/schemas/ScreenVariantDiffResponse.json")))
+            Assert.True(JsonSchema.Build(diffSchema.RootElement.Clone()).EvaluateNode(JsonSerializer.SerializeToNode(diff, new JsonSerializerOptions(JsonSerializerDefaults.Web))!).IsValid);
+        Assert.Contains("variant-diff", await client.GetStringAsync("/openapi/v1.json"));
+        Assert.Equal(400, (int)(await client.GetAsync(diffUrl + "&limit=101")).StatusCode);
+        Assert.Equal(404, (int)(await client.GetAsync(root + $"/screens/{screen}/variant-diff?toVariantId={Guid.NewGuid()}")).StatusCode);
         var response = (await client.GetFromJsonAsync<ScreenVariantsResponse>(root + $"/screens/{screen}/variants?revision=3"))!;
         Assert.Equal(variant, Assert.Single(response.Items).Id);
         Assert.Empty((await client.GetFromJsonAsync<ScreenVariantsResponse>(root + $"/screens/{screen}/variants?revision=2"))!.Items);
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var setRequest = new SetScreenVariantOverrideRequest { CommandId = Guid.NewGuid(), ScreenId = screen, VariantId = variant,
+            NodeId = node, Property = "text", Value = new NodeStringValue("alternate") };
+        var removeRequest = new RemoveScreenVariantOverrideRequest { CommandId = Guid.NewGuid(), ScreenId = screen, VariantId = variant,
+            NodeId = node, Property = "text" };
+        foreach (var (type, payload) in new[] {
+            (nameof(SetScreenVariantOverrideRequest), JsonSerializer.SerializeToNode(setRequest, options)!),
+            (nameof(RemoveScreenVariantOverrideRequest), JsonSerializer.SerializeToNode(removeRequest, options)!),
+            (nameof(ScreenVariantsResponse), JsonSerializer.SerializeToNode(response, options)!) })
+        {
+            using var definition = JsonDocument.Parse(await client.GetStringAsync($"/api/v1/schemas/{type}.json"));
+            Assert.True(JsonSchema.Build(definition.RootElement.Clone()).EvaluateNode(payload).IsValid);
+        }
+        Assert.Equal(404, (int)(await client.PostAsJsonAsync(root + "/commands/set-screen-variant-override", setRequest)).StatusCode);
+        Assert.Equal(404, (int)(await client.PostAsJsonAsync(root + "/commands/remove-screen-variant-override", removeRequest)).StatusCode);
+        Assert.Equal(400, (int)(await client.GetAsync(root + $"/screens/{screen}/variants?limit=101")).StatusCode);
+        Assert.Equal(400, (int)(await client.GetAsync(root + $"/screens/{screen}/variants?revision=-1")).StatusCode);
+        Assert.Equal(404, (int)(await client.GetAsync(root + $"/screens/{screen}/variants?variantId={Guid.NewGuid()}")).StatusCode);
         await client.PutAsJsonAsync(root + "/members", new { memberId = "viewer", role = "Viewer" });
         client.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "viewer"));
         Assert.Equal(200, (int)(await client.GetAsync(root + $"/screens/{screen}/variants")).StatusCode);
+        Assert.Equal(200, (int)(await client.GetAsync(diffUrl)).StatusCode);
         Assert.Equal(403, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen-variant", request)).StatusCode);
         client.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "outsider"));
         Assert.Equal(403, (int)(await client.GetAsync(root + $"/screens/{screen}/variants")).StatusCode);
+        Assert.Equal(403, (int)(await client.GetAsync(diffUrl)).StatusCode);
     }
+    [Fact]
+    public async Task VariantIdsAreUniqueAcrossTheDocumentIncludingComponentEntities()
+    {
+        await Seed();
+        var page = Guid.NewGuid();
+        Assert.True((await Handler().HandleAsync(new AddPageCommand(doc, Guid.NewGuid(), page), actor)).Accepted);
+        var definition = Guid.NewGuid();
+        Assert.True((await Handler().HandleAsync(new AddComponentDefinitionCommand(doc, Guid.NewGuid(), definition, "Component", "", foreign), actor)).Accepted);
+        var componentVariant = Guid.NewGuid();
+        Assert.True((await Handler().HandleAsync(new AddComponentVariantCommand(doc, Guid.NewGuid(), definition,
+            new(componentVariant, "Custom", ComponentVariantKind.Custom, null, new Dictionary<Guid, ComponentValue>())), actor)).Accepted);
+        foreach (var occupied in new[] { doc, screen, node, page, definition, componentVariant })
+            Assert.Equal("DUPLICATE_ID", (await Handler().HandleAsync(Add(occupied), actor)).Code);
+        Assert.True((await Handler().HandleAsync(Add(), actor)).Accepted);
+        var before = JsonSerializer.Serialize(await Journal().ReadAsync(doc));
+        Assert.Equal("DUPLICATE_ID", (await Handler().HandleAsync(new AddPageCommand(doc, Guid.NewGuid(), variant), actor)).Code);
+        Assert.Equal("DUPLICATE_ID", (await Handler().HandleAsync(new AddScreenCommand(doc, Guid.NewGuid(), page, variant, new(800, 600)), actor)).Code);
+        Assert.Equal("DUPLICATE_ID", (await Handler().HandleAsync(new AddNodeCommand(doc, Guid.NewGuid(), screen, variant, "test"), actor)).Code);
+        Assert.Equal("DUPLICATE_ID", (await Handler().HandleAsync(new AddDatasetCommand(doc, Guid.NewGuid(), variant, "Fixture", "[]"), actor)).Code);
+        Assert.Equal("DUPLICATE_ID", (await Handler().HandleAsync(new AddComponentVariantCommand(doc, Guid.NewGuid(), definition,
+            new(variant, "Collision", ComponentVariantKind.Custom, null, new Dictionary<Guid, ComponentValue>())), actor)).Code);
+        Assert.Equal(before, JsonSerializer.Serialize(await Journal().ReadAsync(doc)));
+    }
+
+    [Fact]
+    public async Task CheckpointsPreserveOverridesAndHistoricalReadsAndSafeRedo()
+    {
+        await Seed();
+        Assert.True((await Handler().HandleAsync(Add(), actor)).Accepted);
+        var set = Set(); var accepted = await Handler().HandleAsync(set, actor); Assert.True(accepted.Accepted);
+        for (var i = 0; i < 35; i++)
+            Assert.True((await Handler().HandleAsync(new AddPageCommand(doc, Guid.NewGuid(), Guid.NewGuid()), new("editor"))).Accepted);
+        var query = new DocumentScreenVariantQueries(new Authorization(), Journal());
+        Assert.Single(Assert.Single((await query.ReadAsync(doc, screen, variant, 2, 0, 10, actor)).Response!.Items).Overrides);
+        Assert.Equal(accepted, await Handler().HandleAsync(set, actor));
+        Assert.True((await Handler().HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), actor)).Accepted);
+        Assert.Empty(Assert.Single((await query.ReadAsync(doc, screen, variant, null, 0, 10, actor)).Response!.Items).Overrides);
+        Assert.True((await Handler().HandleAsync(Set() with { Value = new NodeStringValue("concurrent") }, new("editor"))).Accepted);
+        Assert.Equal("REDO_NOT_APPLICABLE", (await Handler().HandleAsync(new RedoDocumentCommand(doc, Guid.NewGuid()), actor)).Code);
+        Assert.Equal(new NodeStringValue("concurrent"), Assert.Single(Assert.Single((await query.ReadAsync(doc, screen, variant, null, 0, 10, actor)).Response!.Items).Overrides).Value);
+        Assert.Equal("FORBIDDEN", (await Handler().HandleAsync(set, new("viewer"))).Code);
+    }
+
+    [Fact]
+    public async Task TypedReferencesAndProfileConstraintsApplyToOverrides()
+    {
+        await Seed();
+        var spacing = Guid.NewGuid(); var color = Guid.NewGuid();
+        IReadOnlyDictionary<TokenTheme, TokenExpression> Values(TokenValue value) => new Dictionary<TokenTheme, TokenExpression> {
+            [TokenTheme.Light] = new LiteralTokenValue(value), [TokenTheme.Dark] = new LiteralTokenValue(value) };
+        Assert.True((await Handler().HandleAsync(new AddTokenCommand(doc, Guid.NewGuid(), new(spacing, "Gap", TokenType.Spacing, Values(new SpacingValue(8)))), actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(new AddTokenCommand(doc, Guid.NewGuid(), new(color, "Color", TokenType.Color, Values(new ColorValue(1, 2, 3)))), actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(Add(), actor)).Accepted);
+        foreach (var (property, value, code) in new (string, NodePropertyValue, string)[] {
+            ("token", new NodeTokenValue(color), "type-mismatch"), ("asset", new NodeAssetValue(Guid.NewGuid()), "missing-reference"),
+            ("choice", new NodeEnumValue("unknown"), "INVALID_PROPERTY_VALUE"), ("number", new NodeNumberValue(double.NaN), "INVALID_PROPERTY_VALUE") })
+            Assert.Equal(code, (await Handler().HandleAsync(Set() with { Property = property, Value = value }, actor)).Code);
+        Assert.Equal(3, (await Journal().ReadAsync(doc))!.Revision);
+        Assert.True((await Handler().HandleAsync(Set() with { Property = "token", Value = new NodeTokenValue(spacing) }, actor)).Accepted);
+        Assert.True((await Handler().HandleAsync(Set() with { Property = "choice", Value = new NodeEnumValue("second") }, actor)).Accepted);
+        Assert.Equal(2, (await Journal().ReadAsync(doc))!.Document.Screens.Single(s => s.Id == screen).Variants.Single().Overrides.Count);
+        var diagnostics = new DocumentDiagnostics(new Authorization(), Journal(), new UnverifiedNodeProfile());
+        var response = (await diagnostics.ReadAsync(doc, screen, null, 0, 100, actor)).Response!;
+        Assert.Contains(response.Items, d => d.Code == "UNSUPPORTED_PROPERTY" && d.Path.Contains("/variants/" + variant));
+    }
+
+    [Fact]
+    public void MalformedVariantsReturnDiagnosticsDuringComponentValidation()
+    {
+        foreach (var variants in new IReadOnlyList<ScreenVariant>[] { null!, [null!] })
+        {
+            var structure = new DocumentStructure(doc, [], [new(screen, [], new(800, 600)) { Variants = variants }], []);
+            Assert.Contains(ComponentValidator.Validate(new(structure, [], [], [], []), new Profile()), d => d.Code == "INVALID_SCREEN_VARIANT");
+        }
+    }
+
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
 }
+

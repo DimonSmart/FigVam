@@ -32,7 +32,7 @@ public sealed class DocumentDiagnosticsTests
     {
         var doc = Guid.NewGuid(); var s1 = Guid.NewGuid(); var s2 = Guid.NewGuid();
         var nodes = Enumerable.Range(0, 105).Select(_ => new NodeStructure(Guid.NewGuid(), "Unverified", [])).ToArray();
-        var structure = new DocumentStructure(doc, [], [new(s1, nodes.Take(104).Select(n => n.Id).ToArray()), new(s2, [nodes[104].Id])], nodes);
+        var structure = new DocumentStructure(doc, [], [new(s1, nodes.Take(104).Select(n => n.Id).ToArray(), new(800, 600)), new(s2, [nodes[104].Id], new(800, 600))], nodes);
         var reader = new Reader(structure); var service = new DocumentDiagnostics(new Access(), reader, new UnverifiedNodeProfile());
         var all = (await service.ReadAsync(doc, null, 2, 0, 100, new("reader"))).Response!;
         Assert.Equal(2, all.Revision); Assert.Equal(105, all.Total); Assert.Equal(100, all.Items.Count);

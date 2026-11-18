@@ -16,7 +16,7 @@ internal static class RepeaterComponentExpansion
         var nodes = document.Nodes.ToImmutableDictionary(n => n.Id);
         var instances = document.ComponentInstances.ToDictionary(i => i.NodeId);
         var definitions = document.ComponentDefinitions.ToDictionary(d => d.Id);
-        var model = new ComponentModel(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, []);
+        var model = new ComponentModel(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, document.Assets.Select(a => a.Id).ToArray());
         var output = new List<ExpandedRepeaterNode>();
         var resolvedInstances = new Dictionary<Guid, ResolvedComponent>();
         var children = new List<List<int>>();

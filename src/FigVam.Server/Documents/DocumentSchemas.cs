@@ -9,13 +9,27 @@ public static class DocumentSchemas
 {
     private static readonly IReadOnlyDictionary<string, Type> Types = new Dictionary<string, Type>
     {
+        [nameof(FigVam.Domain.Documents.PortableUiProfileReference)] = typeof(FigVam.Domain.Documents.PortableUiProfileReference),
+        [nameof(FigVam.Domain.Documents.DocumentAsset)] = typeof(FigVam.Domain.Documents.DocumentAsset),
+        [nameof(FigVam.Application.Documents.DocumentAssetsResponse)] = typeof(FigVam.Application.Documents.DocumentAssetsResponse),
         [nameof(CreateDocumentRequest)] = typeof(CreateDocumentRequest),
+        [nameof(FigVam.Application.Documents.DocumentImportResponse)] = typeof(FigVam.Application.Documents.DocumentImportResponse),
+        [nameof(FigVam.Application.Documents.DocumentImportFailure)] = typeof(FigVam.Application.Documents.DocumentImportFailure),
+        [nameof(FigVam.Application.Documents.DocumentReadDiagnostic)] = typeof(FigVam.Application.Documents.DocumentReadDiagnostic),
+        [nameof(CreateScenarioRequest)] = typeof(CreateScenarioRequest),
+        [nameof(UpdateScenarioRequest)] = typeof(UpdateScenarioRequest),
+        [nameof(DeleteScenarioRequest)] = typeof(DeleteScenarioRequest),
+        [nameof(FigVam.Domain.Preview.PreviewScenario)] = typeof(FigVam.Domain.Preview.PreviewScenario),
+        [nameof(FigVam.Application.Documents.ScenariosResponse)] = typeof(FigVam.Application.Documents.ScenariosResponse),
         [nameof(AddScreenVariantRequest)] = typeof(AddScreenVariantRequest),
         [nameof(SetScreenVariantOverrideRequest)] = typeof(SetScreenVariantOverrideRequest),
         [nameof(RemoveScreenVariantOverrideRequest)] = typeof(RemoveScreenVariantOverrideRequest),
         [nameof(FigVam.Domain.Documents.ScreenVariant)] = typeof(FigVam.Domain.Documents.ScreenVariant),
         [nameof(FigVam.Application.Documents.ScreenVariantsResponse)] = typeof(FigVam.Application.Documents.ScreenVariantsResponse),
+        [nameof(FigVam.Application.Documents.ScreenVariantDiffResponse)] = typeof(FigVam.Application.Documents.ScreenVariantDiffResponse),
         [nameof(SetDocumentMemberRequest)] = typeof(SetDocumentMemberRequest),
+        [nameof(FigVam.Application.Documents.DocumentListItem)] = typeof(FigVam.Application.Documents.DocumentListItem),
+        [nameof(FigVam.Application.Documents.DocumentListResponse)] = typeof(FigVam.Application.Documents.DocumentListResponse),
         [nameof(DocumentAccessResponse)] = typeof(DocumentAccessResponse),
         [nameof(ApiError)] = typeof(ApiError),
         [nameof(AddComponentSlotRequest)] = typeof(AddComponentSlotRequest),
@@ -49,6 +63,8 @@ public static class DocumentSchemas
         [nameof(UnbindNodeDataRequest)] = typeof(UnbindNodeDataRequest),
         [nameof(DeleteDatasetRequest)] = typeof(DeleteDatasetRequest),
         [nameof(FigVam.Domain.Documents.NodeDataBinding)] = typeof(FigVam.Domain.Documents.NodeDataBinding),
+        [nameof(SetDatasetConnectorRequest)] = typeof(SetDatasetConnectorRequest),
+        [nameof(RemoveDatasetConnectorRequest)] = typeof(RemoveDatasetConnectorRequest),
         [nameof(AddDatasetRequest)] = typeof(AddDatasetRequest),
         [nameof(ReplaceDatasetFixtureRequest)] = typeof(ReplaceDatasetFixtureRequest),
         [nameof(FigVam.Domain.Documents.DocumentDataset)] = typeof(FigVam.Domain.Documents.DocumentDataset),
@@ -60,7 +76,12 @@ public static class DocumentSchemas
         [nameof(FigVam.Application.Documents.TokenImportDiagnostic)] = typeof(FigVam.Application.Documents.TokenImportDiagnostic),
         [nameof(AddTokenRequest)] = typeof(AddTokenRequest),
         [nameof(FigVam.Domain.Documents.DocumentStructure)] = typeof(FigVam.Domain.Documents.DocumentStructure),
+        [nameof(DeletePageRequest)] = typeof(DeletePageRequest),
+        [nameof(RenameDocumentRequest)] = typeof(RenameDocumentRequest),
+        [nameof(RenamePageRequest)] = typeof(RenamePageRequest),
         [nameof(AddPageRequest)] = typeof(AddPageRequest),
+        [nameof(ResizeScreenRequest)] = typeof(ResizeScreenRequest),
+        [nameof(FigVam.Domain.Documents.ScreenDimensions)] = typeof(FigVam.Domain.Documents.ScreenDimensions),
         [nameof(AddScreenRequest)] = typeof(AddScreenRequest),
         [nameof(AddNodeRequest)] = typeof(AddNodeRequest),
         [nameof(DeleteNodeRequest)] = typeof(DeleteNodeRequest),
@@ -99,6 +120,9 @@ public static class DocumentSchemas
         [nameof(FigVam.Application.Documents.StructureResponse)] = typeof(FigVam.Application.Documents.StructureResponse)
     };
 
+    public static JsonNode CreateDocumentFormat() => FigVam.Application.Documents.DocumentFormatSchemas.CreateDocumentFormat();
+    public static JsonNode CreateManifestFormat() => FigVam.Application.Documents.DocumentFormatSchemas.CreateManifestFormat();
+
     public static JsonNode Create(Type type)
     {
         var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
@@ -108,6 +132,12 @@ public static class DocumentSchemas
             TreatNullObliviousAsNonNullable = true,
             TransformSchemaNode = (context, node) =>
             {
+                if (context.PropertyInfo?.AttributeProvider is System.Reflection.PropertyInfo property &&
+                    property.DeclaringType == typeof(FigVam.Domain.Documents.ScreenDimensions) && node is JsonObject)
+                {
+                    node["minimum"] = 0;
+                    node["maximum"] = double.MaxValue;
+                }
                 if (context.PropertyInfo?.AttributeProvider is { } attributes && node is JsonObject)
                     foreach (var attribute in attributes.GetCustomAttributes(true))
                     {
@@ -134,11 +164,12 @@ public static class DocumentSchemas
 
     public static void MapDocumentSchemas(this WebApplication app)
     {
-        app.MapGet("/api/v1/schemas/{name}.json", (string name) => Types.TryGetValue(name, out var type)
+        app.MapGet("/api/v1/schemas/{name}.json", (string name) => name == "document-v1" ? Results.Json(CreateDocumentFormat()) : name == "manifest-v1" ? Results.Json(CreateManifestFormat()) : Types.TryGetValue(name, out var type)
             ? Results.Json(Create(type)) : Results.NotFound(ApiErrors.Create(404)))
             .ExcludeFromDescription();
     }
 }
+
 
 
 

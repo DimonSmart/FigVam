@@ -12,6 +12,10 @@ public sealed class DocumentReconnectTests : IDisposable
     private readonly DocumentActor actor = new("authenticated-user");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => kind is "container" or "leaf";
         public bool CanContainChildren(string kind) => kind == "container";
@@ -47,7 +51,7 @@ public sealed class DocumentReconnectTests : IDisposable
         await Seed();
         var handler = Handler();
         var page = new AddPageCommand(documentId, Guid.NewGuid(), Guid.NewGuid());
-        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), page.PageId, Guid.NewGuid(), new(800, 600));
         var root = new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "container");
         var leaf = new AddNodeCommand(documentId, Guid.NewGuid(), root.NodeId, Guid.NewGuid(), "leaf");
         var move = new MoveNodeCommand(documentId, Guid.NewGuid(), leaf.NodeId, root.NodeId, screen.ScreenId, 0);
@@ -74,7 +78,7 @@ public sealed class DocumentReconnectTests : IDisposable
         Assert.Equal(new[] { "ADD_PAGE", "ADD_SCREEN", "ADD_NODE", "ADD_NODE", "MOVE_NODE", "MOVE_NODE", "DELETE_NODE" }, events.Select(e => e.Type));
         Assert.Equal(new DocumentEvent[]
         {
-            new PageAdded(page.PageId), new ScreenAdded(page.PageId, screen.ScreenId),
+            new PageAdded(page.PageId), new ScreenAdded(page.PageId, screen.ScreenId, new(800, 600)),
             new NodeAdded(screen.ScreenId, root.NodeId, "container"), new NodeAdded(root.NodeId, leaf.NodeId, "leaf"),
             new NodeMoved(leaf.NodeId, screen.ScreenId, 0), new NodeMoved(root.NodeId, screen.ScreenId, 0),
             new NodeDeleted(root.NodeId)
@@ -196,7 +200,7 @@ public sealed class DocumentReconnectTests : IDisposable
         ScreenAdded s => document with
         {
             Pages = document.Pages.Select(p => p.Id == s.PageId ? p with { ScreenIds = p.ScreenIds.Append(s.ScreenId).ToArray() } : p).ToArray(),
-            Screens = document.Screens.Append(new(s.ScreenId, [])).ToArray()
+            Screens = document.Screens.Append(new(s.ScreenId, [], s.Dimensions)).ToArray()
         },
         NodeAdded n => document with
         {

@@ -7,6 +7,8 @@ namespace FigVam.Server.Documents;
 public sealed class CreateDocumentRequest
 {
     public required Guid DocumentId { get; init; }
+    [Required, StringLength(256, MinimumLength = 1)]
+    public string Name { get; init; } = "Document";
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

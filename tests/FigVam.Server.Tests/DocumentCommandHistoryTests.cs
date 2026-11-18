@@ -14,6 +14,10 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     private readonly DocumentActor alice = new("alice"), bob = new("bob");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
         public bool IsKnownKind(string kind) => kind is "container" or "leaf";
         public bool CanContainChildren(string kind) => kind == "container";
@@ -25,11 +29,66 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     }
     private SqliteDocumentJournal Journal() => new(directory, new Profile());
     private DocumentCommandHandler Handler(bool allowed = true) => new(new Authorization(allowed), Journal(), new Profile());
-    private Task Seed() => Journal().InitializeAsync(new(id, [new(page, [screen])], [new(screen, [])], []));
+    private Task Seed() => Journal().InitializeAsync(new(id, [new(page, [screen])], [new(screen, [], new(800, 600))], []));
     private Task<CommandResult> Undo(DocumentActor? actor = null) => Handler().HandleAsync(new UndoDocumentCommand(id, Guid.NewGuid()), actor ?? alice);
     private Task<CommandResult> Redo(DocumentActor? actor = null) => Handler().HandleAsync(new RedoDocumentCommand(id, Guid.NewGuid()), actor ?? alice);
     private Task<CommandResult> Add(Guid node, Guid? parent = null, DocumentActor? actor = null) => Handler().HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), parent ?? screen, node, "container"), actor ?? alice);
     private async Task<DocumentStructure> Document() => (await Journal().ReadAsync(id))!.Document;
+
+    [Fact]
+    public async Task DocumentRenameIsDurableIdempotentAndSafelyCompensated()
+    {
+        await Seed();
+        var command = new RenameDocumentCommand(id, Guid.NewGuid(), "Design");
+        Assert.Equal("FORBIDDEN", (await Handler(false).HandleAsync(command, alice)).Code);
+        Assert.Equal("INVALID_DOCUMENT_NAME", (await Handler().HandleAsync(command with { CommandId = Guid.NewGuid(), Name = "  " }, alice)).Code);
+        Assert.Equal(0, (await Journal().ReadAsync(id))!.Revision);
+        var first = await Handler().HandleAsync(command, alice);
+        Assert.True(first.Accepted);
+        Assert.Equal(first, await Handler().HandleAsync(command with { Name = "ignored" }, alice));
+        Assert.Equal("Design", (await Document()).Name);
+        Assert.Equal("Document", (await Journal().ReadAsync(id, 0)).State!.Document.Name);
+        var query = new DocumentStructureQueries(new Authorization(), Journal());
+        Assert.Equal("Design", Assert.Single((await query.QueryAsync(id, new("document"), alice)).Response!.Items).Name);
+        Assert.Equal("Design", Assert.IsType<DocumentRenamed>(Assert.Single((await Journal().ReadEventsAsync(id, 0)).Events!).Payload).Name);
+        Assert.True((await Undo()).Accepted);
+        Assert.Equal("Document", (await Document()).Name);
+        Assert.True((await Redo()).Accepted);
+        Assert.Equal("Design", (await Document()).Name);
+        Assert.True((await Handler().HandleAsync(new RenameDocumentCommand(id, Guid.NewGuid(), "Other"), bob)).Accepted);
+        var revision = (await Journal().ReadAsync(id))!.Revision;
+        Assert.Equal("UNDO_NOT_APPLICABLE", (await Undo()).Code);
+        Assert.Equal(revision, (await Journal().ReadAsync(id))!.Revision);
+    }
+
+    [Fact]
+    public async Task PageRenameIsAuthorizedDurableIdempotentAndGuarded()
+    {
+        await Seed();
+        var command = new RenamePageCommand(id, Guid.NewGuid(), page, "Home");
+        Assert.Equal("FORBIDDEN", (await Handler(false).HandleAsync(command, alice)).Code);
+        Assert.Equal("INVALID_PAGE", (await Handler().HandleAsync(command with { CommandId = Guid.NewGuid(), Name = "  " }, alice)).Code);
+        Assert.Equal("PAGE_NOT_FOUND", (await Handler().HandleAsync(command with { CommandId = Guid.NewGuid(), PageId = Guid.NewGuid() }, alice)).Code);
+        Assert.Equal(0, (await Journal().ReadAsync(id))!.Revision);
+        var first = await Handler().HandleAsync(command, alice);
+        Assert.True(first.Accepted);
+        Assert.Equal(first, await Handler().HandleAsync(command with { Name = "ignored" }, alice));
+        Assert.Equal("Home", Assert.Single((await Journal().ReadAsync(id))!.Document.Pages).Name);
+        Assert.Equal("Page", Assert.Single((await Journal().ReadAsync(id, 0)).State!.Document.Pages).Name);
+        var query = new DocumentStructureQueries(new Authorization(), Journal());
+        Assert.Equal("Home", Assert.Single((await query.QueryAsync(id, new("page", page), alice)).Response!.Items).Name);
+        Assert.Equal("Page", Assert.Single((await query.QueryAsync(id, new("page", page, Revision: 0), alice)).Response!.Items).Name);
+        var events = await Journal().ReadEventsAsync(id, 0);
+        Assert.Equal("Home", Assert.IsType<PageRenamed>(Assert.Single(events.Events!).Payload).Name);
+        Assert.True((await Undo()).Accepted);
+        Assert.Equal("Page", Assert.Single((await Document()).Pages).Name);
+        Assert.True((await Redo()).Accepted);
+        Assert.Equal("Home", Assert.Single((await Document()).Pages).Name);
+        Assert.True((await Handler().HandleAsync(new RenamePageCommand(id, Guid.NewGuid(), page, "Other"), bob)).Accepted);
+        var revision = (await Journal().ReadAsync(id))!.Revision;
+        Assert.Equal("UNDO_NOT_APPLICABLE", (await Undo()).Code);
+        Assert.Equal(revision, (await Journal().ReadAsync(id))!.Revision);
+    }
 
     [Fact]
     public async Task IndependentUserHistoriesPreserveOtherUsersPagesAndDeliverCompensationEvents()
@@ -66,7 +125,7 @@ public sealed class DocumentCommandHistoryTests : IDisposable
         var accepted = operation switch
         {
             "page" => await handler.HandleAsync(new AddPageCommand(id, Guid.NewGuid(), a), alice),
-            "screen" => await handler.HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, a), alice),
+            "screen" => await handler.HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), page, a, new(800, 600)), alice),
             "node" => await Add(a),
             "delete" => await handler.HandleAsync(new DeleteNodeCommand(id, Guid.NewGuid(), a), alice),
             _ => await handler.HandleAsync(new MoveNodeCommand(id, Guid.NewGuid(), b, a, screen, 0), alice)

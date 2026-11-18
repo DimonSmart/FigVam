@@ -19,6 +19,10 @@ public sealed partial class NodeRepeaterTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind is "container" or "text";
         public bool CanContainChildren(string kind) => kind == "container";
         public NodePropertyDefinition? GetProperty(string kind, string property) => property switch {
@@ -35,7 +39,7 @@ public sealed partial class NodeRepeaterTests : IDisposable
     private NodeRepeater Config() => new(dataset, new([new DataProperty("rows")], ExpectedType: DataExpectedType.Array), template, empty,
         [new(template, "text", new([new DataProperty("person"), new DataProperty("name")], ExpectedType: DataExpectedType.String))]);
     private SetNodeRepeaterCommand Command(long revision = 0, NodeRepeater? config = null) => new(doc, Guid.NewGuid(), owner, revision, config ?? Config());
-    private DocumentStructure Document(string fixture) => new(doc, [], [new(screen, [owner])],
+    private DocumentStructure Document(string fixture) => new(doc, [], [new(screen, [owner], new(800, 600))],
         [new(owner, "container", [template, empty]), new(template, "text", []), new(empty, "text", [])]) { Datasets = [new(dataset, "rows", fixture)] };
     private Task Seed(string fixture = "{\"rows\":[{\"person\":{\"name\":\"Alice\"}},{\"person\":{\"name\":\"Bob\"}}]}") => Journal().InitializeAsync(Document(fixture));
 
@@ -131,7 +135,7 @@ public sealed partial class NodeRepeaterTests : IDisposable
         var chain = Enumerable.Range(0, 6000).Select(_ => Guid.NewGuid()).ToArray();
         document = document with { Nodes = [node, new(template, "container", [chain[0]]), document.Nodes[2], .. chain.Select((id, i) => new NodeStructure(id, "container", i == chain.Length - 1 ? [] : [chain[i + 1]]))] };
         Assert.Equal("DATA_REPEATER_LIMIT", NodeRepeaterEvaluator.Evaluate(document, node, config, new Profile()).Diagnostic!.Code);
-        var shared = Document("{\"rows\":[]}"); shared = shared with { Screens = [new(screen, [owner, template])] };
+        var shared = Document("{\"rows\":[]}"); shared = shared with { Screens = [new(screen, [owner, template], new(800, 600))] };
         Assert.Equal("INVALID_REPEATER", NodeRepeaterEvaluator.Validate(shared, shared.Nodes[0], config, new Profile())!.Code);
         var cycle = Document("{\"rows\":[]}"); cycle = cycle with { Nodes = cycle.Nodes.Select(n => n.Id == template ? n with { ChildIds = [owner] } : n).ToArray() };
         Assert.Equal("INVALID_REPEATER", NodeRepeaterEvaluator.Validate(cycle, cycle.Nodes[0], config, new Profile())!.Code);

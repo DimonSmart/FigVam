@@ -1,6 +1,6 @@
 namespace FigVam.Application.Documents;
 
-public sealed record CreateDocumentCommand(Guid DocumentId);
+public sealed record CreateDocumentCommand(Guid DocumentId, string Name = "Document");
 
 public enum DocumentRole { Owner, Editor, Viewer }
 public sealed record DocumentAccessResult(string Code, Guid DocumentId)

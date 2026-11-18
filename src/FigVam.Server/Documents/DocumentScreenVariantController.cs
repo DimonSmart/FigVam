@@ -11,7 +11,7 @@ namespace FigVam.Server.Documents;
 public sealed class DocumentScreenVariantController(IDocumentScreenVariantQueries queries) : ControllerBase
 {
     [HttpGet, EndpointSummary("Read saved screen variants and property differences at one revision"), ProducesResponseType<ScreenVariantsResponse>(200)]
-    [EndpointDescription("Optional variantId selects one variant. Offset is nonnegative; limit is 1–100. Omitted overrides inherit base node properties. Component variants are independent entities.")]
+    [EndpointDescription("Optional variantId selects one variant. Offset is nonnegative; limit is 1-100. Omitted overrides inherit base node properties. Component variants are independent entities.")]
     public async Task<IActionResult> Read(Guid documentId, Guid screenId, [FromQuery] Guid? variantId, [FromQuery] long? revision, [FromQuery] int offset = 0, [FromQuery] int limit = 50, CancellationToken ct = default)
     {
         if (Request.Query.Any(q => q.Value.Count != 1 || !new[] { "variantId", "revision", "offset", "limit" }.Contains(q.Key, StringComparer.OrdinalIgnoreCase))) return BadRequest(ApiErrors.Create(400, "INVALID_QUERY"));

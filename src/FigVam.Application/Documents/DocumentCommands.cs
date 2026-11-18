@@ -10,6 +10,8 @@ public sealed record RestoreDocumentVersionCommand(Guid DocumentId, Guid Command
 public sealed record SetNodeRepeaterCommand(Guid DocumentId, Guid CommandId, Guid NodeId, long ExpectedRevision, NodeRepeater? Repeater);
 public sealed record BindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property, NodeDataBinding Binding);
 public sealed record UnbindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property);
+public sealed record SetDatasetConnectorCommand(Guid DocumentId, Guid CommandId, Guid DatasetId, long ExpectedRevision, string ConnectorId);
+public sealed record RemoveDatasetConnectorCommand(Guid DocumentId, Guid CommandId, Guid DatasetId, long ExpectedRevision);
 public sealed record DeleteDatasetCommand(Guid DocumentId, Guid CommandId, Guid DatasetId, long ExpectedRevision);
 public sealed record AddCsvDatasetCommand(Guid DocumentId, Guid CommandId, Guid DatasetId, string Name, string Csv);
 public sealed record ReplaceDatasetFixtureFromCsvCommand(Guid DocumentId, Guid CommandId, Guid DatasetId, long ExpectedRevision, string Csv);
@@ -34,7 +36,11 @@ public sealed record SetComponentParameterDefaultCommand(Guid DocumentId, Guid C
 public sealed record AddComponentParameterCommand(Guid DocumentId, Guid CommandId, Guid DefinitionId, ComponentParameter Parameter, Guid NodeId, string Property);
 public sealed record AddComponentDefinitionCommand(Guid DocumentId, Guid CommandId, Guid ComponentId, string Name, string Description, Guid RootNodeId);
 public sealed record AddPageCommand(Guid DocumentId, Guid CommandId, Guid PageId);
-public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId);
+public sealed record DeletePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, long ExpectedRevision);
+public sealed record RenameDocumentCommand(Guid DocumentId, Guid CommandId, string Name);
+public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string Name);
+public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
+public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position);
 public sealed record DeleteNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId);
 public sealed record SetNodeNameCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Name);
@@ -63,6 +69,7 @@ public interface IDocumentAuthorization
 }
 
 [System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "payloadType")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ScenarioChanged), "SCENARIO_CHANGED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenVariantChanged), "SCREEN_VARIANT_CHANGED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentSlotAdded), "COMPONENT_SLOT_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentSlotContentSet), "COMPONENT_SLOT_CONTENT_SET")]
@@ -78,6 +85,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentDefinitionAdded), "COMPONENT_DEFINITION_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeRepeaterSet), "NODE_REPEATER_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeDataBindingSet), "NODE_DATA_BINDING_SET")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(DatasetConnectorSet), "DATASET_CONNECTOR_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DatasetDeleted), "DATASET_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DatasetAdded), "DATASET_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DatasetFixtureReplaced), "DATASET_FIXTURE_REPLACED")]
@@ -85,7 +93,12 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenAdded), "TOKEN_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenValueSet), "TOKEN_VALUE_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenRenamed), "TOKEN_RENAMED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(AssetAdded), "ASSET_ADDED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(PageDeleted), "PAGE_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageAdded), "PAGE_ADDED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentRenamed), "DOCUMENT_RENAMED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(PageRenamed), "PAGE_RENAMED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenResized), "SCREEN_RESIZED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenAdded), "SCREEN_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeAdded), "NODE_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeMoved), "NODE_MOVED")]
@@ -115,20 +128,25 @@ public sealed record TokenValueSet(Guid TokenId, TokenTheme Theme, TokenExpressi
 public sealed record TokenRenamed(Guid TokenId, string Name) : DocumentEvent;
 public sealed record NodeRepeaterSet(Guid NodeId, NodeRepeater? Repeater) : DocumentEvent;
 public sealed record NodeDataBindingSet(Guid NodeId, string Property, NodeDataBinding? Binding) : DocumentEvent;
+public sealed record DatasetConnectorSet(Guid DatasetId, string? ConnectorId) : DocumentEvent;
 public sealed record DatasetDeleted(Guid DatasetId) : DocumentEvent;
 public sealed record DatasetAdded(DocumentDataset Dataset) : DocumentEvent;
 public sealed record DatasetFixtureReplaced(Guid DatasetId, string FixtureJson) : DocumentEvent;
 public sealed record TokensImported(IReadOnlyList<DesignToken> Tokens) : DocumentEvent;
 public sealed record TokenAdded(DesignToken Token) : DocumentEvent;
+public sealed record PageDeleted(Guid PageId) : DocumentEvent;
 public sealed record PageAdded(Guid PageId) : DocumentEvent;
-public sealed record ScreenAdded(Guid PageId, Guid ScreenId) : DocumentEvent;
+public sealed record DocumentRenamed(string Name) : DocumentEvent;
+public sealed record PageRenamed(Guid PageId, string Name) : DocumentEvent;
+public sealed record ScreenAdded(Guid PageId, Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
+public sealed record ScreenResized(Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
 public sealed record NodeMoved(Guid NodeId, Guid TargetParentId, int Position) : DocumentEvent;
 public sealed record NodeDeleted(Guid NodeId) : DocumentEvent;
 public sealed record NodeNameSet(Guid NodeId, string Name) : DocumentEvent;
 public sealed record NodeSemanticKeySet(Guid NodeId, string? SemanticKey) : DocumentEvent;
 public sealed record NodePropertySet(Guid NodeId, string Property, NodePropertyValue Value) : DocumentEvent;
 public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind) : DocumentEvent;
-public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null);
+public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null);
 
 public interface IDocumentCommandJournal
 {
@@ -142,6 +160,10 @@ public interface IDocumentCommandJournal
 
 public interface IDocumentCommandHandler
 {
+    Task<CommandResult> HandleAsync(UploadDocumentAssetCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(CreateScenarioCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(UpdateScenarioCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(DeleteScenarioCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddScreenVariantCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetScreenVariantOverrideCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RemoveScreenVariantOverrideCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
@@ -149,6 +171,8 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(SetNodeRepeaterCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(BindNodeDataCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(UnbindNodeDataCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(SetDatasetConnectorCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(RemoveDatasetConnectorCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(DeleteDatasetCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddCsvDatasetCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(ReplaceDatasetFixtureFromCsvCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
@@ -186,14 +210,19 @@ public interface IDocumentCommandHandler
         CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddNodeCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(DeletePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(RenameDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(RenamePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddPageCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(ResizeScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddScreenCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default);
 }
 
 public sealed partial class DocumentCommandHandler(IDocumentAuthorization authorization,
-    IDocumentCommandJournal journal, INodeProfile profile) : IDocumentCommandHandler
+    IDocumentCommandJournal journal, INodeProfile profile,
+    FigVam.Application.Connectors.IRemoteJsonConnectorCatalog? connectors = null) : IDocumentCommandHandler
 {
     public Task<CommandResult> HandleAsync(SetComponentVariantParameterChangeCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
     {
@@ -413,7 +442,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (!state.Document.ComponentDefinitions.Any(d => d.Id == command.DefinitionId)) return new(Result("COMPONENT_NOT_FOUND"), null);
             if (command.Replacement is null && state.Document.ComponentInstances.Any(i => i.DefinitionId == command.DefinitionId))
                 return new(Result("COMPONENT_IN_USE", explanation: "Provide an explicit compatible replacement or detach every instance before deleting its definition."), null);
-            var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, []);
+            var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, state.Document.Assets.Select(a => a.Id).ToArray());
             ComponentModel changed;
             try { changed = ComponentOperations.DeleteDefinition(model, command.DefinitionId, profile, command.Replacement); }
             catch (InvalidOperationException error) { return new(Result("INVALID_COMPONENT_REPLACEMENT", explanation: error.Message), null); }
@@ -440,7 +469,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (!state.Document.Nodes.Any(n => n.Id == command.NodeId)) return new(Result("NODE_NOT_FOUND"), null);
             if (!state.Document.ComponentInstances.Any(i => i.NodeId == command.NodeId)) return new(Result("NOT_COMPONENT_INSTANCE"), null);
             if (state.Revision != command.ExpectedRevision) return new(Result("REVISION_CONFLICT"), null);
-            var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, []);
+            var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, state.Document.Assets.Select(a => a.Id).ToArray());
             var errors = ComponentValidator.Validate(model, profile);
             if (errors.Count != 0) return new(Result("INVALID_COMPONENT", explanation: errors[0].Message), null);
             ComponentModel materialized;
@@ -473,7 +502,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (definition is null) return new(Result("COMPONENT_NOT_FOUND"), null);
             var screen = document.Screens.FirstOrDefault(s => s.Id == command.ParentId);
             var parent = document.Nodes.FirstOrDefault(n => n.Id == command.ParentId);
-            if (screen is null && parent is null) return new(Result(document.Datasets.Any(d => d.Id == command.ParentId) || document.Id == command.ParentId || document.Pages.Any(p => p.Id == command.ParentId) || document.ComponentDefinitions.Any(d => d.Id == command.ParentId) || document.Tokens.Any(t => t.Id == command.ParentId) ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
+            if (screen is null && parent is null) return new(Result(document.Assets.Any(a => a.Id == command.ParentId) || document.Datasets.Any(d => d.Id == command.ParentId) || document.Id == command.ParentId || document.Pages.Any(p => p.Id == command.ParentId) || document.ComponentDefinitions.Any(d => d.Id == command.ParentId) || document.Tokens.Any(t => t.Id == command.ParentId) ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
             if (parent is not null && !profile.CanContainChildren(parent.Kind)) return new(Result("CHILDREN_NOT_ALLOWED"), null);
             if (command.Position < 0 || command.Position > (screen?.ChildIds ?? parent!.ChildIds).Count) return new(Result("INVALID_POSITION"), null);
             var root = document.Nodes.Single(n => n.Id == definition.RootNodeId);
@@ -536,7 +565,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             if (!state.Document.Nodes.Any(n => n.Id == command.RootNodeId)) return new(Result("NODE_NOT_FOUND"), null);
             var definition = new ComponentDefinition(command.ComponentId, command.Name, command.Description, command.RootNodeId, [], [], []);
-            var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, []);
+            var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, state.Document.Assets.Select(a => a.Id).ToArray());
             var errors = ComponentValidator.Validate(model with { Definitions = [.. model.Definitions, definition] }, profile);
             if (errors.Count != 0) return new(Result(errors.Any(e => e.Code == "duplicate-id") ? "DUPLICATE_ID" : "INVALID_COMPONENT", explanation: errors[0].Message), null);
             var document = state.Document with { ComponentDefinitions = ComponentOperations.AddDefinition(model, definition, profile).Definitions };
@@ -752,6 +781,40 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
 
+    public async Task<CommandResult> HandleAsync(RenameDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(actor);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow);
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
+        if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty) return Result("INVALID_ID");
+        return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
+        {
+            if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            if (!DocumentNameValidator.IsValid(command.Name)) return new(Result("INVALID_DOCUMENT_NAME"), null);
+            var next = new DocumentState(state.Document with { Name = command.Name }, checked(state.Revision + 1));
+            return new(Result("ACCEPTED", next.Revision), next, new DocumentRenamed(command.Name));
+        }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
+    }
+
+    public async Task<CommandResult> HandleAsync(RenamePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(actor);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, code == "ACCEPTED" ? command.PageId : null, DateTimeOffset.UtcNow);
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
+        if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.PageId == Guid.Empty) return Result("INVALID_ID");
+        return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
+        {
+            if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            if (!state.Document.Pages.Any(p => p.Id == command.PageId)) return new(Result("PAGE_NOT_FOUND"), null);
+            if (!PageNameValidator.IsValid(command.Name)) return new(Result("INVALID_PAGE"), null);
+            var document = state.Document with { Pages = state.Document.Pages.Select(p => p.Id == command.PageId ? p with { Name = command.Name } : p).ToArray() };
+            var next = new DocumentState(document, checked(state.Revision + 1));
+            return new(Result("ACCEPTED", next.Revision), next, new PageRenamed(command.PageId, command.Name));
+        }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
+    }
+
     public async Task<CommandResult> HandleAsync(AddPageCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default)
     {
@@ -771,8 +834,8 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             var document = state.Document;
-            if (document.Datasets.Any(d => d.Id == command.PageId) || document.Id == command.PageId || document.Pages.Any(p => p.Id == command.PageId) ||
-                document.Screens.Any(s => s.Id == command.PageId) || document.Nodes.Any(n => n.Id == command.PageId) || document.Tokens.Any(t => t.Id == command.PageId) || document.ComponentDefinitions.Any(d => d.Id == command.PageId || d.Parameters.Any(p => p.Id == command.PageId) || d.Slots.Any(s => s.Id == command.PageId) || d.Variants.Any(v => v.Id == command.PageId)))
+            if (document.Assets.Any(a => a.Id == command.PageId) || document.Datasets.Any(d => d.Id == command.PageId) || document.Id == command.PageId || document.Pages.Any(p => p.Id == command.PageId) ||
+                document.Scenarios.Any(s => s.Id == command.PageId) || document.Screens.Any(s => s.Id == command.PageId || s.Variants.Any(v => v.Id == command.PageId)) || document.Nodes.Any(n => n.Id == command.PageId) || document.Tokens.Any(t => t.Id == command.PageId) || document.ComponentDefinitions.Any(d => d.Id == command.PageId || d.Parameters.Any(p => p.Id == command.PageId) || d.Slots.Any(s => s.Id == command.PageId) || d.Variants.Any(v => v.Id == command.PageId)))
                 return new(Result("DUPLICATE_ID"), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision), new(document with
@@ -782,6 +845,24 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
+    public async Task<CommandResult> HandleAsync(ResizeScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(actor);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null);
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
+        if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.ScreenId == Guid.Empty) return Result("INVALID_ID");
+        return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
+        {
+            if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            if (!state.Document.Screens.Any(s => s.Id == command.ScreenId)) return new(Result("SCREEN_NOT_FOUND"), null);
+            if (!ScreenDimensions.IsValid(command.Dimensions)) return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
+            var document = state.Document with { Screens = state.Document.Screens.Select(s => s.Id == command.ScreenId ? s with { Dimensions = command.Dimensions } : s).ToArray() };
+            var next = new DocumentState(document, checked(state.Revision + 1));
+            return new(Result("ACCEPTED", next.Revision), next, new ScreenResized(command.ScreenId, command.Dimensions));
+        }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
+    }
+
     public async Task<CommandResult> HandleAsync(AddScreenCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default)
     {
@@ -804,16 +885,17 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var document = state.Document;
             var page = document.Pages.FirstOrDefault(p => p.Id == command.PageId);
             if (page is null) return new(Result("PAGE_NOT_FOUND"), null);
-            if (document.Datasets.Any(d => d.Id == command.ScreenId) || document.Id == command.ScreenId || document.Pages.Any(p => p.Id == command.ScreenId) ||
-                document.Screens.Any(s => s.Id == command.ScreenId) || document.Nodes.Any(n => n.Id == command.ScreenId) || document.Tokens.Any(t => t.Id == command.ScreenId) || document.ComponentDefinitions.Any(d => d.Id == command.ScreenId || d.Parameters.Any(p => p.Id == command.ScreenId) || d.Slots.Any(s => s.Id == command.ScreenId) || d.Variants.Any(v => v.Id == command.ScreenId)))
+            if (document.Assets.Any(a => a.Id == command.ScreenId) || document.Datasets.Any(d => d.Id == command.ScreenId) || document.Id == command.ScreenId || document.Pages.Any(p => p.Id == command.ScreenId) ||
+                document.Scenarios.Any(s => s.Id == command.ScreenId) || document.Screens.Any(s => s.Id == command.ScreenId || s.Variants.Any(v => v.Id == command.ScreenId)) || document.Nodes.Any(n => n.Id == command.ScreenId) || document.Tokens.Any(t => t.Id == command.ScreenId) || document.ComponentDefinitions.Any(d => d.Id == command.ScreenId || d.Parameters.Any(p => p.Id == command.ScreenId) || d.Slots.Any(s => s.Id == command.ScreenId) || d.Variants.Any(v => v.Id == command.ScreenId)))
                 return new(Result("DUPLICATE_ID"), null);
+            if (!ScreenDimensions.IsValid(command.Dimensions)) return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision), new(document with
             {
                 Pages = document.Pages.Select(p => p.Id == page.Id
                     ? p with { ScreenIds = p.ScreenIds.Append(command.ScreenId).ToArray() } : p).ToArray(),
-                Screens = document.Screens.Append(new ScreenStructure(command.ScreenId, [])).ToArray()
-            }, revision), new ScreenAdded(command.PageId, command.ScreenId));
+                Screens = document.Screens.Append(new ScreenStructure(command.ScreenId, [], command.Dimensions)).ToArray()
+            }, revision), new ScreenAdded(command.PageId, command.ScreenId, command.Dimensions));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
@@ -838,13 +920,13 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             var document = state.Document;
-            if (document.Datasets.Any(d => d.Id == command.NodeId) || document.Id == command.NodeId || document.Pages.Any(p => p.Id == command.NodeId) ||
-                document.Screens.Any(s => s.Id == command.NodeId) || document.Nodes.Any(n => n.Id == command.NodeId) || document.Tokens.Any(t => t.Id == command.NodeId) || document.ComponentDefinitions.Any(d => d.Id == command.NodeId || d.Parameters.Any(p => p.Id == command.NodeId) || d.Slots.Any(s => s.Id == command.NodeId) || d.Variants.Any(v => v.Id == command.NodeId)))
+            if (document.Assets.Any(a => a.Id == command.NodeId) || document.Datasets.Any(d => d.Id == command.NodeId) || document.Id == command.NodeId || document.Pages.Any(p => p.Id == command.NodeId) ||
+                document.Scenarios.Any(s => s.Id == command.NodeId) || document.Screens.Any(s => s.Id == command.NodeId || s.Variants.Any(v => v.Id == command.NodeId)) || document.Nodes.Any(n => n.Id == command.NodeId) || document.Tokens.Any(t => t.Id == command.NodeId) || document.ComponentDefinitions.Any(d => d.Id == command.NodeId || d.Parameters.Any(p => p.Id == command.NodeId) || d.Slots.Any(s => s.Id == command.NodeId) || d.Variants.Any(v => v.Id == command.NodeId)))
                 return new(Result("DUPLICATE_ID"), null);
             var screen = document.Screens.FirstOrDefault(s => s.Id == command.ParentId);
             var parent = document.Nodes.FirstOrDefault(n => n.Id == command.ParentId);
             if (screen is null && parent is null)
-                return new(Result(document.Datasets.Any(d => d.Id == command.ParentId) || document.Id == command.ParentId || document.Pages.Any(p => p.Id == command.ParentId)
+                return new(Result(document.Assets.Any(a => a.Id == command.ParentId) || document.Datasets.Any(d => d.Id == command.ParentId) || document.Id == command.ParentId || document.Pages.Any(p => p.Id == command.ParentId)
                     ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
             if (parent is not null && !profile.CanContainChildren(parent.Kind))
                 return new(Result("CHILDREN_NOT_ALLOWED"), null);
@@ -884,7 +966,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var document = state.Document;
             var node = document.Nodes.FirstOrDefault(n => n.Id == command.NodeId);
             if (node is null)
-                return new(Result(document.Datasets.Any(d => d.Id == command.NodeId) || document.Id == command.NodeId || document.Pages.Any(p => p.Id == command.NodeId) ||
+                return new(Result(document.Assets.Any(a => a.Id == command.NodeId) || document.Datasets.Any(d => d.Id == command.NodeId) || document.Id == command.NodeId || document.Pages.Any(p => p.Id == command.NodeId) ||
                     document.Screens.Any(s => s.Id == command.NodeId) ? "INVALID_NODE_TYPE" : "NODE_NOT_FOUND"), null);
             var parents = document.Screens.Where(s => s.ChildIds.Contains(node.Id)).Select(s => s.Id)
                 .Concat(document.Nodes.Where(n => n.ChildIds.Contains(node.Id)).Select(n => n.Id)).ToArray();
@@ -893,7 +975,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var screen = document.Screens.FirstOrDefault(s => s.Id == command.TargetParentId);
             var parent = document.Nodes.FirstOrDefault(n => n.Id == command.TargetParentId);
             if (screen is null && parent is null)
-                return new(Result(document.Datasets.Any(d => d.Id == command.TargetParentId) || document.Id == command.TargetParentId || document.Pages.Any(p => p.Id == command.TargetParentId)
+                return new(Result(document.Assets.Any(a => a.Id == command.TargetParentId) || document.Datasets.Any(d => d.Id == command.TargetParentId) || document.Id == command.TargetParentId || document.Pages.Any(p => p.Id == command.TargetParentId)
                     ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
             if (parent is not null && !profile.CanContainChildren(parent.Kind))
                 return new(Result("CHILDREN_NOT_ALLOWED"), null);
@@ -908,7 +990,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var count = children.Count - (command.ExpectedParentId == command.TargetParentId ? 1 : 0);
             if (command.Position < 0 || command.Position > count) return new(Result("INVALID_POSITION"), null);
             var changed = DocumentStructureEditor.MoveNode(document, node.Id, command.TargetParentId, command.Position);
-            if (DocumentStructureValidator.Validate(changed, profile) is { Count: > 0 } moveErrors) return new(Result(moveErrors.Any(e => e.Code == "INVALID_VARIANT_NODE") ? "SCREEN_VARIANT_IN_USE" : moveErrors.Any(e => e.Code == "INVALID_REPEATER") ? "INVALID_REPEATER" : "INVALID_COMPONENT"), null);
+            if (DocumentStructureValidator.Validate(changed, profile) is { Count: > 0 } moveErrors) return new(Result(moveErrors.Any(e => e.Code == "INVALID_SCENARIO") ? "SCENARIO_IN_USE" : moveErrors.Any(e => e.Code == "INVALID_VARIANT_NODE") ? "SCREEN_VARIANT_IN_USE" : moveErrors.Any(e => e.Code == "INVALID_REPEATER") ? "INVALID_REPEATER" : "INVALID_COMPONENT"), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision),
                 new(changed, revision),
@@ -940,15 +1022,15 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var revision = checked(state.Revision + 1);
             var document = DocumentStructureEditor.DeleteNode(state.Document, command.NodeId);
             if (DocumentStructureValidator.Validate(document, profile) is { Count: > 0 } deleteErrors)
-                return new(Result(deleteErrors.Any(e => e.Code == "INVALID_VARIANT_NODE") ? "SCREEN_VARIANT_IN_USE" : deleteErrors.Any(e => e.Code == "INVALID_REPEATER") ? "INVALID_REPEATER" : "INVALID_COMPONENT"), null);
+                return new(Result(deleteErrors.Any(e => e.Code == "INVALID_SCENARIO") ? "SCENARIO_IN_USE" : deleteErrors.Any(e => e.Code == "INVALID_VARIANT_NODE") ? "SCREEN_VARIANT_IN_USE" : deleteErrors.Any(e => e.Code == "INVALID_REPEATER") ? "INVALID_REPEATER" : "INVALID_COMPONENT"), null);
             return new(Result("ACCEPTED", revision) with { AffectedIds = ChangedIds(DocumentPatch.Between(state.Document, document)) },
                 new(document, revision), new NodeDeleted(command.NodeId));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
 
-    private static Guid[] ChangedIds(DocumentPatch patch) => patch.Pages.Select(x => x.Id)
-        .Concat(patch.ComponentDefinitions.Select(x => x.Id)).Concat(patch.ComponentInstances.Select(x => x.Id))
+    private static Guid[] ChangedIds(DocumentPatch patch) => patch.Pages.Select(x => x.Id).Concat(patch.Assets.Select(x => x.Id))
+        .Concat(patch.Scenarios.Select(x => x.Id)).Concat(patch.ComponentDefinitions.Select(x => x.Id)).Concat(patch.ComponentInstances.Select(x => x.Id))
         .Concat(patch.Datasets.Select(x => x.Id)).Concat(patch.Tokens.Select(x => x.Id)).Concat(patch.Screens.Select(x => x.Id)).Concat(patch.Nodes.Select(x => x.Id)).Distinct().ToArray();
 
 }

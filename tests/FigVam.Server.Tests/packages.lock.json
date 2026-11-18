@@ -468,7 +468,8 @@
       "figvam.application": {
         "type": "Project",
         "dependencies": {
-          "FigVam.Domain": "[1.0.0, )"
+          "FigVam.Domain": "[1.0.0, )",
+          "JsonSchema.Net": "[9.7.0, )"
         }
       },
       "figvam.domain": {

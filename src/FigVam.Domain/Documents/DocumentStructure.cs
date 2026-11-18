@@ -7,6 +7,10 @@ namespace FigVam.Domain.Documents;
 // The profile registry owns node kinds and their structural capabilities.
 public interface INodeProfile
 {
+    PortableUiProfileReference Identity { get; }
+    bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event);
+    bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action);
+    bool SupportsDemoValue(string kind);
     NodePropertyDefinition? GetProperty(string kind, string property);
     bool IsKnownKind(string kind);
     bool CanContainChildren(string kind);
@@ -15,6 +19,14 @@ public interface INodeProfile
 public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pages,
     IReadOnlyList<ScreenStructure> Screens, IReadOnlyList<NodeStructure> Nodes)
 {
+    [System.Text.Json.Serialization.JsonRequired]
+    public string Name { get; init; } = "Document";
+    [System.Text.Json.Serialization.JsonRequired]
+    public PortableUiProfileReference Profile { get; init; } = PortableUiProfileReference.Production;
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<DocumentAsset> Assets { get; init; } = [];
+    [System.Text.Json.Serialization.JsonRequired]
+    public IReadOnlyList<FigVam.Domain.Preview.PreviewScenario> Scenarios { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<DocumentDataset> Datasets { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
@@ -25,8 +37,12 @@ public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pag
     public IReadOnlyList<ComponentInstance> ComponentInstances { get; init; } = [];
 }
 
-public sealed record PageStructure(Guid Id, IReadOnlyList<Guid> ScreenIds);
-public sealed record ScreenStructure(Guid Id, IReadOnlyList<Guid> ChildIds)
+public sealed record PageStructure(Guid Id, IReadOnlyList<Guid> ScreenIds)
+{
+    public string Name { get; init; } = "Page";
+}
+public sealed record ScreenStructure(Guid Id, IReadOnlyList<Guid> ChildIds,
+    [property: System.Text.Json.Serialization.JsonRequired] ScreenDimensions Dimensions)
 {
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<ScreenVariant> Variants { get; init; } = [];
@@ -187,6 +203,25 @@ public static class DocumentStructureEditor
         };
     }
 
+    public static DocumentStructure DeletePage(DocumentStructure document, Guid pageId)
+    {
+        var page = document.Pages.FirstOrDefault(p => p.Id == pageId)
+            ?? throw new InvalidOperationException("Page does not exist.");
+        var screens = page.ScreenIds.ToHashSet();
+        var nodes = document.Nodes.ToDictionary(n => n.Id);
+        var removed = new HashSet<Guid>();
+        var pending = new Stack<Guid>(document.Screens.Where(s => screens.Contains(s.Id)).SelectMany(s => s.ChildIds));
+        while (pending.TryPop(out var id))
+            if (removed.Add(id)) foreach (var child in nodes[id].ChildIds) pending.Push(child);
+        return document with
+        {
+            Pages = document.Pages.Where(p => p.Id != pageId).ToArray(),
+            Screens = document.Screens.Where(s => !screens.Contains(s.Id)).ToArray(),
+            Nodes = document.Nodes.Where(n => !removed.Contains(n.Id)).ToArray(),
+            ComponentInstances = document.ComponentInstances.Where(i => !removed.Contains(i.NodeId)).ToArray()
+        };
+    }
+
     public static DocumentStructure DeleteNode(DocumentStructure document, Guid nodeId)
     {
         var nodes = document.Nodes.ToDictionary(n => n.Id);
@@ -222,7 +257,7 @@ public static class DocumentStructureValidator
             document.ComponentDefinitions is null || document.ComponentDefinitions.Any(d => d is null ||
                 d.Parameters is null || d.Slots is null || d.Variants is null || d.Bindings is null))
             return [new("invalid-components", document.Id, null, "Component definitions, instances and their contracts are required.")];
-        return ComponentValidator.Validate(new(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, []), profile)
+        return ComponentValidator.Validate(new(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, document.Assets.Select(a => a.Id).ToArray()), profile)
             .Select(e => new StructureError(e.Code, e.ObjectId, e.ReferenceId, e.Message, e.Property)).ToArray();
     }
 
@@ -230,7 +265,10 @@ public static class DocumentStructureValidator
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(profile);
+        if (PortableUiProfileResolver.Validate(document.Profile, profile) is { } profileError)
+            return [new(profileError.Code, document.Id, null, profileError.Message, "profile")];
         var errors = new List<StructureError>();
+        if (!DocumentNameValidator.IsValid(document.Name)) errors.Add(new("INVALID_DOCUMENT_NAME", document.Id, null, "Document name is invalid.", "name"));
         var kinds = new Dictionary<Guid, string>();
         void Register(Guid id, string kind)
         {
@@ -241,6 +279,11 @@ public static class DocumentStructureValidator
         }
         if (document.Tokens is null || document.Tokens.Any(t => t is null)) { errors.Add(new("invalid-tokens", document.Id, null, "Tokens are required.")); return errors; }
         if (!DatasetValidator.IsValid(document.Datasets)) { errors.Add(new("INVALID_DATASET", document.Id, null, "Datasets or fixtures are invalid or exceed their limits.")); return errors; }
+        if (document.Scenarios is null || document.Scenarios.Any(s => s is null)) return [new("INVALID_SCENARIO", document.Id, null, "Scenarios are required.")];
+        if (!DocumentAssetValidator.IsValid(document.Assets)) return [new("INVALID_ASSET_MANIFEST", document.Id, null, "Asset manifest is invalid or exceeds its limits.")];
+        foreach (var asset in document.Assets) Register(asset.Id, "asset");
+        foreach (var scenario in document.Scenarios) Register(scenario.Id, "scenario");
+        errors.AddRange(DocumentScenarioValidator.Validate(document, profile));
         foreach (var dataset in document.Datasets) Register(dataset.Id, "dataset");
         foreach (var token in document.Tokens) Register(token.Id, "token");
         errors.AddRange(DesignTokenValidator.Validate(document.Tokens).Select(e => new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message)));
@@ -250,6 +293,7 @@ public static class DocumentStructureValidator
         foreach (var node in document.Nodes) Register(node.Id, "node");
         foreach (var screen in document.Screens)
         {
+            if (!ScreenDimensions.IsValid(screen.Dimensions)) errors.Add(new("INVALID_SCREEN_DIMENSIONS", screen.Id, null, "Screen width and height must be finite and non-negative."));
             if (screen.Variants is null) { errors.Add(new("INVALID_SCREEN_VARIANT", screen.Id, null, "Screen variants are required.")); continue; }
             foreach (var variant in screen.Variants)
                 if (variant is not null) Register(variant.Id, "screen variant");
@@ -272,8 +316,11 @@ public static class DocumentStructureValidator
         }
 
         foreach (var page in document.Pages)
+        {
+            if (!PageNameValidator.IsValid(page.Name)) errors.Add(new("invalid-page-name", page.Id, null, "Page name is invalid."));
             foreach (var id in page.ScreenIds)
                 Reference(page.Id, id, "screen");
+        }
 
         var parents = new Dictionary<Guid, int>();
         var edges = new Dictionary<Guid, List<Guid>>();
@@ -357,4 +404,14 @@ public static class NodeMetadataValidator
 {
     public static bool IsValidName(string? value) => value is not null && value.Length <= 256 && !value.Any(char.IsControl);
     public static bool IsValidSemanticKey(string? value) => value is null || value.Length is > 0 and <= 256 && !string.IsNullOrWhiteSpace(value) && !value.Any(char.IsControl);
+}
+
+public static class DocumentNameValidator
+{
+    public static bool IsValid(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256 && !value.Any(char.IsControl);
+}
+
+public static class PageNameValidator
+{
+    public static bool IsValid(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256 && !value.Any(char.IsControl);
 }

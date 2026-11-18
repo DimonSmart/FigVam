@@ -38,7 +38,7 @@ public static class ScreenVariantValidator
                 if (!reachable.Contains(item.NodeId) || !nodes.TryGetValue(item.NodeId, out var node))
                 { errors.Add(new("INVALID_VARIANT_NODE", variant.Id, item.NodeId, "Override node must belong to the variant screen.", item.Property)); continue; }
                 if (NodePropertyValidator.Validate(profile, node.Kind, item.Property, item.Value) is { } invalid)
-                    errors.Add(new(invalid.Code, item.NodeId, null, invalid.Reason, item.Property));
+                    errors.Add(new(invalid.Code, variant.Id, item.NodeId, invalid.Reason, item.Property));
                 if (item.Value is NodeTokenValue reference)
                 {
                     var token = document.Tokens.FirstOrDefault(t => t.Id == reference.TokenId);
@@ -46,7 +46,7 @@ public static class ScreenVariantValidator
                     else if (profile.GetProperty(node.Kind, item.Property)?.TokenType is { } expected && token.Type != expected)
                         errors.Add(new("type-mismatch", variant.Id, reference.TokenId, "Token type does not match the property.", item.Property));
                 }
-                if (item.Value is NodeAssetValue) errors.Add(new("missing-reference", variant.Id, item.NodeId, "Asset references require a saved asset manifest, which is not available.", item.Property));
+                if (item.Value is NodeAssetValue asset && !document.Assets.Any(a => a.Id == asset.AssetId)) errors.Add(new("missing-reference", variant.Id, asset.AssetId, "Referenced asset does not exist in this document snapshot.", item.Property));
             }
         }
         return errors;

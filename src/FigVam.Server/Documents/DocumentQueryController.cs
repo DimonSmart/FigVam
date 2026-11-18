@@ -17,6 +17,8 @@ public sealed class DocumentQueryController(IDocumentStructureQueries queries) :
     public Task<IActionResult> Pages(Guid documentId, [FromQuery] QueryOptions options, CancellationToken ct) => Read(documentId, "pages", null, options, ct);
     [HttpGet("pages/{pageId}"), EndpointSummary("Read a page")]
     public Task<IActionResult> Page(Guid documentId, Guid pageId, [FromQuery] QueryOptions options, CancellationToken ct) => Read(documentId, "page", pageId, options, ct);
+    [HttpGet("pages/{pageId}/screens"), EndpointSummary("List ordered screens on a page") ]
+    public Task<IActionResult> PageScreens(Guid documentId, Guid pageId, [FromQuery] QueryOptions options, CancellationToken ct) => Read(documentId, "page-screens", pageId, options, ct);
     [HttpGet("screens"), EndpointSummary("List document screens")]
     public Task<IActionResult> Screens(Guid documentId, [FromQuery] QueryOptions options, CancellationToken ct) => Read(documentId, "screens", null, options, ct);
     [HttpGet("screens/{screenId}"), EndpointSummary("Read a screen")]

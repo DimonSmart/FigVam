@@ -77,10 +77,16 @@ public static class ComponentValidator
             if (id == Guid.Empty) errors.Add(new("empty-id", id, null, $"{kind} ID must be nonempty."));
             if (!kinds.TryAdd(id, kind)) errors.Add(new("duplicate-id", id, null, "ID must identify one object."));
         }
+        foreach (var scenario in model.Structure.Scenarios ?? []) if (scenario is not null) Register(scenario.Id, "scenario");
         foreach (var dataset in model.Structure.Datasets) Register(dataset.Id, "dataset");
         Register(model.Structure.Id, "document");
         foreach (var p in model.Structure.Pages) Register(p.Id, "page");
-        foreach (var s in model.Structure.Screens) Register(s.Id, "screen");
+        foreach (var s in model.Structure.Screens)
+        {
+            Register(s.Id, "screen");
+            foreach (var variant in s.Variants ?? [])
+                if (variant is not null) Register(variant.Id, "screen variant");
+        }
         foreach (var n in model.Structure.Nodes) Register(n.Id, "node");
         foreach (var t in model.Tokens) Register(t.Id, "token");
         foreach (var a in model.AssetIds) Register(a, "asset");
@@ -311,6 +317,7 @@ public static class ComponentOperations
 
         var allocated = new HashSet<Guid>([model.Structure.Id,
             .. model.Structure.Pages.Select(p => p.Id), .. model.Structure.Screens.Select(s => s.Id),
+            .. model.Structure.Screens.SelectMany(s => s.Variants.Select(v => v.Id)),
             .. model.Structure.Nodes.Select(n => n.Id), .. model.Tokens.Select(t => t.Id), .. model.AssetIds,
             .. model.Definitions.SelectMany(d => new[] { d.Id }.Concat(d.Parameters.Select(p => p.Id))
                 .Concat(d.Slots.Select(s => s.Id)).Concat(d.Variants.Select(v => v.Id)))]);

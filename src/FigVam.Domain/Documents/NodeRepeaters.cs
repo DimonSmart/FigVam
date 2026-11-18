@@ -65,7 +65,7 @@ public static class NodeRepeaterEvaluator
             document.ComponentInstances.Any(i => i is null || i.ParameterOverrides is null || i.SlotContent is null || i.SlotContent.Values.Any(v => v is null)))
             return new("INVALID_REPEATER", "Component contracts are required.");
         // Avoid re-entering this validator through component structure validation.
-        if (ComponentValidator.ValidateWithoutRepeaters(new(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, []), profile).FirstOrDefault() is { } componentError)
+        if (ComponentValidator.ValidateWithoutRepeaters(new(document, document.ComponentDefinitions, document.ComponentInstances, document.Tokens, document.Assets.Select(a => a.Id).ToArray()), profile).FirstOrDefault() is { } componentError)
             return new(componentError.Code, componentError.Message);
         foreach (var root in new[] { config.TemplateNodeId, config.EmptyViewNodeId })
         {
@@ -88,7 +88,15 @@ public static class NodeRepeaterEvaluator
         NodeRepeaterResult Error(DataDiagnostic error) => new(null, null, error);
         if (Validate(document, owner, config, profile) is { } invalid) return Error(invalid);
         using var json = JsonDocument.Parse(document.Datasets.Single(d => d.Id == config.DatasetId).FixtureJson);
-        var array = DataBindingEvaluator.Evaluate(json.RootElement, config.Items);
+        return Evaluate(document, owner, config, profile, json.RootElement);
+    }
+
+    public static NodeRepeaterResult Evaluate(DocumentStructure document, NodeStructure owner, NodeRepeater config,
+        INodeProfile profile, JsonElement data)
+    {
+        NodeRepeaterResult Error(DataDiagnostic error) => new(null, null, error);
+        if (Validate(document, owner, config, profile) is { } invalid) return Error(invalid);
+        var array = DataBindingEvaluator.Evaluate(data, config.Items);
         if (array.Diagnostic is { } error) return Error(DataError(error));
         var count = array.Value!.Value.GetArrayLength();
         var template = RepeaterComponentExpansion.Expand(document, config.TemplateNodeId).Nodes;

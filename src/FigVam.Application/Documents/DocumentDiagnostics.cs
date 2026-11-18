@@ -31,7 +31,7 @@ public sealed class DocumentDiagnostics(IDocumentAuthorization authorization, ID
         {
             var screen = document.Screens.FirstOrDefault(s => s.Id == id);
             if (screen is null) return new("SCREEN_NOT_FOUND");
-            scope = [id, .. screen.Variants.Select(v => v.Id)];
+            scope = [id, .. screen.Variants.Select(v => v.Id), .. document.Scenarios.Where(s => s.ScreenId == id).Select(s => s.Id)];
             var nodes = document.Nodes.GroupBy(n => n.Id).ToDictionary(g => g.Key, g => g.ToArray());
             var pending = new Stack<Guid>(screen.ChildIds);
             while (pending.TryPop(out var child))
@@ -41,7 +41,7 @@ public sealed class DocumentDiagnostics(IDocumentAuthorization authorization, ID
         string Path(StructureError error)
         {
             var variantScreen = document.Screens.FirstOrDefault(s => s.Variants.Any(v => v.Id == error.ObjectId));
-            var category = variantScreen is not null ? "/screens/" + variantScreen.Id + "/variants/" + error.ObjectId : error.ObjectId == document.Id ? "" : document.Pages.Any(p => p.Id == error.ObjectId) ? "/pages/" + error.ObjectId :
+            var category = document.Scenarios.Any(s => s.Id == error.ObjectId) ? "/scenarios/" + error.ObjectId : variantScreen is not null ? "/screens/" + variantScreen.Id + "/variants/" + error.ObjectId : error.ObjectId == document.Id ? "" : document.Pages.Any(p => p.Id == error.ObjectId) ? "/pages/" + error.ObjectId :
                 document.Screens.Any(s => s.Id == error.ObjectId) ? "/screens/" + error.ObjectId : "/nodes/" + error.ObjectId;
             var property = error.Property is null ? "" : "/properties/" + error.Property.Replace("~", "~0").Replace("/", "~1");
             return "/documents/" + document.Id + category + property;

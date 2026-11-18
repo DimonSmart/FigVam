@@ -71,3 +71,61 @@ Components in repeater templates and empty views now expand with variants, overr
 DTCG 2025.10 token export implemented with revision/theme and explicit unsupported diagnostics; build and three focused tests passed; full run interrupted. Typography rejected due missing DTCG data/ambiguous line height; Viewer export denied pending policy.
 
 Atomic DTCG import with explicit Light/Dark and dimension mapping implemented; 286 full tests passed before final boundary refinements, 3 focused after.
+
+Screen variants, typed overrides, revision reads and safe history completed after interrupted attempt; 291 full tests passed before final test additions and seven focused after; production profile unchanged.
+
+Persistent prototype scenarios and management implemented; 296 full tests before final adjustments and 7 focused tests after; production profile unchanged.
+
+Revision-based isolated Preview sessions connected to persisted scenarios; build and 304 tests passed, production profile unchanged.
+
+Secure internal remote JSON connector implemented; build and 334 tests passed, 30 focused after test refinement. Rate/concurrency limits process-local; not yet connected to Preview.
+
+Dataset connector assignment/removal and persistence implemented without network reads; build, 338 full tests and four focused tests passed.
+
+Preview remote data refresh with local fallback and bounded evaluation implemented; build and 44 focused tests passed, full suite interrupted without result.
+
+Revision-aware screen variant comparison API implemented; eight focused tests passed.
+
+Persistent page names and rename API implemented; build and three focused tests passed.
+
+Screen dimensions create/resize end-to-end implemented; build and six focused tests passed; full run 348/350 with intermittent OpenAPI timeouts, focused rerun passed.
+
+OpenAPI test timeout investigated and adjusted based on measured response time; 13 focused and all 350 full tests passed; no retries.
+
+Page deletion with protected references and history implemented; 11 focused tests passed; full run 355/358 due three initial POST timeouts, isolated reruns passed.
+
+POST timeout investigation: overlapping 3s deadline removed, 15s request cap retained; build passed. Full suite 331/358 under saturated host, verification remains unresolved.
+
+Standalone version-1 document.json export implemented; build and five new tests passed; combined regression 6/8 due host timeouts (new API isolated passed). Asset dependencies rejected; archive/import not implemented.
+
+Deterministic .figvam container export with manifest and SHA-256 implemented; build and three focused tests passed; unavailable assets rejected.
+
+Secure bounded v1 JSON/.figvam reader and schema/domain/profile validation implemented without persistence; build and 28 focused regression tests passed.
+
+Validated v1 JSON/.figvam reopening as atomic new owned document implemented; build and 41 focused tests passed.
+
+Asset manifest, validated PNG upload, durable content and revision-authorized reads implemented; 81 related tests passed. Import/export asset integration pending.
+
+Asset-aware .figvam export and atomic import completed; solution rebuild and 54 focused tests passed.
+
+Durable Portable UI Profile identity/version and centralized resolution implemented; build, 66 related and 12 final focused tests passed; production profile remains empty.
+
+Persistent document names and authorized rename implemented; build and 37 focused tests passed.
+
+Authenticated paginated document list with current name/role implemented; two focused tests passed; per-document consistency, no global snapshot.
+
+Initial authenticated document list/create/open UI and editor shell implemented; build, 19 server tests and four Playwright scenarios passed; editing remains unavailable.
+
+Accessible editor page management implemented; server build and six browser tests passed; Viewer UI role tested by mock.
+
+Editor screen creation/selection and paginated authorized screens query implemented; build, five server tests and one browser test passed.
+
+Selected screen canvas with local accessible viewport controls implemented; build and focused browser test passed; full browser suite 6/8 with HTTP failure and subsequent timeout needing diagnosis.
+
+Playwright suite failures traced to shared rate-limit budget; isolated scenario servers/storage without changing production limiter; affected 2/2 and full 8/8 passed.
+
+Read-only paginated accessible layer tree and inspector selection implemented; build and two mocked-node browser tests passed; continuous subscription pending.
+
+Accessible immutable Save/version UI with idempotent uncertain-result retry and clear draft messages implemented; server build and all 12 browser tests passed.
+
+Saved version history and confirmed idempotent restore UI implemented; server build and six focused browser scenarios passed.

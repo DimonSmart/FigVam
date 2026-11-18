@@ -1,6 +1,8 @@
 using FigVam.ServiceDefaults;
 using FigVam.Server.Authentication;
 using FigVam.Server.Documents;
+using FigVam.Server.Connectors;
+using FigVam.Server.Editor;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.RateLimiting;
 using Microsoft.OpenApi;
@@ -22,6 +24,7 @@ catch (Exception exception) when (exception is InvalidOperationException or Argu
 }
 
 builder.AddDocumentServices();
+builder.AddRemoteJsonConnector();
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
 builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 {
@@ -48,6 +51,34 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
                 [new OpenApiSecuritySchemeReference("Bearer", document)] = []
             });
         }
+    foreach (var (route, mediaType, schemaType, description) in new[]
+    {
+        ("/api/v1/documents/import/document.json", "application/json", JsonSchemaType.Object,
+            "Raw document file; complete schema: /api/v1/schemas/document-v1.json. Maximum 16777216 bytes."),
+        ("/api/v1/documents/import/container.figvam", "application/zip", JsonSchemaType.String,
+            "Raw binary ZIP container; manifest schema: /api/v1/schemas/manifest-v1.json. Maximum 16842752 bytes.")
+    })
+        if (document.Paths.TryGetValue(route, out var path))
+            foreach (var operation in path.Operations!.Values)
+                operation.RequestBody = new OpenApiRequestBody
+                {
+                    Required = true, Description = description,
+                    Content = new Dictionary<string, OpenApiMediaType>
+                    {
+                        [mediaType] = new() { Schema = new OpenApiSchema
+                            { Type = schemaType, Format = mediaType == "application/zip" ? "binary" : null, Description = description } }
+                    }
+                };
+    if (document.Paths.TryGetValue("/api/v1/documents/{documentId}/assets/{assetId}", out var assetPath))
+        foreach (var (method, operation) in assetPath.Operations!)
+        {
+            var binaryContent = new Dictionary<string, OpenApiMediaType>
+            { ["image/png"] = new() { Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary", MaxLength = FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes } } };
+            if (method.ToString().Equals("PUT", StringComparison.OrdinalIgnoreCase))
+                operation.RequestBody = new OpenApiRequestBody { Required = true, Content = binaryContent };
+            if (method.ToString().Equals("GET", StringComparison.OrdinalIgnoreCase) && operation.Responses?.TryGetValue("200", out var success) == true)
+                operation.Responses!["200"] = new OpenApiResponse { Description = success.Description, Content = binaryContent };
+        }
     return Task.CompletedTask;
 }));
 builder.Services.AddRateLimiter(options =>
@@ -61,9 +92,11 @@ var app = builder.Build();
 app.UseExceptionHandler(handler => handler.Run(async context =>
 {
     var exception = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
-    var status = exception is BadHttpRequestException badRequest ? badRequest.StatusCode : 500;
+    var status = exception is FigVam.Domain.Documents.PortableUiProfileException ? 400 :
+        exception is BadHttpRequestException badRequest ? badRequest.StatusCode : 500;
     context.Response.StatusCode = status;
-    await context.Response.WriteAsJsonAsync(ApiErrors.Create(status));
+    await context.Response.WriteAsJsonAsync(ApiErrors.Create(status,
+        (exception as FigVam.Domain.Documents.PortableUiProfileException)?.Code));
 }));
 app.UseStatusCodePages(async status =>
     await status.HttpContext.Response.WriteAsJsonAsync(ApiErrors.Create(status.HttpContext.Response.StatusCode)));
@@ -75,6 +108,7 @@ app.MapGet("/api/identity", (System.Security.Claims.ClaimsPrincipal user) => use
 app.MapControllers();
 app.MapOpenApi();
 app.MapDocumentSchemas();
+app.MapEditor();
 app.Run();
 
 public partial class Program;

@@ -5,25 +5,56 @@ using Microsoft.Data.Sqlite;
 
 namespace FigVam.Infrastructure.Documents;
 
-public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDocumentAccessService
+public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDocumentAccessService, IDocumentImportStore
 {
     public Task<DocumentAccessResult> CreateAsync(CreateDocumentCommand request, DocumentActor actor, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (!DocumentNameValidator.IsValid(request.Name)) return Task.FromResult(new DocumentAccessResult("INVALID_DOCUMENT_NAME", request.DocumentId));
+        return CreateOwnedAsync(new DocumentStructure(request.DocumentId, [], [], []) { Profile = profile.Identity, Name = request.Name }, [], actor, cancellationToken);
+    }
+
+    public Task<DocumentAccessResult> CreateImportedAsync(DocumentStructure document, IReadOnlyList<DocumentAssetContent> assets, DocumentActor actor,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(assets);
+        return CreateOwnedAsync(document, assets, actor, cancellationToken);
+    }
+
+    private Task<DocumentAccessResult> CreateOwnedAsync(DocumentStructure document, IReadOnlyList<DocumentAssetContent> assets, DocumentActor actor,
+        CancellationToken cancellationToken)
+    {
         ArgumentNullException.ThrowIfNull(actor);
+        // Freeze content before asynchronous persistence, and verify the entire manifest.
+        var importedAssets = assets.Select(a => new DocumentAssetContent(a.Asset, a.Content.ToArray())).ToArray();
         return Task.Run(() =>
         {
             if (string.IsNullOrWhiteSpace(actor.Id)) return new DocumentAccessResult("FORBIDDEN", Guid.Empty);
-            var id = request.DocumentId;
+            var id = document.Id;
             if (id == Guid.Empty) return new DocumentAccessResult("INVALID_ID", id);
+            Validate(document);
+            if (importedAssets.Length != document.Assets.Count || importedAssets.Select(a => a.Asset.Id).Distinct().Count() != importedAssets.Length ||
+                importedAssets.Any(a => !document.Assets.Contains(a.Asset) || SafeRasterImage.Inspect(a.Asset.Id, a.Asset.ContentType, a.Content) != a.Asset))
+                return new DocumentAccessResult("INVALID_ASSET", id);
             using var connection = Open(id);
             using var transaction = connection.BeginTransaction(deferred: false);
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = "SELECT EXISTS(SELECT 1 FROM snapshots)";
             if ((long)command.ExecuteScalar()! != 0) return new DocumentAccessResult("DOCUMENT_EXISTS", id);
+            foreach (var asset in importedAssets)
+            {
+                using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = "INSERT INTO asset_content(sha256,content) VALUES($hash,$content) ON CONFLICT(sha256) DO NOTHING";
+                insert.Parameters.AddWithValue("$hash", asset.Asset.Sha256);
+                insert.Parameters.AddWithValue("$content", asset.Content);
+                insert.ExecuteNonQuery();
+            }
+            ValidateStoredAssets(connection, transaction, document);
             command.CommandText = "INSERT INTO snapshots(revision,document) VALUES(0,$document); INSERT INTO members(actor_id,role) VALUES($actor,'Owner');";
-            command.Parameters.AddWithValue("$document", JsonSerializer.Serialize(new DocumentStructure(id, [], [], [])));
+            command.Parameters.AddWithValue("$document", JsonSerializer.Serialize(document));
             command.Parameters.AddWithValue("$actor", actor.Id);
             command.ExecuteNonQuery();
             cancellationToken.ThrowIfCancellationRequested();

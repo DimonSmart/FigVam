@@ -16,6 +16,10 @@ public sealed class NodePropertyTests : IDisposable
     private readonly DocumentActor bob = new("bob");
     private sealed class TestProfile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "test-node";
         public bool CanContainChildren(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => kind != "test-node" ? null : property switch
@@ -33,7 +37,7 @@ public sealed class NodePropertyTests : IDisposable
     }
     private SqliteDocumentJournal Journal() => new(directory, new TestProfile());
     private DocumentCommandHandler Handler(bool edit = true) => new(new Authorization(edit), Journal(), new TestProfile());
-    private Task Seed() => Journal().InitializeAsync(new(documentId, [], [new(Guid.NewGuid(), [nodeId])], [new(nodeId, "test-node", [])]));
+    private Task Seed() => Journal().InitializeAsync(new(documentId, [], [new(Guid.NewGuid(), [nodeId], new(800, 600))], [new(nodeId, "test-node", [])]));
     private SetNodePropertyCommand Set(string property, NodePropertyValue value) => new(documentId, Guid.NewGuid(), nodeId, property, value);
     private async Task<NodePropertyValue> Read(string property) => Assert.Single((await Journal().ReadAsync(documentId))!.Document.Nodes).Properties[property];
 
@@ -180,7 +184,7 @@ public sealed class NodePropertyTests : IDisposable
         if (crashDirectory is null) return;
         var command = JsonSerializer.Deserialize<SetNodePropertyCommand>(Environment.GetEnvironmentVariable("FIGVAM_PROPERTY_CRASH_COMMAND")!)!;
         var journal = new SqliteDocumentJournal(crashDirectory, new TestProfile());
-        await journal.InitializeAsync(new(command.DocumentId, [], [new(Guid.NewGuid(), [command.NodeId])], [new(command.NodeId, "test-node", [])]));
+        await journal.InitializeAsync(new(command.DocumentId, [], [new(Guid.NewGuid(), [command.NodeId], new(800, 600))], [new(command.NodeId, "test-node", [])]));
         var result = await new DocumentCommandHandler(new Authorization(), journal, new TestProfile()).HandleAsync(command, new("alice"));
         await File.WriteAllTextAsync(Path.Combine(crashDirectory, "property-result.json"), JsonSerializer.Serialize(result));
         Environment.Exit(23);
@@ -194,7 +198,7 @@ public sealed class NodePropertyTests : IDisposable
         var second = first with { Properties = first.Properties.Clear().Add("text", new NodeStringValue("hello")).Add("visible", new NodeBooleanValue(true)) };
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(second));
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(JsonSerializer.Deserialize<NodeStructure>(JsonSerializer.Serialize(first))));
-        var document = new DocumentStructure(documentId, [], [new(Guid.NewGuid(), [nodeId])], [first with { Properties = first.Properties.Add("width", new NodeNumberValue(-1)) }]);
+        var document = new DocumentStructure(documentId, [], [new(Guid.NewGuid(), [nodeId], new(800, 600))], [first with { Properties = first.Properties.Add("width", new NodeNumberValue(-1)) }]);
         var error = Assert.Single(DocumentStructureValidator.Validate(document, new TestProfile()));
         Assert.Equal(nodeId, error.ObjectId);
         Assert.Equal("width", error.Property);

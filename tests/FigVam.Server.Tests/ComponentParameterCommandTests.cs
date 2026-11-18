@@ -21,6 +21,10 @@ public sealed partial class ComponentParameterCommandTests
 {
     private sealed class Profile : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => kind == "test";
         public NodePropertyDefinition? GetProperty(string kind, string property) => property switch
@@ -55,7 +59,7 @@ public sealed partial class ComponentParameterCommandTests
         public async Task Initialize()
         {
             var screen = Guid.NewGuid();
-            var document = new DocumentStructure(Id, [new(Guid.NewGuid(), [screen])], [new(screen, [Root, Anchor])],
+            var document = new DocumentStructure(Id, [new(Guid.NewGuid(), [screen])], [new(screen, [Root, Anchor], new(800, 600))],
                 [new(Root, "test", [Child]), new(Child, "test", []), new(Anchor, "test", [])])
             {
                 Tokens = [new(TokenId, "Color", TokenType.Color, new Dictionary<TokenTheme, TokenExpression> { [TokenTheme.Light] = new LiteralTokenValue(new ColorValue(1, 2, 3)), [TokenTheme.Dark] = new LiteralTokenValue(new ColorValue(4, 5, 6)) })],
@@ -236,7 +240,7 @@ public sealed partial class ComponentParameterCommandTests
         Assert.True((await f.Handler.HandleAsync(command, new("owner"))).Accepted);
         var state = (await f.Journal.ReadAsync(f.Id))!;
         Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddPageCommand(f.Id, Guid.NewGuid(), command.Parameter.Id), new("editor"))).Code);
-        Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddScreenCommand(f.Id, Guid.NewGuid(), state.Document.Pages.Single().Id, command.Parameter.Id), new("editor"))).Code);
+        Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddScreenCommand(f.Id, Guid.NewGuid(), state.Document.Pages.Single().Id, command.Parameter.Id, new(800, 600)), new("editor"))).Code);
         Assert.Equal("DUPLICATE_ID", (await f.Handler.HandleAsync(new AddNodeCommand(f.Id, Guid.NewGuid(), f.Root, command.Parameter.Id, "test"), new("editor"))).Code);
         Assert.True((await f.Handler.HandleAsync(new UndoDocumentCommand(f.Id, Guid.NewGuid()), new("owner"))).Accepted);
         var restricted = new DocumentCommandHandler(new Authorization(), f.Journal, new WithoutBooleanProperty());
@@ -247,6 +251,10 @@ public sealed partial class ComponentParameterCommandTests
 
     private sealed class WithoutBooleanProperty : INodeProfile
     {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
+        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
+        public bool SupportsDemoValue(string kind) => false;
         private readonly Profile profile = new();
         public bool IsKnownKind(string kind) => profile.IsKnownKind(kind);
         public bool CanContainChildren(string kind) => profile.CanContainChildren(kind);

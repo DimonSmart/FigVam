@@ -31,8 +31,8 @@ public sealed class RevisionDiffTests
     public async Task ComparesStructuralChangesAndPaginatesDeterministically()
     {
         var doc = Guid.NewGuid(); var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var a = Guid.NewGuid(); var b = Guid.NewGuid(); var c = Guid.NewGuid();
-        var first = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [a, b])], [new(a, "Frame", []) { Name = "Old" }, new(b, "Text", [])]);
-        var second = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [c, a])], [new(a, "Frame", []) { Name = "New", SemanticKey = "key", Properties = System.Collections.Immutable.ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("hello")) }, new(c, "Text", [])]);
+        var first = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [a, b], new(800, 600))], [new(a, "Frame", []) { Name = "Old" }, new(b, "Text", [])]);
+        var second = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [c, a], new(800, 600))], [new(a, "Frame", []) { Name = "New", SemanticKey = "key", Properties = System.Collections.Immutable.ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("hello")) }, new(c, "Text", [])]);
         var reader = new Reader(first, second); var service = new DocumentRevisionDiff(new Access(), reader); var actor = new DocumentActor("reader");
         var result = (await service.CompareAsync(doc, 1, 2, 0, 100, actor)).Response!;
         Assert.Equal(3, result.Total);
