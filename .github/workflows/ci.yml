@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build solution
+        run: dotnet build FigVam.sln --no-restore
+      - name: Server tests
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --logger "trx;LogFileName=server-tests.trx" --results-directory TestResults
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-diagnostics
+          path: TestResults/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  playwright:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/FigVam.Ui.Tests/package-lock.json
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build solution
+        run: dotnet build FigVam.sln --no-restore
+      - name: Install UI dependencies
+        working-directory: tests/FigVam.Ui.Tests
+        run: npm ci
+      - name: Install Chromium
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright install chromium
+      - name: Playwright tests
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test --trace retain-on-failure
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-diagnostics
+          path: tests/FigVam.Ui.Tests/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
