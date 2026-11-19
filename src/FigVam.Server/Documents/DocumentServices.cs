@@ -35,6 +35,7 @@ public static class DocumentServices
         builder.Services.AddSingleton<IDocumentRevisionDiff, DocumentRevisionDiff>();
         builder.Services.AddSingleton<IDocumentDiagnostics, DocumentDiagnostics>();
         builder.Services.AddSingleton<IDocumentScenarioQueries, DocumentScenarioQueries>();
+        builder.Services.AddSingleton<IScenarioCapabilitiesQuery, ScenarioCapabilitiesQuery>();
         builder.Services.AddSingleton<IDocumentPreviewFactory, DocumentPreviewFactory>();
         builder.Services.AddSingleton<IDocumentScreenVariantQueries, DocumentScreenVariantQueries>();
         builder.Services.AddSingleton<IDocumentScreenVariantDiff, DocumentScreenVariantDiff>();

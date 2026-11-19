@@ -14,6 +14,7 @@ public sealed class PageDeletionTests : IDisposable
     private readonly DocumentActor owner = new("owner"), editor = new("editor");
     private sealed class Access : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(actor.Id != "outsider");
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(actor.Id is "owner" or "editor");
     }

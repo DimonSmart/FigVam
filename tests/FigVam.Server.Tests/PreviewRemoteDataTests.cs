@@ -22,6 +22,7 @@ public sealed class PreviewRemoteDataTests
     }
     private sealed class Authorization : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public bool Allowed = true;
         public int Checks;
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid id, CancellationToken ct)

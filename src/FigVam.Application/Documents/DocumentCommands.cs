@@ -37,6 +37,7 @@ public sealed record AddComponentParameterCommand(Guid DocumentId, Guid CommandI
 public sealed record AddComponentDefinitionCommand(Guid DocumentId, Guid CommandId, Guid ComponentId, string Name, string Description, Guid RootNodeId);
 public sealed record AddPageCommand(Guid DocumentId, Guid CommandId, Guid PageId);
 public sealed record DeletePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, long ExpectedRevision);
+public sealed record DeleteDocumentCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision);
 public sealed record RenameDocumentCommand(Guid DocumentId, Guid CommandId, string Name);
 public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string Name);
 public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
@@ -64,6 +65,8 @@ public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code,
 
 public interface IDocumentAuthorization
 {
+    // Retained Owner membership permits retrying deletion after the document becomes inaccessible.
+    ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken);
     ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken);
     ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken);
 }
@@ -96,6 +99,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(AssetAdded), "ASSET_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageDeleted), "PAGE_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageAdded), "PAGE_ADDED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentDeleted), "DOCUMENT_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentRenamed), "DOCUMENT_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageRenamed), "PAGE_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenResized), "SCREEN_RESIZED")]
@@ -136,6 +140,7 @@ public sealed record TokensImported(IReadOnlyList<DesignToken> Tokens) : Documen
 public sealed record TokenAdded(DesignToken Token) : DocumentEvent;
 public sealed record PageDeleted(Guid PageId) : DocumentEvent;
 public sealed record PageAdded(Guid PageId) : DocumentEvent;
+public sealed record DocumentDeleted : DocumentEvent;
 public sealed record DocumentRenamed(string Name) : DocumentEvent;
 public sealed record PageRenamed(Guid PageId, string Name) : DocumentEvent;
 public sealed record ScreenAdded(Guid PageId, Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
@@ -160,6 +165,7 @@ public interface IDocumentCommandJournal
 
 public interface IDocumentCommandHandler
 {
+    Task<CommandResult> HandleAsync(DeleteDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(UploadDocumentAssetCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(CreateScenarioCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(UpdateScenarioCommand command, DocumentActor actor, CancellationToken cancellationToken = default);

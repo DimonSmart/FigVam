@@ -16,7 +16,7 @@ public sealed class DocumentVersionController(IDocumentVersionReader reader) : C
     /// <summary>List saved versions in descending revision order. Pass nextBeforeRevision as beforeRevision for the next page.</summary>
     [HttpGet, EndpointSummary("List saved document versions")]
     [ProducesResponseType<VersionHistoryResponse>(200)]
-    [ProducesResponseType<ApiError>(400), ProducesResponseType<ApiError>(401), ProducesResponseType<ApiError>(403), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
+    [ProducesResponseType<ApiError>(400), ProducesResponseType<ApiError>(401), ProducesResponseType<ApiError>(403), ProducesResponseType<ApiError>(404), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
     public async Task<IActionResult> List(Guid documentId, [FromQuery, Range(1, 100)] int limit = 50,
         [FromQuery, Range(1, long.MaxValue)] long? beforeRevision = null, CancellationToken cancellationToken = default)
     {
@@ -25,7 +25,7 @@ public sealed class DocumentVersionController(IDocumentVersionReader reader) : C
         var result = await reader.ListAsync(documentId, User.GetDocumentActor(), limit, beforeRevision, cancellationToken);
         if (result.Code == "VERSIONS" && result.Versions is not null)
             return Ok(new VersionHistoryResponse(result.Versions.Select(v => new VersionMetadataResponse(v.Id, v.Name, v.Timestamp, v.AuthorId, v.Revision)).ToArray(), result.NextBeforeRevision));
-        var status = result.Code switch { "FORBIDDEN" => 403, "INVALID_ID" or "INVALID_PAGE" => 400, _ => 500 };
+        var status = result.Code switch { "FORBIDDEN" => 403, "DOCUMENT_NOT_FOUND" => 404, "INVALID_ID" or "INVALID_PAGE" => 400, _ => 500 };
         return StatusCode(status, ApiErrors.Create(status, status == 500 ? "INTERNAL_ERROR" : result.Code));
     }
 }

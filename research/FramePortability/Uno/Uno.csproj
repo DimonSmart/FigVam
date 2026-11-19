@@ -10,4 +10,5 @@
     <ApplicationVersion>1</ApplicationVersion>
     <UnoFeatures>Skia</UnoFeatures>
   </PropertyGroup>
+  <ItemGroup><Compile Include="../RectanglePixels.cs" Link="RectanglePixels.cs" /></ItemGroup>
 </Project>

@@ -5,6 +5,8 @@ using FigVam.Domain.Documents;
 namespace FigVam.Server.Documents;
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class DeleteDocumentRequest { public required Guid CommandId { get; init; } [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; } }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DeletePageRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; } }
 public sealed class RenameDocumentRequest { public required Guid CommandId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

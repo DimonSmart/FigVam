@@ -135,7 +135,7 @@ test('manages pages with keyboard and confirmation, preserving IDs and revision'
   await expect(page.locator('#pages button')).toHaveText('Главная');
   const result = await page.evaluate(async () => fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json()));
   expect(result.items[0].id).toBe(id);
-  await expect(page.locator('#revision')).toHaveText(`Ревизия ${result.revision}`);
+  await expect(page.locator('#revision')).toHaveText(`Общий черновик · ревизия ${result.revision}`);
   page.once('dialog', dialog => { expect(dialog.message()).toContain('экраны'); dialog.dismiss(); });
   await page.getByRole('button', { name: 'Удалить страницу' }).click();
   await expect(page.locator('#pages button')).toHaveCount(1);

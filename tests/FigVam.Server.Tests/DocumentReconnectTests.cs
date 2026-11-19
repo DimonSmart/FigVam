@@ -22,6 +22,7 @@ public sealed class DocumentReconnectTests : IDisposable
     }
     private sealed class Authorization : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public Guid AllowedDocument { get; set; }
         public bool ReadAllowed { get; set; } = true;
         public int ReadChecks { get; private set; }
@@ -35,6 +36,7 @@ public sealed class DocumentReconnectTests : IDisposable
     }
     private sealed class Editor : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)
             => ValueTask.FromResult(true);
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)

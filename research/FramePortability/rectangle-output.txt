@@ -1,0 +1,122 @@
+=== Html/Html.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+Edge/Chromium 157.0.4341.60
+PASS HTML div 320x180 CSS px DPR=1; empty nonfocusable generic container; no interactive AX role; PNG rendered (660 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1; fill=64,128,192,255; bitmap=320x180; interior=57600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1; fill=64,128,192,128; bitmap=320x180; interior=57600; alpha=128..128; colors=[64,128,191,128]
+PASS HTML div 123,5x67,25 CSS px DPR=1; empty nonfocusable generic container; no interactive AX role; PNG rendered (241 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=1; fill=64,128,192,255; bitmap=123x67; interior=8241; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=1; fill=64,128,192,128; bitmap=123x67; interior=8241; alpha=128..128; colors=[64,128,191,128]
+PASS HTML div 1x1 CSS px DPR=1; empty nonfocusable generic container; no interactive AX role; PNG rendered (87 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=1; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=1; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+PASS HTML div 320x180 CSS px DPR=1,5; empty nonfocusable generic container; no interactive AX role; PNG rendered (1112 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1,5; fill=64,128,192,255; bitmap=480x270; interior=129600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1,5; fill=64,128,192,128; bitmap=480x270; interior=129600; alpha=128..128; colors=[64,128,191,128]
+PASS HTML div 123,5x67,25 CSS px DPR=1,5; empty nonfocusable generic container; no interactive AX role; PNG rendered (351 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=1,5; fill=64,128,192,255; bitmap=185x101; interior=18500; alpha=127..255; colors=[64,128,191,128;64,128,192,255;64,129,193,127]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=1,5; fill=64,128,192,128; bitmap=185x101; interior=18500; alpha=64..128; colors=[64,128,191,128;64,128,191,64]
+PASS HTML div 1x1 CSS px DPR=1,5; empty nonfocusable generic container; no interactive AX role; PNG rendered (89 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=1,5; fill=64,128,192,255; bitmap=2x2; interior=1; alpha=128..255; colors=[64,128,191,128;64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=1,5; fill=64,128,192,128; bitmap=2x2; interior=1; alpha=64..128; colors=[64,128,191,128;64,128,191,64]
+PASS HTML div 320x180 CSS px DPR=2; empty nonfocusable generic container; no interactive AX role; PNG rendered (1718 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=2; fill=64,128,192,255; bitmap=640x360; interior=230400; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=2; fill=64,128,192,128; bitmap=640x360; interior=230400; alpha=128..128; colors=[64,128,191,128]
+PASS HTML div 123,5x67,25 CSS px DPR=2; empty nonfocusable generic container; no interactive AX role; PNG rendered (467 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=2; fill=64,128,192,255; bitmap=246x134; interior=32964; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=2; fill=64,128,192,128; bitmap=246x134; interior=32964; alpha=128..128; colors=[64,128,191,128]
+PASS HTML div 1x1 CSS px DPR=2; empty nonfocusable generic container; no interactive AX role; PNG rendered (89 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=2; fill=64,128,192,255; bitmap=2x2; interior=4; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=2; fill=64,128,192,128; bitmap=2x2; interior=4; alpha=128..128; colors=[64,128,191,128]
+
+
+=== Wpf/Wpf.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+PASS WPF Grid 320x180 DIP; empty nonfocusable Panel; automation peer absent; transparent bitmap 320x180
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=320x180; scale=1; fill=64,128,192,255; bitmap=320x180; interior=57600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=320x180; scale=1; fill=64,128,192,128; bitmap=320x180; interior=57600; alpha=128..128; colors=[64,128,191,128]
+PASS WPF Grid 123,5x67,25 DIP; empty nonfocusable Panel; automation peer absent; transparent bitmap 124x68
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=123,5x67,25; scale=1; fill=64,128,192,255; bitmap=124x68; interior=8241; alpha=32..255; colors=[64,128,191,128;64,128,191,32;64,128,191,64;64,128,192,255]
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=123,5x67,25; scale=1; fill=64,128,192,128; bitmap=124x68; interior=8241; alpha=16..128; colors=[64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,64]
+PASS WPF Grid 1x1 DIP; empty nonfocusable Panel; automation peer absent; transparent bitmap 1x1
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=1x1; scale=1; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=1x1; scale=1; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+
+
+=== Avalonia/FigVam.FrameResearch.Avalonia.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+PASS Avalonia Grid 320x180 logical units; empty nonfocusable Panel; automation role None; transparent bitmap 320x180
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=320x180; scale=1; fill=64,128,192,255; bitmap=320x180; interior=57600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=320x180; scale=1; fill=64,128,192,128; bitmap=320x180; interior=57600; alpha=128..128; colors=[64,128,191,128]
+PASS Avalonia Grid 123,5x67,25 logical units; empty nonfocusable Panel; automation role None; transparent bitmap 124x68
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=123,5x67,25; scale=1; fill=64,128,192,255; bitmap=124x68; interior=8241; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,192,255]
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=123,5x67,25; scale=1; fill=64,128,192,128; bitmap=124x68; interior=8241; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,64]
+PASS Avalonia Grid 1x1 logical units; empty nonfocusable Panel; automation role None; transparent bitmap 1x1
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=1x1; scale=1; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=1x1; scale=1; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+
+
+=== Uno/Uno.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+Uno automation peer: absent
+PASS Uno Grid 320x180 logical units; empty Panel; absent automation peer; scale=1.25; transparent bitmap 400x225
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=320x180; scale=1.25; fill=64,128,192,255; bitmap=400x225; interior=90000; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=320x180; scale=1.25; fill=64,128,192,128; bitmap=400x225; interior=90000; alpha=128..128; colors=[64,128,191,128]
+Uno automation peer: absent
+PASS Uno Grid 123.5x67.25 logical units; empty Panel; absent automation peer; scale=1.25; transparent bitmap 154x84
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=123.5x67.25; scale=1.25; fill=64,128,192,255; bitmap=154x84; interior=12936; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=123.5x67.25; scale=1.25; fill=64,128,192,128; bitmap=154x84; interior=12936; alpha=128..128; colors=[64,128,191,128]
+Uno automation peer: absent
+PASS Uno Grid 1x1 logical units; empty Panel; absent automation peer; scale=1.25; transparent bitmap 1x1
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=1x1; scale=1.25; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=1x1; scale=1.25; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+
+

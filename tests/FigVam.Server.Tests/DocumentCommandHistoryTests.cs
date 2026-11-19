@@ -24,6 +24,7 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     }
     private sealed class Authorization(bool allowed = true) : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken) => ValueTask.FromResult(allowed);
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken) => ValueTask.FromResult(allowed);
     }

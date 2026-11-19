@@ -16,6 +16,7 @@ public sealed class DocumentQueryTests
 {
     private sealed class Access : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken ct) => ValueTask.FromResult(actor.Id == "reader");
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken ct) => ValueTask.FromResult(false);
     }

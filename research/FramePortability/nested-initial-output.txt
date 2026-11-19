@@ -1,0 +1,258 @@
+=== Html/Html.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+Edge/Chromium 157.0.4341.60
+PASS HTML div 320x180 CSS px DPR=1; empty nonfocusable generic container; no interactive AX role; PNG rendered (660 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1; fill=64,128,192,255; bitmap=320x180; interior=57600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1; fill=64,128,192,128; bitmap=320x180; interior=57600; alpha=128..128; colors=[64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1; fill=64,128,192,255; bitmap=344x204; interior=57101; outside=12075; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1; fill=64,128,192,128; bitmap=344x204; interior=57101; outside=12075; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=visible; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,255; bitmap=344x204; interior=60264; outside=8888; paintedOutsideFrame=2664; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=visible; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,128; bitmap=344x204; interior=60264; outside=8888; paintedOutsideFrame=2664; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=clip; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,255; bitmap=344x204; interior=57600; outside=12576; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=clip; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,128; bitmap=344x204; interior=57600; outside=12576; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+PASS HTML div 123,5x67,25 CSS px DPR=1; empty nonfocusable generic container; no interactive AX role; PNG rendered (241 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=1; fill=64,128,192,255; bitmap=123x67; interior=8241; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=123,5x67,25; scale=1; fill=64,128,192,128; bitmap=123x67; interior=8241; alpha=128..128; colors=[64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,123,5,67,25; child=0,25,0,375,123,5,67,25; scale=1; fill=64,128,192,255; bitmap=148x92; interior=8052; outside=5184; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,123,5,67,25; child=0,25,0,375,123,5,67,25; scale=1; fill=64,128,192,128; bitmap=148x92; interior=8052; outside=5184; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=visible; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,255; bitmap=148x92; interior=9271; outside=3941; paintedOutsideFrame=1040; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=visible; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,128; bitmap=148x92; interior=9271; outside=3941; paintedOutsideFrame=1040; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=clip; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,255; bitmap=148x92; interior=8241; outside=5184; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=clip; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,128; bitmap=148x92; interior=8241; outside=5184; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+PASS HTML div 1x1 CSS px DPR=1; empty nonfocusable generic container; no interactive AX role; PNG rendered (87 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=1; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=1x1; scale=1; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,1,1; child=0,25,0,375,1,1; scale=1; fill=64,128,192,255; bitmap=25x25; interior=0; outside=621; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,1,1; child=0,25,0,375,1,1; scale=1; fill=64,128,192,128; bitmap=25x25; interior=0; outside=621; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=visible; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,255; bitmap=25x25; interior=35; outside=562; paintedOutsideFrame=34; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=visible; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,128; bitmap=25x25; interior=35; outside=562; paintedOutsideFrame=34; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=clip; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,255; bitmap=25x25; interior=1; outside=624; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=clip; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,128; bitmap=25x25; interior=1; outside=624; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+PASS HTML div 320x180 CSS px DPR=1,5; empty nonfocusable generic container; no interactive AX role; PNG rendered (1112 bytes)
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1,5; fill=64,128,192,255; bitmap=480x270; interior=129600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE HTML unignored AX roles=RootWebArea,generic
+RECTANGLE HTML; bounds=320x180; scale=1,5; fill=64,128,192,128; bitmap=480x270; interior=129600; alpha=128..128; colors=[64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1,5; fill=64,128,192,255; bitmap=516x306; interior=128851; outside=27545; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+NESTED HTML; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1,5; fill=64,128,192,128; bitmap=516x306; interior=128851; outside=27545; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+NESTED HTML AX roles=RootWebArea,generic,generic,generic
+
+Unhandled exception. System.Exception: HTML: nested interior 9,7=(64, 128, 191, 128), expected alpha 255.
+   at RectanglePixels.CheckNested(String target, Int32 width, Int32 height, Double fw, Double fh, Double scale, String mode, Int32 alpha, Func`3 pixel) in C:\Private\FigVam\research\FramePortability\RectanglePixels.cs:line 57
+   at Program.<Main>$(String[] args) in C:\Private\FigVam\research\FramePortability\Html\Program.cs:line 83
+   at Program.<Main>$(String[] args) in C:\Private\FigVam\research\FramePortability\Html\Program.cs:line 12
+   at Program.<Main>$(String[] args) in C:\Private\FigVam\research\FramePortability\Html\Program.cs:line 8
+   at Program.<Main>(String[] args)
+
+Html/Html.csproj : Experiment failed with exit code -532462766.
+=== Wpf/Wpf.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+PASS WPF Grid 320x180 DIP; empty nonfocusable Panel; automation peer absent; transparent bitmap 320x180
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=320x180; scale=1; fill=64,128,192,255; bitmap=320x180; interior=57600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=320x180; scale=1; fill=64,128,192,128; bitmap=320x180; interior=57600; alpha=128..128; colors=[64,128,191,128]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1; fill=64,128,192,255; bitmap=344x204; interior=57101; outside=12075; paintedOutsideFrame=501; alpha=0..255; colors=[0,0,0,0;64,128,191,120;64,128,191,24;64,128,191,40;64,128,191,64;64,128,191,72;64,128,191,96;64,128,192,159;64,128,192,191;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1; fill=64,128,192,128; bitmap=344x204; interior=57101; outside=12075; paintedOutsideFrame=501; alpha=0..128; colors=[0,0,0,0;64,128,191,12;64,128,191,128;64,128,191,20;64,128,191,32;64,128,191,36;64,128,191,48;64,128,191,60;64,128,191,80;64,128,191,96]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=visible; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,255; bitmap=344x204; interior=60264; outside=8888; paintedOutsideFrame=3688; alpha=0..255; colors=[0,0,0,0;64,128,191,24;64,128,191,64;64,128,191,96;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=visible; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,128; bitmap=344x204; interior=60264; outside=8888; paintedOutsideFrame=3688; alpha=0..128; colors=[0,0,0,0;64,128,191,12;64,128,191,128;64,128,191,32;64,128,191,48]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=clip; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,255; bitmap=344x204; interior=57600; outside=12576; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=clip; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,128; bitmap=344x204; interior=57600; outside=12576; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+PASS WPF Grid 123,5x67,25 DIP; empty nonfocusable Panel; automation peer absent; transparent bitmap 124x68
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=123,5x67,25; scale=1; fill=64,128,192,255; bitmap=124x68; interior=8241; alpha=32..255; colors=[64,128,191,128;64,128,191,32;64,128,191,64;64,128,192,255]
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=123,5x67,25; scale=1; fill=64,128,192,128; bitmap=124x68; interior=8241; alpha=16..128; colors=[64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,64]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=offset; frame=8,8,123,5,67,25; child=0,25,0,375,123,5,67,25; scale=1; fill=64,128,192,255; bitmap=148x92; interior=8052; outside=5184; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,120;64,128,192,159;64,128,192,191;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=offset; frame=8,8,123,5,67,25; child=0,25,0,375,123,5,67,25; scale=1; fill=64,128,192,128; bitmap=148x92; interior=8052; outside=5184; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,60;64,128,191,80;64,128,191,96]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=visible; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,255; bitmap=148x92; interior=9271; outside=3941; paintedOutsideFrame=1243; alpha=0..255; colors=[0,0,0,0;64,128,191,120;64,128,191,24;64,128,191,40;64,128,191,64;64,128,191,72;64,128,191,96;64,128,192,159;64,128,192,191;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=visible; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,128; bitmap=148x92; interior=9271; outside=3941; paintedOutsideFrame=1243; alpha=0..128; colors=[0,0,0,0;64,128,191,12;64,128,191,128;64,128,191,20;64,128,191,32;64,128,191,36;64,128,191,48;64,128,191,60;64,128,191,80;64,128,191,96]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=clip; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,255; bitmap=148x92; interior=8241; outside=5184; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,32;64,128,191,64;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=clip; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,128; bitmap=148x92; interior=8241; outside=5184; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,64]
+PASS WPF Grid 1x1 DIP; empty nonfocusable Panel; automation peer absent; transparent bitmap 1x1
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=1x1; scale=1; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE WPF automation peer=absent
+RECTANGLE WPF; bounds=1x1; scale=1; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=offset; frame=8,8,1,1; child=0,25,0,375,1,1; scale=1; fill=64,128,192,255; bitmap=25x25; interior=0; outside=621; paintedOutsideFrame=3; alpha=0..120; colors=[0,0,0,0;64,128,191,120;64,128,191,24;64,128,191,40;64,128,191,72]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=offset; frame=8,8,1,1; child=0,25,0,375,1,1; scale=1; fill=64,128,192,128; bitmap=25x25; interior=0; outside=621; paintedOutsideFrame=3; alpha=0..60; colors=[0,0,0,0;64,128,191,12;64,128,191,20;64,128,191,36;64,128,191,60]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=visible; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,255; bitmap=25x25; interior=35; outside=562; paintedOutsideFrame=62; alpha=0..255; colors=[0,0,0,0;64,128,191,24;64,128,191,64;64,128,191,96;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=visible; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,128; bitmap=25x25; interior=35; outside=562; paintedOutsideFrame=62; alpha=0..128; colors=[0,0,0,0;64,128,191,12;64,128,191,128;64,128,191,32;64,128,191,48]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=clip; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,255; bitmap=25x25; interior=1; outside=624; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED WPF parent/child peer=absent; child nonfocusable/non-hit-testable
+NESTED WPF; mode=clip; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,128; bitmap=25x25; interior=1; outside=624; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+
+
+=== Avalonia/FigVam.FrameResearch.Avalonia.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+PASS Avalonia Grid 320x180 logical units; empty nonfocusable Panel; automation role None; transparent bitmap 320x180
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=320x180; scale=1; fill=64,128,192,255; bitmap=320x180; interior=57600; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=320x180; scale=1; fill=64,128,192,128; bitmap=320x180; interior=57600; alpha=128..128; colors=[64,128,191,128]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1; fill=64,128,192,255; bitmap=344x204; interior=57101; outside=12075; paintedOutsideFrame=501; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,32;64,128,191,64;64,128,191,96;64,128,192,191;64,128,192,255]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=offset; frame=8,8,320,180; child=0,25,0,375,320,180; scale=1; fill=64,128,192,128; bitmap=344x204; interior=57101; outside=12075; paintedOutsideFrame=501; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,48;64,128,191,64;64,128,191,96]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=visible; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,255; bitmap=344x204; interior=60264; outside=8888; paintedOutsideFrame=3688; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,64;64,128,192,255]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=visible; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,128; bitmap=344x204; interior=60264; outside=8888; paintedOutsideFrame=3688; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,64;64,128,191,8]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=clip; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,255; bitmap=344x204; interior=57600; outside=12576; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=clip; frame=8,8,320,180; child=-2,25,-3,375,324,5,186,75; scale=1; fill=64,128,192,128; bitmap=344x204; interior=57600; outside=12576; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+PASS Avalonia Grid 123,5x67,25 logical units; empty nonfocusable Panel; automation role None; transparent bitmap 124x68
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=123,5x67,25; scale=1; fill=64,128,192,255; bitmap=124x68; interior=8241; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,192,255]
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=123,5x67,25; scale=1; fill=64,128,192,128; bitmap=124x68; interior=8241; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,64]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=offset; frame=8,8,123,5,67,25; child=0,25,0,375,123,5,67,25; scale=1; fill=64,128,192,255; bitmap=148x92; interior=8052; outside=5184; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,96;64,128,192,191;64,128,192,255;64,128,193,143]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=offset; frame=8,8,123,5,67,25; child=0,25,0,375,123,5,67,25; scale=1; fill=64,128,192,128; bitmap=148x92; interior=8052; outside=5184; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,48;64,128,191,64;64,128,191,72;64,128,191,96]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=visible; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,255; bitmap=148x92; interior=9271; outside=3941; paintedOutsideFrame=1243; alpha=0..255; colors=[0,0,0,0;64,128,191,16;64,128,191,48;64,128,191,64;64,128,192,191;64,128,192,255;64,128,193,143]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=visible; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,128; bitmap=148x92; interior=9271; outside=3941; paintedOutsideFrame=1243; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,24;64,128,191,32;64,128,191,72;64,128,191,8;64,128,191,96]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=clip; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,255; bitmap=148x92; interior=8241; outside=5184; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,32;64,128,191,64;64,128,192,255]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=clip; frame=8,8,123,5,67,25; child=-2,25,-3,375,128,74; scale=1; fill=64,128,192,128; bitmap=148x92; interior=8241; outside=5184; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,16;64,128,191,32;64,128,191,64]
+PASS Avalonia Grid 1x1 logical units; empty nonfocusable Panel; automation role None; transparent bitmap 1x1
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=1x1; scale=1; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Avalonia automation role=None
+RECTANGLE Avalonia; bounds=1x1; scale=1; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=offset; frame=8,8,1,1; child=0,25,0,375,1,1; scale=1; fill=64,128,192,255; bitmap=25x25; interior=0; outside=621; paintedOutsideFrame=3; alpha=0..96; colors=[0,0,0,0;64,128,191,32;64,128,191,96]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=offset; frame=8,8,1,1; child=0,25,0,375,1,1; scale=1; fill=64,128,192,128; bitmap=25x25; interior=0; outside=621; paintedOutsideFrame=3; alpha=0..48; colors=[0,0,0,0;64,128,191,16;64,128,191,48]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=visible; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,255; bitmap=25x25; interior=35; outside=562; paintedOutsideFrame=62; alpha=0..255; colors=[0,0,0,0;64,128,192,255;64,129,193,95;65,130,194,63;67,133,200,23]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=visible; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,128; bitmap=25x25; interior=35; outside=562; paintedOutsideFrame=62; alpha=0..128; colors=[0,0,0,0;64,128,191,12;64,128,191,128;64,128,191,32;64,128,191,48]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=clip; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,255; bitmap=25x25; interior=1; outside=624; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED Avalonia parent/child role=None/None; child nonfocusable/non-hit-testable
+NESTED Avalonia; mode=clip; frame=8,8,1,1; child=-2,25,-3,375,5,5,7,75; scale=1; fill=64,128,192,128; bitmap=25x25; interior=1; outside=624; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+
+
+=== Uno/Uno.csproj ===
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+
+
+Uno automation peer: absent
+PASS Uno Grid 320x180 logical units; empty Panel; absent automation peer; scale=1.25; transparent bitmap 400x225
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=320x180; scale=1.25; fill=64,128,192,255; bitmap=400x225; interior=90000; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=320x180; scale=1.25; fill=64,128,192,128; bitmap=400x225; interior=90000; alpha=128..128; colors=[64,128,191,128]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=offset; frame=8,8,320,180; child=0.25,0.375,320,180; scale=1.25; fill=64,128,192,255; bitmap=430x255; interior=89376; outside=19024; paintedOutsideFrame=626; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,40;64,128,191,80;64,128,191,88;64,128,192,175;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=offset; frame=8,8,320,180; child=0.25,0.375,320,180; scale=1.25; fill=64,128,192,128; bitmap=430x255; interior=89376; outside=19024; paintedOutsideFrame=626; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,20;64,128,191,40;64,128,191,44;64,128,191,64;64,128,191,88]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=visible; frame=8,8,320,180; child=-2.25,-3.375,324.5,186.75; scale=1.25; fill=64,128,192,255; bitmap=430x255; interior=94132; outside=14240; paintedOutsideFrame=5410; alpha=0..255; colors=[0,0,0,0;64,128,191,52;64,128,191,64;64,128,192,207;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=visible; frame=8,8,320,180; child=-2.25,-3.375,324.5,186.75; scale=1.25; fill=64,128,192,128; bitmap=430x255; interior=94132; outside=14240; paintedOutsideFrame=5410; alpha=0..128; colors=[0,0,0,0;59,128,186,26;64,128,191,104;64,128,191,128;64,128,191,32]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=clip; frame=8,8,320,180; child=-2.25,-3.375,324.5,186.75; scale=1.25; fill=64,128,192,255; bitmap=430x255; interior=90000; outside=19650; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=clip; frame=8,8,320,180; child=-2.25,-3.375,324.5,186.75; scale=1.25; fill=64,128,192,128; bitmap=430x255; interior=90000; outside=19650; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128]
+Uno automation peer: absent
+PASS Uno Grid 123.5x67.25 logical units; empty Panel; absent automation peer; scale=1.25; transparent bitmap 154x84
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=123.5x67.25; scale=1.25; fill=64,128,192,255; bitmap=154x84; interior=12936; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=123.5x67.25; scale=1.25; fill=64,128,192,128; bitmap=154x84; interior=12936; alpha=128..128; colors=[64,128,191,128]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=offset; frame=8,8,123.5,67.25; child=0.25,0.375,123.5,67.25; scale=1.25; fill=64,128,192,255; bitmap=185x115; interior=12699; outside=8100; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,128;64,128,191,88;64,128,192,175;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=offset; frame=8,8,123.5,67.25; child=0.25,0.375,123.5,67.25; scale=1.25; fill=64,128,192,128; bitmap=185x115; interior=12699; outside=8100; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,44;64,128,191,64;64,128,191,88]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=visible; frame=8,8,123.5,67.25; child=-2.25,-3.375,128,74; scale=1.25; fill=64,128,192,255; bitmap=185x115; interior=14628; outside=6141; paintedOutsideFrame=1959; alpha=0..255; colors=[0,0,0,0;64,128,191,12;64,128,191,48;64,128,191,52;64,128,191,64;64,128,192,207;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=visible; frame=8,8,123.5,67.25; child=-2.25,-3.375,128,74; scale=1.25; fill=64,128,192,128; bitmap=185x115; interior=14628; outside=6141; paintedOutsideFrame=1959; alpha=0..128; colors=[0,0,0,0;42,128,170,6;59,128,186,26;64,128,191,104;64,128,191,128;64,128,191,24;64,128,191,32]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=clip; frame=8,8,123.5,67.25; child=-2.25,-3.375,128,74; scale=1.25; fill=64,128,192,255; bitmap=185x115; interior=12936; outside=8100; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,96;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=clip; frame=8,8,123.5,67.25; child=-2.25,-3.375,128,74; scale=1.25; fill=64,128,192,128; bitmap=185x115; interior=12936; outside=8100; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,48]
+Uno automation peer: absent
+PASS Uno Grid 1x1 logical units; empty Panel; absent automation peer; scale=1.25; transparent bitmap 1x1
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=1x1; scale=1.25; fill=64,128,192,255; bitmap=1x1; interior=1; alpha=255..255; colors=[64,128,192,255]
+RECTANGLE Uno automation peer=absent
+RECTANGLE Uno; bounds=1x1; scale=1.25; fill=64,128,192,128; bitmap=1x1; interior=1; alpha=128..128; colors=[64,128,191,128]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=offset; frame=8,8,1,1; child=0.25,0.375,1,1; scale=1.25; fill=64,128,192,255; bitmap=31x31; interior=0; outside=957; paintedOutsideFrame=0; alpha=0..131; colors=[0,0,0,0;64,128,191,108;64,128,191,72;64,128,191,88;64,128,193,131]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=offset; frame=8,8,1,1; child=0.25,0.375,1,1; scale=1.25; fill=64,128,192,128; bitmap=31x31; interior=0; outside=957; paintedOutsideFrame=0; alpha=0..66; colors=[0,0,0,0;61,128,189,54;62,128,189,66;64,128,191,36;64,128,191,44]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=visible; frame=8,8,1,1; child=-2.25,-3.375,5.5,7.75; scale=1.25; fill=64,128,192,255; bitmap=31x31; interior=54; outside=873; paintedOutsideFrame=82; alpha=0..255; colors=[0,0,0,0;62,130,193,45;63,129,192,97;64,128,192,207;64,128,192,255;64,129,193,119;65,130,195,55;68,136,204,15]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=visible; frame=8,8,1,1; child=-2.25,-3.375,5.5,7.75; scale=1.25; fill=64,128,192,128; bitmap=31x31; interior=54; outside=873; paintedOutsideFrame=82; alpha=0..128; colors=[0,0,0,0;55,122,188,23;62,125,187,49;64,128,191,104;64,128,191,128;64,128,191,28;64,128,191,60;64,128,191,8]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=clip; frame=8,8,1,1; child=-2.25,-3.375,5.5,7.75; scale=1.25; fill=64,128,192,255; bitmap=31x31; interior=1; outside=957; paintedOutsideFrame=0; alpha=0..255; colors=[0,0,0,0;64,128,191,16;64,128,191,64;64,128,192,255]
+NESTED Uno parent/child peer=absent; child non-hit-testable
+NESTED Uno; mode=clip; frame=8,8,1,1; child=-2.25,-3.375,5.5,7.75; scale=1.25; fill=64,128,192,128; bitmap=31x31; interior=1; outside=957; paintedOutsideFrame=0; alpha=0..128; colors=[0,0,0,0;64,128,191,128;64,128,191,32;64,128,191,8]
+
+
+Exception: C:\Private\FigVam\research\FramePortability\run.ps1:45
+Line |
+  45 |  …  ($failures.Count) { throw ($failures -join [Environment]::NewLine) }
+     |                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Html/Html.csproj : Experiment failed with exit code -532462766.

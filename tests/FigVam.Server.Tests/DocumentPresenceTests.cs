@@ -13,6 +13,7 @@ public sealed class DocumentPresenceTests
     }
     private sealed class Rights : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public HashSet<(string, Guid)> Allowed { get; } = [];
         public int Checks { get; private set; }
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)

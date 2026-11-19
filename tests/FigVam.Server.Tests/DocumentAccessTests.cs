@@ -111,6 +111,7 @@ public sealed class DocumentAccessTests : IDisposable
 
     private sealed class RevokeOnFirstCheck(SqliteDocumentJournal store, DocumentActor owner) : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         private int checks;
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid id, CancellationToken token)
             => store.CanReadAsync(actor, id, token);

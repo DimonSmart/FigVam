@@ -30,6 +30,7 @@ public sealed partial class NodeRepeaterTests : IDisposable
     }
     private sealed class Authorization(bool edit = true, bool read = true) : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor a, Guid id, CancellationToken ct) => ValueTask.FromResult(read);
         public ValueTask<bool> CanEditAsync(DocumentActor a, Guid id, CancellationToken ct) => ValueTask.FromResult(edit);
     }

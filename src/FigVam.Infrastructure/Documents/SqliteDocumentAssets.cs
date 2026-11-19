@@ -49,6 +49,7 @@ public sealed partial class SqliteDocumentJournal
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var connection = Open(documentId);
-            return ReadAssetContent(connection, null, asset);
+            using var transaction = connection.BeginTransaction(deferred: true);
+            return IsDeleted(connection, transaction) ? null : ReadAssetContent(connection, transaction, asset);
         }, cancellationToken);
 }

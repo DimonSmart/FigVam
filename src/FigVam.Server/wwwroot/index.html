@@ -21,6 +21,7 @@
     </form>
   </section>
   <main id="content" tabindex="-1" hidden>
+    <section id="delete-result" hidden aria-label="Удаление документа"><p id="delete-message" role="alert"></p><button id="delete-retry" type="button" hidden>Повторить проверку удаления</button></section>
     <div id="documents-view" hidden>
       <div class="heading"><div><p class="eyebrow">Рабочее пространство</p><h1>Документы</h1></div><button id="refresh">Обновить список</button></div>
       <form id="create-form" class="create">
@@ -28,12 +29,58 @@
         <input id="document-name" required maxlength="256" autocomplete="off">
         <button type="submit">Создать документ</button>
       </form>
+      <form id="import-form">
+        <label for="import-file">Файл документа (document.json или .figvam)</label>
+        <input id="import-file" type="file" accept=".json,.figvam,application/json,application/zip" required>
+        <button type="submit">Открыть файл как новый документ</button>
+        <p id="import-status" role="status" aria-live="polite"></p>
+        <p id="import-error" role="alert"></p>
+        <ul id="import-diagnostics" aria-label="Диагностика импорта"></ul>
+      </form>
       <ul id="document-list" aria-label="Доступные документы"></ul>
       <nav class="pagination" aria-label="Страницы списка"><button id="previous" disabled>Предыдущая</button><span id="page-number"></span><button id="next" disabled>Следующая</button></nav>
     </div>
     <div id="editor-view" hidden>
-      <header class="document-panel" aria-label="Панель документа"><a href="/" data-navigation>← Документы</a><h1 id="document-title"></h1><span id="revision"></span><span>Design · каркас редактора</span></header>
+      <header class="document-panel" aria-label="Панель документа"><a href="/" data-navigation>← Документы</a><h1 id="document-title"></h1><span id="revision"></span><span>Design · каркас редактора</span>
+        <form id="document-rename" hidden><label for="rename-document-name">Имя документа</label><input id="rename-document-name" required maxlength="256" autocomplete="off"><button type="submit">Переименовать документ</button><p id="document-rename-status" role="status" aria-live="polite"></p><p id="document-rename-error" role="alert"></p></form>
+        <button id="delete-document" type="button" hidden>Удалить документ</button>
+      </header>
+      <section id="member-management" aria-labelledby="members-title" hidden>
+        <h2 id="members-title">Управление участниками</h2>
+        <p>Укажите ID участника. Список участников недоступен.</p>
+        <form id="member-form">
+          <label for="member-id">ID участника</label>
+          <input id="member-id" required maxlength="256" autocomplete="off">
+          <label for="member-role">Роль участника</label>
+          <select id="member-role"><option value="Owner">Owner</option><option value="Editor">Editor</option><option value="Viewer">Viewer</option></select>
+          <button type="submit">Назначить роль</button>
+          <button id="member-remove" type="button">Удалить участника</button>
+        </form>
+        <p id="member-status" role="status" aria-live="polite"></p>
+        <p id="member-error" role="alert"></p>
+      </section>
+      <section aria-labelledby="export-title">
+        <h2 id="export-title">Экспорт документа</h2>
+        <p id="export-access"></p>
+        <button id="export-json" type="button">Скачать document.json</button>
+        <button id="export-container" type="button">Скачать container.figvam</button>
+        <p id="export-status" role="status" aria-live="polite"></p>
+        <p id="export-error" role="alert"></p>
+      </section>
       <p id="connection-status" aria-live="polite"></p>
+      <section aria-labelledby="presence-title"><h2 id="presence-title">Участники в документе</h2>
+        <label for="presence-name">Ваше имя для участников</label><input id="presence-name" maxlength="128" value="Участник" autocomplete="off">
+        <label for="presence-color">Ваш цвет</label><input id="presence-color" type="color" value="#2455a4">
+        <p id="presence-status" role="status" aria-live="polite"></p><ul id="presence-list" aria-label="Присутствующие участники"></ul>
+      </section>
+      <section aria-label="История действий">
+        <button id="undo" type="button">Отменить действие</button>
+        <button id="redo" type="button">Повторить действие</button>
+        <span id="history-access"></span>
+        <p id="history-action-status" role="status" aria-live="polite"></p>
+        <p id="history-action-error" role="alert"></p>
+        <button id="history-action-retry" type="button" hidden>Повторить неподтверждённую команду</button>
+      </section>
       <form id="version-save" hidden>
         <label for="version-name">Имя версии (необязательно)</label>
         <input id="version-name" maxlength="256" autocomplete="off">
@@ -53,7 +100,7 @@
         <p id="restore-error" role="alert"></p>
         <button id="restore-retry" type="button" hidden>Повторить восстановление</button>
       </section>
-      <p class="notice">Управление страницами и экранами доступно ниже. Редактирование содержимого экранов, Preview и экспорт через интерфейс пока недоступны. Поддержка целевых платформ здесь не заявлена.</p>
+      <p class="notice">Управление страницами и экранами доступно ниже. Редактирование содержимого экранов и Preview пока недоступны. Экспорт документа доступен выше. Поддержка целевых платформ здесь не заявлена.</p>
       <div class="workspace">
         <aside aria-labelledby="tree-title"><h2 id="tree-title">Страницы и слои</h2>
           <p id="page-access"></p><button id="page-refresh" type="button">Обновить страницы</button>
@@ -67,6 +114,43 @@
             <nav class="pagination" aria-label="Навигация по экранам"><button id="screens-previous" type="button">Предыдущие экраны</button><span id="screens-number"></span><button id="screens-next" type="button">Следующие экраны</button></nav>
             <form id="screen-create" hidden><label for="screen-width">Ширина экрана</label><input id="screen-width" type="number" min="0" step="any" required><label for="screen-height">Высота экрана</label><input id="screen-height" type="number" min="0" step="any" required><button type="submit">Создать экран</button></form>
           </section>
+          <section aria-labelledby="screen-variants-title"><h2 id="screen-variants-title">Варианты выбранного экрана</h2>
+            <p>Базовое состояние и сохранённые варианты. Отображение вариантов на холсте и в Preview пока недоступно.</p>
+            <p id="screen-variants-status" role="status" aria-live="polite">Выберите экран.</p><p id="screen-variants-error" role="alert"></p>
+            <button id="screen-variants-retry" type="button" hidden>Повторить загрузку вариантов</button>
+            <ul id="screen-variants-list" aria-label="Варианты экрана"></ul>
+            <nav class="pagination" aria-label="Навигация по вариантам экрана"><button id="screen-variants-previous" type="button">Предыдущие варианты</button><span id="screen-variants-number"></span><button id="screen-variants-next" type="button">Следующие варианты</button></nav>
+            <form id="screen-variant-create" hidden><label for="screen-variant-name">Имя нового варианта</label><input id="screen-variant-name" maxlength="256" required><button type="submit">Создать пустой вариант</button></form>
+            <button id="screen-variant-command-retry" type="button" hidden>Повторить создание варианта</button>
+          </section>
+          <section aria-labelledby="components-title"><h2 id="components-title">Каталог компонентов</h2>
+            <form id="components-search"><label for="components-query">Поиск компонентов</label><input id="components-query" maxlength="256"><button type="submit">Найти компоненты</button></form>
+            <p id="components-status" role="status" aria-live="polite"></p><p id="components-error" role="alert"></p>
+            <button id="components-retry" type="button" hidden>Повторить загрузку каталога</button>
+            <ul id="components-list" aria-label="Компоненты документа"></ul>
+            <nav class="pagination" aria-label="Навигация по компонентам"><button id="components-previous" type="button">Предыдущие компоненты</button><span id="components-number"></span><button id="components-next" type="button">Следующие компоненты</button></nav>
+            <div id="component-detail" hidden><h3 id="component-title"></h3><p id="component-description"></p>
+              <h4>Параметры</h4><ul id="component-parameters"></ul><h4>Слоты</h4><ul id="component-slots"></ul><h4>Варианты</h4><ul id="component-variants"></ul>
+              <h4>Использования</h4><p id="component-usages-status" role="status" aria-live="polite"></p><p id="component-usages-error" role="alert"></p>
+              <button id="component-usages-retry" type="button" hidden>Повторить загрузку компонента</button><ul id="component-usages" aria-label="Использования компонента"></ul>
+              <nav class="pagination" aria-label="Навигация по использованиям"><button id="usages-previous" type="button">Предыдущие использования</button><span id="usages-number"></span><button id="usages-next" type="button">Следующие использования</button></nav>
+            </div>
+          </section>
+          <section aria-labelledby="datasets-title"><h2 id="datasets-title">Локальные датасеты</h2>
+            <p id="datasets-status" role="status" aria-live="polite"></p><p id="datasets-error" role="alert"></p>
+            <button id="datasets-retry" type="button" hidden>Повторить загрузку датасетов</button>
+            <ul id="datasets-list" aria-label="Датасеты документа"></ul>
+            <nav class="pagination" aria-label="Навигация по датасетам"><button id="datasets-previous" type="button">Предыдущие датасеты</button><span id="datasets-number"></span><button id="datasets-next" type="button">Следующие датасеты</button></nav>
+            <div id="dataset-detail" hidden><h3 id="dataset-title"></h3><p>Сохранённая JSON-фикстура:</p><pre id="dataset-fixture" tabindex="0"></pre></div>
+            <div id="dataset-edit" hidden><form id="dataset-create"><h3>Новый датасет</h3>
+              <label for="dataset-name">Имя датасета</label><input id="dataset-name" required maxlength="256">
+              <label for="dataset-create-format">Формат нового снимка</label><select id="dataset-create-format"><option value="json">JSON</option><option value="csv">CSV</option></select>
+              <label for="dataset-create-content">Содержимое нового снимка</label><textarea id="dataset-create-content" required></textarea><button type="submit">Создать датасет</button></form>
+              <form id="dataset-replace" hidden><h3>Заменить фикстуру</h3><label for="dataset-replace-format">Формат замены</label><select id="dataset-replace-format"><option value="json">JSON</option><option value="csv">CSV</option></select>
+              <label for="dataset-replace-content">Содержимое замены</label><textarea id="dataset-replace-content" required></textarea><button type="submit">Заменить фикстуру</button></form>
+              <button id="dataset-delete" type="button" hidden>Удалить датасет</button>
+            </div><button id="dataset-command-retry" type="button" hidden>Повторить операцию с датасетом</button>
+          </section>
           <section aria-labelledby="layers-title"><h2 id="layers-title">Слои выбранного экрана</h2>
             <p id="layers-status" role="status" aria-live="polite">Выберите экран.</p>
             <div id="layers" role="tree" aria-label="Слои экрана"></div>
@@ -79,9 +163,57 @@
             <button id="fit-screen" type="button">Вместить экран</button><button id="actual-size" type="button">100%</button>
           </div>
           <p id="canvas-help">Перетащите холст указателем или используйте стрелки для панорамирования. Колесо мыши меняет масштаб.</p>
-          <div id="viewport" tabindex="0" role="region" aria-label="Область холста" aria-describedby="canvas-help"><div id="screen-boundary" hidden></div></div>
+          <div id="viewport" tabindex="0" role="region" aria-label="Область холста" aria-describedby="canvas-help"><div id="screen-boundary" hidden></div><div id="presence-markers" aria-hidden="true"></div></div>
         </section>
-        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><p>Параметры элементов пока недоступны.</p></aside>
+        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><p>Параметры элементов пока недоступны.</p>
+          <section aria-labelledby="scenarios-title"><h2 id="scenarios-title">Сценарии прототипа</h2>
+            <p>Только просмотр сохранённых сценариев выбранного экрана.</p>
+            <p id="scenarios-status" role="status" aria-live="polite">Выберите экран.</p>
+            <p id="scenarios-error" role="alert"></p><button id="scenarios-retry" type="button" hidden>Повторить загрузку сценариев</button>
+            <form id="scenario-create" hidden>
+              <p id="scenario-source">Выберите исходный слой в дереве.</p>
+              <p id="scenario-capabilities-status" role="status"></p>
+              <label>Событие <select id="scenario-event"></select></label>
+              <label>Действие <select id="scenario-action"></select></label>
+              <div id="scenario-variant-fields"><label>Вариант экрана <select id="scenario-variant"></select></label><p id="scenario-variant-status" role="status"></p></div>
+              <div id="scenario-target-fields"><label>Целевой экран <select id="scenario-target"></select></label>
+              <p id="scenario-target-status" role="status"></p></div>
+              <button id="scenario-create-submit" type="submit">Создать сценарий</button>
+            </form>
+            <p id="scenario-command-status" role="status" aria-live="polite"></p><p id="scenario-command-error" role="alert"></p><button id="scenario-command-retry" type="button" hidden>Повторить удаление сценария</button>
+            <ul id="scenarios-list" aria-label="Сценарии выбранного экрана"></ul>
+            <div role="group" aria-label="Страницы сценариев"><button id="scenarios-previous" type="button" disabled>Предыдущие сценарии</button> <span id="scenarios-number"></span> <button id="scenarios-next" type="button" disabled>Следующие сценарии</button></div>
+          </section>
+          <section aria-labelledby="diagnostics-title"><h2 id="diagnostics-title">Диагностика экрана</h2>
+            <p id="diagnostics-status" role="status" aria-live="polite">Выберите экран.</p>
+            <p id="diagnostics-error" role="alert"></p><button id="diagnostics-retry" type="button" hidden>Повторить загрузку диагностики</button>
+            <ul id="diagnostics-list" aria-label="Диагностика выбранного экрана"></ul>
+            <div role="group" aria-label="Страницы диагностики"><button id="diagnostics-previous" type="button" disabled>Предыдущие диагностики</button> <span id="diagnostics-number"></span> <button id="diagnostics-next" type="button" disabled>Следующие диагностики</button></div>
+          </section>
+          <section aria-labelledby="screen-size-title"><h2 id="screen-size-title">Размер экрана</h2>
+            <p id="screen-size-saved">Выберите экран.</p>
+            <form id="screen-resize" hidden novalidate>
+              <label for="resize-width">Ширина выбранного экрана</label><input id="resize-width" type="number" min="0" step="any" required>
+              <label for="resize-height">Высота выбранного экрана</label><input id="resize-height" type="number" min="0" step="any" required>
+              <button type="submit">Изменить размер</button>
+              <button id="resize-retry" type="button" hidden>Повторить команду</button>
+            </form><p id="screen-size-status" role="status" aria-live="polite"></p><p id="screen-size-error" role="alert"></p>
+          </section>
+          <section aria-labelledby="tokens-title"><h2 id="tokens-title">Токены дизайна</h2>
+            <p>Цвет: #RRGGBB или #RRGGBBAA. Отступ: число.</p>
+            <p id="tokens-status" role="status" aria-live="polite"></p><p id="tokens-error" role="alert"></p>
+            <ul id="tokens-list" aria-label="Токены документа"></ul>
+            <form id="token-create" hidden><h3>Новый токен</h3>
+              <label for="new-token-name">Имя токена</label><input id="new-token-name" required maxlength="256">
+              <label for="new-token-type">Тип токена</label><select id="new-token-type"><option value="Color">Цвет</option><option value="Spacing">Отступ</option></select>
+              <label for="new-token-light">Light</label><input id="new-token-light" required>
+              <label for="new-token-dark">Dark</label><input id="new-token-dark" required>
+              <button type="submit">Создать токен</button></form>
+            <div id="token-detail" hidden><h3 id="token-detail-title"></h3><p id="token-values"></p>
+              <div id="token-edit" hidden><form id="token-rename"><label for="token-name">Новое имя токена</label><input id="token-name" required maxlength="256"><button type="submit">Переименовать токен</button></form>
+              <form id="token-set"><label for="token-theme">Тема</label><select id="token-theme"><option value="Light">Light</option><option value="Dark">Dark</option></select><label for="token-value">Новое значение</label><input id="token-value" required><button type="submit">Сохранить значение</button></form></div>
+              <h4>Прямые использования</h4><ul id="token-usages" aria-label="Прямые использования токена"></ul></div>
+          </section></aside>
       </div>
     </div>
   </main>

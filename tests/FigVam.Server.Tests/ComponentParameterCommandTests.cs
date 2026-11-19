@@ -40,6 +40,7 @@ public sealed partial class ComponentParameterCommandTests
     }
     private sealed class Authorization : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken ct) => new(true);
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken ct) => new(actor.Id is "owner" or "editor");
     }

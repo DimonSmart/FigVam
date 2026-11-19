@@ -63,3 +63,6 @@ p { line-height: 1.6; }
 #layers [role=group] { margin-left: 1rem; }
 .layer-label { display: block; padding: .45rem; cursor: pointer; border: 1px solid transparent; border-radius: 4px; }
 #layers [aria-selected=true] > .layer-label { border-color: #214da6; background: #e8efff; font-weight: 700; }
+
+#presence-markers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.presence-marker { position: absolute; padding: 2px 5px; background: white; border: 2px solid; color: #172033; font-size: 12px; white-space: nowrap; }

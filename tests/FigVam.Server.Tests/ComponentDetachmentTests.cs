@@ -136,6 +136,7 @@ public sealed class ComponentDetachmentTests
 
     private sealed class SeedJournal(DocumentStructure document) : IDocumentCommandJournal, IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public DocumentState State { get; private set; } = new(document, 10);
         public DocumentEvent? Event { get; private set; }
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(true);

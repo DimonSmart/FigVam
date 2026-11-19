@@ -22,6 +22,7 @@ public sealed class DocumentVersionTests : IDisposable
     }
     private sealed class Authorization(bool read = true, bool edit = true) : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)
             => ValueTask.FromResult(read);
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)

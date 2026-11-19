@@ -36,6 +36,7 @@ public sealed partial class SqliteDocumentJournal
         using var command = connection.CreateCommand();
         command.CommandText = """
             PRAGMA synchronous=FULL;
+            CREATE TABLE IF NOT EXISTS document_deletion(singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS asset_content(sha256 TEXT PRIMARY KEY, content BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS members(actor_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('Owner','Editor','Viewer')));
             CREATE TABLE IF NOT EXISTS command_history(command_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, result TEXT NOT NULL,
@@ -87,6 +88,7 @@ public sealed partial class SqliteDocumentJournal
             using var connection = Open(documentId);
             // Revision bounds, snapshot selection and replay see the same committed document stream.
             using var transaction = connection.BeginTransaction(deferred: true);
+            if (IsDeleted(connection, transaction)) return new DocumentStateReadResult("DOCUMENT_NOT_FOUND");
             if (revision is null)
             {
                 var current = Recover(connection, transaction, documentId);
@@ -218,6 +220,7 @@ public sealed partial class SqliteDocumentJournal
                 Validate(next.Document);
                 var (eventType, subjectId, screenId, nodeId, kind) = change.Event switch
                 {
+                    DocumentDeleted => ("DELETE_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     HistoryCompensated compensation when change.Version is null
                         => (compensation.IsRedo ? "REDO" : "UNDO", compensation.TargetCommandId, (Guid?)null, (Guid?)null, (string?)null),
                     VersionRestored restored when change.Version is null && change.Result.VersionId == restored.VersionId &&
@@ -327,7 +330,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize<DocumentEvent>(change.Event));
@@ -363,12 +366,12 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$target", compensationEvent.TargetCommandId.ToString());
                     if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Compensation history mismatch.");
                 }
-                else if (change.Event is not VersionSaved)
+                else if (change.Event is not (VersionSaved or DocumentDeleted))
                 {
                     command.CommandText = "UPDATE command_history SET status='DISCARDED' WHERE actor_id=$actor AND status='UNDONE'";
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is not VersionSaved)
+                if (change.Event is not (VersionSaved or DocumentDeleted))
                 {
                     command.CommandText = "SELECT DISTINCT actor_id FROM command_history WHERE status='UNDONE'";
                     var redoActors = new List<string>();
@@ -398,7 +401,7 @@ public sealed partial class SqliteDocumentJournal
                         }
                     }
                 }
-                var patch = change.Event is VersionSaved or HistoryCompensated ? null : DocumentPatch.Between(previous.Document, next.Document);
+                var patch = change.Event is DocumentDeleted or VersionSaved or HistoryCompensated ? null : DocumentPatch.Between(previous.Document, next.Document);
                 command.CommandText = "INSERT INTO command_history(command_id,actor_id,result,type,patch,status,history_order) VALUES($id,$actor,$historyResult,$type,$patch,$historyStatus,$revision)";
                 command.Parameters.AddWithValue("$historyResult", JsonSerializer.Serialize(change.Result));
                 command.Parameters.AddWithValue("$patch", patch is null ? DBNull.Value : JsonSerializer.Serialize(patch));
@@ -413,6 +416,11 @@ public sealed partial class SqliteDocumentJournal
             }
             else if (change.Result.Accepted || change.Event is not null || change.Version is not null)
                 throw new InvalidOperationException("Accepted commands must change state.");
+            if (change.Event is DocumentDeleted)
+            {
+                command.CommandText = "INSERT INTO document_deletion(singleton,revision) VALUES(1,$revision)";
+                command.ExecuteNonQuery();
+            }
             command.CommandText = "INSERT INTO results(command_id,result) VALUES($id,$result)";
             command.Parameters.AddWithValue("$result", JsonSerializer.Serialize(change.Result));
             command.ExecuteNonQuery();
@@ -452,7 +460,10 @@ public sealed partial class SqliteDocumentJournal
             if (documentId == Guid.Empty) return new DocumentVersionListResult("INVALID_ID");
             if (limit is < 1 or > 100 || beforeRevision is <= 0) return new DocumentVersionListResult("INVALID_PAGE");
             using var connection = Open(documentId);
+            using var transaction = connection.BeginTransaction(deferred: true);
+            if (IsDeleted(connection, transaction)) return new DocumentVersionListResult("DOCUMENT_NOT_FOUND");
             using var command = connection.CreateCommand();
+            command.Transaction = transaction;
             command.CommandText = """
                 SELECT version_id,revision,payload,sha256 FROM user_versions
                 WHERE ($before IS NULL OR revision < $before) ORDER BY revision DESC LIMIT $limit
@@ -480,7 +491,8 @@ public sealed partial class SqliteDocumentJournal
         => Task.Run(() =>
         {
             using var connection = Open(documentId);
-            return ReadVersion(connection, null, documentId, versionId);
+            using var transaction = connection.BeginTransaction(deferred: true);
+            return IsDeleted(connection, transaction) ? new DocumentVersionResult("DOCUMENT_NOT_FOUND") : ReadVersion(connection, transaction, documentId, versionId);
         }, cancellationToken);
 
     private DocumentVersionResult ReadVersion(SqliteConnection connection, SqliteTransaction? transaction,
@@ -522,8 +534,17 @@ public sealed partial class SqliteDocumentJournal
         return version;
     }
 
+    private static bool IsDeleted(SqliteConnection connection, SqliteTransaction? transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT EXISTS(SELECT 1 FROM document_deletion)";
+        return (long)command.ExecuteScalar()! != 0;
+    }
+
     private DocumentState? Recover(SqliteConnection connection, SqliteTransaction transaction, Guid documentId, long? targetRevision = null)
     {
+        if (IsDeleted(connection, transaction)) return null;
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = "SELECT revision,document FROM snapshots WHERE revision<=$target ORDER BY revision DESC LIMIT 1";

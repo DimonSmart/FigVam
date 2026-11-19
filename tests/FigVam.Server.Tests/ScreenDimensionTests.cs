@@ -13,6 +13,7 @@ public sealed class ScreenDimensionTests : IDisposable
     private readonly DocumentActor alice = new("alice"), bob = new("bob");
     private sealed class Access : IDocumentAuthorization
     {
+        public ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid id, CancellationToken token) => ValueTask.FromResult(false);
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(actor.Id != "outsider");
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(actor.Id is "alice" or "bob");
     }

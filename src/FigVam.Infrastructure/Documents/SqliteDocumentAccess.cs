@@ -69,7 +69,10 @@ public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDoc
     public async ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)
         => await ReadRoleAsync(actor, documentId, cancellationToken) is DocumentRole.Owner or DocumentRole.Editor;
 
-    private Task<DocumentRole?> ReadRoleAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)
+    public async ValueTask<bool> CanDeleteAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)
+        => await ReadRoleAsync(actor, documentId, cancellationToken, includeDeleted: true) is DocumentRole.Owner;
+
+    private Task<DocumentRole?> ReadRoleAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken, bool includeDeleted = false)
     {
         ArgumentNullException.ThrowIfNull(actor);
         return Task.Run(() =>
@@ -77,7 +80,9 @@ public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDoc
             if (documentId == Guid.Empty || string.IsNullOrWhiteSpace(actor.Id) ||
                 !File.Exists(Path.Combine(directory, $"{documentId:N}.sqlite"))) return null;
             using var connection = Open(documentId);
-            return ReadRole(connection, null, actor.Id);
+            using var transaction = connection.BeginTransaction(deferred: true);
+            if (!includeDeleted && IsDeleted(connection, transaction)) return null;
+            return ReadRole(connection, transaction, actor.Id);
         }, cancellationToken);
     }
 
@@ -109,7 +114,7 @@ public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDoc
                 !File.Exists(Path.Combine(directory, $"{documentId:N}.sqlite"))) return Result("FORBIDDEN");
             using var connection = Open(documentId);
             using var transaction = connection.BeginTransaction(deferred: false);
-            if (ReadRole(connection, transaction, actor.Id) != DocumentRole.Owner) return Result("FORBIDDEN");
+            if (IsDeleted(connection, transaction) || ReadRole(connection, transaction, actor.Id) != DocumentRole.Owner) return Result("FORBIDDEN");
             if (string.IsNullOrWhiteSpace(memberId)) return Result("INVALID_MEMBER");
             if (role is { } value && !Enum.IsDefined(value)) return Result("INVALID_ROLE");
             using var command = connection.CreateCommand();
