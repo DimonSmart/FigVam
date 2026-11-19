@@ -42,7 +42,21 @@ let selectedScreen = null, screensOffset = 0, screensTotal = 0, screensItems = [
 const scenarioOperations = new Map();
 const scenarioKey = (doc, screen) => `${doc}/${screen}`;
 let scenariosController = null, scenariosGeneration = 0, scenariosOffset = 0, scenariosTotal = 0, scenariosKey = null;
-let scenarioCapabilities = null, capabilityGeneration = 0;
+let scenarioCapabilities = null, capabilityGeneration = 0, scenarioDatasetsReady = false;
+const scenarioEvents = ['Click', 'Change', 'Hover', 'Leave'];
+const scenarioActionLabels = { setDemoValue: 'SetDemoValue', selectDataset: 'SelectDataset', showVariant: 'ShowVariant', navigate: 'Navigate', openOverlay: 'OpenOverlay', closeOverlay: 'CloseOverlay', resetPreview: 'ResetPreview' };
+const isScenarioNodeId = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+async function readScenarioCapabilities(doc, atRevision, node, screen, { target = '', variant = '', dataset = '', demoNode = '', demoValue = null } = {}, signal) {
+  const q = new URLSearchParams({ revision: String(atRevision), nodeId: node, screenId: screen });
+  if (variant) q.set('variantId', variant);
+  if (target) q.set('targetId', target);
+  if (dataset) q.set('datasetId', dataset);
+  if (isScenarioNodeId(demoNode)) q.set('demoNodeId', demoNode);
+  const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/scenario-capabilities?${q}`, { method: 'POST', body: JSON.stringify({ demoValue }) }, signal);
+  if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.revision !== atRevision || result.nodeId?.toLowerCase() !== node.toLowerCase() || (result.targetId || '') !== target || (result.screenId || '') !== screen || (result.variantId || '') !== variant || !Object.hasOwn(result, 'demoNodeId') || (result.demoNodeId ?? '') !== demoNode || !Object.hasOwn(result, 'demoValue') || result.demoValue !== demoValue || !Object.hasOwn(result, 'datasetId') || (result.datasetId ?? '') !== dataset || typeof result.profile?.id !== 'string' || !result.profile.id || !Number.isInteger(result.profile.version) || result.profile.version < 1 || !Array.isArray(result.events) || !Array.isArray(result.actions) || result.events.some(e => !Number.isInteger(e) || !scenarioEvents[e]) || result.actions.some(a => !Object.hasOwn(scenarioActionLabels, a)) || (result.actions.includes('setDemoValue') && !demoNode) || new Set(result.events).size !== result.events.length || new Set(result.actions).size !== result.actions.length) throw new TypeError('Некорректный ответ');
+  return result;
+}
 function clearScenarioCapabilities(message) {
   capabilityGeneration++; scenarioCapabilities = null;
   element('scenario-event').replaceChildren(); element('scenario-action').replaceChildren();
@@ -52,17 +66,14 @@ async function loadScenarioCapabilities() {
   const previousAction = element('scenario-action').value, previousEvent = element('scenario-event').value;
   clearScenarioCapabilities('Возможности сценария недоступны.');
   if (!documentId || !selectedScreen || !layerSelection || !element('scenario-variant').options.length || !Number.isSafeInteger(revision)) { renderScenarioCreate(); return; }
-  const current = capabilityGeneration, doc = documentId, screen = selectedScreen, node = layerSelection.id, atRevision = revision, target = element('scenario-target').value, variant = element('scenario-variant').value, requestToken = token, epoch = navigationEpoch;
-  const valid = () => current === capabilityGeneration && doc === documentId && screen === selectedScreen && node === layerSelection?.id && atRevision === revision && target === element('scenario-target').value && variant === element('scenario-variant').value && requestToken === token && epoch === navigationEpoch && !element('editor-view').hidden;
+  const current = capabilityGeneration, doc = documentId, screen = selectedScreen, node = layerSelection.id, atRevision = revision, target = element('scenario-target').value, variant = element('scenario-variant').value, dataset = element('scenario-dataset').value, demoNode = element('scenario-demo-node').value.trim().toLowerCase(), demoValue = element('scenario-demo-null').checked ? null : element('scenario-demo-value').value, requestToken = token, epoch = navigationEpoch;
+  const valid = () => current === capabilityGeneration && doc === documentId && screen === selectedScreen && node === layerSelection?.id && atRevision === revision && target === element('scenario-target').value && variant === element('scenario-variant').value && dataset === element('scenario-dataset').value && demoNode === element('scenario-demo-node').value.trim().toLowerCase() && demoValue === (element('scenario-demo-null').checked ? null : element('scenario-demo-value').value) && requestToken === token && epoch === navigationEpoch && !element('editor-view').hidden;
   element('scenario-capabilities-status').textContent = 'Загрузка возможностей сценария…'; renderScenarioCreate();
   try {
-    const q = new URLSearchParams({ revision: String(atRevision), nodeId: node, screenId: screen }); if (variant) q.set('variantId', variant); if (target) q.set('targetId', target);
-    const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/scenario-capabilities?${q}`);
+    const result = await readScenarioCapabilities(doc, atRevision, node, screen, { target, variant, dataset, demoNode, demoValue });
     if (!valid()) return;
-    const labels = { showVariant: 'ShowVariant', navigate: 'Navigate', openOverlay: 'OpenOverlay', closeOverlay: 'CloseOverlay', resetPreview: 'ResetPreview' }, events = ['Click', 'Change', 'Hover', 'Leave'];
-    if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.revision !== atRevision || result.nodeId?.toLowerCase() !== node.toLowerCase() || (result.targetId || '') !== target || (result.screenId || '') !== screen || (result.variantId || '') !== variant || typeof result.profile?.id !== 'string' || !result.profile.id || !Number.isInteger(result.profile.version) || result.profile.version < 1 || !Array.isArray(result.events) || !Array.isArray(result.actions) || result.events.some(e => !Number.isInteger(e) || !events[e]) || result.actions.some(a => !Object.hasOwn(labels, a)) || new Set(result.events).size !== result.events.length || new Set(result.actions).size !== result.actions.length) throw new TypeError('Некорректный ответ');
-    for (const value of result.events) { const option = document.createElement('option'); option.value = String(value); option.textContent = events[value]; element('scenario-event').append(option); }
-    for (const value of result.actions) { const option = document.createElement('option'); option.value = value; option.textContent = labels[value]; element('scenario-action').append(option); }
+    for (const value of result.events) element('scenario-event').add(new Option(scenarioEvents[value], String(value)));
+    for (const value of result.actions.filter(a => a !== 'selectDataset' || scenarioDatasetsReady)) element('scenario-action').add(new Option(scenarioActionLabels[value], value));
     if (result.actions.includes(previousAction)) element('scenario-action').value = previousAction;
     if (result.events.includes(Number(previousEvent)) && previousEvent !== '') element('scenario-event').value = previousEvent;
     scenarioCapabilities = result;
@@ -72,7 +83,10 @@ async function loadScenarioCapabilities() {
 }
 function resetScenarios() {
   scenariosController?.abort(); scenariosController = null; scenariosGeneration++;
+  bindScenarioView();
+  resetScenarioEditor();
   clearScenarioCapabilities('Возможности сценария недоступны.');
+  scenarioDatasetsReady = false; element('scenario-dataset').replaceChildren(); element('scenario-dataset-status').textContent = ''; element('scenario-dataset-retry').hidden = true;
   scenariosOffset = scenariosTotal = 0; scenariosKey = null;
   element('scenarios-list').replaceChildren(); element('scenarios-status').textContent = 'Выберите экран.';
   element('scenarios-error').textContent = ''; element('scenarios-retry').hidden = true;
@@ -107,6 +121,8 @@ async function loadScenarios() {
   element('scenarios-previous').disabled = element('scenarios-next').disabled = true;
   element('scenarios-status').textContent = 'Загрузка сценариев…';
   element('scenario-variant').replaceChildren();
+  scenarioDatasetsReady = false; element('scenario-dataset').replaceChildren();
+  loadScenarioDatasets(doc, screen, atRevision, valid);
   loadScenarioTargets(doc, screen, atRevision, valid);
   loadScenarioVariants(doc, screen, atRevision, valid);
   try {
@@ -115,22 +131,26 @@ async function loadScenarios() {
     if (!valid()) return;
     if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.revision !== atRevision || result.offset !== offset || result.limit !== pageSize || !Number.isInteger(result.total) || result.total < 0 || !Array.isArray(result.items)) throw new TypeError('Некорректный ответ');
     if (offset && !result.items.length) { scenariosOffset = Math.max(0, offset - pageSize); return loadScenarios(); }
-    const fragment = document.createDocumentFragment(), events = ['Click', 'Change', 'Hover', 'Leave'];
+    const fragment = document.createDocumentFragment();
     for (const scenario of result.items) {
-      if (scenario.screenId?.toLowerCase() !== screen.toLowerCase() || typeof scenario.id !== 'string' || typeof scenario.nodeId !== 'string' || !events[scenario.event] || !Array.isArray(scenario.actions)) throw new TypeError('Некорректный сценарий');
+      if (scenario.screenId?.toLowerCase() !== screen.toLowerCase() || typeof scenario.id !== 'string' || typeof scenario.nodeId !== 'string' || !scenarioEvents[scenario.event] || !Array.isArray(scenario.actions)) throw new TypeError('Некорректный сценарий');
       const li = document.createElement('li'), title = document.createElement('p'), actions = document.createElement('ol');
-      title.textContent = `Сценарий: ${scenario.id} · Исходный узел: ${scenario.nodeId} · Событие: ${events[scenario.event]}`;
+      title.textContent = `Сценарий: ${scenario.id} · Исходный узел: ${scenario.nodeId} · Событие: ${scenarioEvents[scenario.event]}`;
       actions.setAttribute('aria-label', 'Действия по порядку');
       for (const action of scenario.actions) { const item = document.createElement('li'); item.textContent = scenarioActionText(action); actions.append(item); }
       li.append(title, actions);
       if (['Owner', 'Editor'].includes(documentRole)) {
+        const edit = document.createElement('button');
+        edit.type = 'button'; edit.textContent = `Изменить сценарий ${scenario.id}`;
+        edit.addEventListener('click', () => { if (valid()) openScenarioEditor(doc, screen, atRevision, scenario, edit); });
+        li.append(edit);
         const button = document.createElement('button'); button.type = 'button'; button.textContent = `Удалить сценарий ${scenario.id}`;
         button.disabled = scenarioOperations.has(scenarioKey(doc, screen));
         button.addEventListener('click', () => beginScenarioDeletion(doc, screen, scenario.id)); li.append(button);
       }
       fragment.append(li);
     }
-    scenariosTotal = result.total; element('scenarios-list').append(fragment); renderScenarioCommand();
+    scenariosTotal = result.total; element('scenarios-list').append(fragment); renderScenarioCommand({ preserveNotice: true });
     element('scenarios-status').textContent = result.total ? 'Сценарии выбранного экрана.' : 'Сценариев для выбранного экрана нет.';
     element('scenarios-number').textContent = result.total ? `${offset + 1}–${offset + result.items.length} из ${result.total}` : '';
     element('scenarios-previous').disabled = offset === 0;
@@ -143,14 +163,23 @@ async function loadScenarios() {
   }
 }
 
-function renderScenarioCommand() {
+function renderScenarioCommand({ preserveNotice = false } = {}) {
   const op = scenarioOperations.get(scenarioKey(documentId, selectedScreen));
   const editable = ['Owner', 'Editor'].includes(documentRole);
   renderScenarioCreate();
+  renderScenarioEditor();
   element('scenarios-list').querySelectorAll('button').forEach(button => button.disabled = !!op);
-  element('scenario-command-status').textContent = op?.state === 'pending' ? (op.kind === 'create' ? 'Создание сценария…' : `Удаление сценария «${op.body.scenarioId}»…`) : '';
-  element('scenario-command-error').textContent = op?.state === 'uncertain' ? (op.kind === 'create' ? 'Результат создания неизвестен. Повторите ту же команду: сценарий мог быть создан.' : 'Результат удаления неизвестен. Повторите ту же команду: сценарий мог быть удалён.') : '';
-  element('scenario-command-retry').textContent = op?.kind === 'create' ? 'Повторить создание сценария' : 'Повторить удаление сценария';
+  const descriptions = {
+    create: ['Создание сценария…', 'Результат создания неизвестен. Повторите ту же команду: сценарий мог быть создан.', 'Повторить создание сценария'],
+    update: ['Сохранение сценария…', 'Результат сохранения неизвестен. Повторите ту же команду: сценарий мог быть изменён.', 'Повторить сохранение сценария'],
+    delete: [`Удаление сценария «${op?.body.scenarioId}»…`, 'Результат удаления неизвестен. Повторите ту же команду: сценарий мог быть удалён.', 'Повторить удаление сценария']
+  };
+  const [pendingText, uncertainText, retryText] = descriptions[op?.kind ?? 'delete'];
+  if (op || !preserveNotice) {
+    element('scenario-command-status').textContent = op?.state === 'pending' ? pendingText : '';
+    element('scenario-command-error').textContent = op?.state === 'uncertain' ? uncertainText : '';
+  }
+  element('scenario-command-retry').textContent = retryText;
   element('scenario-command-retry').hidden = !editable || op?.state !== 'uncertain';
 }
 function beginScenarioDeletion(doc, screen, scenarioId) {
@@ -184,7 +213,461 @@ async function sendScenarioDeletion(doc, screen, op) {
     }
   } finally { if (doc === documentId && screen === selectedScreen && token === requestToken && !element('editor-view').hidden && scenarioOperations.get(key) === op) renderScenarioCommand(); }
 }
-element('scenario-command-retry').addEventListener('click', () => { const op = scenarioOperations.get(scenarioKey(documentId, selectedScreen)); if (op?.state === 'uncertain') (op.kind === 'create' ? sendScenarioCreation : sendScenarioDeletion)(documentId, selectedScreen, op); });
+element('scenario-command-retry').addEventListener('click', () => {
+  const op = scenarioOperations.get(scenarioKey(documentId, selectedScreen));
+  if (op?.state !== 'uncertain') return;
+  const send = { create: sendScenarioCreation, update: sendScenarioUpdate, delete: sendScenarioDeletion };
+  send[op.kind ?? 'delete'](documentId, selectedScreen, op);
+});
+
+
+let scenarioDraft = null;
+let scenarioView = null;
+const canEditScenarios = () => !!token && ['Owner', 'Editor'].includes(documentRole) && !element('editor-view').hidden;
+const scenarioDraftCurrent = draft => scenarioDraft === draft && draft.view === scenarioView &&
+  draft.doc === documentId && draft.screen === selectedScreen && draft.revision === revision && canEditScenarios();
+
+function resetScenarioEditor(restoreFocus = false) {
+  const draft = scenarioDraft;
+  scenarioDraft = null;
+  draft?.controller.abort();
+  element('scenario-edit').hidden = true;
+  element('scenario-action-editor').hidden = true;
+  if (restoreFocus) draft?.opener.focus();
+}
+
+function bindScenarioView() {
+  if (!scenarioView || scenarioView.doc !== documentId || scenarioView.screen !== selectedScreen || scenarioView.epoch !== navigationEpoch) {
+    scenarioView?.controller.abort();
+    scenarioView = { doc: documentId, screen: selectedScreen, epoch: navigationEpoch, controller: new AbortController() };
+  }
+  return scenarioView;
+}
+
+function openScenarioEditor(doc, screen, atRevision, scenario, opener) {
+  if (!canEditScenarios() || scenarioOperations.has(scenarioKey(doc, screen))) return;
+  resetScenarioEditor();
+  scenarioDraft = {
+    doc, screen, revision: atRevision, view: bindScenarioView(), opener, controller: new AbortController(),
+    scenario: structuredClone(scenario), capabilities: new Map(), variants: new Map(),
+    editor: null, validation: null, events: []
+  };
+  element('scenario-edit-id').textContent = scenario.id;
+  element('scenario-edit-event').replaceChildren();
+  element('scenario-edit').hidden = false;
+  element('scenario-edit-title').focus();
+  renderScenarioEditActions();
+  validateScenarioDraft();
+}
+
+function renderScenarioEditor() {
+  const draft = scenarioDraft;
+  if (!draft) return;
+  if (!scenarioDraftCurrent(draft)) { resetScenarioEditor(); return; }
+  const op = scenarioOperations.get(scenarioKey(draft.doc, draft.screen));
+  const source = findLayer(draft.scenario.nodeId);
+  element('scenario-edit-source').textContent = 'Исходный узел: ' + (source?.name ? source.name + ' · ' : '') + draft.scenario.nodeId;
+  element('scenario-edit-fields').disabled = !!op;
+  element('scenario-edit-use-layer').disabled = !layerSelection || layerSelection.id === draft.scenario.nodeId;
+  element('scenario-edit-demo-use-layer').disabled = !layerSelection;
+  element('scenario-edit-add').disabled = draft.scenario.actions.length >= 32;
+  element('scenario-edit-submit').disabled = !!op || !!draft.editor || !draft.validation?.valid || !draft.events.includes(draft.scenario.event);
+}
+
+function editScenarioButton(label, description, activate, disabled = false) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = label;
+  button.setAttribute('aria-label', description);
+  button.disabled = disabled;
+  button.addEventListener('click', activate);
+  return button;
+}
+
+function renderScenarioEditActions(focusIndex, focusButton = 0) {
+  const draft = scenarioDraft, actions = draft.scenario.actions;
+  const list = element('scenario-edit-actions');
+  list.replaceChildren();
+  for (const [index, action] of actions.entries()) {
+    const row = document.createElement('li');
+    const text = document.createElement('div');
+    text.textContent = scenarioActionText(action);
+    const changeOrder = direction => {
+      const destination = index + direction;
+      [actions[index], actions[destination]] = [actions[destination], actions[index]];
+      closeScenarioActionEditor();
+      renderScenarioEditActions(destination, direction < 0 ? 1 : 2);
+      validateScenarioDraft();
+    };
+    row.append(text,
+      editScenarioButton('Изменить', 'Изменить действие ' + (index + 1), () => openScenarioActionEditor(index)),
+      editScenarioButton('Вверх', 'Поднять действие ' + (index + 1), () => changeOrder(-1), index === 0),
+      editScenarioButton('Вниз', 'Опустить действие ' + (index + 1), () => changeOrder(1), index === actions.length - 1),
+      editScenarioButton('Удалить', 'Удалить действие ' + (index + 1), () => {
+        actions.splice(index, 1);
+        closeScenarioActionEditor();
+        renderScenarioEditActions(Math.min(index, actions.length - 1), 3);
+        validateScenarioDraft();
+      })
+    );
+    list.append(row);
+  }
+  renderScenarioEditor();
+  if (focusIndex === undefined) return;
+  const buttons = list.children[focusIndex]?.querySelectorAll('button');
+  (buttons ? (buttons[focusButton]?.disabled ? buttons[0] : buttons[focusButton]) : element('scenario-edit-add')).focus();
+}
+
+function scenarioActionScreens(draft, index) {
+  let base = draft.screen;
+  const overlays = [];
+  for (const action of draft.scenario.actions.slice(0, index)) {
+    switch (action.type) {
+      case 'navigate': base = action.screenId; overlays.length = 0; break;
+      case 'openOverlay': overlays.push(action.screenId); break;
+      case 'closeOverlay': if (overlays.length) overlays.pop(); else base = null; break;
+      case 'resetPreview': base = null; overlays.length = 0; break;
+    }
+  }
+  return { variantScreen: base, demoScreen: overlays.at(-1) ?? base };
+}
+
+function getScenarioCapabilities(draft, screen, values = {}) {
+  const { target = '', variant = '', dataset = '', demoNode = '', demoValue = null } = values;
+  const key = JSON.stringify([draft.scenario.nodeId, screen, target, variant, dataset, demoNode, demoValue]);
+  if (!draft.capabilities.has(key)) {
+    const result = readScenarioCapabilities(draft.doc, draft.revision, draft.scenario.nodeId, screen, values, draft.controller.signal)
+      .catch(error => {
+        if (['SCREEN_VARIANT_NOT_FOUND', 'SCREEN_NOT_FOUND', 'DATASET_NOT_FOUND'].includes(error.code))
+          return { actions: [], events: [] };
+        draft.capabilities.delete(key);
+        throw error;
+      });
+    draft.capabilities.set(key, result);
+  }
+  return draft.capabilities.get(key);
+}
+
+async function supportedScenarioActionScreen(draft, index, action, current) {
+  const { variantScreen, demoScreen } = scenarioActionScreens(draft, index);
+  const allScreens = () => [...new Set([draft.screen, ...Array.from(element('scenario-target').options, option => option.value)])];
+  let screens = [draft.screen], values;
+  switch (action.type) {
+    case 'navigate':
+    case 'openOverlay': values = { target: action.screenId }; break;
+    case 'closeOverlay':
+    case 'resetPreview': values = {}; break;
+    case 'selectDataset': values = { dataset: action.datasetId ?? '' }; break;
+    case 'showVariant':
+      screens = variantScreen ? [variantScreen] : action.variantId ? allScreens() : [draft.screen];
+      values = { variant: action.variantId ?? '' };
+      break;
+    case 'setDemoValue':
+      if (!isScenarioNodeId(action.nodeId) || (typeof action.value !== 'string' && action.value !== null) || action.value?.length > 4096) return null;
+      screens = demoScreen ? [demoScreen] : allScreens();
+      values = { demoNode: action.nodeId.toLowerCase(), demoValue: action.value };
+      break;
+  }
+  for (const screen of screens) {
+    if (!current()) return null;
+    const result = await getScenarioCapabilities(draft, screen, values);
+    if (result.actions.includes(action.type)) return screen;
+  }
+  return null;
+}
+
+async function validateScenarioDraft() {
+  const draft = scenarioDraft;
+  if (!draft) return;
+  const validation = { valid: false };
+  draft.validation = validation;
+  const current = () => scenarioDraftCurrent(draft) && draft.validation === validation;
+  const status = element('scenario-edit-validation');
+  element('scenario-edit-recheck').hidden = true;
+  status.textContent = 'Проверка сценария…';
+  renderScenarioEditor();
+  try {
+    const { actions } = draft.scenario;
+    const [source, ...checks] = await Promise.all([
+      getScenarioCapabilities(draft, draft.screen),
+      ...actions.map((action, index) => supportedScenarioActionScreen(draft, index, action, current))
+    ]);
+    if (!current()) return;
+    validation.actionScreens = checks;
+    draft.events = source.events;
+    const event = element('scenario-edit-event');
+    event.replaceChildren(new Option('Выберите событие', ''), ...source.events.map(value => new Option(scenarioEvents[value], String(value))));
+    event.value = source.events.includes(draft.scenario.event) ? String(draft.scenario.event) : '';
+    const unsupported = checks.flatMap((allowed, index) => allowed ? [] : [index + 1]);
+    validation.valid = actions.length > 0 && actions.length <= 32 && !unsupported.length;
+    status.textContent = !actions.length ? 'Добавьте хотя бы одно действие.' :
+      unsupported.length ? 'Действия не поддерживаются в текущем контексте: ' + unsupported.join(', ') + '.' :
+      !source.events.length ? 'Нет доступных событий для исходного узла.' : '';
+  } catch (error) {
+    if (!current()) return;
+    draft.events = [];
+    element('scenario-edit-event').replaceChildren();
+    status.textContent = error.status === 403 ? 'Доступ к возможностям сценария утрачен.' : 'Не удалось проверить возможности сценария.';
+    element('scenario-edit-recheck').hidden = false;
+  }
+  if (current()) renderScenarioEditor();
+}
+
+function copyScenarioOptions(from, to, value) {
+  const select = element(to);
+  select.replaceChildren(...Array.from(element(from).options, option => new Option(option.text, option.value)));
+  if (value !== undefined) select.value = value;
+}
+
+function refreshScenarioActionEditorOptions(kind) {
+  const draft = scenarioDraft;
+  if (!draft || !scenarioDraftCurrent(draft)) return;
+  if (kind === 'target') validateScenarioDraft();
+  if (!draft.editor) return;
+  const { original } = draft.editor;
+  if (kind === 'dataset') {
+    copyScenarioOptions('scenario-dataset', 'scenario-edit-dataset', original?.datasetId ?? '');
+  } else {
+    copyScenarioOptions('scenario-target', 'scenario-edit-target', original?.screenId);
+    if (!draft.editor.variantScreen && !element('scenario-edit-variant-screen').value) {
+      copyScenarioOptions('scenario-target', 'scenario-edit-variant-screen', draft.screen);
+      loadScenarioActionVariants(draft, original?.variantId ?? '');
+      return;
+    }
+  }
+  checkScenarioActionChoices(draft);
+}
+
+function openScenarioActionEditor(index) {
+  const draft = scenarioDraft;
+  if (!draft || !scenarioDraftCurrent(draft) || element('scenario-edit-fields').disabled) return;
+  const action = draft.scenario.actions[index];
+  const { variantScreen } = scenarioActionScreens(draft, index);
+  draft.editor = { index, type: action?.type, variantScreen, original: action };
+  element('scenario-action-editor-title').textContent = action ? 'Действие ' + (index + 1) : 'Новое действие';
+  copyScenarioOptions('scenario-target', 'scenario-edit-target', action?.screenId);
+  copyScenarioOptions('scenario-target', 'scenario-edit-variant-screen',
+    action?.type === 'showVariant' ? draft.validation?.actionScreens?.[index] ?? draft.screen : draft.screen);
+  copyScenarioOptions('scenario-dataset', 'scenario-edit-dataset', action?.datasetId ?? '');
+  element('scenario-edit-variant-screen-fields').hidden = !!variantScreen;
+  element('scenario-edit-demo-node').value = action?.nodeId ?? '';
+  element('scenario-edit-demo-null').checked = action?.value == null;
+  const demo = element('scenario-edit-demo-value');
+  demo.value = action?.value ?? '';
+  draft.editor.displayedDemoValue = demo.value;
+  element('scenario-action-editor').hidden = false;
+  element('scenario-edit-target').focus();
+  loadScenarioActionVariants(draft, action?.variantId ?? '');
+}
+
+function closeScenarioActionEditor(restoreFocus = false) {
+  const draft = scenarioDraft;
+  const index = draft.editor?.index;
+  clearTimeout(draft.editor?.timer);
+  draft.editor = null;
+  element('scenario-action-editor').hidden = true;
+  renderScenarioEditor();
+  if (restoreFocus) (element('scenario-edit-actions').children[index]?.querySelector('button') ?? element('scenario-edit-add')).focus();
+}
+
+async function loadScenarioActionVariants(draft, preferred) {
+  const editor = draft.editor;
+  const screen = editor.variantScreen ?? element('scenario-edit-variant-screen').value;
+  const select = element('scenario-edit-variant');
+  select.replaceChildren();
+  checkScenarioActionChoices(draft);
+  if (!screen) return;
+  const current = () => scenarioDraftCurrent(draft) && draft.editor === editor && screen === (editor.variantScreen ?? element('scenario-edit-variant-screen').value);
+  try {
+    if (!draft.variants.has(screen)) {
+      const items = readScenarioVariants(draft.doc, screen, draft.revision, draft.controller.signal).catch(error => {
+        draft.variants.delete(screen);
+        throw error;
+      });
+      draft.variants.set(screen, items);
+    }
+    const items = await draft.variants.get(screen);
+    if (!current()) return;
+    select.replaceChildren(new Option('Базовое состояние', ''), ...items.map(item => new Option(item.name, item.id)));
+    select.value = preferred;
+    if (select.selectedIndex < 0) select.selectedIndex = -1;
+  } catch (error) {
+    if (!current()) return;
+    select.replaceChildren();
+  }
+  if (current()) checkScenarioActionChoices(draft);
+}
+
+function checkScenarioActionChoices(draft, delay = 0) {
+  const editor = draft.editor;
+  clearTimeout(editor.timer);
+  const check = Symbol();
+  editor.check = check;
+  editor.choices = new Map();
+  element('scenario-edit-apply-action').disabled = true;
+  element('scenario-edit-action-type').replaceChildren();
+  element('scenario-edit-demo-value').disabled = element('scenario-edit-demo-null').checked;
+  element('scenario-edit-action-status').textContent = 'Проверка действий…';
+  renderScenarioEditor();
+  editor.timer = setTimeout(async () => {
+    const current = () => scenarioDraftCurrent(draft) && draft.editor === editor && editor.check === check;
+    if (!current()) return;
+    const target = element('scenario-edit-target').value;
+    const dataset = element('scenario-edit-dataset').value || null;
+    const variant = element('scenario-edit-variant').value || null;
+    const demoNode = element('scenario-edit-demo-node').value.trim().toLowerCase();
+    const enteredValue = element('scenario-edit-demo-value').value;
+    // A textarea normalizes line endings. Preserve the original value when the displayed text is unchanged.
+    const value = element('scenario-edit-demo-null').checked ? null :
+      enteredValue === editor.displayedDemoValue ? editor.original?.value ?? enteredValue : enteredValue;
+    const variantScreen = editor.variantScreen ?? element('scenario-edit-variant-screen').value;
+    try {
+      const [general, variantOptions, demoOptions] = await Promise.all([
+        getScenarioCapabilities(draft, draft.screen, { target, dataset: dataset ?? '' }),
+        element('scenario-edit-variant').selectedIndex >= 0 && getScenarioCapabilities(draft, variantScreen, { variant: variant ?? '' }),
+        isScenarioNodeId(demoNode) && (async () => {
+          const action = { type: 'setDemoValue', nodeId: demoNode, value };
+          return await supportedScenarioActionScreen(draft, editor.index, action, current) ? action : null;
+        })()
+      ]);
+      if (!current()) return;
+      const choices = editor.choices;
+      for (const type of general.actions) {
+        if (['navigate', 'openOverlay'].includes(type) && target) choices.set(type, { type, screenId: target });
+        if (['closeOverlay', 'resetPreview'].includes(type)) choices.set(type, { type });
+        if (type === 'selectDataset' && scenarioDatasetsReady && element('scenario-edit-dataset').selectedIndex >= 0) choices.set(type, { type, datasetId: dataset });
+      }
+      if (variantOptions?.actions?.includes('showVariant')) choices.set('showVariant', { type: 'showVariant', variantId: variant });
+      if (demoOptions) choices.set('setDemoValue', demoOptions);
+      const select = element('scenario-edit-action-type');
+      for (const type of choices.keys()) select.add(new Option(scenarioActionLabels[type], type));
+      if (choices.has(editor.type)) select.value = editor.type;
+      else if (editor.type) select.selectedIndex = -1;
+      element('scenario-edit-apply-action').disabled = !select.value;
+      element('scenario-edit-action-status').textContent = choices.size ? '' : 'Нет доступных действий для выбранных значений.';
+    } catch (error) {
+      if (current()) element('scenario-edit-action-status').textContent = 'Не удалось проверить варианты действия.';
+    }
+  }, delay);
+}
+
+element('scenario-edit-use-layer').addEventListener('click', () => {
+  if (!scenarioDraft || !layerSelection) return;
+  scenarioDraft.scenario.nodeId = layerSelection.id;
+  scenarioDraft.events = [];
+  validateScenarioDraft();
+  if (scenarioDraft.editor) checkScenarioActionChoices(scenarioDraft);
+});
+element('scenario-edit-event').addEventListener('change', event => {
+  if (!scenarioDraft) return;
+  scenarioDraft.scenario.event = event.target.value ? Number(event.target.value) : null;
+  renderScenarioEditor();
+});
+element('scenario-edit-add').addEventListener('click', () => openScenarioActionEditor(scenarioDraft.scenario.actions.length));
+element('scenario-edit-cancel').addEventListener('click', () => resetScenarioEditor(true));
+element('scenario-edit-recheck').addEventListener('click', () => {
+  validateScenarioDraft();
+  if (scenarioDraft?.editor) checkScenarioActionChoices(scenarioDraft);
+});
+element('scenario-edit-cancel-action').addEventListener('click', () => closeScenarioActionEditor(true));
+element('scenario-edit-action-type').addEventListener('change', event => {
+  const editor = scenarioDraft?.editor;
+  if (!editor) return;
+  editor.type = event.target.value;
+  element('scenario-edit-apply-action').disabled = !editor.choices.has(editor.type);
+});
+element('scenario-edit-variant-screen').addEventListener('change', () => loadScenarioActionVariants(scenarioDraft, ''));
+for (const id of ['scenario-edit-target', 'scenario-edit-variant', 'scenario-edit-dataset', 'scenario-edit-demo-null'])
+  element(id).addEventListener('change', () => checkScenarioActionChoices(scenarioDraft));
+for (const id of ['scenario-edit-demo-node', 'scenario-edit-demo-value'])
+  element(id).addEventListener('input', () => checkScenarioActionChoices(scenarioDraft, 250));
+element('scenario-edit-demo-use-layer').addEventListener('click', () => {
+  if (!layerSelection) return;
+  element('scenario-edit-demo-node').value = layerSelection.id;
+  checkScenarioActionChoices(scenarioDraft);
+});
+element('scenario-edit-apply-action').addEventListener('click', () => {
+  const draft = scenarioDraft, editor = draft?.editor;
+  const action = editor?.choices.get(element('scenario-edit-action-type').value);
+  if (!action || !scenarioDraftCurrent(draft) || element('scenario-edit-fields').disabled) return;
+  draft.scenario.actions[editor.index] = action;
+  closeScenarioActionEditor();
+  renderScenarioEditActions(editor.index);
+  validateScenarioDraft();
+});
+element('scenario-edit').addEventListener('submit', event => {
+  event.preventDefault();
+  const draft = scenarioDraft;
+  if (!draft || !scenarioDraftCurrent(draft) || draft.editor || !draft.validation?.valid || !draft.events.includes(draft.scenario.event)) return;
+  const key = scenarioKey(draft.doc, draft.screen);
+  if (scenarioOperations.has(key)) return;
+  const op = {
+    kind: 'update', state: 'ready', token,
+    body: { commandId: crypto.randomUUID(), expectedRevision: draft.revision, scenario: structuredClone(draft.scenario) }
+  };
+  scenarioOperations.set(key, op);
+  sendScenarioUpdate(draft.doc, draft.screen, op);
+});
+
+async function sendScenarioUpdate(doc, screen, op) {
+  const key = scenarioKey(doc, screen);
+  if (scenarioOperations.get(key) !== op || op.state === 'pending' || op.token !== token || !canEditScenarios()) return;
+  const view = bindScenarioView();
+  const current = () => view === scenarioView && doc === documentId && screen === selectedScreen && op.token === token && canEditScenarios();
+  op.state = 'pending';
+  renderScenarioCommand();
+  try {
+    const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/update-scenario`, { method: 'POST', body: JSON.stringify(op.body) }, view.controller.signal);
+    if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase())
+      throw new TypeError('Некорректное подтверждение');
+    if (scenarioOperations.get(key) !== op) return;
+    if (!current()) { op.state = 'uncertain'; return; }
+    resetScenarioEditor();
+    await run(() => refreshPages(), signal => readPages(signal, pagesOffset, null, current));
+    if (scenarioOperations.get(key) === op) scenarioOperations.delete(key);
+    if (current()) {
+      renderScenarioCommand();
+      element('scenario-command-status').textContent = 'Изменение сценария подтверждено.';
+    }
+  } catch (error) {
+    if (scenarioOperations.get(key) !== op) return;
+    if (!current() || !error.status || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+    if (error.code === 'REVISION_CONFLICT') {
+      resetScenarioEditor();
+      await run(() => refreshPages(), signal => readPages(signal, pagesOffset, null, current));
+      if (scenarioOperations.get(key) === op) scenarioOperations.delete(key);
+      if (!current()) return;
+      renderScenarioCommand();
+      element('scenario-command-error').textContent = 'Документ изменился. Обновите страницы и снова откройте сценарий.';
+      return;
+    }
+    if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') {
+      resetScenarioEditor();
+      element('scenario-command-error').textContent = 'Доступ к документу утрачен или недостаточен.';
+      const role = error.code === 'DOCUMENT_NOT_FOUND' ? null : await findRole(doc, view.controller.signal).catch(() => null);
+      if (scenarioOperations.get(key) === op) scenarioOperations.delete(key);
+      if (!current()) return;
+      if (role === 'Viewer') {
+        documentRole = role;
+        renderScenarioCommand({ preserveNotice: true });
+        loadScenarios();
+      } else if (role === null) {
+        closeInaccessibleDocument(error.status);
+      } else {
+        renderScenarioCommand({ preserveNotice: true });
+      }
+      element('scenario-command-status').textContent = '';
+      return;
+    }
+    scenarioOperations.delete(key);
+    renderScenarioCommand();
+    element('scenario-command-error').textContent = 'Изменение отклонено: ' + error.message;
+  } finally {
+    if (doc === documentId && screen === selectedScreen && op.token === token && canEditScenarios() && scenarioOperations.get(key) === op)
+      renderScenarioCommand();
+  }
+}
+
 
 function renderScenarioCreate() {
   const editable = !!selectedScreen && ['Owner', 'Editor'].includes(documentRole);
@@ -193,24 +676,58 @@ function renderScenarioCreate() {
   element('scenario-create').hidden = !editable;
   element('scenario-source').textContent = layerSelection ? `Исходный слой: ${layerSelection.name?.trim() || 'Без имени'} — ${layerSelection.kind}` : (layerRoots.length ? 'Выберите исходный слой в дереве.' : 'На экране нет слоёв для сценария.');
   element('scenario-target-fields').hidden = !needsTarget;
+  element('scenario-demo-value').disabled = !!op || element('scenario-demo-null').checked;
+  element('scenario-demo-node').disabled = element('scenario-demo-null').disabled = !!op;
+  element('scenario-demo-use-layer').disabled = !!op || !layerSelection;
   element('scenario-create-submit').disabled = !editable || !!op || !layerSelection || !scenarioCapabilities || !element('scenario-event').value || !element('scenario-action').value || (needsTarget && !element('scenario-target').value);
-  element('scenario-event').disabled = element('scenario-action').disabled = element('scenario-target').disabled = element('scenario-variant').disabled = !!op;
+  element('scenario-event').disabled = element('scenario-action').disabled = element('scenario-target').disabled = element('scenario-variant').disabled = element('scenario-dataset').disabled = !!op;
 }
 element('scenario-action').addEventListener('change', renderScenarioCreate);
 element('scenario-target').addEventListener('change', loadScenarioCapabilities);
 element('scenario-variant').addEventListener('change', loadScenarioCapabilities);
-async function loadScenarioVariants(doc, screen, atRevision, valid) {
-  const select = element('scenario-variant'); select.replaceChildren();
-  element('scenario-variant-status').textContent = 'Загрузка вариантов…';
+element('scenario-dataset').addEventListener('change', loadScenarioCapabilities);
+for (const id of ['scenario-demo-node', 'scenario-demo-value']) element(id).addEventListener('input', loadScenarioCapabilities);
+element('scenario-demo-use-layer').addEventListener('click', () => { if (layerSelection) { element('scenario-demo-node').value = layerSelection.id; loadScenarioCapabilities(); } });
+element('scenario-demo-null').addEventListener('change', loadScenarioCapabilities);
+element('scenario-dataset-retry').addEventListener('click', () => { if (documentId && selectedScreen) loadScenarios(); });
+async function loadScenarioDatasets(doc, screen, atRevision, valid) {
+  const select = element('scenario-dataset'); select.replaceChildren(); scenarioDatasetsReady = false;
+  element('scenario-dataset-status').textContent = 'Загрузка датасетов…'; element('scenario-dataset-retry').hidden = true;
   try {
     const items = []; let total;
     do {
       const q = new URLSearchParams({ revision: String(atRevision), offset: String(items.length), limit: '100' });
-      const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/screens/${encodeURIComponent(screen)}/variants?${q}`);
+      const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/datasets?${q}`);
       if (!valid()) return;
-      if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.screenId?.toLowerCase() !== screen.toLowerCase() || result.revision !== atRevision || !Array.isArray(result.items) || !Number.isInteger(result.total) || result.total < 0 || (!result.items.length && items.length < result.total) || result.items.some(item => typeof item.id !== 'string' || typeof item.name !== 'string')) throw new TypeError('Некорректный ответ');
+      if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.revision !== atRevision || !Array.isArray(result.items) || !Number.isInteger(result.total) || result.total < 0 || (!result.items.length && items.length < result.total) || result.items.some(item => typeof item.id !== 'string' || typeof item.name !== 'string')) throw new TypeError('Некорректный ответ');
       items.push(...result.items); total = result.total;
     } while (items.length < total);
+    select.add(new Option('Без датасета', ''));
+    for (const item of items) select.add(new Option(item.name, item.id));
+    scenarioDatasetsReady = true; element('scenario-dataset-status').textContent = items.length ? '' : 'Датасетов пока нет; доступен выбор без датасета.';
+  } catch (error) { if (!valid()) return; element('scenario-dataset-status').textContent = 'Не удалось загрузить датасеты.'; element('scenario-dataset-retry').hidden = false; }
+  if (valid()) { loadScenarioCapabilities(); refreshScenarioActionEditorOptions('dataset'); }
+}
+
+async function readScenarioVariants(doc, screen, atRevision, signal) {
+  const items = [];
+  let total;
+  do {
+    const q = new URLSearchParams({ revision: String(atRevision), offset: String(items.length), limit: '100' });
+    const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/screens/${encodeURIComponent(screen)}/variants?${q}`, {}, signal);
+    if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.screenId?.toLowerCase() !== screen.toLowerCase() || result.revision !== atRevision || !Array.isArray(result.items) || !Number.isInteger(result.total) || result.total < 0 || (!result.items.length && items.length < result.total) || result.items.some(item => typeof item.id !== 'string' || typeof item.name !== 'string')) throw new TypeError('Некорректный ответ');
+    items.push(...result.items);
+    total = result.total;
+  } while (items.length < total);
+  return items;
+}
+
+async function loadScenarioVariants(doc, screen, atRevision, valid) {
+  const select = element('scenario-variant'); select.replaceChildren();
+  element('scenario-variant-status').textContent = 'Загрузка вариантов…';
+  try {
+    const items = await readScenarioVariants(doc, screen, atRevision, scenariosController?.signal);
+    if (!valid()) return;
     select.add(new Option('Базовое состояние', ''));
     for (const item of items) select.add(new Option(item.name, item.id));
     element('scenario-variant-status').textContent = '';
@@ -245,14 +762,14 @@ async function loadScenarioTargets(doc, screen, atRevision, valid) {
     if (!valid()) return;
     element('scenario-target-status').textContent = `Не удалось загрузить экраны: ${error.message}`;
   }
-  if (valid()) { renderScenarioCreate(); loadScenarioCapabilities(); }
+  if (valid()) { renderScenarioCreate(); loadScenarioCapabilities(); refreshScenarioActionEditorOptions('target'); }
 }
 element('scenario-create').addEventListener('submit', event => {
   event.preventDefault();
   const doc = documentId, screen = selectedScreen, key = scenarioKey(doc, screen), target = element('scenario-target').value, source = layerSelection?.id, eventValue = Number(element('scenario-event').value), actionType = element('scenario-action').value;
   const needsTarget = ['navigate', 'openOverlay'].includes(actionType);
-  if (!['Owner', 'Editor'].includes(documentRole) || !screen || !source || !scenarioCapabilities || !scenarioCapabilities.actions.includes(actionType) || scenarioCapabilities.screenId !== screen || (scenarioCapabilities.variantId || '') !== element('scenario-variant').value || (scenarioCapabilities.targetId || '') !== target || (needsTarget && !target) || !scenarioCapabilities.events.includes(eventValue) || scenarioOperations.has(key) || !Number.isSafeInteger(revision)) return;
-  const action = needsTarget ? { type: actionType, screenId: target } : actionType === 'showVariant' ? { type: actionType, variantId: element('scenario-variant').value || null } : { type: actionType };
+  if (!['Owner', 'Editor'].includes(documentRole) || !screen || !source || !scenarioCapabilities || !scenarioCapabilities.actions.includes(actionType) || scenarioCapabilities.documentId !== doc || scenarioCapabilities.nodeId !== source || scenarioCapabilities.revision !== revision || scenarioCapabilities.screenId !== screen || (scenarioCapabilities.variantId || '') !== element('scenario-variant').value || (scenarioCapabilities.datasetId ?? '') !== element('scenario-dataset').value || (actionType === 'selectDataset' && !scenarioDatasetsReady) || (scenarioCapabilities.demoNodeId ?? '') !== element('scenario-demo-node').value.trim().toLowerCase() || scenarioCapabilities.demoValue !== (element('scenario-demo-null').checked ? null : element('scenario-demo-value').value) || (scenarioCapabilities.targetId || '') !== target || (needsTarget && !target) || !scenarioCapabilities.events.includes(eventValue) || scenarioOperations.has(key) || !Number.isSafeInteger(revision)) return;
+  const action = actionType === 'setDemoValue' ? { type: actionType, nodeId: element('scenario-demo-node').value.trim(), value: element('scenario-demo-null').checked ? null : element('scenario-demo-value').value } : needsTarget ? { type: actionType, screenId: target } : actionType === 'showVariant' ? { type: actionType, variantId: element('scenario-variant').value || null } : actionType === 'selectDataset' ? { type: actionType, datasetId: element('scenario-dataset').value || null } : { type: actionType };
   const op = { kind: 'create', body: { commandId: crypto.randomUUID(), scenario: { id: crypto.randomUUID(), screenId: screen, nodeId: source, event: eventValue, actions: [action] } }, state: 'ready', revision };
   scenarioOperations.set(key, op); sendScenarioCreation(doc, screen, op);
 });
@@ -333,6 +850,14 @@ let resizeDraftScreen = null, resizeDirty = false, resizeError = null;
 let viewport = { scale: 1, x: 0, y: 0 };
 let displayedScreen = null;
 let layerController = null, layerGeneration = 0, layerSelection = null;
+let nodeReadGeneration = 0, nodeMetadata = null;
+const nodeOperations = new Map();
+const nodeDeletions = new Map();
+const nodeMoves = new Map();
+const nodeMoveNotices = new Map();
+let nodeReparentDraft = null;
+let layerSelectionEpoch = 0;
+let screenContextEpoch = 0;
 let layerRoots = [], layerExpanded = new Set(), layerChildren = new Map();
 
 let tokenItems = [], selectedToken = null, tokenUsages = [], tokenLoad = 0;
@@ -409,19 +934,22 @@ function startLive() {
   const controller = new AbortController(); liveController = controller;
   followDocument(documentId, controller);
 }
+function closeInaccessibleDocument(status) {
+  pending?.abort(); generation++; navigationEpoch++;
+  resetDiagnostics(); resetScenarios(); resetLayers(); resetVersionHistory();
+  resetMembers(); resetExport(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null;
+  element('page-edit').inert = element('screen-create').inert = false;
+  element('revision').textContent = ''; element('document-title').textContent = '';
+  document.title = 'FigVam — доступ потерян';
+  renderPages(); renderScreens(); element('editor-view').hidden = true;
+  stopPresence(); stopLive(); message('', status === 404 ? 'Документ удалён или больше недоступен.' : 'Доступ к документу потерян. Запросите права у владельца и откройте документ снова.');
+}
 async function followDocument(id, controller) {
   const signal = controller.signal, base = `/api/v1/documents/${encodeURIComponent(id)}`;
   const active = () => !signal.aborted && liveController === controller && documentId === id;
   let delay = 1000;
   function denied(status) {
-    if (!active()) return;
-    pending?.abort(); generation++; resetDiagnostics(); resetScenarios(); resetLayers(); resetVersionHistory();
-    resetMembers(); resetExport(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null;
-    element('page-edit').inert = element('screen-create').inert = false;
-    element('revision').textContent = ''; element('document-title').textContent = '';
-    document.title = 'FigVam — доступ потерян';
-    renderPages(); renderScreens(); element('editor-view').hidden = true;
-    stopPresence(); stopLive(); message('', status === 404 ? 'Документ удалён или больше недоступен.' : 'Доступ к документу потерян. Запросите права у владельца и откройте документ снова.');
+    if (active()) closeInaccessibleDocument(status);
   }
   async function frame(raw) {
     const data = raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
@@ -499,7 +1027,7 @@ function clearSession() {
   element('import-status').textContent = element('import-error').textContent = '';
   element('import-diagnostics').replaceChildren();
   resetDeletion();
-  stopPresence(); navigationEpoch++; resetDiagnostics(); resetScenarios(); resetMembers(); resetExport(); historyActions.clear(); scenarioOperations.clear();
+  stopPresence(); navigationEpoch++; resetDiagnostics(); resetScenarios(); resetMembers(); resetExport(); historyActions.clear(); scenarioOperations.clear(); nodeOperations.clear(); nodeDeletions.clear(); nodeMoves.clear(); nodeMoveNotices.clear();
   stopLive();
   token = '';
   versionOperations.clear(); restoreOperations.clear(); resizeOperations.clear(); resizeDraftScreen = null; resizeDirty = false; resizeError = null; resetVersionHistory();
@@ -534,13 +1062,13 @@ function clearSession() {
   message();
 }
 
-async function request(path, options, signal) {
+async function request(path, options, signal, isCurrent = () => true) {
   const requestToken = token;
   const response = await fetch(path, {
     ...options, signal, cache: 'no-store', credentials: 'omit', redirect: 'error',
     headers: { Authorization: `Bearer ${token}`, ...(options?.body ? { 'Content-Type': 'application/json' } : {}) }
   });
-  if (signal?.aborted || requestToken !== token) throw new DOMException('Cancelled', 'AbortError');
+  if (signal?.aborted || requestToken !== token || !isCurrent()) throw new DOMException('Cancelled', 'AbortError');
   if (response.status === 401) {
     clearSession();
     message('', 'Токен отсутствует, истёк или отклонён. Введите действующий токен.');
@@ -555,6 +1083,7 @@ async function request(path, options, signal) {
       429: 'Слишком много запросов. Повторите позже.'
     };
     const body = await response.json().catch(() => ({}));
+    if (!isCurrent()) throw new DOMException('Cancelled', 'AbortError');
     const codes = { REVISION_CONFLICT: 'Документ изменился. Обновите страницы и повторите действие.', PAGE_IN_USE: 'Страница используется другими объектами. Удалите ссылки на неё и её содержимое перед удалением.', PAGE_NOT_FOUND: 'Страница больше не существует. Обновите страницы.', PARENT_NOT_FOUND: 'Экран или слой больше не существует.', REVISION_UNAVAILABLE: 'Ревизия больше недоступна.', INVALID_PAGE: 'Не удалось сохранить страницу: проверьте имя и ограничения документа.' };
     const error = new Error(codes[body.code] ?? errors[response.status] ?? 'Сервер не смог выполнить запрос. Повторите позже.');
     error.status = response.status; error.code = body.code; throw error;
@@ -651,7 +1180,7 @@ function renderPages() {
     const button = document.createElement('button');
     button.type = 'button'; button.textContent = item.name;
     button.setAttribute('aria-pressed', String(item.id === selectedPage));
-    button.addEventListener('click', () => { if (selectedPage !== item.id) { selectedPage = item.id; selectedScreen = null; resetDiagnostics(); resetScenarios(); resetScreenVariants(); screensOffset = 0; resetLayers(); renderPages(); renderCanvas(); refreshPages(); } });
+    button.addEventListener('click', () => { if (selectedPage !== item.id) { screenContextEpoch++; selectedPage = item.id; selectedScreen = null; resetDiagnostics(); resetScenarios(); resetScreenVariants(); screensOffset = 0; resetLayers(); renderPages(); renderCanvas(); refreshPages(); } });
     row.append(button); list.append(row);
   }
   const selected = pagesItems.find(item => item.id === selectedPage);
@@ -670,7 +1199,7 @@ function renderScreens() {
     const row = document.createElement('li'), button = document.createElement('button');
     button.type = 'button'; button.textContent = `Экран ${item.id} — ${item.dimensions.width} × ${item.dimensions.height}`;
     button.setAttribute('aria-pressed', String(item.id === selectedScreen));
-    button.addEventListener('click', () => { if (selectedScreen !== item.id) { selectedScreen = item.id; resetDiagnostics(); resetScenarios(); resetScreenVariants(); renderScreenSize(); refreshPages(); } for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', String(other === button)); renderCanvas(); });
+    button.addEventListener('click', () => { if (selectedScreen !== item.id) { screenContextEpoch++; selectedScreen = item.id; resetDiagnostics(); resetScenarios(); resetScreenVariants(); renderScreenSize(); refreshPages(); } for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', String(other === button)); renderCanvas(); });
     row.append(button); list.append(row);
   }
   renderCanvas(); renderScreenSize();
@@ -740,23 +1269,376 @@ async function sendResize(id, screen, operation) {
 
 
 function resetLayers() {
+  closeNodeReparent();
   layerController?.abort(); layerController = null; layerGeneration++;
   layerSelection = null; layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
   clearScenarioCapabilities('Возможности сценария недоступны.'); renderScenarioCreate();
   element('layers').replaceChildren();
   element('layers-status').textContent = 'Выберите экран.';
   element('inspector-selection').textContent = 'Выберите слой.';
+  nodeReadGeneration++; nodeMetadata = null; renderNodeMetadata();
 }
 
 function selectLayer(item) {
+  if (layerSelection?.id !== item.id) { layerSelectionEpoch++; closeNodeReparent(); }
   layerSelection = item;
+  loadNodeMetadata();
   loadScenarioCapabilities();
+  renderScenarioEditor();
   element('inspector-selection').textContent = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
+  renderNodeOrder();
   for (const node of element('layers').querySelectorAll('[role=treeitem]'))
     node.setAttribute('aria-selected', String(node.dataset.id === item.id));
 }
 
+function nodeOperationKey(doc, node) { return `${doc}:${node}`; }
+function renderNodeDeletion() {
+  renderNodeOrder();
+  let op = nodeDeletions.get(`${documentId}:${selectedScreen}`);
+  const editable = ['Owner', 'Editor'].includes(documentRole);
+  element('node-delete').hidden = !layerSelection || !editable;
+  element('node-delete').disabled = !!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(documentId, layerSelection.id)));
+  element('node-delete-retry').hidden = !editable || op?.state !== 'uncertain';
+  element('node-delete-status').textContent = op?.state === 'pending' ? 'Удаление слоя…' : op?.state === 'uncertain' ? `Результат удаления слоя «${op.name}» неизвестен. Повторите ту же команду.` : op?.error || '';
+}
+function renderNodeMetadata() {
+  renderNodeDeletion();
+  const selected = layerSelection, op = selected && nodeOperations.get(nodeOperationKey(documentId, selected.id));
+  const visible = !!selected;
+  element('node-metadata').hidden = !visible;
+  if (!visible) return;
+  const editable = ['Owner', 'Editor'].includes(documentRole);
+  const ready = nodeMetadata?.id === selected.id;
+  for (const id of ['node-name', 'node-key']) element(id).readOnly = !editable || !ready || !!op;
+  for (const id of ['node-name-form', 'node-key-form']) element(id).querySelector('button').hidden = !editable;
+  for (const id of ['node-name-form', 'node-key-form']) element(id).querySelector('button').disabled = !ready || !!op;
+  if (ready) { element('node-name').value = nodeMetadata.name; element('node-key').value = nodeMetadata.semanticKey ?? ''; }
+  else { element('node-name').value = ''; element('node-key').value = ''; }
+  element('node-metadata-status').textContent = op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready ? 'Загрузка слоя…' : '');
+  element('node-metadata-error').textContent = op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? '');
+  element('node-metadata-retry').hidden = !editable || op?.state !== 'uncertain';
+}
+async function loadNodeMetadata() {
+  const current = ++nodeReadGeneration, doc = documentId, screen = selectedScreen, node = layerSelection?.id, atRevision = revision, epoch = navigationEpoch, requestToken = token;
+  nodeMetadata = null; renderNodeMetadata();
+  if (!node || !Number.isSafeInteger(atRevision)) return;
+  const active = () => current === nodeReadGeneration && doc === documentId && screen === selectedScreen && node === layerSelection?.id && atRevision === revision && epoch === navigationEpoch && requestToken === token && !element('editor-view').hidden;
+  try {
+    const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/nodes/${encodeURIComponent(node)}?fields=name,semanticKey&revision=${atRevision}`, {}, undefined, active);
+    if (!active()) return;
+    const item = result.items?.[0];
+    if (result.revision !== atRevision || item?.id !== node || typeof item.name !== 'string') throw new TypeError('Некорректный ответ');
+    nodeMetadata = { id: node, name: item.name, semanticKey: item.semanticKey ?? null };
+    renderNodeMetadata();
+  } catch (error) {
+    if (!active()) return;
+    if (error.status === 403) { closeInaccessibleDocument(error.status); return; }
+    nodeMetadata = { error: error.message || 'Не удалось загрузить слой.' }; renderNodeMetadata();
+    element('node-metadata-status').textContent = '';
+    element('node-metadata-error').textContent = error.message || 'Не удалось загрузить слой.';
+  }
+}
+function submitNodeMetadata(kind) {
+  const doc = documentId, screen = selectedScreen, node = layerSelection?.id;
+  if (!node || !nodeMetadata || !['Owner', 'Editor'].includes(documentRole)) return;
+  const key = nodeOperationKey(doc, node); if (nodeOperations.has(key)) return;
+  const value = element(kind === 'name' ? 'node-name' : 'node-key').value;
+  if (value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value) || (kind === 'key' && value !== '' && !value.trim())) {
+    element('node-metadata-error').textContent = 'Проверьте значение: не более 256 символов, без управляющих символов; semantic key не может состоять из пробелов.'; return;
+  }
+  const op = { kind, body: { commandId: crypto.randomUUID(), nodeId: node, ...(kind === 'name' ? { name: value } : { semanticKey: value === '' ? null : value }) }, state: 'pending' };
+  nodeOperations.set(key, op); sendNodeMetadata(doc, screen, node, op);
+}
+element('node-name-form').addEventListener('submit', e => { e.preventDefault(); submitNodeMetadata('name'); });
+element('node-key-form').addEventListener('submit', e => { e.preventDefault(); submitNodeMetadata('key'); });
+element('node-metadata-retry').addEventListener('click', () => {
+  const op = layerSelection && nodeOperations.get(nodeOperationKey(documentId, layerSelection.id));
+  if (op?.state === 'uncertain') sendNodeMetadata(documentId, selectedScreen, layerSelection.id, op);
+});
+async function sendNodeMetadata(doc, screen, node, op) {
+  const key = nodeOperationKey(doc, node), epoch = navigationEpoch, requestToken = token, selectionGeneration = nodeReadGeneration;
+  const active = () => nodeReadGeneration === selectionGeneration && nodeOperations.get(key) === op && documentId === doc && selectedScreen === screen && layerSelection?.id === node && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden;
+  op.state = 'pending'; if (active()) renderNodeMetadata();
+  try {
+    const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
+    if (nodeOperations.get(key) !== op) return;
+    if (!Number.isSafeInteger(result.revision) || result.code !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+    if (!active()) { op.state = 'uncertain'; return; }
+    nodeOperations.delete(key);
+    await run(() => refreshPages(), signal => readPages(signal, pagesOffset, null, activeAfterConfirmation));
+    function activeAfterConfirmation() { return documentId === doc && selectedScreen === screen && layerSelection?.id === node && nodeReadGeneration === selectionGeneration && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden; }
+  } catch (error) {
+    if (nodeOperations.get(key) !== op) return;
+    if (!active() || error instanceof TypeError || error.status >= 500 || error.name === 'AbortError') op.state = 'uncertain';
+    else {
+      nodeOperations.delete(key);
+      if (error.status === 403) { closeInaccessibleDocument(error.status); return; }
+      if (error.code === 'NODE_NOT_FOUND') {
+        const currentContext = () => documentId === doc && selectedScreen === screen && layerSelection?.id === node && nodeReadGeneration === selectionGeneration && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden;
+        await run(() => refreshPages(), signal => readPages(signal, pagesOffset, null, currentContext));
+        if (documentId === doc && selectedScreen === screen && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden && !layerSelection) element('layers-status').textContent = 'Слой больше не существует.';
+        return;
+      }
+      if (nodeMetadata) nodeMetadata.error = error.message;
+      renderNodeMetadata(); return;
+    }
+  } finally { if (nodeOperations.get(key) === op && documentId === doc && selectedScreen === screen && layerSelection?.id === node && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden) renderNodeMetadata(); }
+}
+
+element('node-delete').addEventListener('click', () => {
+  const node = layerSelection, doc = documentId, screen = selectedScreen, key = `${doc}:${screen}`;
+  if (!node || !['Owner', 'Editor'].includes(documentRole) || (nodeDeletions.has(key) && nodeDeletions.get(key).state !== 'rejected') || nodeOperations.has(nodeOperationKey(doc, node.id))) return;
+  const name = node.name?.trim() || 'Без имени';
+  if (!confirm(`Удалить слой «${name}»? Будет удалено всё его поддерево.`)) return;
+  const op = { doc, screen, name, body: { commandId: crypto.randomUUID(), nodeId: node.id }, state: 'ready' };
+  nodeDeletions.set(key, op); sendNodeDeletion(op);
+});
+element('node-delete-retry').addEventListener('click', () => {
+  const op = nodeDeletions.get(`${documentId}:${selectedScreen}`);
+  if (op?.state === 'uncertain') sendNodeDeletion(op);
+});
+async function sendNodeDeletion(op) {
+  const key = `${op.doc}:${op.screen}`;
+  if (nodeDeletions.get(key) !== op || op.state === 'pending') return;
+  const epoch = navigationEpoch, screenEpoch = screenContextEpoch, requestToken = token;
+  const active = () => screenEpoch === screenContextEpoch && nodeDeletions.get(key) === op && documentId === op.doc && selectedScreen === op.screen && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden;
+  op.state = 'pending'; renderNodeDeletion();
+  try {
+    const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/delete-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
+    if (!active()) { op.state = 'uncertain'; return; }
+    if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+    let synced = false;
+    await run(() => refreshPages(), async signal => { await readPages(signal, pagesOffset, null, active); synced = true; });
+    if (active() && synced) { nodeDeletions.delete(key); renderNodeDeletion(); }
+    else op.state = 'uncertain';
+  } catch (error) {
+    if (!active() || error instanceof TypeError || error.name === 'AbortError' || error.status === undefined || error.status >= 500) { op.state = 'uncertain'; return; }
+    if (error.status === 403) { nodeDeletions.delete(key); closeInaccessibleDocument(403); return; }
+    if (error.code === 'NODE_NOT_FOUND') {
+      await run(() => refreshPages(), signal => readPages(signal, pagesOffset, null, active));
+      if (!active()) { op.state = 'uncertain'; return; }
+      op.error = 'Слой уже удалён другим участником.';
+    } else op.error = ({ SCENARIO_IN_USE: 'Слой или его поддерево используется в сценариях. Сначала удалите ссылки сценариев.', SCREEN_VARIANT_IN_USE: 'Слой или его поддерево используется в вариантах. Сначала удалите ссылки вариантов.', INVALID_REPEATER: 'Слой используется повторителем. Сначала удалите зависимость.', INVALID_COMPONENT: 'Слой используется компонентом. Сначала удалите зависимость.' })[error.code] || error.message;
+    op.state = 'rejected';
+  } finally { if (nodeDeletions.get(key) === op && documentId === op.doc && selectedScreen === op.screen && token === requestToken && !element('editor-view').hidden) renderNodeDeletion(); }
+}
+
+function selectedSiblingContext() {
+  function find(parent, items) {
+    const index = items.findIndex(item => item.id === layerSelection?.id);
+    if (index >= 0) return { parent, index, count: items.length };
+    for (const item of items) {
+      const found = find(item.id, layerChildren.get(item.id) || []);
+      if (found) return found;
+    }
+    return null;
+  }
+  return selectedScreen && layerSelection ? find(selectedScreen, layerRoots) : null;
+}
+function renderNodeOrder() {
+  const op = nodeMoves.get(`${documentId}:${selectedScreen}`), context = selectedSiblingContext();
+  const editable = ['Owner', 'Editor'].includes(documentRole);
+  element('node-order').hidden = !editable || !layerSelection;
+  element('node-earlier').disabled = !context || context.index === 0 || !!op;
+  element('node-later').disabled = !context || context.index === context.count - 1 || !!op;
+  element('node-reparent').disabled = !context || !!op;
+  element('node-order-retry').hidden = !editable || op?.state !== 'uncertain';
+  element('node-order-status').textContent = !editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(`${documentId}:${selectedScreen}`) || '';
+}
+function closeNodeReparent() {
+  nodeReparentDraft?.controller.abort();
+  nodeReparentDraft = null;
+  element('node-reparent-form').hidden = true;
+  element('node-reparent').setAttribute('aria-expanded', 'false');
+}
+
+async function loadNodeReparent() {
+  const key = `${documentId}:${selectedScreen}`;
+  if (!selectedSiblingContext() || !['Owner', 'Editor'].includes(documentRole) || nodeMoves.has(key)) return;
+  closeNodeReparent();
+  const doc = documentId, screen = selectedScreen, node = layerSelection.id;
+  const epoch = navigationEpoch, screenEpoch = screenContextEpoch, selectionEpoch = layerSelectionEpoch, requestToken = token;
+  const controller = new AbortController();
+  const draft = { doc, screen, node, controller, targets: new Map() };
+  const active = () => nodeReparentDraft === draft && doc === documentId && screen === selectedScreen &&
+    node === layerSelection?.id && epoch === navigationEpoch && screenEpoch === screenContextEpoch &&
+    selectionEpoch === layerSelectionEpoch && token === requestToken && !element('editor-view').hidden;
+  nodeReparentDraft = draft;
+  const target = element('node-reparent-target'), status = element('node-reparent-status');
+  target.replaceChildren(new Option('Выберите родителя', ''));
+  target.disabled = true;
+  renderNodeReparentPosition();
+  element('node-reparent-reload').hidden = true;
+  element('node-reparent-form').hidden = false;
+  element('node-reparent').setAttribute('aria-expanded', 'true');
+  status.textContent = 'Загрузка родителей слоя…';
+  status.focus();
+  try {
+    const base = `/api/v1/documents/${encodeURIComponent(doc)}/nodes`;
+    const items = [];
+    let atRevision, total;
+    do {
+      const query = new URLSearchParams({ screenId: screen, offset: String(items.length), limit: '100', fields: 'parentId,canContainChildren,childCount,name,kind' });
+      if (atRevision !== undefined) query.set('revision', String(atRevision));
+      const result = await request(`${base}?${query}`, {}, controller.signal, active);
+      if (!active()) return;
+      if (result.documentId?.toLowerCase() !== doc.toLowerCase() || !Array.isArray(result.items) || !Number.isSafeInteger(result.revision) || !Number.isSafeInteger(result.total) ||
+          result.total < items.length || result.items.length > result.total - items.length || (!result.items.length && items.length < result.total) ||
+          (atRevision !== undefined && (result.revision !== atRevision || total !== result.total))) throw new TypeError('Некорректный список слоёв.');
+      atRevision = result.revision;
+      total = result.total;
+      items.push(...result.items);
+    } while (items.length < total);
+    const source = items.find(item => item.id === node);
+    if (!source) {
+      const notice = 'Слой больше не находится на этом экране.';
+      status.textContent = 'Обновление дерева слоёв…';
+      const synced = await refreshNodeMoveTree(active);
+      if (synced) {
+        nodeMoveNotices.set(key, notice + ' Дерево обновлено.');
+        renderNodeOrder();
+      } else if (active()) {
+        status.textContent = notice;
+        element('node-reparent-reload').hidden = false;
+      }
+      return;
+    }
+    draft.expectedParentId = source.parentId;
+    const paths = new Map([[screen, []]]);
+    if (source.parentId !== screen) {
+      const count = items.filter(item => item.parentId === screen).length;
+      draft.targets.set(screen, { label: 'Экран (корень)', count, reveal: [] });
+    }
+    for (const item of items) {
+      const ancestors = paths.get(item.parentId);
+      if (!ancestors || paths.has(item.id) || !Number.isSafeInteger(item.childCount) || item.childCount < 0 || typeof item.canContainChildren !== 'boolean') throw new TypeError('Некорректный список слоёв.');
+      const path = [...ancestors, item];
+      paths.set(item.id, path);
+      if (item.canContainChildren && item.id !== source.parentId && !path.some(part => part.id === node)) {
+        const label = path.map(part => part.name?.trim() || part.kind).join(' / ');
+        draft.targets.set(item.id, { label, count: item.childCount, reveal: path.map(part => part.id) });
+      }
+    }
+    const labels = new Map();
+    for (const { label } of draft.targets.values()) labels.set(label, (labels.get(label) ?? 0) + 1);
+    for (const [id, { label }] of draft.targets) target.add(new Option(labels.get(label) > 1 ? `${label} · ${id}` : label, id));
+    target.disabled = !draft.targets.size;
+    status.textContent = target.disabled ? 'На этом экране нет другого подходящего родителя.' : 'Выберите нового родителя и позицию слоя.';
+    if (!target.disabled && document.activeElement === status) target.focus();
+  } catch (error) {
+    if (!active() || error.name === 'AbortError') return;
+    if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
+    status.textContent = error instanceof TypeError || error instanceof SyntaxError ? 'Не удалось загрузить родителей слоя.' : error.message;
+    element('node-reparent-reload').hidden = false;
+  }
+}
+
+function renderNodeReparentPosition() {
+  const target = nodeReparentDraft?.targets.get(element('node-reparent-target').value);
+  const position = element('node-reparent-position');
+  position.disabled = element('node-reparent-submit').disabled = !target;
+  position.max = position.value = target ? String(target.count + 1) : '';
+  element('node-reparent-range').textContent = target ? `Доступные позиции: от 1 до ${position.max}.` : '';
+}
+
+element('node-reparent').addEventListener('click', loadNodeReparent);
+element('node-reparent-reload').addEventListener('click', loadNodeReparent);
+element('node-reparent-target').addEventListener('change', renderNodeReparentPosition);
+element('node-reparent-cancel').addEventListener('click', () => { closeNodeReparent(); element('node-reparent').focus(); });
+element('node-reparent-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const draft = nodeReparentDraft, targetId = element('node-reparent-target').value;
+  const target = draft?.targets.get(targetId), position = element('node-reparent-position').valueAsNumber - 1;
+  if (!target || draft.doc !== documentId || draft.screen !== selectedScreen || draft.node !== layerSelection?.id ||
+      !Number.isInteger(position) || position < 0 || position > target.count) return;
+  startNodeMove(draft.expectedParentId, targetId, position, target.reveal);
+  element('node-order-status').focus();
+});
+
+function beginNodeMove(delta) {
+  const context = selectedSiblingContext();
+  if (!context) return;
+  const position = context.index + delta;
+  if (position < 0 || position >= context.count) return;
+  startNodeMove(context.parent, context.parent, position);
+}
+function startNodeMove(expectedParentId, targetParentId, position, reveal = []) {
+  const key = `${documentId}:${selectedScreen}`;
+  if (!layerSelection || !['Owner', 'Editor'].includes(documentRole) || nodeMoves.has(key)) return;
+  const body = { commandId: crypto.randomUUID(), nodeId: layerSelection.id, expectedParentId, targetParentId, position };
+  const op = { doc: documentId, screen: selectedScreen, name: layerSelection.name?.trim() || layerSelection.kind, reveal, body, state: 'ready' };
+  closeNodeReparent();
+  nodeMoveNotices.delete(key);
+  nodeMoves.set(key, op);
+  sendNodeMove(op);
+}
+element('node-earlier').addEventListener('click', () => beginNodeMove(-1));
+element('node-later').addEventListener('click', () => beginNodeMove(1));
+element('node-order-retry').addEventListener('click', () => {
+  const op = nodeMoves.get(`${documentId}:${selectedScreen}`);
+  if (op?.state === 'uncertain') sendNodeMove(op);
+});
+async function refreshNodeMoveTree(active, reveal = []) {
+  let synced = false;
+  await run(() => refreshPages(), async (signal, current) => {
+    try {
+      synced = await readPages(signal, pagesOffset, null, active, reveal) === true;
+    } catch (error) {
+      if (active() && (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND')) closeInaccessibleDocument(error.status);
+      else throw error;
+    } finally {
+      if (current()) message();
+    }
+  });
+  return synced;
+}
+
+async function sendNodeMove(op) {
+  const key = `${op.doc}:${op.screen}`;
+  if (nodeMoves.get(key) !== op || op.state === 'pending' || !['Owner', 'Editor'].includes(documentRole)) return;
+  const epoch = navigationEpoch, screenEpoch = screenContextEpoch, selectionEpoch = layerSelectionEpoch, requestToken = token;
+  const context = () => nodeMoves.get(key) === op && documentId === op.doc && selectedScreen === op.screen && screenContextEpoch === screenEpoch && navigationEpoch === epoch && token === requestToken && !element('editor-view').hidden;
+  const active = () => context() && layerSelectionEpoch === selectionEpoch;
+  op.state = 'pending'; renderNodeOrder();
+  try {
+    const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/move-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
+    if (!active()) { op.state = 'uncertain'; return; }
+    if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+    const reveal = layerSelection?.id === op.body.nodeId ? op.reveal : [];
+    const synced = await refreshNodeMoveTree(active, reveal);
+    if (context() && synced) {
+      nodeMoves.delete(key);
+      if (op.body.expectedParentId !== op.body.targetParentId) nodeMoveNotices.set(key, 'Слой перемещён к новому родителю.');
+    } else op.state = 'uncertain';
+  } catch (error) {
+    if (!active() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+    if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
+    const explanations = {
+      NODE_NOT_FOUND: 'Слой уже удалён другим участником.',
+      PARENT_NOT_FOUND: 'Новый родитель уже удалён другим участником.',
+      INVALID_LAYOUT_CONTEXT: 'Родитель слоя изменился.',
+      INVALID_POSITION: 'Эта позиция больше недоступна.',
+      CHILDREN_NOT_ALLOWED: 'Новый родитель не может содержать дочерние слои.',
+      CYCLE_NOT_ALLOWED: 'Нельзя переместить слой внутрь его собственного поддерева.',
+      INVALID_COMPONENT: 'Перемещение нарушит структуру компонента.',
+      INVALID_REPEATER: 'Перемещение нарушит структуру повторителя.',
+      SCENARIO_IN_USE: 'Перемещение нарушит ссылки сценария.',
+      SCREEN_VARIANT_IN_USE: 'Перемещение нарушит ссылки варианта экрана.'
+    };
+    const notice = explanations[error.code] ?? error.message;
+    const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED'].includes(error.code);
+    const synced = refresh && await refreshNodeMoveTree(active);
+    if ((synced && context()) || active())
+      nodeMoveNotices.set(key, notice + (synced ? ' Дерево обновлено.' : ''));
+    if (nodeMoves.get(key) === op) nodeMoves.delete(key);
+  } finally {
+    if (documentId === op.doc && selectedScreen === op.screen && token === requestToken && (navigationEpoch === epoch || nodeMoves.get(key) === op) && !element('editor-view').hidden)
+      renderNodeOrder();
+  }
+}
+
 function renderLayers(focusId) {
+  renderNodeDeletion();
   const tree = element('layers'); tree.replaceChildren();
   function append(items, parent) {
     for (const item of items) {
@@ -781,11 +1663,11 @@ function renderLayers(focusId) {
   if (focused) { focused.tabIndex = 0; if (focusId) focused.focus(); }
 }
 
-async function readLayerChildren(parentId, signal, currentRevision) {
+async function readLayerChildren(parentId, signal, currentRevision, isCurrent) {
   const items = []; let total;
   do {
     const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields: 'name,kind,childCount', revision: String(currentRevision) });
-    const result = await request(`/api/v1/documents/${encodeURIComponent(documentId)}/children/${encodeURIComponent(parentId)}?${query}`, {}, signal);
+    const result = await request(`/api/v1/documents/${encodeURIComponent(documentId)}/children/${encodeURIComponent(parentId)}?${query}`, {}, signal, isCurrent);
     total = result.total;
     if (!result.items.length && items.length < total) throw new Error('Не удалось загрузить все слои. Обновите страницы.');
     items.push(...result.items);
@@ -795,6 +1677,7 @@ async function readLayerChildren(parentId, signal, currentRevision) {
 
 function layerFailure(error, current) {
   if (error.name === 'AbortError' || current !== layerGeneration) return;
+  if (error.status === 403) { closeInaccessibleDocument(403); return; }
   resetLayers();
   element('layers-status').textContent = error instanceof TypeError ? 'Не удалось загрузить слои. Проверьте соединение и обновите страницы.' : `${error.message} Обновите страницы.`;
 }
@@ -935,15 +1818,15 @@ canvasArea.addEventListener('pointerup', endDrag);
 canvasArea.addEventListener('pointercancel', endDrag);
 canvasArea.addEventListener('lostpointercapture', endDrag);
 
-async function readPages(signal, offset = pagesOffset, targetRevision = null) {
+async function readPages(signal, offset = pagesOffset, targetRevision = null, isCurrent = () => true, reveal = []) {
   const id = documentId, current = generation;
-  const valid = () => !signal.aborted && id === documentId && current === generation;
+  const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
   const base = `/api/v1/documents/${encodeURIComponent(id)}`;
   const query = new URLSearchParams({ offset: String(offset), limit: String(pageSize), fields: 'name,childCount' });
   if (targetRevision !== null) query.set('revision', String(targetRevision));
-  const result = await request(`${base}/pages?${query}`, {}, signal);
+  const result = await request(`${base}/pages?${query}`, {}, signal, valid);
   if (!valid()) return;
-  if (offset && !result.items.length) return readPages(signal, Math.max(0, offset - pageSize), result.revision);
+  if (offset && !result.items.length) return readPages(signal, Math.max(0, offset - pageSize), result.revision, isCurrent, reveal);
   const nextRevision = result.revision;
   const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
   let screen = page === selectedPage ? selectedScreen : null;
@@ -951,16 +1834,17 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null) {
   let screens = { items: [], total: 0 };
   if (page) {
     do {
-      screens = await request(`${base}/pages/${encodeURIComponent(page)}/screens?offset=${screenOffset}&limit=${pageSize}&fields=dimensions&revision=${nextRevision}`, {}, signal);
+      screens = await request(`${base}/pages/${encodeURIComponent(page)}/screens?offset=${screenOffset}&limit=${pageSize}&fields=dimensions&revision=${nextRevision}`, {}, signal, valid);
       if (!valid()) return;
       if (!screenOffset || screens.items.length) break;
       screenOffset = Math.max(0, screenOffset - pageSize);
     } while (true);
   }
   if (!screens.items.some(item => item.id === screen)) screen = null;
-  const children = new Map(), expanded = new Set(layerExpanded);
+  const children = new Map(), initialExpansion = new Set(layerExpanded);
+  const expanded = new Set(screen === selectedScreen ? [...initialExpansion, ...reveal] : []);
   async function readBranch(parent) {
-    const items = await readLayerChildren(parent, signal, nextRevision);
+    const items = await readLayerChildren(parent, signal, nextRevision, valid);
     if (!valid()) return [];
     for (const item of items) if (expanded.has(item.id)) children.set(item.id, await readBranch(item.id));
     return items;
@@ -971,13 +1855,13 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null) {
     if (valid() && signal === pending?.signal) layerFailure(error, layerGeneration);
     throw error;
   }
-  const tokenSnapshot = await readTokens(base, nextRevision, signal);
-  const header = await request(`${base}?fields=name&revision=${nextRevision}`, {}, signal);
+  const tokenSnapshot = await readTokens(base, nextRevision, signal, valid);
+  const header = await request(`${base}?fields=name&revision=${nextRevision}`, {}, signal, valid);
   if (!valid()) return;
   // An expansion can change while the pinned tree is loading. Stage it again
   // rather than discard that interaction or mix children from two revisions.
-  if (expanded.size !== layerExpanded.size || [...expanded].some(id => !layerExpanded.has(id)))
-    return readPages(signal, offset, nextRevision);
+  if (initialExpansion.size !== layerExpanded.size || [...initialExpansion].some(id => !layerExpanded.has(id)))
+    return readPages(signal, offset, nextRevision, isCurrent, reveal);
   const selection = layerSelection;
   resetLayers();
   pagesOffset = offset; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
@@ -985,6 +1869,7 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null) {
   layerRoots = roots; layerChildren = children; layerExpanded = expanded;
   layerController = new AbortController();
   renderPages(); renderScreens(); renderLayers();
+  revision = nextRevision;
   if (selection) { const item = findLayer(selection.id); if (item) selectLayer(item); }
   element('layers-status').textContent = screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.';
   const name = header.items[0].name;
@@ -999,6 +1884,7 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null) {
   if (scenariosKey !== nextScenariosKey) { const offset = screen === selectedScreen ? scenariosOffset : 0; resetScenarios(); scenariosOffset = offset; if (screen) loadScenarios(); }
   element('revision').textContent = `Общий черновик · ревизия ${revision}`;
   renderExport();
+  return true;
 }
 
 function resetExport() {
@@ -1628,21 +2514,21 @@ function resetTokens() {
   element('tokens-error').textContent = ''; element('tokens-status').textContent = '';
   element('token-create').reset(); element('token-rename').reset(); element('token-set').reset();
 }
-async function readAllTokenPages(path, revision, signal) {
+async function readAllTokenPages(path, revision, signal, isCurrent) {
   let items = [], total;
   do {
-    const result = await request(`${path}?revision=${revision}&offset=${items.length}&limit=100`, {}, signal);
+    const result = await request(`${path}?revision=${revision}&offset=${items.length}&limit=100`, {}, signal, isCurrent);
     if (result.revision !== revision || !Array.isArray(result.items) || !Number.isInteger(result.total)) throw new Error('Некорректный ответ о токенах.');
     items.push(...result.items); total = result.total;
     if (!result.items.length && items.length < total) throw new Error('Неполный ответ о токенах.');
   } while (items.length < total);
   return items;
 }
-async function readTokens(base, atRevision, signal) {
-  const items = await readAllTokenPages(`${base}/tokens`, atRevision, signal);
+async function readTokens(base, atRevision, signal, isCurrent) {
+  const items = await readAllTokenPages(`${base}/tokens`, atRevision, signal, isCurrent);
   const selection = selectedToken;
   const usages = selection && items.some(item => item.id === selection)
-    ? await readAllTokenPages(`${base}/tokens/${encodeURIComponent(selection)}/usages`, atRevision, signal) : [];
+    ? await readAllTokenPages(`${base}/tokens/${encodeURIComponent(selection)}/usages`, atRevision, signal, isCurrent) : [];
   return { items, selection, usages };
 }
 function applyTokens(snapshot) {

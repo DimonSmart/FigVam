@@ -100,5 +100,33 @@ public sealed class ScenarioTests : IDisposable
         Assert.Contains(changes.Items, item => item.Id == id && item.Type == "scenario");
     }
 
+    [Fact]
+    public async Task UpdateChecksEditAccessAndRevisionAndPersistsOrderedActionsOnce()
+    {
+        await Seed();
+        Assert.True((await Handler().HandleAsync(new CreateScenarioCommand(doc, Guid.NewGuid(), Scenario()), actor)).Accepted);
+        var changed = Scenario() with { Event = PreviewEvent.Change, Actions = [new OpenOverlay(other), new SetDemoValue(foreign, ""), new CloseOverlay(), new ShowVariant(null)] };
+        var update = new UpdateScenarioCommand(doc, Guid.NewGuid(), changed, 1);
+
+        Assert.Equal("FORBIDDEN", (await Handler().HandleAsync(update, new("viewer"))).Code);
+        Assert.Equal("REVISION_CONFLICT", (await Handler().HandleAsync(update with { CommandId = Guid.NewGuid(), ExpectedRevision = 0 }, actor)).Code);
+        var before = (await Read()).Response!;
+        Assert.Equal(1, before.Revision);
+        Assert.Equal(PreviewEvent.Click, Assert.Single(before.Items).Event);
+
+        var editor = new DocumentActor("editor");
+        var accepted = await Handler().HandleAsync(update, editor);
+        Assert.True(accepted.Accepted);
+        Assert.Equal(2, accepted.Revision);
+        Assert.Equal(accepted, await Handler().HandleAsync(update, editor));
+        var after = (await Read(user: new("viewer"))).Response!;
+        Assert.Equal(2, after.Revision);
+        var scenario = Assert.Single(after.Items);
+        Assert.Equal(PreviewEvent.Change, scenario.Event);
+        Assert.Equal(changed.Actions, scenario.Actions);
+        var committed = Assert.Single((await Journal().ReadEventsAsync(doc, 1)).Events!);
+        Assert.Equal(update.CommandId, committed.CommandId);
+    }
+
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
 }

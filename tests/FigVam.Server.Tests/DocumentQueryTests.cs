@@ -35,7 +35,7 @@ public sealed class DocumentQueryTests
             new(a, "Text", []) { Name = "Button", SemanticKey = "submit" },
             new(b, "Text", []) { Name = "Button", SemanticKey = "submit" },
             new(c, "Text", []) { Name = "button", SemanticKey = "other" }]);
-        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 4)));
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 4)), new UnverifiedNodeProfile());
         var actor = new DocumentActor("reader");
         var query = new StructureQuery("children", screen, Limit: 1, Fields: "name,semanticKey", SemanticKey: "submit", NamePrefix: "But");
         var result = (await service.QueryAsync(doc, query, actor)).Response!;
@@ -55,7 +55,7 @@ public sealed class DocumentQueryTests
         var doc = Guid.NewGuid(); var page = Guid.NewGuid();
         var ids = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid()).ToArray();
         var structure = new DocumentStructure(doc, [new(page, ids)], ids.Select(id => new ScreenStructure(id, [], new(800, 600))).ToArray(), []);
-        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 7)));
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 7)), new UnverifiedNodeProfile());
         var first = (await service.QueryAsync(doc, new("page-screens", page, Limit: 100, Fields: "dimensions"), new("reader"))).Response!;
         Assert.Equal(101, first.Total); Assert.Equal(ids.Take(100), first.Items.Select(i => i.Id));
         var last = (await service.QueryAsync(doc, new("page-screens", page, Offset: 100), new("reader"))).Response!;
@@ -69,7 +69,7 @@ public sealed class DocumentQueryTests
     {
         var doc = Guid.NewGuid(); var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var a = Guid.NewGuid(); var b = Guid.NewGuid(); var c = Guid.NewGuid();
         var structure = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [b, a], new(800, 600))], [new(a, "Text", []), new(b, "Frame", [c]), new(c, "Text", [])]);
-        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 9)));
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 9)), new UnverifiedNodeProfile());
         var actor = new DocumentActor("reader");
         var children = (await service.QueryAsync(doc, new("children", screen, 0, 1), actor)).Response!;
         Assert.Equal(9, children.Revision); Assert.Equal(2, children.Total); Assert.Equal(b, Assert.Single(children.Items).Id);
@@ -77,6 +77,14 @@ public sealed class DocumentQueryTests
         Assert.Equal(a, Assert.Single(next.Items).Id);
         var filtered = (await service.QueryAsync(doc, new("nodes", ScreenId: screen, Kind: "Text"), actor)).Response!;
         Assert.Equal(new[] { c, a }, filtered.Items.Select(x => x.Id));
+        var structurePage = new StructureQuery("nodes", ScreenId: screen, Limit: 1, Fields: "parentId,canContainChildren");
+        var root = Assert.Single((await service.QueryAsync(doc, structurePage, actor)).Response!.Items);
+        Assert.Equal(screen, root.ParentId);
+        Assert.False(root.CanContainChildren);
+        var descendant = Assert.Single((await service.QueryAsync(doc, structurePage with { Revision = 9, Offset = 1 }, actor)).Response!.Items);
+        Assert.Equal(c, descendant.Id);
+        Assert.Equal(b, descendant.ParentId);
+        Assert.Null(Assert.Single(children.Items).CanContainChildren);
         var nested = (await service.QueryAsync(doc, new("screen", screen, Depth: 2, Fields: "childCount"), actor)).Response!;
         var first = Assert.Single(nested.Items).Children![0]; Assert.Null(first.Kind); Assert.Equal(c, Assert.Single(first.Children!).Id);
         Assert.Equal("INVALID_QUERY", (await service.QueryAsync(doc, new("nodes", Limit: 101), actor)).Code);
@@ -184,6 +192,7 @@ public sealed class DocumentQueryTests
         Assert.Contains("NamePrefix", parameters, StringComparison.OrdinalIgnoreCase);
         var itemSchema = JsonNode.Parse(await client.GetStringAsync("/api/v1/schemas/StructureItem.json"))!;
         Assert.NotNull(itemSchema["properties"]!["name"]); Assert.NotNull(itemSchema["properties"]!["semanticKey"]);
+        Assert.NotNull(itemSchema["properties"]!["parentId"]); Assert.NotNull(itemSchema["properties"]!["canContainChildren"]);
         var schema = JsonNode.Parse(await client.GetStringAsync("/api/v1/schemas/StructureResponse.json"))!;
         Assert.NotNull(schema["properties"]!["revision"]);
         using var schemaDocument = System.Text.Json.JsonDocument.Parse(schema.ToJsonString());

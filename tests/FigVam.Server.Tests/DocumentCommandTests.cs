@@ -374,6 +374,12 @@ public sealed class DocumentCommandTests : IDisposable
         var leaf = new AddNodeCommand(documentId, Guid.NewGuid(), a.NodeId, Guid.NewGuid(), "leaf");
         foreach (var n in new[] { a, b, leaf }) await handler.HandleAsync(n, actor);
         var move = new MoveNodeCommand(documentId, Guid.NewGuid(), leaf.NodeId, a.NodeId, b.NodeId, 0);
+        var queries = new DocumentStructureQueries(new Authorization(true), Journal(), new Profile());
+        var targets = await queries.QueryAsync(documentId, new("nodes", ScreenId: screen.ScreenId, Fields: "parentId,canContainChildren"), actor);
+        Assert.Collection(targets.Response!.Items,
+            item => { Assert.Equal(a.NodeId, item.Id); Assert.Equal(screen.ScreenId, item.ParentId); Assert.True(item.CanContainChildren); },
+            item => { Assert.Equal(leaf.NodeId, item.Id); Assert.Equal(a.NodeId, item.ParentId); Assert.False(item.CanContainChildren); },
+            item => { Assert.Equal(b.NodeId, item.Id); Assert.Equal(screen.ScreenId, item.ParentId); Assert.True(item.CanContainChildren); });
         Assert.Equal("FORBIDDEN", (await Handler(Journal(), false).HandleAsync(move, actor)).Code);
         Assert.Equal("INVALID_ID", (await handler.HandleAsync(move with { ExpectedParentId = Guid.Empty }, actor)).Code);
         Assert.Equal("INVALID_PARENT_TYPE", (await handler.HandleAsync(move with { CommandId = Guid.NewGuid(), TargetParentId = page.PageId }, actor)).Code);
@@ -385,6 +391,7 @@ public sealed class DocumentCommandTests : IDisposable
         Assert.Equal(5, (await Journal().ReadAsync(documentId))!.Revision);
         var accepted = await handler.HandleAsync(move, actor);
         Assert.Equal(6, accepted.Revision);
+        Assert.Equal(accepted, await Handler(Journal()).HandleAsync(move, actor));
         Assert.Equal(accepted, await Handler(Journal()).HandleAsync(move with { TargetParentId = a.NodeId }, actor));
         var stale = move with { CommandId = Guid.NewGuid() };
         Assert.Equal("INVALID_LAYOUT_CONTEXT", (await handler.HandleAsync(stale, actor)).Code);

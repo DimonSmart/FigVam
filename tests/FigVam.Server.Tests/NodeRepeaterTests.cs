@@ -157,7 +157,7 @@ public sealed partial class NodeRepeaterTests : IDisposable
         for (var revision = 2; revision < 36; revision++) Assert.True((await Handler().HandleAsync(Command(revision), actor)).Accepted);
         Assert.Null((await Queries().EvaluateAsync(doc, owner, 36, 0, 1, actor)).Response!.Diagnostic);
         Assert.Null((await Queries().EvaluateAsync(doc, owner, 3, 0, 1, actor)).Response!.Diagnostic);
-        var structure = (await new DocumentStructureQueries(new Authorization(), Journal()).QueryAsync(doc, new("nodes", ObjectId: owner, Fields: "repeater", Revision: 3), actor)).Response!;
+        var structure = (await new DocumentStructureQueries(new Authorization(), Journal(), new Profile()).QueryAsync(doc, new("nodes", ObjectId: owner, Fields: "repeater", Revision: 3), actor)).Response!;
         Assert.NotNull(Assert.Single(structure.Items, item => item.Id == owner).Repeater);
     }
 

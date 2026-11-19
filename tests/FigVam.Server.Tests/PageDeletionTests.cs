@@ -99,7 +99,7 @@ public sealed class PageDeletionTests : IDisposable
         Assert.Equal(before, await Current());
         Assert.True((await Handler().HandleAsync(Delete(), owner)).Accepted);
         Assert.Equal("PAGE_NOT_FOUND", (await Handler().HandleAsync(Delete(1), editor)).Code);
-        Assert.Equal("FORBIDDEN", (await new DocumentStructureQueries(new Access(), Journal()).QueryAsync(doc, new("pages", Revision: 0), new("outsider"))).Code);
+        Assert.Equal("FORBIDDEN", (await new DocumentStructureQueries(new Access(), Journal(), new Profile()).QueryAsync(doc, new("pages", Revision: 0), new("outsider"))).Code);
     }
 
     [Theory]

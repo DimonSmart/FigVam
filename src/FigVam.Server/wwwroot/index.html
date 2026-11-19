@@ -154,6 +154,23 @@
           <section aria-labelledby="layers-title"><h2 id="layers-title">Слои выбранного экрана</h2>
             <p id="layers-status" role="status" aria-live="polite">Выберите экран.</p>
             <div id="layers" role="tree" aria-label="Слои экрана"></div>
+            <div id="node-order" hidden>
+              <button id="node-earlier" type="button">Переместить слой раньше</button>
+              <button id="node-later" type="button">Переместить слой позже</button>
+              <button id="node-reparent" type="button" aria-controls="node-reparent-form" aria-expanded="false">Сменить родителя слоя</button>
+            </div>
+            <form id="node-reparent-form" aria-label="Смена родителя слоя" hidden>
+              <p id="node-reparent-status" role="status" tabindex="-1"></p>
+              <label>Новый родитель <select id="node-reparent-target" required></select></label>
+              <label>Позиция среди детей <input id="node-reparent-position" type="number" min="1" step="1" required aria-describedby="node-reparent-range"></label>
+              <p id="node-reparent-range"></p>
+              <button type="submit" id="node-reparent-submit">Переместить к новому родителю</button>
+              <button type="button" id="node-reparent-reload" hidden>Повторить загрузку родителей</button>
+              <button type="button" id="node-reparent-cancel">Отмена</button>
+            </form>
+            <p id="node-order-status" role="status" tabindex="-1"></p>
+            <button id="node-order-retry" type="button" hidden>Повторить перемещение слоя</button>
+            <p id="node-delete-status" role="alert"></p><button id="node-delete-retry" type="button" hidden>Повторить удаление слоя</button>
           </section>
         </aside>
         <section class="canvas" aria-labelledby="canvas-title"><h2 id="canvas-title">Холст</h2>
@@ -165,7 +182,7 @@
           <p id="canvas-help">Перетащите холст указателем или используйте стрелки для панорамирования. Колесо мыши меняет масштаб.</p>
           <div id="viewport" tabindex="0" role="region" aria-label="Область холста" aria-describedby="canvas-help"><div id="screen-boundary" hidden></div><div id="presence-markers" aria-hidden="true"></div></div>
         </section>
-        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><p>Параметры элементов пока недоступны.</p>
+        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><button id="node-delete" type="button" hidden>Удалить слой</button><div id="node-metadata" hidden><p id="node-metadata-status" role="status"></p><p id="node-metadata-error" role="alert"></p><form id="node-name-form"><label>Имя слоя <input id="node-name" maxlength="256"></label><button type="submit">Сохранить имя</button></form><form id="node-key-form"><label>Semantic key <input id="node-key" maxlength="256" aria-describedby="node-key-help"></label><p id="node-key-help">Пустое значение удаляет semantic key.</p><button type="submit">Сохранить semantic key</button></form><button id="node-metadata-retry" type="button" hidden>Повторить неподтверждённую команду</button></div>
           <section aria-labelledby="scenarios-title"><h2 id="scenarios-title">Сценарии прототипа</h2>
             <p>Только просмотр сохранённых сценариев выбранного экрана.</p>
             <p id="scenarios-status" role="status" aria-live="polite">Выберите экран.</p>
@@ -176,12 +193,45 @@
               <label>Событие <select id="scenario-event"></select></label>
               <label>Действие <select id="scenario-action"></select></label>
               <div id="scenario-variant-fields"><label>Вариант экрана <select id="scenario-variant"></select></label><p id="scenario-variant-status" role="status"></p></div>
+              <div id="scenario-dataset-fields"><label>Датасет <select id="scenario-dataset" aria-describedby="scenario-dataset-status"></select></label><p id="scenario-dataset-status" role="status"></p><button id="scenario-dataset-retry" type="button" hidden>Повторить загрузку датасетов для сценария</button></div>
+              <div id="scenario-demo-fields"><label>Целевой узел (ID) <input id="scenario-demo-node" type="text"></label><button id="scenario-demo-use-layer" type="button">Использовать выбранный слой как целевой узел</button><label><input id="scenario-demo-null" type="checkbox" checked> Значение null</label><label>Демонстрационное значение <input id="scenario-demo-value" type="text" maxlength="4096"></label></div>
               <div id="scenario-target-fields"><label>Целевой экран <select id="scenario-target"></select></label>
               <p id="scenario-target-status" role="status"></p></div>
               <button id="scenario-create-submit" type="submit">Создать сценарий</button>
             </form>
             <p id="scenario-command-status" role="status" aria-live="polite"></p><p id="scenario-command-error" role="alert"></p><button id="scenario-command-retry" type="button" hidden>Повторить удаление сценария</button>
             <ul id="scenarios-list" aria-label="Сценарии выбранного экрана"></ul>
+            <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
+              <h3 id="scenario-edit-title" tabindex="-1">Редактирование сценария</h3>
+              <fieldset id="scenario-edit-fields">
+                <legend>Сценарий</legend>
+                <p id="scenario-edit-id"></p>
+                <p id="scenario-edit-source"></p>
+                <button id="scenario-edit-use-layer" type="button">Использовать выбранный слой как исходный узел</button>
+                <label>Событие сценария <select id="scenario-edit-event"></select></label>
+                <ol id="scenario-edit-actions" aria-label="Порядок действий сценария"></ol>
+                <button id="scenario-edit-add" type="button">Добавить действие</button>
+                <fieldset id="scenario-action-editor" hidden>
+                  <legend id="scenario-action-editor-title">Действие сценария</legend>
+                  <label>Экран перехода или оверлея <select id="scenario-edit-target"></select></label>
+                  <div id="scenario-edit-variant-screen-fields" hidden><label>Экран варианта <select id="scenario-edit-variant-screen"></select></label></div>
+                  <label>Вариант действия <select id="scenario-edit-variant"></select></label>
+                  <label>Датасет действия <select id="scenario-edit-dataset"></select></label>
+                  <label>Целевой узел действия (ID) <input id="scenario-edit-demo-node" type="text" maxlength="36"></label>
+                  <button id="scenario-edit-demo-use-layer" type="button">Взять выбранный слой для демонстрационного значения</button>
+                  <label><input id="scenario-edit-demo-null" type="checkbox" checked> Пустое значение (null)</label>
+                  <label>Значение действия <textarea id="scenario-edit-demo-value" rows="2" maxlength="4096"></textarea></label>
+                  <label>Тип действия сценария <select id="scenario-edit-action-type"></select></label>
+                  <p id="scenario-edit-action-status" role="status"></p>
+                  <button id="scenario-edit-apply-action" type="button">Применить действие</button>
+                  <button id="scenario-edit-cancel-action" type="button">Отменить правку действия</button>
+                </fieldset>
+                <p id="scenario-edit-validation" role="status"></p>
+                <button id="scenario-edit-recheck" type="button" hidden>Повторить проверку действий</button>
+                <button id="scenario-edit-submit" type="submit">Сохранить сценарий</button>
+                <button id="scenario-edit-cancel" type="button">Закрыть редактирование</button>
+              </fieldset>
+            </form>
             <div role="group" aria-label="Страницы сценариев"><button id="scenarios-previous" type="button" disabled>Предыдущие сценарии</button> <span id="scenarios-number"></span> <button id="scenarios-next" type="button" disabled>Следующие сценарии</button></div>
           </section>
           <section aria-labelledby="diagnostics-title"><h2 id="diagnostics-title">Диагностика экрана</h2>

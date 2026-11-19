@@ -74,7 +74,7 @@ public sealed class DocumentRevisionTests : IDisposable
             Assert.Equal(expected[revision], JsonSerializer.Serialize(read.State));
         }
         Assert.Equal(expected[^1], JsonSerializer.Serialize((await Journal().ReadAsync(id, revision: null)).State));
-        var queries = new DocumentStructureQueries(new Access(), Journal());
+        var queries = new DocumentStructureQueries(new Access(), Journal(), new Profile());
         var oldNode = Assert.Single((await queries.QueryAsync(id, new("nodes", SemanticKey: "main", NamePrefix: "Bef", Revision: 7), actor)).Response!.Items);
         Assert.Equal("Before", oldNode.Name);
         Assert.Equal(new NodeStringValue("old"), oldNode.Properties!["text"]);
@@ -102,7 +102,7 @@ public sealed class DocumentRevisionTests : IDisposable
         Sql("DELETE FROM snapshots WHERE revision=0");
         Assert.Equal("REVISION_UNAVAILABLE", (await Journal().ReadAsync(id, 0)).Code);
         Assert.Equal(34, (await Journal().ReadAsync(id))!.Revision);
-        var queries = new DocumentStructureQueries(new Access(), Journal());
+        var queries = new DocumentStructureQueries(new Access(), Journal(), new Profile());
         Assert.Equal("REVISION_UNAVAILABLE", (await queries.QueryAsync(id, new("pages", Revision: 1), actor)).Code);
         foreach (var revision in new long[] { -1, 0, 1, long.MaxValue })
             Assert.Equal("FORBIDDEN", (await queries.QueryAsync(id, new("pages", Revision: revision), new("outsider"))).Code);

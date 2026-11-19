@@ -69,7 +69,7 @@ public sealed class ScreenDimensionTests : IDisposable
         await Seed(); await Create();
         var resize = new ResizeScreenCommand(doc, Guid.NewGuid(), screen, new(1024, 768));
         Assert.True((await Handler().HandleAsync(resize, alice)).Accepted);
-        var queries = new DocumentStructureQueries(new Access(), Journal());
+        var queries = new DocumentStructureQueries(new Access(), Journal(), new UnverifiedNodeProfile());
         Assert.Equal(new(320, 480), Assert.Single((await queries.QueryAsync(doc, new("screen", screen, Revision: 2), new("viewer"))).Response!.Items).Dimensions);
         Assert.Equal(resize.Dimensions, Assert.Single((await queries.QueryAsync(doc, new("screens", Fields: "dimensions"), alice)).Response!.Items).Dimensions);
         Assert.Null(Assert.Single((await queries.QueryAsync(doc, new("screens", Fields: "childCount"), alice)).Response!.Items).Dimensions);

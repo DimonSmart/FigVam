@@ -49,7 +49,7 @@ public sealed class DocumentCommandHistoryTests : IDisposable
         Assert.Equal(first, await Handler().HandleAsync(command with { Name = "ignored" }, alice));
         Assert.Equal("Design", (await Document()).Name);
         Assert.Equal("Document", (await Journal().ReadAsync(id, 0)).State!.Document.Name);
-        var query = new DocumentStructureQueries(new Authorization(), Journal());
+        var query = new DocumentStructureQueries(new Authorization(), Journal(), new Profile());
         Assert.Equal("Design", Assert.Single((await query.QueryAsync(id, new("document"), alice)).Response!.Items).Name);
         Assert.Equal("Design", Assert.IsType<DocumentRenamed>(Assert.Single((await Journal().ReadEventsAsync(id, 0)).Events!).Payload).Name);
         Assert.True((await Undo()).Accepted);
@@ -76,7 +76,7 @@ public sealed class DocumentCommandHistoryTests : IDisposable
         Assert.Equal(first, await Handler().HandleAsync(command with { Name = "ignored" }, alice));
         Assert.Equal("Home", Assert.Single((await Journal().ReadAsync(id))!.Document.Pages).Name);
         Assert.Equal("Page", Assert.Single((await Journal().ReadAsync(id, 0)).State!.Document.Pages).Name);
-        var query = new DocumentStructureQueries(new Authorization(), Journal());
+        var query = new DocumentStructureQueries(new Authorization(), Journal(), new Profile());
         Assert.Equal("Home", Assert.Single((await query.QueryAsync(id, new("page", page), alice)).Response!.Items).Name);
         Assert.Equal("Page", Assert.Single((await query.QueryAsync(id, new("page", page, Revision: 0), alice)).Response!.Items).Name);
         var events = await Journal().ReadEventsAsync(id, 0);

@@ -44,14 +44,14 @@ public sealed class ScenarioCapabilitiesTests
         var doc = Guid.NewGuid(); var node = Guid.NewGuid(); var screen = Guid.NewGuid();
         var state = new DocumentState(new(doc, [], [new(screen, [node], new(100, 100))], [new(node, "test", [])]), 4);
         var access = new Access(); var reader = new Reader(state); var actor = new DocumentActor("owner");
-        var empty = await new ScenarioCapabilitiesQuery(access, reader, new UnverifiedNodeProfile()).ReadAsync(doc, 4, node, screen, null, null, actor);
+        var empty = await new ScenarioCapabilitiesQuery(access, reader, new UnverifiedNodeProfile()).ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
         Assert.Empty(empty.Response!.Events); Assert.Empty(empty.Response.Actions); Assert.Equal(PortableUiProfileReference.Production, empty.Response.Profile);
         var query = new ScenarioCapabilitiesQuery(access, reader, new Limited());
-        var limited = await query.ReadAsync(doc, 4, node, screen, null, null, actor);
+        var limited = await query.ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
         Assert.Equal([PreviewEvent.Change], limited.Response!.Events); Assert.Equal(["navigate", "resetPreview"], limited.Response.Actions);
-        Assert.Equal(["resetPreview"], (await query.ReadAsync(doc, 4, node, null, null, null, actor)).Response!.Actions);
-        Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, screen, null, null, actor)).Code);
-        Assert.Equal("FORBIDDEN", (await query.ReadAsync(doc, 4, node, screen, null, null, new("outsider"))).Code);
+        Assert.Equal(["resetPreview"], (await query.ReadAsync(doc, 4, node, null, null, null, null, null, null, actor)).Response!.Actions);
+        Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, screen, null, null, null, null, null, actor)).Code);
+        Assert.Equal("FORBIDDEN", (await query.ReadAsync(doc, 4, node, screen, null, null, null, null, null, new("outsider"))).Code);
     }
     [Fact]
     public async Task ShowVariantUsesExactValueAndScreenAtRevision()
@@ -61,15 +61,73 @@ public sealed class ScenarioCapabilitiesTests
         var state = new DocumentState(new(doc, [], [new(screen, [node], new(100, 100)) { Variants = [new(allowed, "Allowed", []), new(denied, "Denied", [])] }, new(other, [], new(100, 100)) { Variants = [new(foreign, "Foreign", [])] }], [new(node, "test", [])]), 4);
         var access = new Access(); var reader = new Reader(state); var actor = new DocumentActor("owner");
         var query = new ScenarioCapabilitiesQuery(access, reader, new VariantProfile(allowed));
-        Assert.Contains("showVariant", (await query.ReadAsync(doc, 4, node, null, screen, null, actor)).Response!.Actions);
-        Assert.Contains("showVariant", (await query.ReadAsync(doc, 4, node, null, screen, allowed, actor)).Response!.Actions);
-        Assert.DoesNotContain("showVariant", (await query.ReadAsync(doc, 4, node, null, screen, denied, actor)).Response!.Actions);
-        Assert.Equal("SCREEN_VARIANT_NOT_FOUND", (await query.ReadAsync(doc, 4, node, null, screen, foreign, actor)).Code);
-        Assert.Equal("INVALID_QUERY", (await query.ReadAsync(doc, 4, node, null, null, allowed, actor)).Code);
-        Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, null, screen, allowed, actor)).Code);
+        Assert.Contains("showVariant", (await query.ReadAsync(doc, 4, node, null, screen, null, null, null, null, actor)).Response!.Actions);
+        Assert.Contains("showVariant", (await query.ReadAsync(doc, 4, node, null, screen, allowed, null, null, null, actor)).Response!.Actions);
+        Assert.DoesNotContain("showVariant", (await query.ReadAsync(doc, 4, node, null, screen, denied, null, null, null, actor)).Response!.Actions);
+        Assert.Equal("SCREEN_VARIANT_NOT_FOUND", (await query.ReadAsync(doc, 4, node, null, screen, foreign, null, null, null, actor)).Code);
+        Assert.Equal("INVALID_QUERY", (await query.ReadAsync(doc, 4, node, null, null, allowed, null, null, null, actor)).Code);
+        Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, null, screen, allowed, null, null, null, actor)).Code);
         var production = new ScenarioCapabilitiesQuery(access, reader, new UnverifiedNodeProfile());
-        Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, actor)).Response!.Actions);
-        Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, allowed, actor)).Response!.Actions);
+        Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, null, null, null, actor)).Response!.Actions);
+        Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, allowed, null, null, null, actor)).Response!.Actions);
+    }
+    [Fact]
+    public async Task SelectDatasetUsesExactValueAndRevisionAndAuthorization()
+    {
+        var doc = Guid.NewGuid(); var node = Guid.NewGuid(); var screen = Guid.NewGuid();
+        var allowed = Guid.NewGuid(); var denied = Guid.NewGuid();
+        var state = new DocumentState(new(doc, [], [new(screen, [node], new(100, 100))], [new(node, "test", [])]) { Datasets = [new(allowed, "Allowed", "{}"), new(denied, "Denied", "{}")] }, 4);
+        var query = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new DatasetProfile(allowed));
+        var actor = new DocumentActor("owner");
+        Assert.Contains("selectDataset", (await query.ReadAsync(doc, 4, node, null, screen, null, null, null, null, actor)).Response!.Actions);
+        Assert.Contains("selectDataset", (await query.ReadAsync(doc, 4, node, null, screen, null, allowed, null, null, actor)).Response!.Actions);
+        Assert.DoesNotContain("selectDataset", (await query.ReadAsync(doc, 4, node, null, screen, null, denied, null, null, actor)).Response!.Actions);
+        Assert.Equal("DATASET_NOT_FOUND", (await query.ReadAsync(doc, 4, node, null, screen, null, Guid.NewGuid(), null, null, actor)).Code);
+        Assert.Equal("INVALID_QUERY", (await query.ReadAsync(doc, 4, node, null, screen, null, Guid.Empty, null, null, actor)).Code);
+        Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, null, screen, null, allowed, null, null, actor)).Code);
+        Assert.Equal("FORBIDDEN", (await query.ReadAsync(doc, 4, node, null, screen, null, allowed, null, null, new("outsider"))).Code);
+        var production = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new UnverifiedNodeProfile());
+        Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, null, null, null, actor)).Response!.Actions);
+        Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, allowed, null, null, actor)).Response!.Actions);
+    }
+    [Fact]
+    public async Task DemoValueChecksExactNodeValueAndEligibility()
+    {
+        var doc = Guid.NewGuid(); var source = Guid.NewGuid(); var target = Guid.NewGuid(); var other = Guid.NewGuid(); var screen = Guid.NewGuid();
+        var state = new DocumentState(new(doc, [], [new(screen, [source, target], new(100, 100))], [new(source, "test", []), new(target, "test", []), new(other, "test", [])]), 4);
+        var query = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new DemoProfile(target));
+        var actor = new DocumentActor("owner");
+        async Task<ScenarioCapabilitiesResult> Read(Guid id, string? value) => await query.ReadAsync(doc, 4, source, null, screen, null, null, id, value, actor);
+        Assert.Contains("setDemoValue", (await Read(target, null)).Response!.Actions);
+        Assert.Contains("setDemoValue", (await Read(target, "allowed")).Response!.Actions);
+        Assert.Contains("setDemoValue", (await Read(target, new string('\u044f', 4096))).Response!.Actions);
+        Assert.DoesNotContain("setDemoValue", (await Read(target, "")).Response!.Actions);
+        Assert.DoesNotContain("setDemoValue", (await Read(target, "denied")).Response!.Actions);
+        Assert.DoesNotContain("setDemoValue", (await Read(source, "allowed")).Response!.Actions);
+        Assert.DoesNotContain("setDemoValue", (await Read(other, null)).Response!.Actions);
+        Assert.Equal("INVALID_QUERY", (await Read(target, new string('x', 4097))).Code);
+        var production = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new UnverifiedNodeProfile());
+        Assert.Empty((await production.ReadAsync(doc, 4, source, null, screen, null, null, target, null, actor)).Response!.Actions);
+    }
+    private sealed class DemoProfile(Guid target) : INodeProfile
+    {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
+        public bool SupportsPreviewAction(PreviewAction action) => action is SetDemoValue a && a.NodeId == target && (a.Value is null || a.Value == "allowed" || a.Value == new string('\u044f', 4096));
+        public bool SupportsDemoValue(string kind) => kind == "test";
+        public NodePropertyDefinition? GetProperty(string kind, string property) => null;
+        public bool IsKnownKind(string kind) => true;
+        public bool CanContainChildren(string kind) => false;
+    }
+    private sealed class DatasetProfile(Guid allowed) : INodeProfile
+    {
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
+        public bool SupportsPreviewAction(PreviewAction action) => action is SelectDataset d && (d.DatasetId is null || d.DatasetId == allowed);
+        public bool SupportsDemoValue(string kind) => false;
+        public NodePropertyDefinition? GetProperty(string kind, string property) => null;
+        public bool IsKnownKind(string kind) => true;
+        public bool CanContainChildren(string kind) => false;
     }
     private sealed class VariantProfile(Guid allowed) : INodeProfile
     {
@@ -103,11 +161,11 @@ public sealed class ScenarioCapabilitiesTests
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
         using var client = new HttpClient { BaseAddress = new Uri(address) };
         var url = $"/api/v1/documents/{doc}/scenario-capabilities?revision=4&nodeId={node}&targetId={screen}";
-        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync(url, new { demoValue = (string?)null })).StatusCode);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ServerTestIdentity.Token(key, subject: "outsider"));
-        Assert.Equal(HttpStatusCode.Forbidden, (await client.GetAsync(url)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync(url, new { demoValue = (string?)null })).StatusCode);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ServerTestIdentity.Token(key, subject: "owner"));
-        using var response = await client.GetAsync(url);
+        using var response = await client.PostAsJsonAsync(url, new { demoValue = (string?)null });
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var result = await response.Content.ReadFromJsonAsync<ScenarioCapabilitiesResponse>();
         Assert.NotNull(result);
@@ -115,12 +173,23 @@ public sealed class ScenarioCapabilitiesTests
         Assert.Equal(node, result.NodeId); Assert.Equal(screen, result.TargetId);
         Assert.Equal(PortableUiProfileReference.Production, result.Profile);
         Assert.Empty(result.Events); Assert.Empty(result.Actions);
-        using var selected = await client.GetAsync(url + $"&screenId={screen}");
+        using var selected = await client.PostAsJsonAsync(url + $"&screenId={screen}", new { demoValue = (string?)null });
         Assert.Equal(HttpStatusCode.OK, selected.StatusCode);
         var selectedResult = await selected.Content.ReadFromJsonAsync<ScenarioCapabilitiesResponse>();
         Assert.Equal(screen, selectedResult!.ScreenId); Assert.Null(selectedResult.VariantId);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(url + $"&screenId={screen}&variantId={Guid.NewGuid()}")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await client.GetAsync(url.Replace("revision=4", "revision=3"))).StatusCode);
+        using var demo = await client.PostAsJsonAsync(url + $"&screenId={screen}&demoNodeId={node}", new { demoValue = "" });
+        var demoResult = await demo.Content.ReadFromJsonAsync<ScenarioCapabilitiesResponse>();
+        Assert.Equal(node, demoResult!.DemoNodeId); Assert.Equal("", demoResult.DemoValue);
+        using var nullDemo = await client.PostAsJsonAsync(url + $"&screenId={screen}&demoNodeId={node}", new { demoValue = (string?)null });
+        Assert.Null((await nullDemo.Content.ReadFromJsonAsync<ScenarioCapabilitiesResponse>())!.DemoValue);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(url + $"&screenId={screen}&variantId={Guid.NewGuid()}", new { demoValue = (string?)null })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(url + $"&datasetId={Guid.NewGuid()}", new { demoValue = (string?)null })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(url + $"&datasetId={Guid.Empty}", new { demoValue = (string?)null })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(url.Replace("revision=4", "revision=3"), new { demoValue = (string?)null })).StatusCode);
+        var maximum = new string('\u044f', 4096);
+        using var longValue = await client.PostAsJsonAsync(url + $"&screenId={screen}&demoNodeId={node}", new { demoValue = maximum });
+        Assert.Equal(HttpStatusCode.OK, longValue.StatusCode);
+        Assert.Equal(maximum, (await longValue.Content.ReadFromJsonAsync<ScenarioCapabilitiesResponse>())!.DemoValue);
     }
 
 }

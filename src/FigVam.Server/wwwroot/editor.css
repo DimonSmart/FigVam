@@ -63,6 +63,18 @@ p { line-height: 1.6; }
 #layers [role=group] { margin-left: 1rem; }
 .layer-label { display: block; padding: .45rem; cursor: pointer; border: 1px solid transparent; border-radius: 4px; }
 #layers [aria-selected=true] > .layer-label { border-color: #214da6; background: #e8efff; font-weight: 700; }
+#node-order { display: grid; gap: .4rem; margin-top: .6rem; }
+#node-reparent-form { display: grid; gap: .55rem; margin-top: .65rem; padding-top: .55rem; border-top: 1px solid #ccd3df; }
+#node-reparent-form p { margin: 0; }
+#node-reparent-form select, #node-reparent-form input { display: block; width: 100%; font: inherit; }
+
+#scenario-edit fieldset { min-width: 0; padding: .55rem; border: 1px solid #ccd3df; border-radius: 6px; }
+#scenario-edit label { display: block; margin: .45rem 0; }
+#scenario-edit select, #scenario-edit input[type=text], #scenario-edit textarea { display: block; width: 100%; max-width: 100%; font: inherit; }
+#scenario-edit button { max-width: 100%; margin: .2rem .2rem .2rem 0; padding: .35rem .45rem; }
+#scenario-edit-id, #scenario-edit-source, #scenario-edit-actions li { overflow-wrap: anywhere; }
+#scenario-edit-actions { padding-inline-start: 1.5rem; }
+#scenario-edit-actions li + li { margin-top: .55rem; }
 
 #presence-markers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .presence-marker { position: absolute; padding: 2px 5px; background: white; border: 2px solid; color: #172033; font-size: 12px; white-space: nowrap; }
