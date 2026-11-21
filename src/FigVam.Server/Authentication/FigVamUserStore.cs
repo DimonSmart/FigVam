@@ -99,7 +99,7 @@ public sealed class FigVamUserStore
         existing.Close();
         if (wasAdmin && (!enabled || !admin))
         {
-            var admins = (long)Sql(db, tx, "SELECT COUNT(*) FROM users WHERE enabled=1 AND is_admin=1").ExecuteScalar()!;
+            var admins = (long)Sql(db, tx, "SELECT COUNT(*) FROM users WHERE enabled=1 AND is_admin=1 AND google_sub IS NOT NULL").ExecuteScalar()!;
             if (admins <= 1) throw new InvalidOperationException("Cannot disable or demote the last enabled administrator.");
         }
         Sql(db, tx, "UPDATE users SET enabled=$enabled,is_admin=$admin WHERE id=$id",
