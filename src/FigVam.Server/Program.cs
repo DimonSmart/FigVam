@@ -34,7 +34,7 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((document, _, _) =>
 {
     document.Info.Title = "FigVam document API";
-    document.Info.Description = "Document access and typed command API. Bearer authentication is required. " +
+    document.Info.Description = "Document access and typed command API. Use Google browser sessions or the configured Bearer API mode. " +
         "This is not the complete design API or a verified portable profile. Errors: " +
         string.Join("; ", ApiErrors.Codes.Select(code => code + ": " + ApiErrors.Create(400, code).Detail));
     document.Components ??= new OpenApiComponents();
@@ -89,6 +89,7 @@ builder.Services.AddRateLimiter(options =>
     options.RejectionStatusCode = 429;
 });
 var app = builder.Build();
+var googleMode = builder.Configuration["Authentication:Mode"] == "Google";
 app.UseExceptionHandler(handler => handler.Run(async context =>
 {
     var exception = context.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
@@ -101,10 +102,13 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
 app.UseStatusCodePages(async status =>
     await status.HttpContext.Response.WriteAsJsonAsync(ApiErrors.Create(status.HttpContext.Response.StatusCode)));
 app.UseAuthentication();
+if (googleMode) app.UseGoogleCsrf();
 app.UseRateLimiter();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapGet("/api/identity", (System.Security.Claims.ClaimsPrincipal user) => user.GetDocumentActor());
+if (googleMode) app.MapGoogleAuth();
+else app.MapGet("/api/auth/config", () => Results.Ok(new { mode = "bearer" })).AllowAnonymous();
 app.MapControllers();
 app.MapOpenApi();
 app.MapDocumentSchemas();
