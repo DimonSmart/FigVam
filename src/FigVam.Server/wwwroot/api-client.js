@@ -1,14 +1,16 @@
+import { authHeaders, credentialsMode, isGoogleMode } from './auth-client.js';
+
 export function createApiClient({ getToken, onUnauthorized }) {
   return async function request(path, options, signal, isCurrent = () => true) {
     const requestToken = getToken();
     const response = await fetch(path, {
-      ...options, signal, cache: 'no-store', credentials: 'omit', redirect: 'error',
-      headers: { Authorization: `Bearer ${requestToken}`, ...(options?.body ? { 'Content-Type': 'application/json' } : {}) }
+      ...options, signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
+      headers: { ...authHeaders(requestToken, options?.method), ...(options?.body ? { 'Content-Type': 'application/json' } : {}) }
     });
     if (signal?.aborted || requestToken !== getToken() || !isCurrent()) throw new DOMException('Cancelled', 'AbortError');
     if (response.status === 401) {
       onUnauthorized();
-      throw new Error('Токен отсутствует, истёк или отклонён. Введите действующий токен.');
+      throw new Error('Сессия завершена. Войдите повторно.');
     }
     if (!response.ok) {
       const errors = {
