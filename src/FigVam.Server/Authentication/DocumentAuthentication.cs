@@ -17,6 +17,16 @@ public static class DocumentAuthentication
     public static void AddDocumentAuthentication(this WebApplicationBuilder builder)
     {
         var configuration = builder.Configuration.GetSection("Authentication");
+        var mode = configuration["Mode"] ?? "Jwt";
+        var local = configuration.GetValue<bool>("LocalDevelopment:Enabled");
+        if (mode == "Google")
+        {
+            if (local) throw new InvalidOperationException("Google and local authentication cannot be combined.");
+            GoogleBrowserAuthentication.Configure(builder);
+            return;
+        }
+        if (mode is not ("Local" or "Jwt") || (mode == "Local") != local)
+            throw new InvalidOperationException("Choose exactly one authentication mode: Google, Jwt or Local.");
         var authentication = builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
         if (configuration.GetValue<bool>("LocalDevelopment:Enabled"))
         {
