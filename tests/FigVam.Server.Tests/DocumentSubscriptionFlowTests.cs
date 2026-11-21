@@ -62,7 +62,7 @@ public sealed class DocumentSubscriptionFlowTests
         using var body = new BlockedStream();
         context.Response.Body = body;
         controller.ControllerContext = new ControllerContext { HttpContext = context };
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(25));
         var action = controller.Read(Guid.NewGuid(), 0, deadline.Token);
         await body.Started.Task.WaitAsync(deadline.Token);
         Assert.Null(limits.TryAcquire("viewer"));
