@@ -1,3 +1,4 @@
+import { authHeaders, credentialsMode } from './auth-client.js';
 export function createDocumentCollaboration({
   request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, onUnauthorized
 }) {
@@ -45,7 +46,7 @@ export function createDocumentCollaboration({
         if (recovery.revision > workspace.revision) await readRevision(signal, recovery.revision);
         if (!active()) return;
         const response = await fetch(`${base}/events?lastSeenRevision=${workspace.revision}`, {
-          signal, cache: 'no-store', credentials: 'omit', redirect: 'error', headers: { Authorization: `Bearer ${workspace.token}` }
+          signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: authHeaders(workspace.token)
         });
         if (!active()) return;
         if (response.status === 401) { onUnauthorized(); return; }
