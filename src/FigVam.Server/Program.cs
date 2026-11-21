@@ -34,21 +34,28 @@ builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
 builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((document, _, _) =>
 {
     document.Info.Title = "FigVam document API";
-    document.Info.Description = "Document access and typed command API. Use Google browser sessions or the configured Bearer API mode. " +
+    document.Info.Description = "Document access and typed command API. Google browser sessions are required in the deployed application. " +
         "This is not the complete design API or a verified portable profile. Errors: " +
         string.Join("; ", ApiErrors.Codes.Select(code => code + ": " + ApiErrors.Create(400, code).Detail));
     document.Components ??= new OpenApiComponents();
+    var browserAuth = (builder.Configuration["Authentication:Mode"] ?? "Google") == "Google";
+    var schemeName = browserAuth ? "Session" : "TestBearer";
     document.Components.SecuritySchemes = new Dictionary<string, IOpenApiSecurityScheme>
     {
-        ["Bearer"] = new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer" }
+        [schemeName] = browserAuth
+            ? new OpenApiSecurityScheme { Type = SecuritySchemeType.ApiKey,
+                In = ParameterLocation.Cookie, Name = "__Host-FigVam" }
+            : new OpenApiSecurityScheme { Type = SecuritySchemeType.Http, Scheme = "bearer" }
     };
-    foreach (var path in document.Paths.Where(path => path.Key.StartsWith("/api/", StringComparison.Ordinal)))
+    foreach (var path in document.Paths.Where(path =>
+        path.Key.StartsWith("/api/", StringComparison.Ordinal) &&
+        !path.Key.StartsWith("/api/auth/", StringComparison.Ordinal)))
         foreach (var operation in path.Value.Operations!.Values)
         {
             operation.Security ??= [];
             operation.Security.Add(new OpenApiSecurityRequirement
             {
-                [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+                [new OpenApiSecuritySchemeReference(schemeName, document)] = []
             });
         }
     foreach (var (route, mediaType, schemaType, description) in new[]
