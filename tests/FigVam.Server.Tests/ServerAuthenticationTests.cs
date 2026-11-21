@@ -135,7 +135,7 @@ public sealed class ServerAuthenticationTests
 
     private static Dictionary<string, string> Local() => new()
     {
-        ["ASPNETCORE_ENVIRONMENT"] = "Development", ["Authentication__LocalDevelopment__Enabled"] = "true",
+        ["ASPNETCORE_ENVIRONMENT"] = "Development", ["Authentication__Mode"] = "Local", ["Authentication__LocalDevelopment__Enabled"] = "true",
         ["Authentication__LocalDevelopment__Token"] = LocalToken
     };
 
