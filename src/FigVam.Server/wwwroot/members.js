@@ -1,3 +1,4 @@
+import { credentialsMode, isGoogleMode } from './auth-client.js';
 export function createMembers({ element, request, findRole, openDocument, loadList, message, stopLive, startLive, workspace }) {
   let memberController = null;
   function reset() {
