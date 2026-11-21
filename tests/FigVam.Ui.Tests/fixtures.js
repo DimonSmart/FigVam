@@ -19,7 +19,7 @@ const test = base.extend({
       env: {
         ...process.env,
         ASPNETCORE_ENVIRONMENT: 'Development',
-        Authentication__LocalDevelopment__Enabled: 'true',
+        Authentication__Mode: 'Local',\n        Authentication__LocalDevelopment__Enabled: 'true',
         Authentication__LocalDevelopment__Token: bearer,
         Storage__Directory: testInfo.outputPath('storage')
       },
