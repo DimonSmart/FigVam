@@ -22,15 +22,12 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
     {
         var actor = User.GetDocumentActor();
         if (!await authorization.CanEditAsync(actor, documentId, ct)) return Error("FORBIDDEN");
+        // Kestrel caps the request at MaxAssetBytes + one sentinel byte.
+        // Finish reading the bounded request before returning 413: responding while
+        // the client is still uploading can turn a valid rejection into a TCP reset.
         using var body = new MemoryStream();
-        var buffer = new byte[64 * 1024];
-        while (true)
-        {
-            var count = await Request.Body.ReadAsync(buffer.AsMemory(0, Math.Min(buffer.Length, DocumentAssetValidator.MaxAssetBytes + 1 - (int)body.Length)), ct);
-            if (count == 0) break;
-            body.Write(buffer, 0, count);
-            if (body.Length > DocumentAssetValidator.MaxAssetBytes) return Error("ASSET_TOO_LARGE");
-        }
+        await Request.Body.CopyToAsync(body, ct);
+        if (body.Length > DocumentAssetValidator.MaxAssetBytes) return Error("ASSET_TOO_LARGE");
         var result = await handler.HandleAsync(new UploadDocumentAssetCommand(documentId, commandId, assetId,
             "image/png", body.ToArray()), actor, ct);
         return result.Accepted ? Ok(new CommandResponse(result.Code, documentId, commandId, result.Revision!.Value,
