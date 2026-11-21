@@ -145,7 +145,7 @@ public sealed class ScenarioCapabilitiesTests
         var doc = Guid.NewGuid(); var node = Guid.NewGuid(); var screen = Guid.NewGuid();
         var state = new DocumentState(new(doc, [], [new(screen, [node], new(100, 100))], [new(node, "test", [])]), 4);
         using var key = RSA.Create(2048);
-        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Production", ApplicationName = typeof(Program).Assembly.FullName });
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", ApplicationName = typeof(Program).Assembly.FullName });
         var configuration = ServerTestIdentity.Production(key).ToDictionary(item => item.Key.Replace("__", ":"), item => (string?)item.Value);
         builder.Configuration.AddInMemoryCollection(configuration);
         builder.WebHost.UseUrls("http://127.0.0.1:0");
