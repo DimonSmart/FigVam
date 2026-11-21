@@ -9,7 +9,8 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "Authentication__LocalDevelopment__Enabled": "true",
-        "Authentication__LocalDevelopment__Token": "figvam-local-development-bearer-token"
+        "Authentication__LocalDevelopment__Token": "figvam-local-development-bearer-token",
+        "Authentication__Mode": "Local"
       }
     },
     "https": {
@@ -19,8 +20,7 @@
       "applicationUrl": "https://localhost:7146;http://localhost:5210",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "Authentication__LocalDevelopment__Enabled": "true",
-        "Authentication__LocalDevelopment__Token": "figvam-local-development-bearer-token"
+        "Authentication__Mode": "Google"
       }
     }
   }
