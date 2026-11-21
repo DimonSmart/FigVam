@@ -12,7 +12,9 @@ namespace FigVam.Server.Documents;
 [ProducesResponseType<ApiError>(415), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
 public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDocumentAssets assets, IDocumentAuthorization authorization) : ControllerBase
 {
-    [HttpPut("{assetId}"), Consumes("image/png"), RequestSizeLimit(DocumentAssetValidator.MaxAssetBytes)]
+    // Permit one sentinel byte so a boundary-size upload receives HTTP 413 after body completion.
+    // The application still rejects every asset above MaxAssetBytes.
+    [HttpPut("{assetId}"), Consumes("image/png"), RequestSizeLimit(DocumentAssetValidator.MaxAssetBytes + 1)]
     [ProducesResponseType<CommandResponse>(200)]
     [EndpointSummary("Upload a safe raster asset through the document command stream")]
     [EndpointDescription("Raw image/png body, at most 5 MiB; commandId and assetId must be nonempty UUIDs. Static noninterlaced 8-bit grayscale, RGB, gray-alpha or RGBA PNG only. IHDR, consecutive IDAT and IEND chunks only; CRC, zlib/Adler, scanline lengths and filters validated. Metadata, palettes, animation, SVG, external links, trailing bytes and other formats are rejected. Maximum dimension 4096, 4194304 pixels, 256 assets and 64 MiB per document. Editor or Owner required. Content, SHA-256, manifest, revision and event commit atomically. commandId retries return the original result; undo removes an asset only if references remain valid. Retained blobs are never collected in this version.")]
@@ -20,7 +22,6 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
     {
         var actor = User.GetDocumentActor();
         if (!await authorization.CanEditAsync(actor, documentId, ct)) return Error("FORBIDDEN");
-        if (Request.ContentLength > DocumentAssetValidator.MaxAssetBytes) return Error("ASSET_TOO_LARGE");
         using var body = new MemoryStream();
         var buffer = new byte[64 * 1024];
         while (true)
