@@ -1,3 +1,4 @@
+import { authHeaders, credentialsMode } from './auth-client.js';
 export function createPresence({ element, getContext, toViewportPoint }) {
   let presenceController = null, presenceTimer = null, presenceParticipants = [], presenceCursor = null, presenceCursorScreen = null, presenceLastRead = 0;
   function stop() {
@@ -34,7 +35,7 @@ export function createPresence({ element, getContext, toViewportPoint }) {
     };
     const path = `/api/v1/documents/${encodeURIComponent(doc)}/presence`;
     async function exchange(method, body) {
-      const response = await fetch(path, { method, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]), cache: 'no-store', credentials: 'omit', redirect: 'error', headers: { Authorization: `Bearer ${requestToken}`, ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+      const response = await fetch(path, { method, signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]), cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: { ...authHeaders(requestToken, method), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
       if (!active()) throw new DOMException('Cancelled', 'AbortError');
       if (!response.ok) { const error = new Error('Presence unavailable'); error.status = response.status; throw error; }
       return response.json();
