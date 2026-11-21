@@ -39,7 +39,7 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
         string.Join("; ", ApiErrors.Codes.Select(code => code + ": " + ApiErrors.Create(400, code).Detail));
     document.Components ??= new OpenApiComponents();
     var browserAuth = (builder.Configuration["Authentication:Mode"] ?? "Google") == "Google";
-    var schemeName = browserAuth ? "Session" : "TestBearer";
+    var schemeName = browserAuth ? "Session" : "Bearer";
     document.Components.SecuritySchemes = new Dictionary<string, IOpenApiSecurityScheme>
     {
         [schemeName] = browserAuth
