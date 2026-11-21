@@ -18,7 +18,7 @@ jobs:
         with:
           global-json-file: global.json
       - name: Restore dependencies
-        run: dotnet restore FigVam.sln --locked-mode
+        run: dotnet restore FigVam.sln
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
       - name: Server tests
@@ -46,7 +46,7 @@ jobs:
           cache: npm
           cache-dependency-path: tests/FigVam.Ui.Tests/package-lock.json
       - name: Restore dependencies
-        run: dotnet restore FigVam.sln --locked-mode
+        run: dotnet restore FigVam.sln
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
       - name: Install UI dependencies
