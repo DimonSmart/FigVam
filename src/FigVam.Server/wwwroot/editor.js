@@ -1,3 +1,5 @@
+import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
+import { createUserAdmin } from './user-admin.js';
 import { createApiClient } from './api-client.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
@@ -16,6 +18,7 @@ import { createTokens } from './tokens.js';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from './session.js';
 
 const element = id => document.getElementById(id);
+const userAdmin = createUserAdmin(element);
 let cursors = [null];
 let pageIndex = 0;
 let nextCursor = null;
@@ -56,7 +59,7 @@ const request = createApiClient({
   getToken: () => token,
   onUnauthorized: () => {
     clearSession();
-    message('', 'Токен отсутствует, истёк или отклонён. Введите действующий токен.');
+    message('', 'Сессия завершена. Войдите повторно.');
   }
 });
 
@@ -73,7 +76,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   onAccessLost: closeInaccessibleDocument,
   onUnauthorized: () => {
     clearSession();
-    message('', 'Токен истёк или отклонён. Введите действующий токен.');
+    message('', 'Сессия завершена. Войдите повторно.');
   }
 });
 
@@ -81,7 +84,7 @@ const documentExport = createDocumentExport({
   element, getContext: () => ({ token, documentId, documentRole, revision, navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
-    message('', 'Токен отсутствует, истёк или отклонён. Введите действующий токен.');
+    message('', 'Сессия завершена. Войдите повторно.');
   }
 });
 
@@ -134,6 +137,8 @@ function clearSession() {
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
   setToken('');
+  setCsrf('');
+  userAdmin.hide();
   documentHistory.clearCommands(); screenResize.clear(); documentHistory.reset();
   cancelRequest();
   element('token').value = '';
@@ -604,7 +609,17 @@ element('authentication-form').addEventListener('submit', event => {
   route();
   element('content').focus();
 });
-element('disconnect').addEventListener('click', () => { clearSession(); element('token').focus(); });
+element('disconnect').addEventListener('click', async () => {
+  if (isGoogleMode()) {
+    try {
+      const response = await fetch('/api/auth/logout', { method: 'POST', cache: 'no-store',
+        credentials: 'same-origin', redirect: 'error', headers: authHeaders('', 'POST') });
+      if (!response.ok) throw new Error('Не удалось завершить серверную сессию.');
+    } catch (error) { message('', error.message); return; }
+  }
+  clearSession();
+  if (!isGoogleMode()) element('token').focus();
+});
 element('create-form').addEventListener('submit', async event => {
   event.preventDefault();
   const name = element('document-name').value.trim();
@@ -638,11 +653,11 @@ element('import-form').addEventListener('submit', async event => {
   statusView.textContent = 'Импорт документа…';
   try {
     const response = await fetch(`/api/v1/documents/import/${format}`, {
-      method: 'POST', body: file, cache: 'no-store', credentials: 'omit', redirect: 'error',
-      headers: { Authorization: `Bearer ${operation.token}`, 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
+      method: 'POST', body: file, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
+      headers: { ...authHeaders(operation.token, 'POST'), 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
     });
     if (!active()) return;
-    if (response.status === 401) { clearSession(); message('', 'Токен отсутствует, истёк или отклонён. Введите действующий токен.'); return; }
+    if (response.status === 401) { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); return; }
     const body = await response.json().catch(() => ({}));
     if (!active()) return;
     if (!response.ok) {
@@ -718,4 +733,35 @@ document.addEventListener('click', event => {
 });
 window.addEventListener('popstate', route);
 window.addEventListener('pagehide', clearSession);
+async function initializeAuthentication() {
+  try {
+    const config = await fetch('/api/auth/config', { credentials: 'same-origin', cache: 'no-store' });
+    if (!config.ok) throw new Error('Режим аутентификации недоступен.');
+    const info = await config.json();
+    configureAuth(info.mode);
+    if (!isGoogleMode()) {
+      element('authentication-help').textContent = 'Для API-режима введите выданный Bearer-токен. Вход через Google настроен отдельно.';
+      element('authentication-form').hidden = false;
+      return;
+    }
+    element('authentication-form').hidden = true;
+    element('google-login').hidden = false;
+    const authError = new URLSearchParams(location.search).get('auth_error');
+    if (authError) element('authentication-error').textContent = 'Google-аккаунт не подтверждён или доступ к FigVam не разрешён.';
+    const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Не удалось восстановить сессию.');
+    const session = await response.json();
+    if (!session.authenticated) return;
+    setCsrf(session.csrfToken);
+    setToken('__figvam_browser_session__');
+    element('authentication').hidden = true;
+    element('disconnect').hidden = false;
+    element('content').hidden = false;
+    route();
+    await userAdmin.show(session.admin);
+  } catch (error) {
+    element('authentication-error').textContent = error.message;
+  }
+}
+initializeAuthentication();
 clearSession();
