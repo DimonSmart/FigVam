@@ -8,41 +8,43 @@
         "resolved": "6.0.4",
         "contentHash": "lkhqpF8Pu2Y7IiN7OntbsTtdbpR1syMsm2F3IgX6ootA4ffRqWL5jF7XipHuZQTdVuWG/gVAAcf8mjk8Tz0xPg=="
       },
-      "JsonSchema.Net": {
-        "type": "Direct",
-        "requested": "[9.7.0, )",
-        "resolved": "9.7.0",
-        "contentHash": "uzAiT0JPDQcco/+HUxDvAHfq6rnAGgfWvoPKJxwe9M+OBa22lh2AEA/ni0DSVDWy/38cDhFUd7Ea3EQd2NO+fw==",
+      "figvam.application": {
+        "type": "Project",
         "dependencies": {
-          "JsonPointer.Net": "7.1.0"
+          "FigVam.Domain": "[1.0.0, )",
+          "JsonSchema.Net": "[9.7.0, )"
         }
       },
-      "Microsoft.NET.Test.Sdk": {
-        "type": "Direct",
-        "requested": "[17.14.1, )",
-        "resolved": "17.14.1",
-        "contentHash": "HJKqKOE+vshXra2aEHpi2TlxYX7Z9VFYkr+E5rwEvHC8eIXiyO+K9kNm8vmNom3e2rA56WqxU+/N9NJlLGXsJQ==",
+      "figvam.domain": {
+        "type": "Project"
+      },
+      "figvam.infrastructure": {
+        "type": "Project",
         "dependencies": {
-          "Microsoft.CodeCoverage": "17.14.1",
-          "Microsoft.TestPlatform.TestHost": "17.14.1"
+          "FigVam.Application": "[1.0.0, )",
+          "Microsoft.Data.Sqlite": "[10.0.7, )",
+          "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
         }
       },
-      "xunit": {
-        "type": "Direct",
-        "requested": "[2.9.3, )",
-        "resolved": "2.9.3",
-        "contentHash": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
+      "figvam.server": {
+        "type": "Project",
         "dependencies": {
-          "xunit.analyzers": "1.18.0",
-          "xunit.assert": "2.9.3",
-          "xunit.core": "[2.9.3]"
+          "FigVam.Application": "[1.0.0, )",
+          "FigVam.Infrastructure": "[1.0.0, )",
+          "FigVam.ServiceDefaults": "[1.0.0, )",
+          "Microsoft.AspNetCore.Authentication.Google": "[10.0.15, )",
+          "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.15, )",
+          "Microsoft.AspNetCore.OpenApi": "[10.0.15, )"
         }
       },
-      "xunit.runner.visualstudio": {
-        "type": "Direct",
-        "requested": "[3.1.4, )",
-        "resolved": "3.1.4",
-        "contentHash": "5mj99LvCqrq3CNi06xYdyIAXOEh+5b33F2nErCzI5zWiDdLHXiPXEWFSUAF8zlIv0ZWqjZNCwHTQeAPYbF3pCg=="
+      "figvam.servicedefaults": {
+        "type": "Project",
+        "dependencies": {
+          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.21.0, )",
+          "OpenTelemetry.Extensions.Hosting": "[1.21.0, )",
+          "OpenTelemetry.Instrumentation.AspNetCore": "[1.21.0, )",
+          "OpenTelemetry.Instrumentation.Runtime": "[1.21.0, )"
+        }
       },
       "Humanizer.Core": {
         "type": "Transitive",
@@ -62,6 +64,20 @@
           "Humanizer.Core": "3.0.10",
           "Json.More.Net": "3.1.0"
         }
+      },
+      "JsonSchema.Net": {
+        "type": "Direct",
+        "requested": "[9.7.0, )",
+        "resolved": "9.7.0",
+        "contentHash": "uzAiT0JPDQcco/+HUxDvAHfq6rnAGgfWvoPKJxwe9M+OBa22lh2AEA/ni0DSVDWy/38cDhFUd7Ea3EQd2NO+fw==",
+        "dependencies": {
+          "JsonPointer.Net": "7.1.0"
+        }
+      },
+      "Microsoft.AspNetCore.Authentication.Google": {
+        "type": "Transitive",
+        "resolved": "10.0.15",
+        "contentHash": "MzNCejdzgicRQOpGNv38p5QjrzUlK9aLaLOfC2J919RvLeswY4yoTZtOEfZnwuWKrJPOlyn8cXbSnUgBYPDPoQ=="
       },
       "Microsoft.AspNetCore.Authentication.JwtBearer": {
         "type": "Transitive",
@@ -291,6 +307,16 @@
           "Microsoft.IdentityModel.Logging": "8.19.2"
         }
       },
+      "Microsoft.NET.Test.Sdk": {
+        "type": "Direct",
+        "requested": "[17.14.1, )",
+        "resolved": "17.14.1",
+        "contentHash": "HJKqKOE+vshXra2aEHpi2TlxYX7Z9VFYkr+E5rwEvHC8eIXiyO+K9kNm8vmNom3e2rA56WqxU+/N9NJlLGXsJQ==",
+        "dependencies": {
+          "Microsoft.CodeCoverage": "17.14.1",
+          "Microsoft.TestPlatform.TestHost": "17.14.1"
+        }
+      },
       "Microsoft.OpenApi": {
         "type": "Transitive",
         "resolved": "2.13.0",
@@ -425,6 +451,17 @@
           "Microsoft.IdentityModel.Tokens": "8.19.2"
         }
       },
+      "xunit": {
+        "type": "Direct",
+        "requested": "[2.9.3, )",
+        "resolved": "2.9.3",
+        "contentHash": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
+        "dependencies": {
+          "xunit.analyzers": "1.18.0",
+          "xunit.assert": "2.9.3",
+          "xunit.core": "[2.9.3]"
+        }
+      },
       "xunit.abstractions": {
         "type": "Transitive",
         "resolved": "2.0.3",
@@ -465,42 +502,11 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
-      "figvam.application": {
-        "type": "Project",
-        "dependencies": {
-          "FigVam.Domain": "[1.0.0, )",
-          "JsonSchema.Net": "[9.7.0, )"
-        }
-      },
-      "figvam.domain": {
-        "type": "Project"
-      },
-      "figvam.infrastructure": {
-        "type": "Project",
-        "dependencies": {
-          "FigVam.Application": "[1.0.0, )",
-          "Microsoft.Data.Sqlite": "[10.0.7, )",
-          "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.5, )"
-        }
-      },
-      "figvam.server": {
-        "type": "Project",
-        "dependencies": {
-          "FigVam.Application": "[1.0.0, )",
-          "FigVam.Infrastructure": "[1.0.0, )",
-          "FigVam.ServiceDefaults": "[1.0.0, )",
-          "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.15, )",
-          "Microsoft.AspNetCore.OpenApi": "[10.0.15, )"
-        }
-      },
-      "figvam.servicedefaults": {
-        "type": "Project",
-        "dependencies": {
-          "OpenTelemetry.Exporter.OpenTelemetryProtocol": "[1.21.0, )",
-          "OpenTelemetry.Extensions.Hosting": "[1.21.0, )",
-          "OpenTelemetry.Instrumentation.AspNetCore": "[1.21.0, )",
-          "OpenTelemetry.Instrumentation.Runtime": "[1.21.0, )"
-        }
+      "xunit.runner.visualstudio": {
+        "type": "Direct",
+        "requested": "[3.1.4, )",
+        "resolved": "3.1.4",
+        "contentHash": "5mj99LvCqrq3CNi06xYdyIAXOEh+5b33F2nErCzI5zWiDdLHXiPXEWFSUAF8zlIv0ZWqjZNCwHTQeAPYbF3pCg=="
       }
     }
   }
