@@ -142,6 +142,8 @@ async function prepareCreation(page, id, screens) {
   await open(page, id); await page.locator('#screens button').first().click();
   await page.getByRole('treeitem', { name: /Source/ }).click();
   await expect(page.locator('#scenario-target option')).toHaveCount(2);
+  await expect(page.locator('#scenario-action option[value=navigate]')).toHaveCount(1);
+  await page.locator('#scenario-action').selectOption('navigate');
   await page.locator('#scenario-target').selectOption(screens[1]);
   await expect(page.locator('#scenario-event option')).toHaveCount(4);
   await page.locator('#scenario-event').selectOption('2');

@@ -3,6 +3,7 @@ using FigVam.Domain.Documents;
 using FigVam.Server.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 
 namespace FigVam.Server.Documents;
 
@@ -14,7 +15,7 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
 {
     // Permit one sentinel byte so a boundary-size upload receives HTTP 413 after body completion.
     // The application still rejects every asset above MaxAssetBytes.
-    [HttpPut("{assetId}"), Consumes("image/png"), RequestSizeLimit(DocumentAssetValidator.MaxAssetBytes + 1)]
+    [HttpPut("{assetId}"), RequestSizeLimit(DocumentAssetValidator.MaxAssetBytes + 1)]
     [ProducesResponseType<CommandResponse>(200)]
     [EndpointSummary("Upload a safe raster asset through the document command stream")]
     [EndpointDescription("Raw image/png body, at most 5 MiB; commandId and assetId must be nonempty UUIDs. Static noninterlaced 8-bit grayscale, RGB, gray-alpha or RGBA PNG only. IHDR, consecutive IDAT and IEND chunks only; CRC, zlib/Adler, scanline lengths and filters validated. Metadata, palettes, animation, SVG, external links, trailing bytes and other formats are rejected. Maximum dimension 4096, 4194304 pixels, 256 assets and 64 MiB per document. Editor or Owner required. Content, SHA-256, manifest, revision and event commit atomically. commandId retries return the original result; undo removes an asset only if references remain valid. Retained blobs are never collected in this version.")]
@@ -22,6 +23,12 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
     {
         var actor = User.GetDocumentActor();
         if (!await authorization.CanEditAsync(actor, documentId, ct)) return Error("FORBIDDEN");
+        if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var contentType) ||
+            !contentType.MediaType.Equals("image/png", StringComparison.OrdinalIgnoreCase))
+        {
+            await Request.Body.CopyToAsync(Stream.Null, ct);
+            return StatusCode(415, ApiErrors.Create(415));
+        }
         // Kestrel caps the request at MaxAssetBytes + one sentinel byte.
         // Finish reading the bounded request before returning 413: responding while
         // the client is still uploading can turn a valid rejection into a TCP reset.
