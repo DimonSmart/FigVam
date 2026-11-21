@@ -24,6 +24,8 @@ public sealed class DocumentSubscriptionController(IDocumentReconnectReader read
         if (Request.Query.Count != 1 || !Request.Query.TryGetValue("lastSeenRevision", out var value) || value.Count != 1 || lastSeenRevision is null)
             return BadRequest(ApiErrors.Create(400, "INVALID_REVISION"));
         var actor = User.GetDocumentActor();
+        var users = HttpContext.RequestServices.GetService<FigVamUserStore>();
+        var sessionId = User.FindFirst("figvam_session")?.Value;
         using var lease = limits.TryAcquire(actor.Id);
         if (lease is null) return StatusCode(429, ApiErrors.Create(429));
         var initialCode = (await reader.ReadAsync(documentId, lastSeenRevision.Value, actor, cancellationToken)).Code;
