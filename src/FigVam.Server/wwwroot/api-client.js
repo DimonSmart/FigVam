@@ -1,4 +1,4 @@
-import { authHeaders, credentialsMode, isGoogleMode } from './auth-client.js';
+import { authHeaders, credentialsMode } from './auth-client.js';
 
 export function createApiClient({ getToken, onUnauthorized }) {
   return async function request(path, options, signal, isCurrent = () => true) {
