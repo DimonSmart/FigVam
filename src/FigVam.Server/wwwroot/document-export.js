@@ -1,3 +1,4 @@
+import { authHeaders, credentialsMode } from './auth-client.js';
 export function createDocumentExport({ element, getContext, onUnauthorized }) {
   let exportController = null;
   function reset() {
@@ -22,7 +23,7 @@ export function createDocumentExport({ element, getContext, onUnauthorized }) {
     element('export-error').textContent = ''; element('export-status').textContent = `Подготовка ревизии ${atRevision}…`;
     try {
       const response = await fetch(`/api/v1/documents/${encodeURIComponent(id)}/${format}?revision=${atRevision}`, {
-        signal: controller.signal, cache: 'no-store', credentials: 'omit', redirect: 'error', headers: { Authorization: `Bearer ${requestToken}` }
+        signal: controller.signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: authHeaders(requestToken)
       });
       if (!active()) return;
       if (response.status === 401) { onUnauthorized(); return; }
