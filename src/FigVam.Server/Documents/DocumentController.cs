@@ -33,8 +33,16 @@ public sealed class DocumentController(IDocumentAccessService access, IDocumentL
     [HttpPut("{documentId}/members"), ProducesResponseType<DocumentAccessResponse>(200)]
     [EndpointSummary("Assign a member role (Owner only)")]
     public async Task<IActionResult> SetMember(Guid documentId, SetDocumentMemberRequest request, CancellationToken cancellationToken)
-        => Result(await access.SetMemberAsync(documentId, request.MemberId,
+    {
+        var memberId = request.MemberId;
+        if (HttpContext.RequestServices.GetService<FigVamUserStore>() is { } users)
+        {
+            memberId = users.ResolveMember(memberId) ?? "";
+            if (memberId.Length == 0) return BadRequest(ApiErrors.Create(400, "INVALID_MEMBER"));
+        }
+        return Result(await access.SetMemberAsync(documentId, memberId,
             Enum.Parse<DocumentRole>(request.Role), User.GetDocumentActor(), cancellationToken));
+    }
 
     /// <summary>Remove a member. Only an Owner may perform this operation; the last Owner is retained.</summary>
     [HttpDelete("{documentId}/members/{memberId}"), ProducesResponseType<DocumentAccessResponse>(200)]
@@ -42,7 +50,9 @@ public sealed class DocumentController(IDocumentAccessService access, IDocumentL
     public async Task<IActionResult> RemoveMember(Guid documentId,
         [System.ComponentModel.DataAnnotations.StringLength(256, MinimumLength = 1)] string memberId,
         CancellationToken cancellationToken)
-        => Result(await access.RemoveMemberAsync(documentId, memberId, User.GetDocumentActor(), cancellationToken));
+        => Result(await access.RemoveMemberAsync(documentId,
+            HttpContext.RequestServices.GetService<FigVamUserStore>()?.ResolveMember(memberId) ?? memberId,
+            User.GetDocumentActor(), cancellationToken));
 
     private IActionResult Result(DocumentAccessResult result, int acceptedStatus = 200)
     {
