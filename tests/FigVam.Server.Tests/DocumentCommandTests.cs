@@ -1,3 +1,4 @@
+using System.Text.Json;
 using FigVam.Application.Documents;
 using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
@@ -26,6 +27,20 @@ public sealed class DocumentCommandTests : IDisposable
             => ValueTask.FromResult(allowed);
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid documentId, CancellationToken cancellationToken)
             => ValueTask.FromResult(allowed);
+    }
+    private sealed class RecordingJournal(SqliteDocumentJournal journal) : IDocumentCommandJournal
+    {
+        public List<DocumentState> AcceptedStates { get; } = [];
+
+        public Task<CommandResult> ExecuteAsync(Guid documentId, Guid commandId,
+            Func<DocumentState?, Func<Guid, DocumentVersionResult>, Func<string, IReadOnlyList<DocumentCommandHistoryEntry>>, DocumentChange> apply,
+            CancellationToken cancellationToken = default, Func<ValueTask<CommandResult?>>? authorize = null)
+            => journal.ExecuteAsync(documentId, commandId, (state, readVersion, readHistory) =>
+            {
+                var change = apply(state, readVersion, readHistory);
+                if (change.State is { } accepted) AcceptedStates.Add(accepted);
+                return change;
+            }, cancellationToken, authorize);
     }
     private SqliteDocumentJournal Journal() => new(directory, new Profile());
     private DocumentCommandHandler Handler(SqliteDocumentJournal journal, bool allowed = true)
@@ -275,6 +290,31 @@ public sealed class DocumentCommandTests : IDisposable
         Assert.Equal(leaf.NodeId, Assert.Single(state.Document.Nodes.Single(n => n.Id == node.NodeId).ChildIds));
         Assert.Empty(DocumentStructureValidator.Validate(state.Document, new Profile()));
         Assert.Equal(last, await Handler(restarted).HandleAsync(second with { NodeId = Guid.NewGuid() }, actor));
+    }
+
+    [Fact]
+    public async Task ScreenAndNodeEventsRecoverEachAcceptedState()
+    {
+        var journal = Journal();
+        var pageId = Guid.NewGuid();
+        await journal.InitializeAsync(new(documentId, [new PageStructure(pageId, [])], [], []));
+        var recordingJournal = new RecordingJournal(journal);
+        var handler = new DocumentCommandHandler(new Authorization(true), recordingJournal, new Profile());
+        var screen = new AddScreenCommand(documentId, Guid.NewGuid(), pageId, Guid.NewGuid(), new(800, 600));
+        var root = new AddNodeCommand(documentId, Guid.NewGuid(), screen.ScreenId, Guid.NewGuid(), "container");
+        var child = new AddNodeCommand(documentId, Guid.NewGuid(), root.NodeId, Guid.NewGuid(), "leaf");
+        Assert.Equal(1, (await handler.HandleAsync(screen, actor)).Revision);
+        Assert.Equal(2, (await handler.HandleAsync(root, actor)).Revision);
+        Assert.Equal(3, (await handler.HandleAsync(child, actor)).Revision);
+
+        var restarted = Journal();
+        Assert.Equal(new long[] { 1, 2, 3 }, recordingJournal.AcceptedStates.Select(state => state.Revision));
+        foreach (var accepted in recordingJournal.AcceptedStates)
+        {
+            var recovered = await restarted.ReadAsync(documentId, accepted.Revision);
+            Assert.Equal("OK", recovered.Code);
+            Assert.Equal(JsonSerializer.Serialize(accepted), JsonSerializer.Serialize(recovered.State));
+        }
     }
 
     [Fact]

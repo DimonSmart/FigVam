@@ -40,7 +40,7 @@ test('hides rename for Viewer and permits Editor', async ({ page }) => {
     await page.getByRole('link', { name: '← Документы' }).click();
     await page.getByRole('link', { name: 'Original', exact: true }).click();
     await expect(page.locator('#document-rename')).toBeVisible({ visible: role === 'Editor' });
-    await page.unroute('**/api/v1/documents?*');
+    await page.unrouteAll({ behavior: 'wait' });
   }
 });
 

@@ -6,7 +6,7 @@ test('catalog searches, pages and reads detail and usages at the editor revision
   expect((await page.request.post('/api/v1/documents', { headers, data: { documentId: id, name: 'Catalog' } })).ok()).toBeTruthy();
   const componentId = randomUUID(), revisions = [];
   const component = { id: componentId, name: 'Button', description: '<script>description</script>', parameters: [{ name: 'Label', type: 0, defaultValue: { valueType: 'text', value: 'OK' } }], slots: [{ name: 'Content', containerNodeId: 'container' }], variants: [{ name: 'Hover', kind: 1 }] };
-  await page.route('**/components**', async route => {
+  await page.route('**/api/v1/documents/*/components**', async route => {
     const url = new URL(route.request().url()); revisions.push(url.searchParams.get('revision'));
     const offset = Number(url.searchParams.get('offset') || 0);
     if (url.pathname.endsWith('/usages')) return route.fulfill({ json: { items: Array.from({ length: offset ? 1 : 20 }, (_, i) => ({ nodeId: `node-${offset + i}` })), total: 21 } });
@@ -28,8 +28,30 @@ test('catalog reports errors and can retry without blocking the editor', async (
   const id = randomUUID(), headers = { Authorization: `Bearer ${bearer}` };
   expect((await page.request.post('/api/v1/documents', { headers, data: { documentId: id, name: 'Catalog errors' } })).ok()).toBeTruthy();
   let fail = true;
-  await page.route('**/components**', route => fail ? route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }) : route.fulfill({ json: { items: [], total: 0 } }));
+  await page.route('**/api/v1/documents/*/components**', route => fail ? route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }) : route.fulfill({ json: { items: [], total: 0 } }));
   await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await expect(page.locator('#components-error')).toContainText('Нет доступа'); await expect(page.getByRole('heading', { name: 'Холст' })).toBeVisible();
   fail = false; await page.getByRole('button', { name: 'Повторить загрузку каталога' }).click(); await expect(page.locator('#components-status')).toHaveText('Компоненты не найдены.');
+});
+
+test('catalog ignores a late search response', async ({ page }) => {
+  const id = randomUUID(), headers = { Authorization: `Bearer ${bearer}` };
+  expect((await page.request.post('/api/v1/documents', { headers, data: { documentId: id, name: 'Catalog race' } })).ok()).toBeTruthy();
+  let releaseSlow, slowStarted;
+  const slow = new Promise(resolve => { releaseSlow = resolve; });
+  const started = new Promise(resolve => { slowStarted = resolve; });
+  await page.route('**/api/v1/documents/*/components**', async route => {
+    const search = new URL(route.request().url()).searchParams.get('search');
+    if (search === 'slow') { slowStarted(); await slow; }
+    const name = search === 'slow' ? 'Old result' : search === 'fast' ? 'Current result' : 'Initial result';
+    await route.fulfill({ json: { items: [{ id: randomUUID(), name }], total: 1 } });
+  });
+  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await expect(page.locator('#components-list')).toContainText('Initial result');
+  await page.getByLabel('Поиск компонентов').fill('slow'); await page.getByRole('button', { name: 'Найти компоненты' }).click(); await started;
+  await page.getByLabel('Поиск компонентов').fill('fast'); await page.getByRole('button', { name: 'Найти компоненты' }).click();
+  await expect(page.locator('#components-list')).toContainText('Current result');
+  const oldResponse = page.waitForResponse(response => new URL(response.url()).searchParams.get('search') === 'slow');
+  releaseSlow(); await oldResponse;
+  await expect(page.locator('#components-list')).toHaveText('Current result');
 });

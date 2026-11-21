@@ -16,7 +16,12 @@ public sealed class EditorUiTests
         await server.WaitUntilReadyAsync();
         using var client = server.CreateClient();
         var id = Guid.NewGuid();
-        foreach (var route in new[] { "/", $"/documents/{id}", "/editor.js", "/editor.css" })
+        foreach (var route in new[]
+        {
+            "/", $"/documents/{id}", "/editor.css", "/editor.js", "/api-client.js", "/canvas-viewport.js",
+            "/components.js", "/datasets.js", "/document-collaboration.js", "/document-export.js", "/document-history.js", "/members.js", "/presence.js", "/layers.js", "/scenarios.js", "/screen-diagnostics.js", "/screen-resize.js", "/screen-variants.js",
+            "/tokens.js", "/session.js"
+        })
         {
             using var response = await client.GetAsync(route);
             Assert.Equal(200, (int)response.StatusCode);

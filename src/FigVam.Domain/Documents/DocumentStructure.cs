@@ -170,6 +170,24 @@ public static class DocumentStructureEditor
             ? n with { Properties = n.Properties.SetItem(property, value) } : n).ToArray() };
     }
 
+    public static DocumentStructure AddScreen(DocumentStructure document, Guid pageId, Guid screenId, ScreenDimensions dimensions)
+        => document with
+        {
+            Pages = document.Pages.Select(p => p.Id == pageId
+                ? p with { ScreenIds = p.ScreenIds.Append(screenId).ToArray() } : p).ToArray(),
+            Screens = document.Screens.Append(new ScreenStructure(screenId, [], dimensions)).ToArray()
+        };
+
+    public static DocumentStructure AddNode(DocumentStructure document, Guid parentId, Guid nodeId, string kind)
+        => document with
+        {
+            Screens = document.Screens.Select(s => s.Id == parentId
+                ? s with { ChildIds = s.ChildIds.Append(nodeId).ToArray() } : s).ToArray(),
+            Nodes = document.Nodes.Select(n => n.Id == parentId
+                ? n with { ChildIds = n.ChildIds.Append(nodeId).ToArray() } : n)
+                .Append(new NodeStructure(nodeId, kind, [])).ToArray()
+        };
+
     public static DocumentStructure InsertComponentInstance(DocumentStructure document, Guid parentId, int position,
         NodeStructure anchor, ComponentInstance instance)
     {

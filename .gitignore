@@ -428,6 +428,9 @@ autom4te.cache/
 *.tar.gz
 tarballs/
 test-results/
+test-results-*/
+/node-reorder-results-*/
+/tests/FigVam.Ui.Tests/node-*-results*/
 
 # content below from: https://github.com/github/gitignore/blob/main/Global/macOS.gitignore
 # General

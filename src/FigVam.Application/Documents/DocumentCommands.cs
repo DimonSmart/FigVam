@@ -896,12 +896,9 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
                 return new(Result("DUPLICATE_ID"), null);
             if (!ScreenDimensions.IsValid(command.Dimensions)) return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
             var revision = checked(state.Revision + 1);
-            return new(Result("ACCEPTED", revision), new(document with
-            {
-                Pages = document.Pages.Select(p => p.Id == page.Id
-                    ? p with { ScreenIds = p.ScreenIds.Append(command.ScreenId).ToArray() } : p).ToArray(),
-                Screens = document.Screens.Append(new ScreenStructure(command.ScreenId, [], command.Dimensions)).ToArray()
-            }, revision), new ScreenAdded(command.PageId, command.ScreenId, command.Dimensions));
+            return new(Result("ACCEPTED", revision), new(
+                DocumentStructureEditor.AddScreen(document, page.Id, command.ScreenId, command.Dimensions), revision),
+                new ScreenAdded(command.PageId, command.ScreenId, command.Dimensions));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
@@ -939,14 +936,9 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (string.IsNullOrWhiteSpace(command.Kind) || !profile.IsKnownKind(command.Kind))
                 return new(Result("UNSUPPORTED_NODE_KIND"), null);
             var revision = checked(state.Revision + 1);
-            return new(Result("ACCEPTED", revision), new(document with
-            {
-                Screens = document.Screens.Select(s => s.Id == command.ParentId
-                    ? s with { ChildIds = s.ChildIds.Append(command.NodeId).ToArray() } : s).ToArray(),
-                Nodes = document.Nodes.Select(n => n.Id == command.ParentId
-                    ? n with { ChildIds = n.ChildIds.Append(command.NodeId).ToArray() } : n)
-                    .Append(new NodeStructure(command.NodeId, command.Kind, [])).ToArray()
-            }, revision), new NodeAdded(command.ParentId, command.NodeId, command.Kind));
+            return new(Result("ACCEPTED", revision), new(
+                DocumentStructureEditor.AddNode(document, command.ParentId, command.NodeId, command.Kind), revision),
+                new NodeAdded(command.ParentId, command.NodeId, command.Kind));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }

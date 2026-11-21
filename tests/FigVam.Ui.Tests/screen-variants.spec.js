@@ -17,3 +17,27 @@ test('Viewer reads saved variants without creation controls',async({page,request
 test('paginates pinned reads and retries errors',async({page,request})=>{const {id}=await setup(request); await open(page,id); let fail=true; await page.route('**/screens/*/variants?*',route=>{const url=new URL(route.request().url()), offset=Number(url.searchParams.get('offset')); if(fail){fail=false; return route.fulfill({status:403,json:{code:'FORBIDDEN'}});} return route.fulfill({json:{documentId:id,screenId:url.pathname.split('/')[6],revision:Number(url.searchParams.get('revision')),total:21,items:Array.from({length:offset?1:20},(_,i)=>({name:`Variant ${offset+i+1}`}))}});}); await page.getByRole('button',{name:'Обновить страницы'}).click(); await expect(page.locator('#screen-variants-error')).toContainText('Нет доступа'); await page.getByRole('button',{name:'Повторить загрузку вариантов'}).click(); await expect(page.locator('#screen-variants-number')).toHaveText('1–20 из 21'); await page.getByRole('button',{name:'Следующие варианты'}).click(); await expect(page.locator('#screen-variants-number')).toHaveText('21–21 из 21');});
 test('ignores a late response after changing screens',async({page,request})=>{const {id,headers}=await setup(request); const pageId=randomUUID(), screenId=randomUUID(); for(const [name,data] of [['add-page',{pageId}],['add-screen',{pageId,screenId,dimensions:{width:320,height:240}}]]) expect((await request.post(`/api/v1/documents/${id}/commands/${name}`,{headers,data:{commandId:randomUUID(),...data}})).ok()).toBeTruthy(); await open(page,id); let release,entered; const gate=new Promise(r=>release=r),held=new Promise(r=>entered=r); await page.route('**/screens/*/variants?*',async route=>{const response=await route.fetch(); entered(); await gate; await route.fulfill({response,json:{...(await response.json()),items:[{name:'Stale'}],total:1}});},{times:1}); await page.getByRole('button',{name:'Обновить страницы'}).click(); await held; await page.locator('#pages button').nth(1).click(); await expect(page.locator('#screens button').first()).toContainText('320 × 240'); await page.locator('#screens button').first().click(); await expect(page.locator('#screen-variants-list')).toContainText('Базовое состояние'); release(); await expect(page.locator('#screen-variants-list')).not.toContainText('Stale');});
 
+
+test('retains an uncertain command when changing screens', async ({ page, request }) => {
+  const { id, headers } = await setup(request), pageId = randomUUID(), screenId = randomUUID(), bodies = [];
+  for (const [name, data] of [['add-page', { pageId }], ['add-screen', { pageId, screenId, dimensions: { width: 320, height: 240 } }]])
+    expect((await request.post(`/api/v1/documents/${id}/commands/${name}`, { headers, data: { commandId: randomUUID(), ...data } })).ok()).toBeTruthy();
+  await open(page, id);
+  await page.route('**/commands/add-screen-variant', async route => {
+    bodies.push(route.request().postData());
+    if (bodies.length === 1) { await route.fetch(); await route.abort(); } else await route.continue();
+  });
+  await page.getByLabel('Имя нового варианта').fill('Retained');
+  await page.getByRole('button', { name: 'Создать пустой вариант' }).click();
+  await expect(page.locator('#screen-variants-error')).toContainText('неизвестен');
+  await page.locator('#pages button').nth(1).click();
+  await expect(page.locator('#screens button').first()).toContainText('320 × 240');
+  await page.locator('#screens button').first().click();
+  await expect(page.getByRole('button', { name: 'Повторить создание варианта' })).toBeHidden();
+  await page.locator('#pages button').first().click();
+  await expect(page.locator('#screens button').first()).toContainText('640 × 480');
+  await page.locator('#screens button').first().click();
+  await page.getByRole('button', { name: 'Повторить создание варианта' }).click();
+  await expect(page.locator('#screen-variants-list')).toContainText('Retained');
+  expect(bodies[0]).toBe(bodies[1]);
+});

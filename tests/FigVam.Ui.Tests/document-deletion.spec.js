@@ -35,7 +35,7 @@ test('Editor and Viewer cannot delete', async ({ page }) => {
     await page.getByRole('link', { name: '← Документы' }).click();
     await page.getByRole('link', { name: 'Deletion target' }).click();
     await expect(page.locator('#delete-document')).toBeHidden();
-    await page.unroute('**/api/v1/documents?*');
+    await page.unrouteAll({ behavior: 'wait' });
   }
 });
 

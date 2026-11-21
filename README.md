@@ -617,7 +617,8 @@ production signature/lifetime validation and restricted loopback development mod
 are unchanged.
 
 The workspace lists accessible documents in pages of 20 with forward/backward
-navigation, creates a document with a name, and opens `/documents/{documentId}`.
+navigation, creates a document with a name, imports a document file, and opens
+`/documents/{documentId}`.
 Direct links require a token again in a new tab or after reload. The document name
 and revision are fetched with current server authorization. Loading, empty list,
 invalid/expired token, forbidden access, network/server errors and retry states are
@@ -625,9 +626,14 @@ displayed in Russian. Creation is never retried automatically: after an ambiguou
 failure, refresh the list before creating again. Membership changes between pages
 retain the listing API's existing semantics.
 
-The editor currently shows named panel, tree, canvas and inspector regions only.
-It does not render document contents or offer editing, Save, Preview, export or
-profile/platform support through the UI. These are explicit limitations. Forms,
+The editor displays pages, screens, layers and other document information. Depending
+on the actor's role, it offers document and page management, screen creation and
+resizing, layer operations, datasets, tokens and scenarios, as well as undo/redo,
+saved versions and restore. Owners can manage members. Owners and Editors can
+export the current document as JSON or a `.figvam` container; Viewer cannot export.
+The canvas shows the selected screen boundary with zoom and pan controls, but does
+not render its layers. There is no Preview UI, and the production Portable UI
+Profile currently declares no supported node kinds or target platforms. Forms,
 links, pagination and session clearing work with the keyboard, visible focus and
 live status/error announcements. Text is inserted as text, and the shell uses a
 restrictive CSP with no inline or external scripts.

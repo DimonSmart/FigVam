@@ -15,7 +15,7 @@ async function login(page, token = bearer) {
 test('creates a named document, renders text safely, opens a stable URL and forgets token on reload', async ({ page }, testInfo) => {
   await page.goto('/');
   await login(page);
-  await expect(page.getByRole('status')).toContainText('Доступных документов нет');
+  await expect(page.locator('#status')).toContainText('Доступных документов нет');
   await page.getByLabel('Имя нового документа').fill('<img src=x onerror=alert(1)>');
   await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
@@ -79,12 +79,12 @@ test('shows loading, request errors, retry, forbidden and expired-token states',
   });
   await page.goto('/');
   await login(page);
-  await expect(page.getByRole('status')).toHaveText('Загрузка…');
+  await expect(page.locator('#status')).toHaveText('Загрузка…');
   release();
   await expect(page.locator('#error')).toContainText('Сервер не смог');
   await page.unroute('**/api/v1/documents?*');
   await page.getByRole('button', { name: 'Повторить запрос', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText(/Документов на странице|Доступных документов нет/);
+  await expect(page.locator('#status')).toContainText(/Документов на странице|Доступных документов нет/);
   await page.route('**/api/v1/documents?*', route => route.abort());
   await page.getByRole('button', { name: 'Обновить список', exact: true }).click();
   await expect(page.locator('#error')).toContainText('Не удалось связаться');
@@ -104,7 +104,7 @@ test('shows loading, request errors, retry, forbidden and expired-token states',
 test('does not retry an ambiguous create automatically and never displays raw errors', async ({ page }) => {
   await page.goto('/');
   await login(page);
-  await expect(page.getByRole('status')).toContainText(/Документов на странице|Доступных документов нет/);
+  await expect(page.locator('#status')).toContainText(/Документов на странице|Доступных документов нет/);
   let requests = 0;
   await page.route('**/api/v1/documents', route => {
     requests++;
@@ -212,10 +212,11 @@ test('creates and selects screens, validates dimensions, paginates and keeps Vie
   const api = page.url().replace('/documents/', '/api/v1/documents/');
   const headers = { Authorization: `Bearer ${bearer}` };
   const pages = await (await page.request.get(`${api}/pages`, { headers })).json();
+  await page.getByRole('link', { name: '← Документы' }).click();
   for (let i = 0; i < 20; i++) {
     await postSuccessfully(page.request, `${api}/commands/add-screen`, { headers, data: { commandId: require('node:crypto').randomUUID(), pageId: pages.items[0].id, screenId: require('node:crypto').randomUUID(), dimensions: { width: i, height: 10 } } });
   }
-  await page.getByRole('button', { name: 'Обновить страницы' }).click();
+  await page.getByRole('link', { name: 'Screens', exact: true }).click();
   await expect(page.locator('#screens button')).toHaveCount(20);
   await page.getByRole('button', { name: 'Следующие экраны' }).click();
   await expect(page.locator('#screens button')).toHaveCount(1);
@@ -246,7 +247,9 @@ test('shows selected screen and provides local accessible viewport controls', as
   await expect(page.getByRole('button', { name: '100%', exact: true })).toBeFocused();
   expect(await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle)).toBe('solid');
   await page.keyboard.press('Enter'); await expect(page.locator('#zoom-level')).toHaveText('100%');
+  await expect(area).toHaveCSS('background-size', '20px 20px');
   await page.getByRole('button', { name: 'Увеличить' }).click(); await expect(page.locator('#zoom-level')).toHaveText('125%');
+  await expect(area).toHaveCSS('background-size', '25px 25px');
   const before = await boundary.evaluate(el => el.style.transform);
   await area.focus(); await page.keyboard.press('ArrowRight');
   expect(await boundary.evaluate(el => el.style.transform)).not.toBe(before);
@@ -265,6 +268,8 @@ test('shows selected screen and provides local accessible viewport controls', as
   await expect(page.getByText('Экран: 800 × 600 uiUnit')).toBeVisible();
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(boundary).toBeHidden();
+  await expect(page.locator('#zoom-level')).toHaveText('100%');
+  await expect(area).toHaveCSS('background-position', '0px 0px');
 });
 
 
@@ -300,17 +305,21 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await expect(tree.locator('[data-id="child"]')).toHaveAttribute('aria-selected', 'true');
   await page.keyboard.press('ArrowLeft'); await page.keyboard.press('ArrowLeft');
   await expect(tree.getByRole('treeitem')).toHaveCount(101);
-  mode = 'forbidden'; await page.getByRole('button', { name: 'Обновить страницы' }).click();
-  await expect(page.locator('#layers-status')).toContainText('Нет доступа');
-  await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.');
-  await expect(tree.getByRole('treeitem')).toHaveCount(0);
   mode = 'missing'; await page.getByRole('button', { name: 'Обновить страницы' }).click();
   await expect(page.locator('#layers-status')).toContainText('больше не существует');
+  await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.');
+  await expect(tree.getByRole('treeitem')).toHaveCount(0);
   mode = 'ok'; await page.getByRole('button', { name: 'Обновить страницы' }).click();
   await expect(tree.getByRole('treeitem')).toHaveCount(101);
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(tree.getByRole('treeitem')).toHaveCount(0);
   await expect(page.locator('#layers-status')).toHaveText('Выберите экран.');
+  await page.locator('#pages button').first().click();
+  await page.locator('#screens button').first().click();
+  await expect(tree.getByRole('treeitem')).toHaveCount(101);
+  mode = 'forbidden'; await page.getByRole('button', { name: 'Обновить страницы' }).click();
+  await expect(page.locator('#editor-view')).toBeHidden();
+  await expect(page.locator('#error')).toContainText('Доступ к документу потерян');
 });
 
 test('version success, refusal and safe retry', async ({ page }) => {

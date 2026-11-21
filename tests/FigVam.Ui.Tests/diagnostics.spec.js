@@ -109,3 +109,37 @@ test('discards an outstanding response after navigating to documents', async ({ 
   await expect(page.locator('#diagnostics-list')).toBeEmpty();
   await expect(page.locator('#editor-view')).toBeHidden();
 });
+
+test('rejects a malformed response and retries successfully', async ({ page, request }) => {
+  const { id } = await setup(request);
+  let malformed = true;
+  await page.route('**/diagnostics?*', route => {
+    if (!malformed) return response(route, [{ code: 'RECOVERED', message: 'OK' }]);
+    malformed = false;
+    return route.fulfill({ json: { items: [], total: 0 } });
+  });
+  await open(page, id); await page.locator('#screens button').first().click();
+  await expect(page.locator('#diagnostics-error')).toHaveText('Не удалось получить корректный ответ сервера.');
+  await page.getByRole('button', { name: 'Повторить загрузку диагностики' }).click();
+  await expect(page.locator('#diagnostics-list')).toContainText('RECOVERED');
+  await expect(page.locator('#diagnostics-error')).toBeEmpty();
+});
+
+test('discards an outstanding response after revision changes', async ({ page, request }) => {
+  const { id, headers } = await setup(request);
+  let release, entered; const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
+  await page.route('**/diagnostics?*', async route => {
+    if (new URL(route.request().url()).searchParams.get('revision') === '3') {
+      entered(); await gate;
+      return response(route, [{ code: 'STALE-REVISION', message: 'stale' }]).catch(() => {});
+    }
+    return response(route, [{ code: 'CURRENT-REVISION', message: 'current' }]);
+  });
+  await open(page, id); await page.locator('#screens button').first().click(); await held;
+  const changed = await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } });
+  expect(changed.ok()).toBeTruthy();
+  await page.getByRole('button', { name: 'Обновить страницы' }).click();
+  await expect(page.locator('#diagnostics-list')).toContainText('CURRENT-REVISION');
+  release();
+  await expect(page.locator('#diagnostics-list')).not.toContainText('STALE-REVISION');
+});

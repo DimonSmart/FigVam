@@ -48,7 +48,9 @@ for (const role of ['Editor', 'Viewer']) test(`${role} does not see controls`, a
   await page.route('**/api/v1/documents?*', async route => { const response = await route.fetch(); const body = await response.json(); body.items.forEach(item => item.role = role); await route.fulfill({ response, json: body }); });
   await page.getByRole('link', { name: '← Документы' }).click();
   await page.getByRole('link', { name: 'Members target' }).click();
+  await expect(page.getByRole('heading', { name: 'Members target' })).toBeVisible();
   await expect(page.locator('#member-management')).toBeHidden();
+  await page.unrouteAll({ behavior: 'wait' });
 });
 
 test('own demotion and removal update the current context', async ({ page }) => {

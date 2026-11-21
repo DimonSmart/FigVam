@@ -86,7 +86,14 @@ public sealed class DocumentReconnectTests : IDisposable
             new NodeDeleted(root.NodeId)
         }, events.Select(e => e.Payload));
         var client = new DocumentStructure(documentId, [], [], []);
-        foreach (var item in events) client = Apply(client, item.Payload);
+        foreach (var item in events)
+        {
+            client = Apply(client, item.Payload);
+            var recovered = await Journal().ReadAsync(documentId, item.Revision);
+            Assert.Equal("OK", recovered.Code);
+            Assert.Equal(System.Text.Json.JsonSerializer.Serialize(client),
+                System.Text.Json.JsonSerializer.Serialize(recovered.State!.Document));
+        }
         var current = (await Journal().ReadAsync(documentId))!;
         Assert.Equal(System.Text.Json.JsonSerializer.Serialize(current.Document), System.Text.Json.JsonSerializer.Serialize(client));
         var missed = await Reader().ReadAsync(documentId, 3, actor);

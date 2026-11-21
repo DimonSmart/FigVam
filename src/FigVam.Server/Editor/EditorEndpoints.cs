@@ -19,6 +19,22 @@ public static class EditorEndpoints
         MapFile("/", "index.html", "text/html; charset=utf-8");
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
+        MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
+        MapFile("/canvas-viewport.js", "canvas-viewport.js", "text/javascript; charset=utf-8");
+        MapFile("/components.js", "components.js", "text/javascript; charset=utf-8");
+        MapFile("/datasets.js", "datasets.js", "text/javascript; charset=utf-8");
+        MapFile("/members.js", "members.js", "text/javascript; charset=utf-8");
+        MapFile("/presence.js", "presence.js", "text/javascript; charset=utf-8");
+        MapFile("/document-collaboration.js", "document-collaboration.js", "text/javascript; charset=utf-8");
+        MapFile("/document-export.js", "document-export.js", "text/javascript; charset=utf-8");
+        MapFile("/document-history.js", "document-history.js", "text/javascript; charset=utf-8");
+        MapFile("/layers.js", "layers.js", "text/javascript; charset=utf-8");
+        MapFile("/scenarios.js", "scenarios.js", "text/javascript; charset=utf-8");
+        MapFile("/screen-resize.js", "screen-resize.js", "text/javascript; charset=utf-8");
+        MapFile("/screen-variants.js", "screen-variants.js", "text/javascript; charset=utf-8");
+        MapFile("/screen-diagnostics.js", "screen-diagnostics.js", "text/javascript; charset=utf-8");
+        MapFile("/tokens.js", "tokens.js", "text/javascript; charset=utf-8");
+        MapFile("/session.js", "session.js", "text/javascript; charset=utf-8");
         MapFile("/editor.css", "editor.css", "text/css; charset=utf-8");
     }
 }

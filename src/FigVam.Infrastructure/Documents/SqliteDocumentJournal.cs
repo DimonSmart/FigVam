@@ -12,6 +12,18 @@ namespace FigVam.Infrastructure.Documents;
 public sealed partial class SqliteDocumentJournal
     : IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
 {
+    private const string EventProjection = """
+        SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,
+            e.command_id,e.actor_id,r.document,c.payload,p.property,p.value,d.payload
+        FROM events e
+        LEFT JOIN screen_events s ON s.revision=e.revision
+        LEFT JOIN node_events n ON n.revision=e.revision
+        LEFT JOIN move_events m ON m.revision=e.revision
+        LEFT JOIN restore_events r ON r.revision=e.revision
+        LEFT JOIN compensation_events c ON c.revision=e.revision
+        LEFT JOIN property_events p ON p.revision=e.revision
+        LEFT JOIN payload_events d ON d.revision=e.revision
+        """;
     private const int SnapshotInterval = 32;
     private const int MaxReconnectEvents = 100;
     private const int MaxReconnectPayloadBytes = 1024 * 1024;
@@ -124,16 +136,7 @@ public sealed partial class SqliteDocumentJournal
                 return new DocumentReconnectResult("SNAPSHOT", state.Revision, Snapshot: state);
             using var command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = """
-                SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,
-                    e.command_id,e.actor_id,r.document,c.payload,p.property,p.value,d.payload
-                FROM events e
-                LEFT JOIN screen_events s ON s.revision=e.revision
-                LEFT JOIN node_events n ON n.revision=e.revision
-                LEFT JOIN move_events m ON m.revision=e.revision
-                LEFT JOIN restore_events r ON r.revision=e.revision LEFT JOIN compensation_events c ON c.revision=e.revision LEFT JOIN property_events p ON p.revision=e.revision LEFT JOIN payload_events d ON d.revision=e.revision
-                WHERE e.revision>$revision AND e.revision<=$current ORDER BY e.revision
-                """;
+            command.CommandText = EventProjection + " WHERE e.revision>$revision AND e.revision<=$current ORDER BY e.revision";
             command.Parameters.AddWithValue("$revision", lastSeenRevision);
             command.Parameters.AddWithValue("$current", state.Revision);
             using var reader = command.ExecuteReader();
@@ -557,7 +560,7 @@ public sealed partial class SqliteDocumentJournal
         }
         if (state.Document.Id != documentId) throw new InvalidDataException("Document identity mismatch.");
         ValidateProfile(state.Document);
-        command.CommandText = "SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,e.command_id,e.actor_id,r.document,c.payload,p.property,p.value,d.payload FROM events e LEFT JOIN screen_events s ON s.revision=e.revision LEFT JOIN node_events n ON n.revision=e.revision LEFT JOIN move_events m ON m.revision=e.revision LEFT JOIN restore_events r ON r.revision=e.revision LEFT JOIN compensation_events c ON c.revision=e.revision LEFT JOIN property_events p ON p.revision=e.revision LEFT JOIN payload_events d ON d.revision=e.revision WHERE e.revision>$revision AND e.revision<=$target ORDER BY e.revision";
+        command.CommandText = EventProjection + " WHERE e.revision>$revision AND e.revision<=$target ORDER BY e.revision";
         command.Parameters.AddWithValue("$revision", state.Revision);
         using (var reader = command.ExecuteReader())
         {
@@ -690,24 +693,12 @@ public sealed partial class SqliteDocumentJournal
                     case ScreenAdded screen:
                         if (!document.Pages.Any(p => p.Id == screen.PageId))
                             throw new InvalidDataException("Screen event references a missing page.");
-                        document = document with
-                        {
-                            Pages = document.Pages.Select(p => p.Id == screen.PageId
-                                ? p with { ScreenIds = p.ScreenIds.Append(screen.ScreenId).ToArray() } : p).ToArray(),
-                            Screens = document.Screens.Append(new ScreenStructure(screen.ScreenId, [], screen.Dimensions)).ToArray()
-                        };
+                        document = DocumentStructureEditor.AddScreen(document, screen.PageId, screen.ScreenId, screen.Dimensions);
                         break;
                     case NodeAdded node:
                         if (!document.Screens.Any(s => s.Id == node.ParentId) && !document.Nodes.Any(n => n.Id == node.ParentId))
                             throw new InvalidDataException("Node event references a missing parent.");
-                        document = document with
-                        {
-                            Screens = document.Screens.Select(s => s.Id == node.ParentId
-                                ? s with { ChildIds = s.ChildIds.Append(node.NodeId).ToArray() } : s).ToArray(),
-                            Nodes = document.Nodes.Select(n => n.Id == node.ParentId
-                                ? n with { ChildIds = n.ChildIds.Append(node.NodeId).ToArray() } : n)
-                                .Append(new NodeStructure(node.NodeId, node.Kind, [])).ToArray()
-                        };
+                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind);
                         break;
                     case NodeNameSet name:
                         if (!document.Nodes.Any(n => n.Id == name.NodeId) || !NodeMetadataValidator.IsValidName(name.Name))

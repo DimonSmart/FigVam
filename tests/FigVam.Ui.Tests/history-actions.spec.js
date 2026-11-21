@@ -65,6 +65,29 @@ test('delayed response cannot overwrite another document', async ({ page, reques
   await page.getByRole('link', { name: 'Второй' }).click(); await expect(page.locator('#document-title')).toHaveText('Второй');
   release(); await expect(page.locator('#pages button')).toHaveCount(1); await expect(page.locator('#history-action-error')).toBeEmpty();
 });
+test('leaving a document cancels its outstanding version history read', async ({ page, request }) => {
+  const id = await setup(request), other = await setup(request, 'Другой документ');
+  const oldHistory = `**/documents/${id}/versions?*`;
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route(oldHistory, async route => {
+    await gate;
+    await route.fulfill({ status: 401 }).catch(() => {});
+  });
+  const started = page.waitForRequest(oldHistory);
+  try {
+    await open(page, id);
+    await started;
+    const cancelled = page.waitForEvent('requestfailed', event => event.url().includes(`/documents/${id}/versions?`));
+    await page.getByRole('link', { name: '← Документы' }).click();
+    await cancelled;
+    await page.getByRole('link', { name: 'Другой документ', exact: true }).click();
+    await expect(page).toHaveURL(`/documents/${other}`);
+    await expect(page.locator('#versions-status')).toHaveText('Сохранённых версий нет.');
+  } finally {
+    release();
+  }
+});
 test('delayed response after logout cannot restore operation state', async ({ page, request }) => {
   const id = await setup(request); await open(page, id);
   let release, entered; const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
