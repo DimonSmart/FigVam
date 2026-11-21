@@ -17,65 +17,46 @@ public static class DocumentAuthentication
     public static void AddDocumentAuthentication(this WebApplicationBuilder builder)
     {
         var configuration = builder.Configuration.GetSection("Authentication");
-        var mode = configuration["Mode"] ?? "Jwt";
-        var local = configuration.GetValue<bool>("LocalDevelopment:Enabled");
+        var mode = configuration["Mode"] ?? "Google";
+        var localEnabled = configuration.GetValue<bool>("LocalDevelopment:Enabled");
+
         if (mode == "Google")
         {
-            if (local) throw new InvalidOperationException("Google and local authentication cannot be combined.");
+            if (localEnabled) throw new InvalidOperationException("Local authentication cannot be combined with Google.");
             GoogleBrowserAuthentication.Configure(builder);
             return;
         }
-        if (mode is not ("Local" or "Jwt") || (mode == "Local") != local)
-            throw new InvalidOperationException("Choose exactly one authentication mode: Google, Jwt or Local.");
+
+        // Test identities and local development are never deployable authentication modes.
+        if (mode is not ("Local" or "Test") ||
+            (mode == "Local" && (!builder.Environment.IsDevelopment() || !localEnabled)) ||
+            (mode == "Test" && (!builder.Environment.IsEnvironment("Testing") || localEnabled)))
+            throw new InvalidOperationException("Only Google, isolated Local or test-only authentication is permitted.");
+
+        RestrictToLoopback(builder);
         var authentication = builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme);
-        if (configuration.GetValue<bool>("LocalDevelopment:Enabled"))
+        if (mode == "Local")
         {
-            if (!builder.Environment.IsDevelopment())
-                throw new InvalidOperationException("Local authentication requires the Development environment.");
-            var urls = builder.Configuration["urls"]?.Split(';', StringSplitOptions.RemoveEmptyEntries);
-            if (urls is not { Length: > 0 } || builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Any())
-                throw new InvalidOperationException("Local authentication requires explicit loopback URLs and no Kestrel endpoint overrides.");
-            var addresses = urls.Select(url =>
-            {
-                if (!Uri.TryCreate(url, UriKind.Absolute, out var address) ||
-                    address.Scheme is not ("http" or "https") ||
-                    !(address.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
-                      (IPAddress.TryParse(address.Host.Trim('[', ']'), out var ip) && IPAddress.IsLoopback(ip))))
-                    throw new InvalidOperationException("Local authentication permits only loopback listen addresses.");
-                return address;
-            }).ToArray();
             var token = configuration["LocalDevelopment:Token"];
             if (string.IsNullOrWhiteSpace(token) || Encoding.UTF8.GetByteCount(token) < 32)
                 throw new InvalidOperationException("Local authentication requires a bearer token of at least 32 UTF-8 bytes.");
-
-            // Explicit sockets prevent hosting URL/port overrides from widening the local boundary.
-            builder.WebHost.ConfigureKestrel(options =>
-            {
-                foreach (var address in addresses)
-                {
-                    var ip = address.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
-                        ? IPAddress.Loopback : IPAddress.Parse(address.Host.Trim('[', ']'));
-                    options.Listen(ip, address.Port, listen =>
-                    {
-                        if (address.Scheme == "https") listen.UseHttps();
-                    });
-                }
-            });
             authentication.AddScheme<LocalBearerOptions, LocalBearerHandler>(JwtBearerDefaults.AuthenticationScheme,
                 options => options.Token = token);
         }
         else
         {
+            // Signed, short-lived identities support isolated multi-user integration tests.
+            // This mode cannot start in Production or accept non-loopback connections.
             var issuer = configuration["Issuer"];
             var audience = configuration["Audience"];
             var publicKey = configuration["SigningPublicKeyPem"];
-            if (!Uri.TryCreate(issuer, UriKind.Absolute, out var issuerUri) || issuerUri.Scheme != "https" ||
+            if (!Uri.TryCreate(issuer, UriKind.Absolute, out var uri) || uri.Scheme != "https" ||
                 string.IsNullOrWhiteSpace(audience) || string.IsNullOrWhiteSpace(publicKey))
-                throw new InvalidOperationException("Bearer authentication requires HTTPS Issuer, Audience and SigningPublicKeyPem.");
+                throw new InvalidOperationException("Test authentication requires HTTPS Issuer, Audience and RSA public key.");
             using var rsa = RSA.Create();
             rsa.ImportFromPem(publicKey);
             if (rsa.KeySize < 2048 || publicKey.Contains("PRIVATE KEY", StringComparison.Ordinal))
-                throw new InvalidOperationException("Configure only an RSA public key of at least 2048 bits.");
+                throw new InvalidOperationException("Configure an RSA public key of at least 2048 bits.");
             var key = new RsaSecurityKey(rsa.ExportParameters(false));
             authentication.AddJwtBearer(options =>
             {
@@ -101,8 +82,37 @@ public static class DocumentAuthentication
                 };
             });
         }
+
         builder.Services.AddAuthorization(options => options.FallbackPolicy = new AuthorizationPolicyBuilder()
             .RequireAuthenticatedUser().Build());
+    }
+
+    private static void RestrictToLoopback(WebApplicationBuilder builder)
+    {
+        var urls = builder.Configuration["urls"]?.Split(';', StringSplitOptions.RemoveEmptyEntries);
+        if (urls is not { Length: > 0 } || builder.Configuration.GetSection("Kestrel:Endpoints").GetChildren().Any())
+            throw new InvalidOperationException("Local and test authentication require explicit loopback URLs.");
+        var addresses = urls.Select(url =>
+        {
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var address) ||
+                address.Scheme is not ("http" or "https") ||
+                !(address.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                  (IPAddress.TryParse(address.Host.Trim('[', ']'), out var ip) && IPAddress.IsLoopback(ip))))
+                throw new InvalidOperationException("Local and test authentication permit only loopback listen addresses.");
+            return address;
+        }).ToArray();
+        builder.WebHost.ConfigureKestrel(options =>
+        {
+            foreach (var address in addresses)
+            {
+                var ip = address.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                    ? IPAddress.Loopback : IPAddress.Parse(address.Host.Trim('[', ']'));
+                options.Listen(ip, address.Port, listen =>
+                {
+                    if (address.Scheme == "https") listen.UseHttps();
+                });
+            }
+        });
     }
 
     public static DocumentActor GetDocumentActor(this ClaimsPrincipal principal)
