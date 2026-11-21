@@ -20,7 +20,7 @@ public sealed class ServerAuthenticationTests
     private const string LocalToken = "figvam-local-development-bearer-token";
 
     [Fact]
-    public async Task ProductionRequiresVerifiedBearerAndUsesOnlyItsSubject()
+    public async Task IsolatedTestIdentityRequiresVerifiedBearerAndUsesOnlyItsSubject()
     {
         using var key = RSA.Create(2048);
         await using var server = new ServerProcess(Production(key));
@@ -101,7 +101,7 @@ public sealed class ServerAuthenticationTests
     [InlineData("Authentication__Audience", "")]
     [InlineData("Authentication__SigningPublicKeyPem", "")]
     [InlineData("Authentication__SigningPublicKeyPem", "invalid")]
-    public async Task ProductionRefusesIncompleteTrust(string setting, string value)
+    public async Task TestIdentityRefusesIncompleteTrust(string setting, string value)
     {
         using var key = RSA.Create(2048);
         var configuration = Production(key);
@@ -123,6 +123,19 @@ public sealed class ServerAuthenticationTests
         var configuration = Local();
         configuration["Authentication__LocalDevelopment__Token"] = "";
         await using var server = new ServerProcess(configuration);
+        await server.AssertStartupFailureAsync();
+    }
+
+    [Theory]
+    [InlineData("Test")]
+    [InlineData("Local")]
+    [InlineData("Jwt")]
+    public async Task ProductionRejectsAllNonGoogleModes(string mode)
+    {
+        var settings = Local();
+        settings["ASPNETCORE_ENVIRONMENT"] = "Production";
+        settings["Authentication__Mode"] = mode;
+        await using var server = new ServerProcess(settings);
         await server.AssertStartupFailureAsync();
     }
 
