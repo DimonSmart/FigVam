@@ -57,7 +57,7 @@ test('expired authentication clears the session', async ({ page }) => {
   await page.route('**/api/v1/documents/import/**', route => route.fulfill({ status: 401 }), { times: 1 });
   await submit(page);
   await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();
-  await expect(page.locator('#error')).toContainText('Токен');
+  await expect(page.locator('#error')).toContainText('Сессия завершена. Войдите повторно.');
 });
 
 test('uncertain result warns before retry', async ({ page }) => {
