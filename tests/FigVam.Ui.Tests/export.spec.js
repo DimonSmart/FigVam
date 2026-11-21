@@ -69,5 +69,5 @@ test('expired export token clears the session', async ({ page, request }) => {
   await page.route('**/document.json?*', route => route.fulfill({ status: 401 }), { times: 1 });
   await page.locator('#export-json').click();
   await expect(page.locator('#authentication')).toBeVisible();
-  await expect(page.locator('#error')).toContainText('Токен');
+  await expect(page.locator('#error')).toContainText('Сессия завершена. Войдите повторно.');
 });
