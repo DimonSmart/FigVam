@@ -19,6 +19,8 @@ public static class EditorEndpoints
         MapFile("/", "index.html", "text/html; charset=utf-8");
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
+        MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
+        MapFile("/user-admin.js", "user-admin.js", "text/javascript; charset=utf-8");
         MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
         MapFile("/canvas-viewport.js", "canvas-viewport.js", "text/javascript; charset=utf-8");
         MapFile("/components.js", "components.js", "text/javascript; charset=utf-8");
