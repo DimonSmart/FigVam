@@ -115,7 +115,8 @@ public sealed class FigVamUserStore
         if (string.IsNullOrWhiteSpace(value) || value.Length > 256) return null;
         using var db = Open();
         using var cmd = Sql(db, null,
-            "SELECT id FROM users WHERE (id=$value OR email=$value COLLATE NOCASE) AND google_sub IS NOT NULL",
+            "SELECT id FROM users WHERE (id=$value OR email=$value COLLATE NOCASE) AND google_sub IS NOT NULL" +
+                (includeDisabled ? "" : " AND enabled=1"),
             ("$value", value.Trim()));
         return cmd.ExecuteScalar() as string;
     }
