@@ -78,3 +78,10 @@ p { line-height: 1.6; }
 
 #presence-markers { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .presence-marker { position: absolute; padding: 2px 5px; background: white; border: 2px solid; color: #172033; font-size: 12px; white-space: nowrap; }
+
+#google-login { display: inline-block; padding: .75rem 1.2rem; border-radius: 6px; background: #214da6; color: white; text-decoration: none; font-weight: 600; }
+#authentication-error { color: #a01e2c; }
+#user-admin { margin: 2rem 0; border-top: 1px solid #ccd3df; padding-top: 1rem; }
+#user-admin-list { list-style: none; padding: 0; }
+#user-admin-list li { display: flex; gap: 1rem; flex-wrap: wrap; padding: .6rem 0; border-bottom: 1px solid #ccd3df; }
+#user-admin-list input { min-width: auto; }
