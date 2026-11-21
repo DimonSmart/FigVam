@@ -53,6 +53,9 @@ public sealed class GoogleUserStoreTests
         var admin = store.AcceptVerifiedGoogleIdentity("admin", "admin@example.com", null, "admin@example.com")!.Value;
         Assert.Throws<InvalidOperationException>(() => store.Update(admin.User.Id, false, false));
         Assert.Throws<InvalidOperationException>(() => store.Update(admin.User.Id, true, false));
+        var pendingAdmin = store.Invite("future-admin@example.com");
+        Assert.True(store.Update(pendingAdmin.Id, true, true));
+        Assert.Throws<InvalidOperationException>(() => store.Update(admin.User.Id, false, false));
         var user = store.Invite("user@example.com");
         var login = store.AcceptVerifiedGoogleIdentity("user-sub", "user@example.com", null, "admin@example.com")!.Value;
         Assert.True(store.IsActiveSession(login.User.Id, login.SessionId));
