@@ -69,7 +69,7 @@ public sealed class FigVamUserStore
     public IReadOnlyList<FigVamUser> List(bool enabledOnly = false)
     {
         using var db = Open();
-        using var cmd = Sql(db, null, Fields + (enabledOnly ? " WHERE enabled=1 AND google_sub IS NOT NULL" : "") + " ORDER BY email LIMIT 500");
+        using var cmd = Sql(db, null, Fields + (enabledOnly ? " WHERE enabled=1 AND google_sub IS NOT NULL" : "") + " ORDER BY email ");
         using var reader = cmd.ExecuteReader();
         var users = new List<FigVamUser>();
         while (reader.Read()) users.Add(Read(reader));
@@ -110,7 +110,7 @@ public sealed class FigVamUserStore
         return true;
     }
 
-    public string? ResolveMember(string value)
+    public string? ResolveMember(string value, bool includeDisabled = false)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length > 256) return null;
         using var db = Open();
