@@ -79,26 +79,11 @@ dotnet run --project src/FigVam.Server --no-launch-profile --urls http://127.0.0
 
 Стандартный браузерный режим — **Google Sign-In** с защищённой cookie-сессией и локальным списком разрешённых пользователей. Настройка Google Cloud, Bootstrap Admin, локального HTTPS, Aspire и Production описана в [инструкции Google Sign-In](docs/google-auth.md).
 
-Для автоматизированных API-клиентов доступен изолированный режим `Authentication:Mode=Jwt`, использующий подписанные JWT bearer-токены. Перед его запуском настройте параметры доверия (переменные окружения либо одноимённые ключи конфигурации с `:` вместо `__`):
-
-```powershell
-$env:ASPNETCORE_ENVIRONMENT = 'Production'
-$env:Authentication__Mode = 'Jwt'
-$env:Authentication__LocalDevelopment__Enabled = 'false'
-$env:Authentication__Issuer = 'https://identity.example.com/'
-$env:Authentication__Audience = 'figvam'
-$env:Authentication__SigningPublicKeyPem = Get-Content -Raw 'C:\config\identity-public.pem'
-$env:Storage__Directory = 'C:\figvam-data\documents'
-dotnet run --project src/FigVam.Server --no-launch-profile --urls http://127.0.0.1:8080
-```
-
-`Issuer` должен точно совпадать с `iss` токена и быть HTTPS URI. `Audience` проверяет `aud`. PEM содержит только открытый RSA-ключ (не менее 2048 бит); сервер принимает RS256, проверяет подпись, срок действия (обязательный `exp`, допустимое расхождение часов 30 секунд) и единственный непустой `sub`. Ключ закреплён в конфигурации; при смене ключа identity provider нужно обновить PEM и перезапустить сервер. Автоматическое обнаружение ключей не используется. Production публикуйте через HTTPS; при TLS termination этот loopback HTTP listener доступен только доверенному reverse proxy. Неполная/небезопасная конфигурация останавливает сервер с ненулевым exit code до открытия listener.
-
-Клиент передаёт `Authorization: Bearer <access-token>`. `GET /api/identity` возвращает `{ "id": "<sub>" }`; HTTP-операции и подписки могут получать `DocumentActor` через `ClaimsPrincipal.GetDocumentActor()`. Идентичность не берётся из payload, query string, cookie или клиентского actor-заголовка. Новые endpoints по умолчанию требуют аутентификацию; только `/alive` и `/health` явно анонимны. Права на документ проверяются отдельно прикладными сервисами. В этом JWT-режиме cookie-аутентификация отключена; Google-режим вместо этого валидирует cookies и CSRF при изменениях API.
+В Production поддерживается только Google Sign-In. Серверный OAuth подтверждает Google-пользователя, FigVam сверяет его с собственным списком доступа и создаёт HttpOnly/Secure cookie-сессию. Вся запись в API из браузера дополнительно требует CSRF-токен. Внешний Bearer/JWT API намеренно не поддерживается — его не требуется сохранять ради обратной совместимости.
 
 Для работы без внешнего identity provider локальный режим нужно явно включить через `Authentication:Mode=Local` и `Authentication:LocalDevelopment:Enabled=true` в окружении `Development` и задать `Authentication:LocalDevelopment:Token` (минимум 32 UTF-8 байта). Он разрешает только явно заданные loopback URL (`localhost`, `127.0.0.1`, `::1`), отвергает `Kestrel:Endpoints` и принудительно создаёт только loopback-сокеты. Wildcard/external URL и Production с локальным режимом завершают запуск ошибкой. Не публикуйте локальный режим через reverse proxy или туннель. Локальный bearer-токен даёт фиксированного актора `local-developer`; произвольный клиентский actorId не принимается.
 
-HTTP launch profile явно включает этот локальный режим с общеизвестным токеном `figvam-local-development-bearer-token`; HTTPS launch profile использует Google. Эти настройки не входят в опубликованный appsettings. В headless CI режим и токен задаются явно, как в примере выше, либо используется Production с тестовым RSA-ключом. Интеграционные тесты создают свой ключ и подписанные токены, проверяют 401 для недействительных идентичностей, отказы конфигурации и запуск headless Production.
+HTTP launch profile явно включает этот локальный режим с общеизвестным токеном `figvam-local-development-bearer-token`; HTTPS launch profile использует Google. Эти настройки не входят в опубликованный appsettings. В headless CI режим и токен задаются явно, как в примере выше, либо изолированный Testing с тестовым RSA-ключом. Интеграционные тесты создают свой ключ и подписанные токены, проверяют 401 для недействительных идентичностей, отказы конфигурации и запрет запуска небезопасной аутентификации в Production.
 
 ## HTTP API доступа к документам v1
 
