@@ -15,7 +15,7 @@ internal static class ServerTestIdentity
     private const string Audience = "figvam";
     internal static Dictionary<string, string> Production(RSA key) => new()
     {
-        ["ASPNETCORE_ENVIRONMENT"] = "Production", ["Authentication__Issuer"] = Issuer,
+        ["ASPNETCORE_ENVIRONMENT"] = "Production", ["Authentication__Mode"] = "Jwt", ["Authentication__Issuer"] = Issuer,
         ["Authentication__Audience"] = Audience, ["Authentication__SigningPublicKeyPem"] = key.ExportSubjectPublicKeyInfoPem()
     };
 
