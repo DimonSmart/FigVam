@@ -95,7 +95,7 @@ test('shows loading, request errors, retry, forbidden and expired-token states',
   await expect(page.locator('#editor-view')).toBeHidden();
   await page.getByRole('button', { name: 'Забыть токен' }).click();
   await login(page, 'invalid-token');
-  await expect(page.locator('#error')).toContainText('Токен отсутствует');
+  await expect(page.locator('#error')).toContainText('Сессия завершена. Войдите повторно.');
   await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();
   await login(page);
   await expect(page.locator('#error')).toContainText('Нет доступа');
