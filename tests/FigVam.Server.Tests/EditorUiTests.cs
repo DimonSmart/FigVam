@@ -20,7 +20,7 @@ public sealed class EditorUiTests
         {
             "/", $"/documents/{id}", "/editor.css", "/editor.js", "/api-client.js", "/canvas-viewport.js",
             "/components.js", "/datasets.js", "/document-collaboration.js", "/document-export.js", "/document-history.js", "/members.js", "/presence.js", "/layers.js", "/scenarios.js", "/screen-diagnostics.js", "/screen-resize.js", "/screen-variants.js",
-            "/tokens.js", "/session.js"
+            "/tokens.js", "/session.js", "/auth-client.js", "/user-admin.js"
         })
         {
             using var response = await client.GetAsync(route);
