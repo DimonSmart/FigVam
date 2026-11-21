@@ -9,10 +9,12 @@
 </head>
 <body>
   <a class="skip" href="#content">К содержимому</a>
-  <header class="brand"><a href="/" data-navigation>FigVam</a><span>Переносимые интерфейсы · начальная версия</span><button id="disconnect" hidden>Забыть токен</button></header>
+  <header class="brand"><a href="/" data-navigation>FigVam</a><span>Переносимые интерфейсы · начальная версия</span><button id="disconnect" hidden>Выйти</button></header>
   <section id="authentication" aria-labelledby="authentication-title">
     <h1 id="authentication-title">Открыть рабочее пространство</h1>
-    <p>Введите уже выданный bearer-токен. Он хранится только в памяти этой вкладки, очищается при выходе или перезагрузке и отправляется только API этого сервера. В production используйте HTTPS.</p>
+    <p id="authentication-help">Войдите с помощью Google. Доступ предоставляется администратором FigVam.</p>
+    <p id="authentication-error" role="alert"></p>
+    <a id="google-login" href="/api/auth/login" hidden>Войти через Google</a>
     <form id="authentication-form" autocomplete="off">
       <label for="token">Bearer-токен</label>
       <input id="token" type="password" required autocomplete="off" spellcheck="false" aria-describedby="token-help">
@@ -38,6 +40,14 @@
         <ul id="import-diagnostics" aria-label="Диагностика импорта"></ul>
       </form>
       <ul id="document-list" aria-label="Доступные документы"></ul>
+      <section id="user-admin" hidden aria-labelledby="user-admin-title">
+        <h2 id="user-admin-title">Пользователи FigVam</h2>
+        <form id="user-invite"><label for="user-email">Email приглашённого пользователя</label>
+        <input id="user-email" type="email" required maxlength="254" autocomplete="off">
+        <button type="submit">Добавить</button></form>
+        <p id="user-admin-status" role="status"></p>
+        <ul id="user-admin-list"></ul>
+      </section>
       <nav class="pagination" aria-label="Страницы списка"><button id="previous" disabled>Предыдущая</button><span id="page-number"></span><button id="next" disabled>Следующая</button></nav>
     </div>
     <div id="editor-view" hidden>
@@ -47,10 +57,10 @@
       </header>
       <section id="member-management" aria-labelledby="members-title" hidden>
         <h2 id="members-title">Управление участниками</h2>
-        <p>Укажите ID участника. Список участников недоступен.</p>
+        <p>Укажите разрешённого пользователя по email (либо его ID).</p>
         <form id="member-form">
           <label for="member-id">ID участника</label>
-          <input id="member-id" required maxlength="256" autocomplete="off">
+          <input id="member-id" list="member-options" required maxlength="256" autocomplete="off"><datalist id="member-options"></datalist>
           <label for="member-role">Роль участника</label>
           <select id="member-role"><option value="Owner">Owner</option><option value="Editor">Editor</option><option value="Viewer">Viewer</option></select>
           <button type="submit">Назначить роль</button>
