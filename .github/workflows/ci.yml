@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: figvam-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   server:
     runs-on: windows-latest
@@ -19,6 +23,11 @@ jobs:
           global-json-file: global.json
       - name: Restore dependencies
         run: dotnet restore FigVam.sln
+      - name: Report new Google lock metadata
+        run: |
+          $lock = Get-Content src/FigVam.Server/packages.lock.json -Raw | ConvertFrom-Json
+          $google = $lock.dependencies.'net10.0'.'Microsoft.AspNetCore.Authentication.Google'
+          Write-Output "GOOGLE_LOCK=$($google | ConvertTo-Json -Compress)"
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
       - name: Server tests
