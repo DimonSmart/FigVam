@@ -33,7 +33,7 @@ public sealed class GoogleUserStoreTests
         var admin = store.AcceptVerifiedGoogleIdentity("admin-sub", "admin@example.com", null, "admin@example.com")!.Value;
         var invited = store.Invite("Person@Example.com");
         Assert.False(invited.IsBound);
-        Assert.Null(store.ResolveMember("person@example.com"));
+        Assert.Equal(invited.Id, store.ResolveMember("person@example.com"));
         var first = store.AcceptVerifiedGoogleIdentity("person-sub", "person@example.com", "Person", "admin@example.com")!.Value;
         Assert.Equal(invited.Id, first.User.Id);
         Assert.False(first.User.IsAdmin);
