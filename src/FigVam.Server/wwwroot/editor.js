@@ -741,6 +741,7 @@ async function initializeAuthentication() {
     configureAuth(info.mode);
     if (!isGoogleMode()) {
       element('authentication-help').textContent = 'Для API-режима введите выданный Bearer-токен. Вход через Google настроен отдельно.';
+      element('disconnect').textContent = 'Забыть токен';
       element('authentication-form').hidden = false;
       return;
     }
