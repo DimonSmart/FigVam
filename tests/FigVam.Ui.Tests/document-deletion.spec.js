@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 
 async function openDocument(page) {
   await page.goto('/');
@@ -7,6 +8,7 @@ async function openDocument(page) {
   await page.getByLabel('Имя нового документа').fill('Deletion target');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await expect(page.getByRole('heading', { name: 'Deletion target' })).toBeVisible();
+  await show(page, 'document');
 }
 async function confirmDeletion(page) {
   page.once('dialog', dialog => dialog.accept());
