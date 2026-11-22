@@ -1,5 +1,7 @@
 // Presentation-only composition. Existing editor modules continue to own documents and commands.
-const byId = id => document.getElementById(id);
+// Keep references while sections move through temporarily detached panel fragments.
+const shellNodes = new Map();
+const byId = id => shellNodes.get(id) ?? document.getElementById(id);
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -89,6 +91,7 @@ function tabs(root, entries, label) {
 }
 
 export function createEditorShell() {
+  for (const node of document.querySelectorAll('[id]')) shellNodes.set(node.id, node);
   const design = byId('editor-design');
   const header = design.querySelector(':scope > .document-panel');
   const workspace = design.querySelector('.workspace');
