@@ -183,6 +183,8 @@ test('inspector displays geometry in two compact rows without rounding stored va
   await expect(rows.nth(1).locator('input').first()).toHaveAttribute('id', 'visual-property-width');
   await expect(rows.nth(1).locator('input').last()).toHaveAttribute('id', 'visual-property-height');
   const x = panel.getByLabel('X', { exact: true });
+  await x.evaluate(input => { input.dataset.geometryInstance = 'retained'; });
+  await rows.nth(0).evaluate(row => { row.dataset.geometryInstance = 'retained'; });
   await expect(x).toHaveValue('60.63');
   await expect(panel.getByLabel('Y', { exact: true })).toHaveValue('61.94');
   await expect(panel.getByLabel('Ширина', { exact: true })).toHaveValue('336.61');
@@ -197,6 +199,9 @@ test('inspector displays geometry in two compact rows without rounding stored va
   await expect(x).toHaveValue('70.13');
   await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  await expect(rows).toHaveCount(2);
+  await expect(x).toHaveAttribute('data-geometry-instance', 'retained');
+  await expect(rows.nth(0)).toHaveAttribute('data-geometry-instance', 'retained');
   const properties = (await readNodes(request, base, screenId))[0].properties;
   expect(properties.x).toEqual(number(70.13));
   expect(properties.y).toEqual(number(geometry.y));
