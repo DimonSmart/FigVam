@@ -120,7 +120,7 @@ async function expectLayout(page, selector, layout) {
 }
 
 test('the inspector saves a spacing alias and Preview uses each theme’s reference geometry', async ({ page, request }) => {
-  const { documentId, screen, stack, input, command, read } = await seed(request);
+  const { documentId, screen, frame, stack, input, command, read } = await seed(request);
   const tokenId = randomUUID(), aliasId = randomUUID();
   const spacing = value => ({ expression: 'literal', value: { type: 'spacing', value } });
   const alias = { expression: 'alias', tokenId };
@@ -131,7 +131,10 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await openScreen(page, documentId);
   const design = page.locator('#screen-boundary');
   await expect(design.locator(visual(input))).toHaveCSS('top', '33px');
-  await design.locator(`${visual(stack)} > .visual-surface`).click({ position: { x: 174, y: 113 } });
+  // Select the nested container through its layer tree: descendants may
+  // legitimately cover parts of the container's surface on the canvas.
+  await page.locator(`#layers [data-id="${frame}"] > .layer-label`).click();
+  await page.locator(`#layers [data-id="${stack}"] > .layer-label`).click();
   const inspector = page.locator('#visual-inspector');
   const source = inspector.getByLabel('Промежуток — источник', { exact: true });
   const token = inspector.getByLabel('Промежуток — токен', { exact: true });
