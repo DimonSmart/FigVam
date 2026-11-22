@@ -3,7 +3,7 @@ const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function open(page) {
  await page.goto('/'); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
- await page.getByLabel('Имя нового документа').fill('Data'); await page.getByRole('button', { name: 'Создать документ', exact: true }).click(); await expect(page.locator('#datasets-status')).toContainText('Датасетов пока нет');
+ await page.getByLabel('Имя нового документа').fill('Data'); await page.getByRole('button', { name: 'Создать документ', exact: true }).click(); await expect(page.locator('#datasets-status')).toContainText('Датасетов пока нет'); await show(page, 'assets');
 }
 test('creates, replaces and confirms deletion', async ({ page }) => {
  await open(page); await page.getByLabel('Имя датасета').fill('People'); await page.getByLabel('Содержимое нового снимка').fill('[{"name":"Ana"}]');
