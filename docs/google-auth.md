@@ -11,7 +11,7 @@ FigVam использует стандартный ASP.NET Core Google OAuth (Ad
 5. Добавьте **Authorized redirect URI**: `https://localhost:7146/signin-google`. Адрес должен совпадать символ в символ, включая схему, порт и путь.
 6. Сохраните **Client ID** и **Client Secret**. Не публикуйте секрет в репозитории или клиентском JavaScript. Для Production зарегистрируйте дополнительный redirect URI: `https://<your-domain>/signin-google`.
 
-Используются стандартные scope Google (профиль и email) и проверка `verified_email=true` из Google userinfo. Контактный email Google не используется как постоянный ID.
+Используются стандартные scope Google (профиль и email) и проверка `email_verified=true` из Google userinfo. Контактный email Google не используется как постоянный ID.
 
 ## 2. Первый администратор и секреты (локально)
 

@@ -1,0 +1,5 @@
+{
+  "appHost": {
+    "path": "src/FigVam.AppHost/FigVam.AppHost.csproj"
+  }
+}

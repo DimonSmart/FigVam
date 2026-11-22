@@ -82,21 +82,19 @@ public static class GoogleBrowserAuthentication
             {
                 // Google userinfo is fetched through the trusted provider, not from the browser.
                 var profile = context.User;
-                if (!profile.TryGetProperty("verified_email", out var verified) ||
+                if (!profile.TryGetProperty("email_verified", out var verified) ||
                     verified.ValueKind != System.Text.Json.JsonValueKind.True ||
-                    !profile.TryGetProperty("id", out var subject) ||
+                    !profile.TryGetProperty("sub", out var subject) ||
                     !profile.TryGetProperty("email", out var email))
                 {
-                    context.Fail("Google email verification is missing.");
-                    return Task.CompletedTask;
+                    throw new InvalidOperationException("Google email verification is missing.");
                 }
                 var accepted = store.AcceptVerifiedGoogleIdentity(subject.GetString() ?? "",
                     email.GetString() ?? "", profile.TryGetProperty("name", out var name) ? name.GetString() : null,
                     bootstrapEmail);
                 if (accepted is null)
                 {
-                    context.Fail("FigVam access has not been granted.");
-                    return Task.CompletedTask;
+                    throw new InvalidOperationException("FigVam access has not been granted.");
                 }
                 var identity = (ClaimsIdentity)context.Principal!.Identity!;
                 identity.AddClaim(new Claim("sub", accepted.Value.User.Id));
