@@ -321,7 +321,8 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await expect(tree.getByRole('treeitem')).toHaveCount(0);
   await expect(page.locator('#layers-status')).toHaveText('Выберите экран.');
   await page.locator('#pages > li > .page-select').first().click();
-  await page.locator('#screens button').first().click();
+  await expect(page.locator('#screens .screen-select')).toHaveCount(1);
+  await page.locator('#screens .screen-select').first().click();
   await expect(tree.getByRole('treeitem')).toHaveCount(101);
   mode = 'forbidden'; await page.getByRole('button', { name: 'Обновить страницы' }).click();
   await expect(page.locator('#editor-view')).toBeHidden();

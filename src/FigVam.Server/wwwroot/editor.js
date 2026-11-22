@@ -831,7 +831,10 @@ async function pageCommand(command, data, selection, screenSelection) {
     if (selection !== undefined) selectedPage = selection;
     if (screenSelection) selectedScreen = screenSelection;
     await readPages(signal);
-    if (current === generation) message('Изменения подтверждены в общем черновике.');
+    if (current === generation) {
+      if (command === 'rename-page') element('page-edit').querySelector('.page-options').open = false;
+      message('Изменения подтверждены в общем черновике.');
+    }
   } catch (error) {
     if (error.name === 'AbortError' || current !== generation) return;
     const uncertain = error instanceof TypeError || error.status >= 500;

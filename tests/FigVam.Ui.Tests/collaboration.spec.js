@@ -231,7 +231,7 @@ test('a late recovery cannot overwrite another document, logout or an access ref
   await expect(page.locator('#revision')).toHaveText('');
   await expect(page.locator('#document-title')).toHaveText('');
   await expect(page.locator('#layers [role=treeitem]')).toHaveCount(0);
-  await page.locator('#editor-signout').click();
+  await page.getByRole('button', { name: 'Забыть токен' }).click();
   await expect(page.locator('#authentication')).toBeVisible();
   await expect(page.locator('#revision')).toHaveText('');
 });
