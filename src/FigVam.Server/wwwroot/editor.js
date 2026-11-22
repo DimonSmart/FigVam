@@ -336,7 +336,8 @@ function renderScreens() {
   const list = element('screens'); list.replaceChildren();
   for (const [index, item] of screensItems.entries()) {
     const row = document.createElement('li'), button = document.createElement('button');
-    button.type = 'button'; button.textContent = `Экран ${screensOffset + index + 1} · ${item.dimensions.width} × ${item.dimensions.height}`;
+    button.type = 'button'; button.dataset.screenId = item.id;
+    button.textContent = `Экран ${screensOffset + index + 1} · ${item.dimensions.width} × ${item.dimensions.height}`;
     button.title = `Экран ${screensOffset + index + 1}`;
     button.setAttribute('aria-pressed', String(item.id === selectedScreen));
     button.addEventListener('click', () => { if (selectedScreen !== item.id) { layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset(); screenVariants.reset(); screenResize.render(); refreshPages(); } for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', String(other === button)); renderCanvas(); });
@@ -348,6 +349,7 @@ function renderScreens() {
   element('screens-number').textContent = selectedPage ? `Страница списка ${Math.floor(screensOffset / pageSize) + 1}` : 'Выберите страницу';
   element('screen-create').querySelectorAll('input, button').forEach(control => { control.disabled = !selectedPage; });
   const screenMenu = element('screen-preset').closest('details');
+  screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
   // An empty page offers screen creation immediately; existing screens keep the form tucked away.
   if (!selectedScreen && selectedPage && screensItems.length === 0 &&
       (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
