@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function open(page, id) {
   await page.goto(`/documents/${id}`);
@@ -18,14 +19,14 @@ async function select(page) { await page.locator('#screens button').first().clic
 test('version errors remain independent of resize errors', async ({ page, request }) => {
   const { id } = await setup(request); await open(page, id); await select(page);
   await page.getByLabel('Имя версии (необязательно)').fill('Исходная');
-  await page.getByRole('button', { name: 'Создать версию' }).click();
+  await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   const restore = page.getByRole('button', { name: /Восстановить версию Исходная/ });
   await expect(restore).toBeVisible();
   await page.getByLabel('Ширина выбранного экрана').fill('-1');
   await page.getByRole('button', { name: 'Изменить размер' }).click();
   await expect(page.locator('#screen-size-error')).toContainText('неотрицательные');
   await page.route('**/commands/save', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }), { times: 1 });
-  await page.getByRole('button', { name: 'Создать версию' }).click();
+  await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   await expect(page.locator('#version-error')).toContainText('Нет доступа');
   await page.route('**/commands/restore', route => route.fulfill({ status: 409, json: { code: 'REVISION_CONFLICT' } }), { times: 1 });
   page.once('dialog', dialog => dialog.accept()); await restore.click();
