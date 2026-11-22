@@ -21,7 +21,8 @@ test('editor shell gives the canvas first-screen priority and retains existing t
       viewport: rect('#viewport'), left: rect('.layers-sidebar'),
       right: rect('.properties-sidebar'), header: rect('.app-toolbar'),
       bodyScroll: document.documentElement.scrollHeight,
-      leftOverflow: getComputedStyle(document.querySelector('.layers-page')).overflowY,
+      leftOverflow: getComputedStyle(document.querySelector('.layers-master #pages')).overflowY,
+      detailOverflow: getComputedStyle(document.querySelector('.layers-detail .layer-tree-group')).overflowY,
       rightOverflow: getComputedStyle(document.querySelector('.inspector-page')).overflowY
     };
   });
@@ -33,6 +34,7 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   expect(geometry.right.width).toBeGreaterThanOrEqual(280);
   expect(geometry.bodyScroll).toBeLessThanOrEqual(902);
   expect(geometry.leftOverflow).toBe('auto');
+  expect(geometry.detailOverflow).toBe('auto');
   expect(geometry.rightOverflow).toBe('auto');
 
   await expect(page.getByRole('tab', { name: 'Слои' })).toHaveAttribute('aria-selected', 'true');
@@ -51,6 +53,7 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
   await page.locator('#screen-create button[type=submit]').click();
+  await expect(page.locator('#pages > li > #screens')).toHaveCount(1);
   await expect(page.locator('#screen-boundary')).toBeVisible();
   await expect(page.locator('#canvas-empty')).toBeHidden();
 
@@ -127,4 +130,38 @@ test('narrow editor keeps full page unscrolled and panels accessible', async ({ 
   await page.getByRole('button', { name: 'Показать или скрыть инспектор' }).click();
   await expect(page.locator('.properties-sidebar')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('editor-shell-mobile.png') });
+});
+
+test('navigation and selected-screen layers are separate, resizable and keyboard accessible', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openEditor(page);
+  await page.getByRole('button', { name: 'Создать страницу', exact: true }).click();
+  const pageNode = page.locator('#pages > li > .page-select');
+  await expect(pageNode).toHaveAttribute('aria-expanded', 'true');
+
+  await page.getByLabel('Ширина экрана').fill('800');
+  await page.getByLabel('Высота экрана').fill('600');
+  await page.locator('#screen-create button[type=submit]').click();
+  await expect(page.locator('#pages > li > #screens .screen-select')).toHaveCount(1);
+  await expect(page.locator('#layers')).toHaveAttribute('role', 'tree');
+
+  const splitter = page.getByRole('separator', { name: 'Изменить высоту навигации и дерева слоёв' });
+  const previous = Number(await splitter.getAttribute('aria-valuenow'));
+  await splitter.focus();
+  await page.keyboard.press('ArrowDown');
+  expect(Number(await splitter.getAttribute('aria-valuenow'))).toBe(previous + 5);
+  await page.keyboard.press('ArrowUp');
+  await expect(splitter).toHaveAttribute('aria-valuenow', String(previous));
+
+  await pageNode.click();
+  await expect(pageNode).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('#screens')).toBeHidden();
+  await pageNode.click();
+  await expect(page.locator('#screens')).toBeVisible();
+
+  const response = page.waitForResponse(res => res.url().endsWith('/commands/add-node'));
+  await page.getByRole('button', { name: 'Добавить контейнер' }).click();
+  expect((await response).ok()).toBeTruthy();
+  await expect(page.locator('#layers [aria-selected=true]')).toHaveCount(1);
+  await expect(page.locator('#pages > li > #screens .screen-select')).toHaveCount(1);
 });
