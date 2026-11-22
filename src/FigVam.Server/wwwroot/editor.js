@@ -495,7 +495,8 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   revision = catalogRevision = nextRevision;
   tokens.apply(tokenSnapshot);
   if (pagesChanged) renderPages();
-  if (screensChanged) renderScreens();
+  // A new page changes screen creation controls even if its screen list is empty.
+  if (screensChanged || pagesChanged) renderScreens();
   else renderCanvas();
   layers.applySnapshot(layerSnapshot, selection);
   const name = header.items[0].name;
