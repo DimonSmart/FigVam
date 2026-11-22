@@ -1,0 +1,330 @@
+// Presentation-only composition. Existing editor modules continue to own documents and commands.
+const byId = id => document.getElementById(id);
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text) node.textContent = text;
+  return node;
+}
+
+function group(title, ...nodes) {
+  const section = el('section', 'editor-group');
+  const heading = el('h3', 'editor-group-title', title);
+  section.append(heading, ...nodes);
+  return section;
+}
+
+function menu(label, className) {
+  const details = el('details', 'editor-menu ' + className);
+  const summary = el('summary', 'menu-trigger', label);
+  details.append(summary);
+  return details;
+}
+
+function icon(name) {
+  const paths = {
+    select: '<path d="m5 3 14 9-7 1-3 7z"/>',
+    Frame: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 8h16M8 4v16"/>',
+    Text: '<path d="M4 6V4h16v2M12 4v16M8 20h8"/>',
+    Button: '<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M9 12h6"/>',
+    TextInput: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 9v6M6 9h4M6 15h4M13 12h5"/>',
+    Image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 6-6 4 3 3-4 4 5"/>'
+  };
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('width', '18');
+  svg.setAttribute('height', '18');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.7');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = paths[name];
+  return svg;
+}
+
+function tabs(root, entries, label) {
+  const nav = el('div', 'editor-tabs');
+  nav.setAttribute('role', 'tablist');
+  nav.setAttribute('aria-label', label);
+  const stage = el('div', 'panel-stage');
+  for (const [key, name, panel] of entries) {
+    panel.classList.add('panel-page');
+    panel.id ||= 'shell-' + key;
+    const tab = el('button', 'editor-tab', name);
+    tab.type = 'button';
+    tab.id = 'tab-' + key;
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-controls', panel.id);
+    tab.addEventListener('click', () => select(key));
+    nav.append(tab);
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', tab.id);
+    stage.append(panel);
+  }
+  function select(key) {
+    for (const [id, , panel] of entries) {
+      const selected = id === key;
+      panel.hidden = !selected;
+      const tab = byId('tab-' + id);
+      tab.setAttribute('aria-selected', String(selected));
+      tab.tabIndex = selected ? 0 : -1;
+    }
+  }
+  nav.addEventListener('keydown', event => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    const active = entries.findIndex(([key]) => byId('tab-' + key) === document.activeElement);
+    if (active < 0) return;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1 :
+      (active + (event.key === 'ArrowRight' ? 1 : -1) + entries.length) % entries.length;
+    event.preventDefault();
+    select(entries[next][0]);
+    byId('tab-' + entries[next][0]).focus();
+  });
+  root.append(nav, stage);
+  select(entries[0][0]);
+  return { select };
+}
+
+export function createEditorShell() {
+  const design = byId('editor-design');
+  const header = design.querySelector(':scope > .document-panel');
+  const workspace = design.querySelector('.workspace');
+  const left = workspace.querySelector('aside:first-child');
+  const right = workspace.querySelector('aside:last-child');
+  const canvas = workspace.querySelector('.canvas');
+  design.classList.add('app-shell');
+  header.classList.add('app-toolbar');
+  left.classList.add('layers-sidebar');
+  right.classList.add('properties-sidebar');
+
+  // Move the existing controls rather than recreating them or their event handlers.
+  const docMenu = menu('Файл', 'document-menu');
+  const shareMenu = menu('Поделиться', 'share-menu');
+  const documentActions = el('div', 'menu-body');
+  docMenu.append(documentActions);
+  const exportSection = byId('export-title').closest('section');
+  const versionSection = byId('versions-title').closest('section');
+  const historySection = byId('undo').closest('section');
+  const rename = byId('document-rename');
+  const deletion = byId('delete-document');
+  const versionSave = byId('version-save');
+  const historyAccess = byId('history-access');
+  documentActions.append(group('Документ', rename, deletion), group('Экспорт', exportSection),
+    group('Версии', versionSave, versionSection),
+    group('История команд', historyAccess, byId('history-action-status'),
+      byId('history-action-error'), byId('history-action-retry')));
+  historySection.remove();
+
+  const shareActions = el('div', 'menu-body');
+  const presenceSection = byId('presence-title').closest('section');
+  const membersSection = byId('member-management');
+  shareActions.append(group('Совместная работа', membersSection, presenceSection));
+  shareMenu.append(shareActions);
+
+  const presence = byId('presence-list');
+  presence.classList.add('presence-chips');
+  presenceSection.insertAdjacentElement('afterbegin', el('p', 'visually-hidden', 'Настройки присутствия'));
+  const headerEnd = el('div', 'app-header-actions');
+  const leftToggle = el('button', 'icon-action sidebar-toggle', '☰');
+  leftToggle.type = 'button'; leftToggle.title = 'Показать или скрыть слои';
+  leftToggle.setAttribute('aria-label', 'Показать или скрыть слои');
+  const rightToggle = el('button', 'icon-action sidebar-toggle', '▤');
+  rightToggle.type = 'button'; rightToggle.title = 'Показать или скрыть инспектор';
+  rightToggle.setAttribute('aria-label', 'Показать или скрыть инспектор');
+  leftToggle.addEventListener('click', () => {
+    const closed = workspace.classList.toggle('left-collapsed');
+    leftToggle.setAttribute('aria-expanded', String(!closed));
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  });
+  rightToggle.addEventListener('click', () => {
+    const closed = workspace.classList.toggle('right-collapsed');
+    rightToggle.setAttribute('aria-expanded', String(!closed));
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  });
+  leftToggle.setAttribute('aria-expanded', 'true');
+  rightToggle.setAttribute('aria-expanded', 'true');
+  const undo = byId('undo'), redo = byId('redo'), preview = byId('open-preview');
+  for (const [button, label, sign] of [[undo, 'Отменить действие', '↶'], [redo, 'Повторить действие', '↷']]) {
+    button.textContent = sign;
+    button.title = label; button.setAttribute('aria-label', label); button.classList.add('icon-action');
+  }
+  const signOut = el('button', 'subtle-action', 'Выйти');
+  signOut.type = 'button';
+  signOut.addEventListener('click', () => byId('disconnect').click());
+  const mode = el('span', 'design-mode', 'Design');
+  const brand = el('span', 'editor-brand', 'FigVam');
+  header.insertBefore(brand, header.firstChild);
+  const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent.trim() === 'Design');
+  originalMode?.remove();
+  headerEnd.append(leftToggle, rightToggle, undo, redo, mode, preview,
+    presence, byId('connection-status'), shareMenu, docMenu, signOut);
+  header.append(headerEnd);
+
+  // Left: pages and the selected screen's hierarchy, with resources in separate tabs.
+  const pagesGroup = group('Страницы', byId('page-access'), byId('page-refresh'), byId('pages'),
+    byId('pages-number').closest('nav'), byId('page-edit'));
+  const pageEdit = byId('page-edit');
+  const pageOptions = menu('Действия страницы', 'inline-menu');
+  pageOptions.append(byId('page-rename'), byId('page-delete'));
+  pageEdit.append(pageOptions);
+  byId('page-create').textContent = '+ Страница';
+
+  const screensSection = byId('screens-title').closest('section');
+  const screenForm = byId('screen-create');
+  const screenOptions = menu('+ Экран', 'inline-menu screen-options');
+  const preset = document.createElement('select');
+  preset.id = 'screen-preset';
+  preset.setAttribute('aria-label', 'Типовой размер экрана');
+  for (const [value, label] of [['1440x900','Desktop · 1440 × 900'], ['390x844','Mobile · 390 × 844'],
+      ['768x1024','Tablet · 768 × 1024'], ['custom','Другой размер']]) preset.add(new Option(label, value));
+  preset.addEventListener('change', () => {
+    if (preset.value === 'custom') return;
+    const [width, height] = preset.value.split('x').map(Number);
+    byId('screen-width').value = width;
+    byId('screen-height').value = height;
+  });
+  byId('screen-width').value = '1440';
+  byId('screen-height').value = '900';
+  screenOptions.append(preset, screenForm);
+  screensSection.insertBefore(screenOptions, byId('screens'));
+  const layersSection = byId('layers-title').closest('section');
+  layersSection.classList.add('layer-tree-group');
+  const layersPage = el('div', 'layers-page');
+  layersPage.append(pagesGroup, screensSection, layersSection);
+
+  const componentsPage = el('div', 'components-page');
+  componentsPage.append(byId('components-title').closest('section'));
+  const resources = el('div', 'assets-page');
+  const assetPanel = group('Изображения', byId('asset-upload-form'), byId('asset-upload-status'),
+    byId('asset-upload-error'), byId('asset-upload-retry'));
+  resources.append(assetPanel, byId('datasets-title').closest('section'),
+    byId('tokens-title').closest('section'), byId('screen-variants-title').closest('section'));
+  left.replaceChildren();
+  tabs(left, [['layers', 'Слои', layersPage], ['components', 'Компоненты', componentsPage],
+    ['assets', 'Ресурсы', resources]], 'Разделы документа');
+
+  // Right: only the selection and applicable properties by default.
+  const inspectorPage = el('div', 'inspector-page');
+  const inspectorTitle = byId('inspector-title');
+  const selection = byId('inspector-selection');
+  const nodeDelete = byId('node-delete');
+  const metadata = byId('node-metadata');
+  const visualInspector = byId('visual-inspector');
+  const screenSize = byId('screen-size-title').closest('section');
+  inspectorPage.append(inspectorTitle, selection, nodeDelete, visualInspector, metadata, screenSize);
+  const prototypePage = el('div', 'prototype-page');
+  prototypePage.append(byId('scenarios-title').closest('section'));
+  const diagnosticsPage = el('div', 'diagnostics-page');
+  diagnosticsPage.append(byId('diagnostics-title').closest('section'));
+  right.replaceChildren();
+  tabs(right, [['design', 'Дизайн', inspectorPage], ['prototype', 'Prototype', prototypePage],
+    ['diagnostics', 'Проверка', diagnosticsPage]], 'Разделы инспектора');
+
+  // Creation toolbar submits the original profile-aware add-node form.
+  const drawing = el('div', 'drawing-toolbar');
+  const drawingLabel = el('span', 'drawing-label', 'Инструменты');
+  drawing.append(drawingLabel);
+  const selectTool = el('button', 'drawing-tool selected');
+  selectTool.type = 'button'; selectTool.title = 'Выбор и перемещение';
+  selectTool.setAttribute('aria-label', 'Выбор и перемещение');
+  selectTool.append(icon('select'));
+  selectTool.addEventListener('click', () => byId('viewport').focus());
+  drawing.append(selectTool);
+  const palette = byId('visual-palette');
+  const kindSelect = byId('visual-kind');
+  const parentSelect = byId('visual-parent');
+  const addForm = byId('visual-palette-form');
+  const detailed = menu('Параметры добавления', 'palette-options');
+  detailed.append(palette);
+  const toolNames = [['Frame', 'Контейнер'], ['Text', 'Текст'], ['Button', 'Кнопка'],
+    ['TextInput', 'Поле ввода'], ['Image', 'Изображение']];
+  const buttons = [];
+  function syncTools() {
+    const enabled = !palette.hidden && !addForm.hidden && !kindSelect.disabled;
+    for (const [kind, button] of buttons) {
+      button.disabled = !enabled || ![...kindSelect.options].some(option => option.value === kind);
+    }
+  }
+  for (const [kind, label] of toolNames) {
+    const button = el('button', 'drawing-tool');
+    button.type = 'button'; button.title = 'Добавить: ' + label;
+    button.setAttribute('aria-label', 'Добавить ' + label.toLowerCase());
+    button.append(icon(kind));
+    button.addEventListener('click', () => {
+      if (button.disabled) return;
+      kindSelect.value = kind;
+      kindSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      if (byId('visual-add').disabled && parentSelect.options.length) {
+        parentSelect.selectedIndex = 0;
+        parentSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      if (byId('visual-add').disabled) {
+        detailed.open = true;
+        byId('visual-required-properties').querySelector('input, select, textarea')?.focus();
+      } else addForm.requestSubmit();
+    });
+    buttons.push([kind, button]);
+    drawing.append(button);
+  }
+  drawing.append(detailed);
+  const observer = new MutationObserver(syncTools);
+  observer.observe(palette, { attributes: true, attributeFilter: ['hidden'] });
+  observer.observe(addForm, { attributes: true, attributeFilter: ['hidden'] });
+  observer.observe(kindSelect, { childList: true, attributes: true, attributeFilter: ['disabled'] });
+  syncTools();
+
+  const canvasTitle = byId('canvas-title');
+  canvasTitle.classList.add('visually-hidden');
+  const viewportControls = canvas.querySelector('.viewport-controls');
+  canvas.insertBefore(drawing, canvas.firstChild);
+  canvas.append(viewportControls);
+  canvas.classList.add('design-canvas');
+  const canvasHelp = byId('canvas-help');
+  canvasHelp.classList.add('visually-hidden');
+  const blank = el('div', 'canvas-blank');
+  blank.id = 'canvas-empty';
+  const blankTitle = el('h2', '', 'Нет выбранного экрана');
+  const blankText = el('p', '', 'Выберите экран слева или создайте новый, чтобы начать работу.');
+  const blankAction = el('button', 'primary-action', 'Создать экран');
+  blankAction.type = 'button';
+  blankAction.addEventListener('click', () => {
+    if (!byId('page-edit').hidden && !byId('pages').querySelector('[aria-pressed=true]')) {
+      byId('page-create').click();
+      return;
+    }
+    const container = byId('screen-create').closest('details');
+    if (!container || byId('screen-create').hidden) return;
+    byId('tab-layers').click();
+    workspace.classList.remove('left-collapsed');
+    leftToggle.setAttribute('aria-expanded', 'true');
+    container.open = true;
+    byId('screen-width').focus();
+  });
+  blank.append(blankTitle, blankText, blankAction);
+  canvas.insertBefore(blank, byId('viewport'));
+  const zoom = byId('zoom-level');
+  zoom.title = 'Текущий масштаб';
+  byId('zoom-out').title = 'Уменьшить';
+  byId('zoom-in').title = 'Увеличить';
+  byId('fit-screen').title = 'Вместить экран в холст';
+  byId('canvas-selection').classList.add('canvas-caption');
+
+  // Menus are temporary views. Their controls keep their draft values when closed.
+  document.addEventListener('click', event => {
+    const clickedMenu = event.target.closest('details.editor-menu');
+    for (const details of document.querySelectorAll('details.editor-menu[open]')) {
+      if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const opened = [...document.querySelectorAll('details.editor-menu[open]')];
+    if (!opened.length) return;
+    opened[opened.length - 1].open = false;
+    opened[opened.length - 1].querySelector('summary')?.focus();
+    event.preventDefault();
+  });
+}
