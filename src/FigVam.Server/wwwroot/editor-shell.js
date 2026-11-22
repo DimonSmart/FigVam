@@ -189,14 +189,24 @@ export function createEditorShell() {
   preset.setAttribute('aria-label', 'Типовой размер экрана');
   for (const [value, label] of [['1440x900','Desktop · 1440 × 900'], ['390x844','Mobile · 390 × 844'],
       ['768x1024','Tablet · 768 × 1024'], ['custom','Другой размер']]) preset.add(new Option(label, value));
+  const screenWidth = byId('screen-width'), screenHeight = byId('screen-height');
+  const initialPreset = preset.options[0].value;
+  const [defaultWidth, defaultHeight] = initialPreset.split('x');
+  screenWidth.defaultValue = screenWidth.value = defaultWidth;
+  screenHeight.defaultValue = screenHeight.value = defaultHeight;
   preset.addEventListener('change', () => {
     if (preset.value === 'custom') return;
-    const [width, height] = preset.value.split('x').map(Number);
-    byId('screen-width').value = width;
-    byId('screen-height').value = height;
+    const [width, height] = preset.value.split('x');
+    screenWidth.value = width;
+    screenHeight.value = height;
   });
-  byId('screen-width').value = '1440';
-  byId('screen-height').value = '900';
+  const syncPreset = () => {
+    const dimensions = `${screenWidth.value}x${screenHeight.value}`;
+    preset.value = [...preset.options].some(option => option.value === dimensions) ? dimensions : 'custom';
+  };
+  screenWidth.addEventListener('input', syncPreset);
+  screenHeight.addEventListener('input', syncPreset);
+  screenForm.addEventListener('reset', () => { preset.value = initialPreset; });
   screenOptions.append(preset, screenForm);
   screensSection.insertBefore(screenOptions, byId('screens'));
   const layersSection = byId('layers-title').closest('section');
