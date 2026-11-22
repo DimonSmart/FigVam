@@ -152,7 +152,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   flex: 0 0 auto; margin: 2px 0 8px;
 }
 .app-shell .layers-detail h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-shell .layers-detail > .editor-group { overflow-y: auto; scrollbar-gutter: stable; }
+.app-shell .layers-detail > .layer-tree-group { overflow-y: auto; scrollbar-gutter: stable; }
 .app-shell .layers-master #pages {
   min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
   scrollbar-gutter: stable; padding: 0 2px 4px 0;
