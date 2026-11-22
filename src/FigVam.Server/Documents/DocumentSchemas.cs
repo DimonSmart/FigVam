@@ -100,6 +100,8 @@ public static class DocumentSchemas
         [nameof(FigVam.Application.Documents.ComponentUsagesResponse)] = typeof(FigVam.Application.Documents.ComponentUsagesResponse),
         [nameof(QueryOptions)] = typeof(QueryOptions),
         [nameof(SetNodePropertyRequest)] = typeof(SetNodePropertyRequest),
+        [nameof(SetNodePropertiesRequest)] = typeof(SetNodePropertiesRequest),
+        [nameof(UpgradePortableUiProfileRequest)] = typeof(UpgradePortableUiProfileRequest),
         [nameof(SaveDocumentRequest)] = typeof(SaveDocumentRequest),
         [nameof(RestoreDocumentRequest)] = typeof(RestoreDocumentRequest),
         [nameof(HistoryCommandRequest)] = typeof(HistoryCommandRequest),
@@ -119,7 +121,9 @@ public static class DocumentSchemas
         [nameof(FigVam.Application.Documents.StructureDiagnostic)] = typeof(FigVam.Application.Documents.StructureDiagnostic),
         [nameof(FigVam.Application.Documents.StructureDiagnosticsResponse)] = typeof(FigVam.Application.Documents.StructureDiagnosticsResponse),
         [nameof(FigVam.Application.Documents.StructureItem)] = typeof(FigVam.Application.Documents.StructureItem),
-        [nameof(FigVam.Application.Documents.StructureResponse)] = typeof(FigVam.Application.Documents.StructureResponse)
+        [nameof(FigVam.Application.Documents.DocumentProfileResponse)] = typeof(FigVam.Application.Documents.DocumentProfileResponse),
+        [nameof(FigVam.Application.Documents.StructureResponse)] = typeof(FigVam.Application.Documents.StructureResponse),
+        [nameof(FigVam.Application.Documents.ScreenLayoutResponse)] = typeof(FigVam.Application.Documents.ScreenLayoutResponse)
     };
 
     public static JsonNode CreateDocumentFormat() => FigVam.Application.Documents.DocumentFormatSchemas.CreateDocumentFormat();

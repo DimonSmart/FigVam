@@ -30,8 +30,8 @@ public sealed class ReconnectApiTests
         var root = $"/api/v1/documents/{id}";
         Assert.Equal  (201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = id })).StatusCode);
         Assert.Equal(200, (int)(await client.PutAsJsonAsync(root + "/members", new { memberId = "viewer", role = "Viewer" })).StatusCode);
-        var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-        var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+        var journal = new SqliteDocumentJournal(directory, new VisualNodeProfile());
+        var handler = new DocumentCommandHandler(journal, journal, new VisualNodeProfile());
         for (int i = 0; i < 101; i++)
             Assert.True((await handler.HandleAsync(new SaveDocumentCommand(id, Guid.NewGuid()), new DocumentActor("owner"))).Accepted);
         Actor("viewer");

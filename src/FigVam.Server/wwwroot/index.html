@@ -51,7 +51,8 @@
       <nav class="pagination" aria-label="Страницы списка"><button id="previous" disabled>Предыдущая</button><span id="page-number"></span><button id="next" disabled>Следующая</button></nav>
     </div>
     <div id="editor-view" hidden>
-      <header class="document-panel" aria-label="Панель документа"><a href="/" data-navigation>← Документы</a><h1 id="document-title"></h1><span id="revision"></span><span>Design · каркас редактора</span>
+      <div id="editor-design">
+      <header class="document-panel" aria-label="Панель документа"><a href="/" data-navigation>← Документы</a><h1 id="document-title"></h1><span id="revision"></span><span>Design</span><button id="open-preview" type="button" disabled>Preview</button>
         <form id="document-rename" hidden><label for="rename-document-name">Имя документа</label><input id="rename-document-name" required maxlength="256" autocomplete="off"><button type="submit">Переименовать документ</button><p id="document-rename-status" role="status" aria-live="polite"></p><p id="document-rename-error" role="alert"></p></form>
         <button id="delete-document" type="button" hidden>Удалить документ</button>
       </header>
@@ -110,7 +111,6 @@
         <p id="restore-error" role="alert"></p>
         <button id="restore-retry" type="button" hidden>Повторить восстановление</button>
       </section>
-      <p class="notice">Управление страницами и экранами доступно ниже. Редактирование содержимого экранов и Preview пока недоступны. Экспорт документа доступен выше. Поддержка целевых платформ здесь не заявлена.</p>
       <div class="workspace">
         <aside aria-labelledby="tree-title"><h2 id="tree-title">Страницы и слои</h2>
           <p id="page-access"></p><button id="page-refresh" type="button">Обновить страницы</button>
@@ -125,13 +125,31 @@
             <form id="screen-create" hidden><label for="screen-width">Ширина экрана</label><input id="screen-width" type="number" min="0" step="any" required><label for="screen-height">Высота экрана</label><input id="screen-height" type="number" min="0" step="any" required><button type="submit">Создать экран</button></form>
           </section>
           <section aria-labelledby="screen-variants-title"><h2 id="screen-variants-title">Варианты выбранного экрана</h2>
-            <p>Базовое состояние и сохранённые варианты. Отображение вариантов на холсте и в Preview пока недоступно.</p>
             <p id="screen-variants-status" role="status" aria-live="polite">Выберите экран.</p><p id="screen-variants-error" role="alert"></p>
             <button id="screen-variants-retry" type="button" hidden>Повторить загрузку вариантов</button>
             <ul id="screen-variants-list" aria-label="Варианты экрана"></ul>
             <nav class="pagination" aria-label="Навигация по вариантам экрана"><button id="screen-variants-previous" type="button">Предыдущие варианты</button><span id="screen-variants-number"></span><button id="screen-variants-next" type="button">Следующие варианты</button></nav>
             <form id="screen-variant-create" hidden><label for="screen-variant-name">Имя нового варианта</label><input id="screen-variant-name" maxlength="256" required><button type="submit">Создать пустой вариант</button></form>
             <button id="screen-variant-command-retry" type="button" hidden>Повторить создание варианта</button>
+          </section>
+          <section id="visual-palette" aria-labelledby="visual-palette-title" hidden>
+            <h2 id="visual-palette-title">Добавить элемент</h2>
+            <form id="asset-upload-form">
+              <label>Изображение PNG <input id="asset-upload-file" type="file" accept="image/png" required></label>
+              <button id="asset-upload" type="submit">Загрузить изображение</button>
+            </form>
+            <p>PNG до 5 МиБ; сервер проверяет формат и размеры изображения.</p>
+            <p id="asset-upload-status" role="status"></p><p id="asset-upload-error" role="alert"></p>
+            <button id="asset-upload-retry" type="button" hidden>Повторить загрузку изображения</button>
+            <form id="visual-palette-form" novalidate hidden>
+              <label>Вид элемента <select id="visual-kind"></select></label>
+              <label>Куда добавить <select id="visual-parent"></select></label>
+              <div id="visual-required-properties"></div>
+              <button id="visual-add" type="submit">Добавить элемент</button>
+            </form>
+            <p id="visual-palette-status" role="status"></p><p id="visual-palette-error" role="alert"></p>
+            <button id="visual-palette-retry" type="button" hidden>Повторить загрузку палитры</button>
+            <button id="visual-add-retry" type="button" hidden>Повторить добавление</button>
           </section>
           <section aria-labelledby="components-title"><h2 id="components-title">Каталог компонентов</h2>
             <form id="components-search"><label for="components-query">Поиск компонентов</label><input id="components-query" maxlength="256"><button type="submit">Найти компоненты</button></form>
@@ -189,10 +207,26 @@
             <button id="zoom-out" type="button">Уменьшить</button><output id="zoom-level" aria-label="Масштаб">100%</output><button id="zoom-in" type="button">Увеличить</button>
             <button id="fit-screen" type="button">Вместить экран</button><button id="actual-size" type="button">100%</button>
           </div>
-          <p id="canvas-help">Перетащите холст указателем или используйте стрелки для панорамирования. Колесо мыши меняет масштаб.</p>
+          <p id="canvas-help">Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб.</p>
+          <p id="design-render-status" role="status"></p><button id="design-render-retry" type="button" hidden>Повторить загрузку экрана</button>
+          <ul id="design-render-diagnostics" aria-label="Диагностика отображения"></ul>
           <div id="viewport" tabindex="0" role="region" aria-label="Область холста" aria-describedby="canvas-help"><div id="screen-boundary" hidden></div><div id="presence-markers" aria-hidden="true"></div></div>
+          <p id="canvas-edit-hint" role="status"></p>
+          <p id="canvas-edit-status" role="status"></p><p id="canvas-edit-error" role="alert"></p>
+          <button id="canvas-edit-retry" type="button" hidden>Повторить неподтверждённую команду</button>
         </section>
         <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><button id="node-delete" type="button" hidden>Удалить слой</button><div id="node-metadata" hidden><p id="node-metadata-status" role="status"></p><p id="node-metadata-error" role="alert"></p><form id="node-name-form"><label>Имя слоя <input id="node-name" maxlength="256"></label><button type="submit">Сохранить имя</button></form><form id="node-key-form"><label>Semantic key <input id="node-key" maxlength="256" aria-describedby="node-key-help"></label><p id="node-key-help">Пустое значение удаляет semantic key.</p><button type="submit">Сохранить semantic key</button></form><button id="node-metadata-retry" type="button" hidden>Повторить неподтверждённую команду</button></div>
+          <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
+            <h3 id="visual-inspector-title">Свойства элемента</h3>
+            <form id="visual-properties-form" novalidate hidden>
+              <div id="visual-properties"></div>
+              <button id="visual-save" type="submit">Сохранить свойства</button>
+              <button id="visual-properties-reset" type="button" hidden>Сбросить изменения свойств</button>
+            </form>
+            <p id="visual-inspector-status" role="status"></p><p id="visual-inspector-error" role="alert"></p>
+            <button id="visual-save-retry" type="button" hidden>Повторить сохранение свойств</button>
+            <button id="visual-data-retry" type="button" hidden>Повторить загрузку свойств</button>
+          </section>
           <section aria-labelledby="scenarios-title"><h2 id="scenarios-title">Сценарии прототипа</h2>
             <p>Только просмотр сохранённых сценариев выбранного экрана.</p>
             <p id="scenarios-status" role="status" aria-live="polite">Выберите экран.</p>
@@ -275,6 +309,20 @@
               <h4>Прямые использования</h4><ul id="token-usages" aria-label="Прямые использования токена"></ul></div>
           </section></aside>
       </div>
+      </div>
+      <section id="editor-preview" aria-labelledby="preview-title" hidden>
+        <header class="document-panel">
+          <h1 id="preview-title">Preview</h1>
+          <button id="close-preview" type="button">Вернуться в Design</button>
+          <button id="preview-back" type="button" disabled>Назад по сценарию</button>
+          <button id="preview-reset" type="button">Сбросить Preview</button>
+          <label for="preview-theme">Тема</label>
+          <select id="preview-theme"><option value="Light">Light</option><option value="Dark">Dark</option></select>
+        </header>
+        <p id="preview-render-status" role="status"></p><button id="preview-render-retry" type="button" hidden>Повторить загрузку Preview</button>
+        <ul id="preview-render-diagnostics" aria-label="Диагностика Preview"></ul>
+        <div id="preview-viewport" role="region" aria-label="Экран Preview"></div>
+      </section>
     </div>
   </main>
   <div class="feedback"><p id="status" role="status" aria-live="polite"></p><p id="error" role="alert"></p><button id="retry" hidden>Повторить запрос</button></div>

@@ -103,7 +103,7 @@ public sealed partial class ComponentParameterCommandTests
             await client.PutAsJsonAsync($"/api/v1/documents/{id}/members", new { memberId = "viewer", role = "Viewer" });
             client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "viewer"));
             Assert.Equal(403, (int)(await client.PostAsJsonAsync(route, payload)).StatusCode);
-            Assert.Equal(0, (await new SqliteDocumentJournal(directory, new UnverifiedNodeProfile()).ReadAsync(id))!.Revision);
+            Assert.Equal(0, (await new SqliteDocumentJournal(directory, new VisualNodeProfile()).ReadAsync(id))!.Revision);
         }
         finally { Directory.Delete(directory, true); }
     }

@@ -12,7 +12,7 @@ public static class DocumentServices
         if (string.IsNullOrWhiteSpace(directory))
             throw new InvalidOperationException("Storage:Directory is required.");
         var fullPath = Path.GetFullPath(directory, builder.Environment.ContentRootPath);
-        var profile = new UnverifiedNodeProfile();
+        var profile = new VisualNodeProfile();
         var journal = new SqliteDocumentJournal(fullPath, profile);
         builder.Services.AddSingleton<INodeProfile>(profile);
         builder.Services.AddSingleton(journal);
@@ -52,23 +52,3 @@ public static class DocumentServices
         builder.Services.AddSingleton<IDocumentCommandHandler, DocumentCommandHandler>();
     }
 }
-
-// No node or property has yet met the production profile verification contract.
-public sealed class UnverifiedNodeProfile : INodeProfile
-{
-    public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
-        public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
-        public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
-        public bool SupportsDemoValue(string kind) => false;
-    public bool IsKnownKind(string kind) => false;
-    public bool CanContainChildren(string kind) => false;
-    public NodePropertyDefinition? GetProperty(string kind, string property) => null;
-}
-
-
-
-
-
-
-
-

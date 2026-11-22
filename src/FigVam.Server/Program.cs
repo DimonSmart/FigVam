@@ -90,9 +90,14 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
 }));
 builder.Services.AddRateLimiter(options =>
 {
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
-        RateLimitPartition.GetFixedWindowLimiter(context.User.FindFirst("sub")?.Value ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-            _ => new FixedWindowRateLimiterOptions { PermitLimit = 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (string Identity, bool Authenticated, bool Read)>(context =>
+    {
+        var actor = context.User.FindFirst("sub")?.Value;
+        var read = actor is not null && (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method));
+        var identity = actor ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter((Identity: identity, Authenticated: actor is not null, Read: read),
+            key => new FixedWindowRateLimiterOptions { PermitLimit = key.Read ? 300 : 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
+    });
     options.RejectionStatusCode = 429;
 });
 var app = builder.Build();

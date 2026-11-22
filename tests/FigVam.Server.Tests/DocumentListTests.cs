@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using FigVam.Application.Documents;
+using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;

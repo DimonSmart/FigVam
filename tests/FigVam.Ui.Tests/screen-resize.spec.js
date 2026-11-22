@@ -82,22 +82,28 @@ test('keeps a refusal visible when an overlapping state refresh redraws the scre
   await page.route('**/pages/*/screens?*', async route => {
     const response = await route.fetch(); entered(); await gate; await route.fulfill({ response });
   });
-  const added = await request.post(`/api/v1/documents/${id}/commands/add-page`, {
-    headers: { Authorization: `Bearer ${bearer}` },
-    data: { commandId: randomUUID(), pageId: randomUUID() }
-  });
-  expect(added.ok()).toBeTruthy();
-  await held;
-  await page.route('**/commands/resize-screen', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }));
-  await page.getByLabel('Ширина выбранного экрана').fill('999');
-  await page.getByRole('button', { name: 'Изменить размер' }).click();
-  await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
-  release();
-  await expect(page.locator('#pages button')).toHaveCount(2);
-  await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
-  await expect(page.locator('#screen-size-saved')).toContainText('640 × 480');
-  await page.getByLabel('Ширина выбранного экрана').fill('700');
-  await expect(page.locator('#screen-size-error')).toBeEmpty();
+  try {
+    const added = await request.post(`/api/v1/documents/${id}/commands/add-page`, {
+      headers: { Authorization: `Bearer ${bearer}` },
+      data: { commandId: randomUUID(), pageId: randomUUID() }
+    });
+    expect(added.ok()).toBeTruthy();
+    await held;
+    await page.route('**/commands/resize-screen', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }));
+    await page.getByLabel('Ширина выбранного экрана').fill('999');
+    await page.getByRole('button', { name: 'Изменить размер' }).click();
+    await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+    await expect(page.locator('#pages button')).toHaveCount(2);
+    await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
+    await expect(page.locator('#screen-size-saved')).toContainText('640 × 480');
+    await page.getByLabel('Ширина выбранного экрана').fill('700');
+    await expect(page.locator('#screen-size-error')).toBeEmpty();
+  } finally {
+    release();
+    await page.unrouteAll({ behavior: 'wait' });
+  }
 });
 test('retains a local draft while a remote resize updates the confirmed size', async ({ page, context, request }) => {
   const { id } = await setup(request), second = await context.newPage();

@@ -1,0 +1,394 @@
+import { renderScreen } from './screen-renderer.js';
+
+export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
+  const boundary = element('screen-boundary');
+  const viewport = element('preview-viewport');
+  const openButton = element('open-preview');
+  const closeButton = element('close-preview');
+  const themeSelect = element('preview-theme');
+  const backButton = element('preview-back');
+  const design = { host: boundary, status: element('design-render-status'), diagnostics: element('design-render-diagnostics'),
+    retry: element('design-render-retry') };
+  const preview = { host: viewport, status: element('preview-render-status'), diagnostics: element('preview-render-diagnostics'),
+    retry: element('preview-render-retry') };
+  let context = null, contextKey = null, controller = null;
+  let isPreview = false, triggers = [], playback = null, playbackRequest = null, resizeTimer = null;
+  let activeScenarios = [];
+  const inputValues = new Map();
+  const screenNodes = new Map(), screenScenarios = new Map(), assetUrls = new Map();
+  let resources = null, loadedResources = null;
+
+  function cancelView(view) {
+    view.controller?.abort();
+    view.key = null;
+  }
+
+  function resetView(view) {
+    cancelView(view);
+    view.host.replaceChildren();
+    view.status.textContent = '';
+    view.diagnostics.replaceChildren();
+    view.retry.hidden = true;
+    if (view === design) design.model = null;
+  }
+
+  function showMode(next) {
+    isPreview = next;
+    element('editor-design').hidden = next;
+    element('editor-preview').hidden = !next;
+    onDesignChange();
+    if (!next) {
+      playbackRequest?.abort();
+      playbackRequest = null;
+      playback = null;
+      triggers = [];
+      inputValues.clear();
+      resetView(preview);
+    }
+  }
+
+  function syncSelection() {
+    const id = getContext().selection?.id;
+    design.selected?.removeAttribute('data-selected');
+    design.selected = id ? boundary.querySelector(`[data-visual-node="${CSS.escape(id)}"]`) : null;
+    if (design.selected) design.selected.dataset.selected = 'true';
+    onDesignChange();
+  }
+
+  function refresh(nodeEdit = false) {
+    const next = getContext();
+    const key = next.screen && Number.isSafeInteger(next.revision) ?
+      `${next.documentId}:${next.screen.id}:${next.revision}` : null;
+    openButton.disabled = !key;
+    if (contextKey === key) return;
+    const sameScreen = next.documentId === context?.documentId && next.screen?.id === context?.screen.id;
+    contextKey = key;
+    controller?.abort();
+    controller = new AbortController();
+    playbackRequest?.abort();
+    playbackRequest = null;
+    for (const url of assetUrls.values()) url.then(URL.revokeObjectURL, () => {});
+    assetUrls.clear();
+    if (!sameScreen || !nodeEdit) loadedResources = null;
+    resources = loadedResources ? Promise.resolve(loadedResources) : null;
+    screenNodes.clear();
+    screenScenarios.clear();
+    if (!sameScreen || !key) {
+      showMode(false);
+      resetView(design);
+    } else {
+      cancelView(design);
+      cancelView(preview);
+    }
+    context = key ? next : null;
+    design.model = null;
+    onDesignChange();
+    if (!context) return;
+    if (isPreview && triggers.length) replay(triggers, null, true);
+    else renderActive();
+  }
+
+  function readPath(path, params, signal) {
+    const revision = context.revision;
+    const base = `/api/v1/documents/${context.documentId}`;
+    const query = new URLSearchParams({ revision, ...params });
+    return request(`${base}/${path}?${query}`, {}, signal).then(result => {
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      if (result.revision !== revision) throw new Error('Получен ответ для другой ревизии документа.');
+      return result;
+    });
+  }
+
+  async function readPages(path, params, field, signal) {
+    let total;
+    const items = [], diagnostics = [], overrides = [];
+    do {
+      const page = await readPath(path, { ...params, limit: 100, offset: items.length }, signal);
+      total = page.total;
+      const values = page[field];
+      if (!Array.isArray(values) || !Number.isSafeInteger(total) || total < items.length + values.length ||
+        page.offset !== items.length || !values.length && items.length < total)
+        throw new Error('Сервер вернул неполный список компонентов или геометрии.');
+      if (!items.length) diagnostics.push(...(page.diagnostics ?? []));
+      items.push(...values);
+      overrides.push(...(page.overrides ?? []));
+    } while (items.length < total);
+    return { items, diagnostics, overrides };
+  }
+
+  function readResources() {
+    if (resources) return resources;
+    const signal = controller.signal;
+    const tokens = new Map(context.tokens.map(token => [token.id, token]));
+    const loading = Promise.all([readPath('profile', {}, signal), readPath('assets', {}, signal)])
+      .then(([profile, manifest]) => {
+        const result = { kinds: new Map(profile.kinds.map(kind => [kind.kind, kind])),
+          assets: new Map(manifest.assets.map(asset => [asset.id, asset])), tokens };
+        if (resources === loading) loadedResources = result;
+        return result;
+      }).catch(error => {
+        if (resources === loading) resources = null;
+        throw error;
+      });
+    resources = loading;
+    return loading;
+  }
+
+  function readCached(cache, key, read) {
+    if (!cache.has(key)) {
+      const loading = read().catch(error => {
+        if (cache.get(key) === loading) cache.delete(key);
+        throw error;
+      });
+      cache.set(key, loading);
+    }
+    return cache.get(key);
+  }
+
+  function readNodes(screen) {
+    return readCached(screenNodes, screen, () => readPages('nodes',
+      { screenId: screen, fields: 'kind,properties,name,parentId,childCount' }, 'items', controller.signal));
+  }
+
+  async function readDesignModel() {
+    const [shared, structure] = await Promise.all([readResources(), readNodes(context.screen.id)]);
+    return { ...shared, nodes: new Map(structure.items.map(node => [node.id, node])) };
+  }
+
+  async function readScreen(screen, parameters, signal) {
+    const documentSignal = controller.signal;
+    const [shared, structure, layout, scenarios] = await Promise.all([
+      readResources(),
+      readNodes(screen),
+      readPages(`screens/${screen}/layout`, parameters ?? {}, 'boxes', signal),
+      parameters ? readCached(screenScenarios, screen, () => readPages('scenarios', { screenId: screen }, 'items', documentSignal)) : null
+    ]);
+    return {
+      ...shared, screen, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
+      orderedNodes: structure.items, nodes: new Map(structure.items.map(node => [node.id, node])),
+      boxes: new Map(layout.items.map(box => [box.objectId, box])),
+      overrides: new Map(layout.overrides.map(item => [item.nodeId, item.properties]))
+    };
+  }
+
+  function readAsset(id) {
+    const { documentId, revision } = context;
+    const signal = controller.signal;
+    return readCached(assetUrls, id, async () => {
+      const data = await request.readPng(`/api/v1/documents/${documentId}/assets/${id}?revision=${revision}`, {}, signal);
+      if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+      return URL.createObjectURL(data);
+    });
+  }
+
+  function addDiagnostic(list, description) {
+    if ([...list.children].some(item => item.textContent === description)) return;
+    const item = document.createElement('li');
+    item.textContent = description;
+    list.append(item);
+  }
+
+  function displayInput(id, initial) {
+    if (inputValues.has(id)) return inputValues.get(id);
+    return playback && Object.hasOwn(playback.values, id) ? playback.values[id] ?? '' : initial;
+  }
+
+  function sizePreview() {
+    const { width, height } = context.screen.dimensions;
+    viewport.style.width = `min(100%, ${width}px)`;
+    viewport.style.height = `min(${height}px, max(1px, calc(100dvh - 12rem)))`;
+    const bounds = viewport.getBoundingClientRect();
+    return { width: Math.min(width, bounds.width), height: Math.min(height, bounds.height) };
+  }
+
+  function renderActive() {
+    if (!context) return;
+    if (isPreview) {
+      const size = sizePreview();
+      const selection = playback?.selection;
+      const parameters = { previewWidth: size.width, previewHeight: size.height, theme: themeSelect.value };
+      if (selection?.datasetId) parameters.datasetId = selection.datasetId;
+      loadView(preview, [selection?.screenId ?? context.screen.id, ...(playback?.overlays ?? [])], parameters, selection?.variantId);
+    } else loadView(design, [context.screen.id], null, null);
+  }
+
+  async function loadView(view, screens, parameters, variantId) {
+    const previewMode = view === preview;
+    const theme = previewMode ? themeSelect.value : 'Light';
+    const key = JSON.stringify([screens, parameters, variantId, theme, playback?.values]);
+    if (view.key === key) return;
+    cancelView(view);
+    view.key = key;
+    const signal = (view.controller = new AbortController()).signal;
+    const current = () => !signal.aborted && isPreview === previewMode;
+    const drawingContext = context;
+    const acceptsInteraction = () => context === drawingContext && isPreview === previewMode &&
+      (!previewMode || screens.at(-1) === (playback?.overlays.at(-1) ?? playback?.selection.screenId ?? context.screen.id));
+    view.status.textContent = 'Загрузка экрана…';
+    view.retry.hidden = true;
+    try {
+      const reads = new Map();
+      const models = await Promise.all(screens.map((screen, index) => {
+        const variant = index === 0 ? variantId : null;
+        const key = `${screen}:${variant ?? ''}`;
+        if (!reads.has(key)) reads.set(key, readScreen(screen, variant ? { ...parameters, variantId: variant } : parameters, signal));
+        return reads.get(key);
+      }));
+      if (!current()) return;
+      const diagnostics = document.createDocumentFragment(), content = document.createDocumentFragment();
+      const images = [];
+      let shown = false;
+      for (const [index, model] of models.entries()) {
+        const { screen, boxes } = model;
+        for (const item of model.diagnostics) {
+          const name = model.nodes.get(item.objectId)?.name || item.objectId;
+          addDiagnostic(diagnostics, `${name} · ${item.property}: ${item.message} (${item.code})`);
+        }
+        if (!boxes.has(screen)) continue;
+        const drawing = renderScreen({ ...model, theme }, {
+          preview: previewMode, trigger: (id, event) => acceptsInteraction() && trigger(id, event),
+          getInput: previewMode ? displayInput : undefined,
+          setInput: (id, value) => { if (acceptsInteraction()) inputValues.set(id, value); },
+          report: (node, property, message) => addDiagnostic(diagnostics, `${node.name || node.id} · ${property}: ${message}`)
+        });
+        images.push(...drawing.images);
+        if (previewMode) {
+          const surface = document.createElement('div');
+          const bounds = boxes.get(screen).bounds;
+          surface.className = 'preview-screen';
+          surface.dataset.previewScreen = screen;
+          surface.style.width = `${bounds.width}px`;
+          surface.style.height = `${bounds.height}px`;
+          surface.inert = index !== models.length - 1;
+          surface.append(drawing.root);
+          content.append(surface);
+        } else content.append(drawing.root);
+        shown = true;
+      }
+      const focus = view.host.contains(document.activeElement) ? document.activeElement : null;
+      const focusedNode = focus?.closest('[data-visual-node]')?.dataset.visualNode;
+      const selection = focus?.matches('input, textarea') ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] : null;
+      view.host.replaceChildren(content);
+      view.diagnostics.replaceChildren(diagnostics);
+      view.status.textContent = shown ? '' : 'Геометрию экрана не удалось рассчитать.';
+      if (previewMode) activeScenarios = models.at(-1).scenarios;
+      else {
+        design.model = shown ? models[0] : null;
+        syncSelection();
+      }
+      if (focusedNode) {
+        const control = (previewMode ? view.host.lastElementChild : view.host)
+          ?.querySelector(`[data-visual-node="${CSS.escape(focusedNode)}"] > .visual-surface`);
+        if (control && !control.inert && !control.disabled) {
+          control.focus({ preventScroll: true });
+          if (selection && control.matches('input, textarea')) control.setSelectionRange(...selection);
+        } else if (previewMode) closeButton.focus({ preventScroll: true });
+      }
+      for (const { assetId, surface } of images) {
+        const report = () => {
+          if (current()) addDiagnostic(view.diagnostics, `${surface.alt || assetId} · asset: Не удалось загрузить изображение.`);
+        };
+        surface.addEventListener('error', report);
+        readAsset(assetId).then(url => { if (current()) surface.src = url; }).catch(report);
+      }
+    } catch (error) {
+      if (!current() || error.name === 'AbortError') return;
+      if (error.status === 403) { closeInaccessibleDocument(403); return; }
+      view.key = null;
+      view.host.replaceChildren();
+      view.diagnostics.replaceChildren();
+      view.status.textContent = `Не удалось показать экран. ${error.message}`;
+      view.retry.hidden = false;
+    }
+  }
+
+  async function replay(next, matchingScenarios, afterRefresh = false) {
+    if (playbackRequest || !isPreview) return;
+    const active = playbackRequest = new AbortController();
+    const { documentId, revision, screen } = context;
+    const size = sizePreview();
+    try {
+      const body = {
+        revision, triggers: next, selection: {
+          screenId: screen.id, variantId: null, datasetId: null, theme: themeSelect.selectedIndex,
+          viewport: { width: Math.max(1, size.width), height: Math.max(1, size.height) }
+        }
+      };
+      const result = await request(`/api/v1/documents/${documentId}/preview`,
+        { method: 'POST', body: JSON.stringify(body) }, active.signal);
+      if (playbackRequest !== active || active.signal.aborted) return;
+      if (result.revision !== revision || result.documentId !== documentId || !result.session?.selection?.screenId ||
+        !Array.isArray(result.session.overlays) || !result.session.values)
+        throw new Error('Получен некорректный результат сценария.');
+      for (const scenario of matchingScenarios ?? []) {
+        for (const action of scenario.actions) {
+          if (action.type === 'setDemoValue' && inputValues.delete(action.nodeId)) preview.key = null;
+          if (action.type === 'resetPreview') { inputValues.clear(); preview.key = null; }
+        }
+      }
+      triggers = next;
+      playback = result.session;
+      backButton.disabled = !playback.canGoBack;
+      renderActive();
+    } catch (error) {
+      if (playbackRequest !== active || active.signal.aborted) return;
+      if (error.status === 403) { closeInaccessibleDocument(403); return; }
+      if (afterRefresh) {
+        triggers = [];
+        playback = null;
+        backButton.disabled = true;
+        renderActive();
+      } else preview.status.textContent = `Не удалось выполнить сценарий. ${error.message}`;
+    } finally {
+      if (playbackRequest === active) playbackRequest = null;
+    }
+  }
+
+  function trigger(nodeId, event) {
+    const scenarios = activeScenarios.filter(item => item.nodeId === nodeId && item.event === event);
+    if (!scenarios.length) return;
+    if (triggers.length >= 128) {
+      preview.status.textContent = 'Достигнут предел истории сценария. Сбросьте Preview, чтобы продолжить.';
+      return;
+    }
+    replay([...triggers, { nodeId, event }], scenarios);
+  }
+
+  openButton.addEventListener('click', () => {
+    if (!context) return;
+    if (design.status.textContent === 'Загрузка экрана…') cancelView(design);
+    themeSelect.value = 'Light';
+    backButton.disabled = true;
+    showMode(true);
+    renderActive();
+    closeButton.focus();
+  });
+  closeButton.addEventListener('click', () => {
+    showMode(false);
+    renderActive();
+    openButton.focus();
+  });
+  themeSelect.addEventListener('change', renderActive);
+  design.retry.addEventListener('click', renderActive);
+  preview.retry.addEventListener('click', renderActive);
+  element('preview-reset').addEventListener('click', () => {
+    playbackRequest?.abort();
+    playbackRequest = null;
+    triggers = [];
+    playback = null;
+    inputValues.clear();
+    backButton.disabled = true;
+    cancelView(preview);
+    renderActive();
+  });
+  backButton.addEventListener('click', () => {
+    if (triggers.length) replay(triggers.slice(0, -1));
+  });
+  new ResizeObserver(() => {
+    clearTimeout(resizeTimer);
+    if (isPreview) resizeTimer = setTimeout(() => {
+      if (isPreview && !playbackRequest) renderActive();
+    }, 120);
+  }).observe(viewport);
+  return { refresh, syncSelection, readDesignModel, get designModel() { return isPreview ? null : design.model; } };
+}

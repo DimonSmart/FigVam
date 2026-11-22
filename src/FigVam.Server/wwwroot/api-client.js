@@ -1,11 +1,11 @@
 import { authHeaders, credentialsMode } from './auth-client.js';
 
 export function createApiClient({ getToken, onUnauthorized }) {
-  return async function request(path, options, signal, isCurrent = () => true) {
+  async function readResponse(path, options, signal, isCurrent = () => true) {
     const requestToken = getToken();
     const response = await fetch(path, {
       ...options, signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
-      headers: { ...authHeaders(requestToken, options?.method), ...(options?.body ? { 'Content-Type': 'application/json' } : {}) }
+      headers: { ...authHeaders(requestToken, options?.method), ...(options?.body ? { 'Content-Type': 'application/json' } : {}), ...options?.headers }
     });
     if (signal?.aborted || requestToken !== getToken() || !isCurrent()) throw new DOMException('Cancelled', 'AbortError');
     if (response.status === 401) {
@@ -24,8 +24,17 @@ export function createApiClient({ getToken, onUnauthorized }) {
       if (!isCurrent()) throw new DOMException('Cancelled', 'AbortError');
       const codes = { REVISION_CONFLICT: 'Документ изменился. Обновите страницы и повторите действие.', PAGE_IN_USE: 'Страница используется другими объектами. Удалите ссылки на неё и её содержимое перед удалением.', PAGE_NOT_FOUND: 'Страница больше не существует. Обновите страницы.', PARENT_NOT_FOUND: 'Экран или слой больше не существует.', REVISION_UNAVAILABLE: 'Ревизия больше недоступна.', INVALID_PAGE: 'Не удалось сохранить страницу: проверьте имя и ограничения документа.' };
       const error = new Error(codes[body.code] ?? errors[response.status] ?? 'Сервер не смог выполнить запрос. Повторите позже.');
-      error.status = response.status; error.code = body.code; throw error;
+      error.status = response.status; error.code = body.code;
+      error.detail = body.detail; error.property = body.property;
+      throw error;
     }
-    return response.json();
+    return response;
   }
+  async function request(...args) { return (await readResponse(...args)).json(); }
+  request.readPng = async (...args) => {
+    const response = await readResponse(...args);
+    if (response.headers.get('Content-Type') !== 'image/png') throw new TypeError('Получен неподдерживаемый формат изображения.');
+    return response.blob();
+  };
+  return request;
 }

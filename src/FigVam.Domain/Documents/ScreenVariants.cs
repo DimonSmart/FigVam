@@ -1,3 +1,5 @@
+using FigVam.Domain.Tokens;
+
 namespace FigVam.Domain.Documents;
 
 public sealed record ScreenPropertyOverride(Guid NodeId, string Property, NodePropertyValue Value);
@@ -17,7 +19,11 @@ public static class ScreenVariantEditor
 
 public static class ScreenVariantValidator
 {
-    public static IReadOnlyList<StructureError> Validate(DocumentStructure document, ScreenStructure screen, INodeProfile profile)
+    public static IReadOnlyList<StructureError> Validate(DocumentStructure document, ScreenStructure screen, INodeProfile profile) =>
+        Validate(document, screen, profile, new DesignTokenResolver(document.Tokens));
+
+    internal static IReadOnlyList<StructureError> Validate(DocumentStructure document, ScreenStructure screen, INodeProfile profile,
+        DesignTokenResolver tokens)
     {
         var errors = new List<StructureError>();
         var nodes = document.Nodes.GroupBy(n => n.Id).ToDictionary(g => g.Key, g => g.First());
@@ -39,14 +45,8 @@ public static class ScreenVariantValidator
                 { errors.Add(new("INVALID_VARIANT_NODE", variant.Id, item.NodeId, "Override node must belong to the variant screen.", item.Property)); continue; }
                 if (NodePropertyValidator.Validate(profile, node.Kind, item.Property, item.Value) is { } invalid)
                     errors.Add(new(invalid.Code, variant.Id, item.NodeId, invalid.Reason, item.Property));
-                if (item.Value is NodeTokenValue reference)
-                {
-                    var token = document.Tokens.FirstOrDefault(t => t.Id == reference.TokenId);
-                    if (token is null) errors.Add(new("missing-reference", variant.Id, reference.TokenId, "Referenced token does not exist.", item.Property));
-                    else if (profile.GetProperty(node.Kind, item.Property)?.TokenType is { } expected && token.Type != expected)
-                        errors.Add(new("type-mismatch", variant.Id, reference.TokenId, "Token type does not match the property.", item.Property));
-                }
-                if (item.Value is NodeAssetValue asset && !document.Assets.Any(a => a.Id == asset.AssetId)) errors.Add(new("missing-reference", variant.Id, asset.AssetId, "Referenced asset does not exist in this document snapshot.", item.Property));
+                else if (NodePropertyValidator.ValidateReference(document, tokens, profile.GetProperty(node.Kind, item.Property), item.Property, item.Value) is { } reference)
+                    errors.Add(new(reference.Code, variant.Id, reference.Id, reference.Reason, item.Property));
             }
         }
         return errors;

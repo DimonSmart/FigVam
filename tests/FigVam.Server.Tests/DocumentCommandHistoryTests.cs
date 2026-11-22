@@ -14,7 +14,7 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     private readonly DocumentActor alice = new("alice"), bob = new("bob");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;

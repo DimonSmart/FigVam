@@ -1,5 +1,7 @@
 using System.Text.Json.Serialization;
 using FigVam.Domain.Documents;
+using FigVam.Domain.Layout;
+using FigVam.Domain.Tokens;
 
 namespace FigVam.Application.Documents;
 
@@ -28,14 +30,78 @@ public sealed record StructureItem(Guid Id, string Type,
 public sealed record StructureResponse(Guid DocumentId, long Revision, IReadOnlyList<StructureItem> Items,
     int Offset, int Limit, int Total);
 public sealed record StructureQueryResult(string Code, StructureResponse? Response = null);
+public sealed record DocumentProfileResponse(Guid DocumentId, long Revision, PortableUiProfileReference Profile,
+    IReadOnlyList<NodeKindDefinition> Kinds, IReadOnlyList<string> PreviewActions);
+public sealed record DocumentProfileQueryResult(string Code, DocumentProfileResponse? Response = null);
+public sealed record ScreenLayoutQuery(Guid ScreenId, long? Revision = null, int Offset = 0, int Limit = 100,
+    ScreenDimensions? Viewport = null, Guid? VariantId = null, Guid? DatasetId = null, TokenTheme Theme = TokenTheme.Light);
+public sealed record ScreenLayoutOverride(Guid NodeId, IReadOnlyDictionary<string, NodePropertyValue> Properties);
+public sealed record ScreenLayoutResponse(Guid DocumentId, long Revision, Guid ScreenId,
+    [property: System.ComponentModel.Description("Screen-local bounds and accumulated clipping rectangles in tree order, beginning with the screen itself.")]
+    IReadOnlyList<LayoutBox> Boxes, IReadOnlyList<LayoutDiagnostic> Diagnostics, int Offset, int Limit, int Total,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<ScreenLayoutOverride>? Overrides = null);
+public sealed record ScreenLayoutQueryResult(string Code, ScreenLayoutResponse? Response = null);
 
 public interface IDocumentStructureQueries
 {
     Task<StructureQueryResult> QueryAsync(Guid documentId, StructureQuery query, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<DocumentProfileQueryResult> ReadProfileAsync(Guid documentId, long? revision, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<ScreenLayoutQueryResult> ReadScreenLayoutAsync(Guid documentId, ScreenLayoutQuery query, DocumentActor actor,
+        CancellationToken cancellationToken = default);
 }
 
 public sealed class DocumentStructureQueries(IDocumentAuthorization authorization, IDocumentStateReader reader, INodeProfile profile) : IDocumentStructureQueries
 {
+    public async Task<ScreenLayoutQueryResult> ReadScreenLayoutAsync(Guid documentId, ScreenLayoutQuery query, DocumentActor actor,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanReadAsync(actor, documentId, cancellationToken))
+            return new("FORBIDDEN");
+        if (documentId == Guid.Empty || query.ScreenId == Guid.Empty) return new("INVALID_ID");
+        if (query.Revision < 0) return new("INVALID_REVISION");
+        if (query.Offset < 0 || query.Limit is < 1 or > 100 || !Enum.IsDefined(query.Theme) ||
+            (query.Viewport is null ? query.VariantId is not null || query.DatasetId is not null : !ScreenDimensions.IsValid(query.Viewport)))
+            return new("INVALID_QUERY");
+        var read = await reader.ReadAsync(documentId, query.Revision, cancellationToken);
+        if (read.State is not { } state) return new(read.Code);
+
+        var document = state.Document;
+        var diagnostics = new List<LayoutDiagnostic>();
+        var overrides = new Dictionary<Guid, Dictionary<string, NodePropertyValue>>();
+        if (query.Viewport is not null)
+        {
+            if (document.Screens.FirstOrDefault(screen => screen.Id == query.ScreenId) is not { } screen)
+                return new("SCREEN_NOT_FOUND");
+            var variant = screen.Variants.FirstOrDefault(item => item.Id == query.VariantId);
+            if (query.VariantId is not null && variant is null) return new("SCREEN_VARIANT_NOT_FOUND");
+            if (query.DatasetId is { } dataset && !document.Datasets.Any(item => item.Id == dataset)) return new("DATASET_NOT_FOUND");
+            if (PortableUiProfileResolver.Resolve(document.Profile, profile, out var selected) is { } invalid)
+                return new(invalid.Code);
+            document = ScreenLayoutPreview.Project(document, screen, variant, query.DatasetId, selected!, overrides, diagnostics);
+        }
+        var layout = DocumentScreenLayout.Calculate(document, query.ScreenId, profile, query.Viewport, query.Theme);
+        if (layout.Diagnostics is [{ Code: "SCREEN_NOT_FOUND" }]) return new("SCREEN_NOT_FOUND");
+        var boxes = layout.Boxes.Skip(query.Offset).Take(query.Limit).ToArray();
+        return new("OK", new(documentId, state.Revision, query.ScreenId, boxes,
+            [.. layout.Diagnostics, .. diagnostics], query.Offset, query.Limit, layout.Boxes.Count,
+            query.Viewport is null ? null : boxes.Where(box => overrides.ContainsKey(box.ObjectId))
+                .Select(box => new ScreenLayoutOverride(box.ObjectId, overrides[box.ObjectId])).ToArray()));
+    }
+
+    public async Task<DocumentProfileQueryResult> ReadProfileAsync(Guid documentId, long? revision, DocumentActor actor,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanReadAsync(actor, documentId, cancellationToken))
+            return new("FORBIDDEN");
+        if (documentId == Guid.Empty) return new("INVALID_ID");
+        if (revision < 0) return new("INVALID_REVISION");
+        var read = await reader.ReadAsync(documentId, revision, cancellationToken);
+        if (read.State is not { } state) return new(read.Code);
+        if (PortableUiProfileResolver.Resolve(state.Document.Profile, profile, out var selected) is { } invalid)
+            return new(invalid.Code);
+        return new("OK", new(documentId, state.Revision, selected!.Identity, selected.Kinds, selected.PreviewActions));
+    }
+
     public async Task<StructureQueryResult> QueryAsync(Guid documentId, StructureQuery query, DocumentActor actor, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanReadAsync(actor, documentId, cancellationToken)) return new("FORBIDDEN");
@@ -48,6 +114,8 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         var read = await reader.ReadAsync(documentId, query.Revision, cancellationToken);
         if (read.State is not { } state) return new(read.Code);
         var doc = state.Document;
+        if (PortableUiProfileResolver.Resolve(doc.Profile, profile, out var selected) is { } invalid)
+            return new(invalid.Code);
         var nodes = doc.Nodes.ToDictionary(n => n.Id);
         var screens = doc.Screens.ToDictionary(s => s.Id);
         IEnumerable<Guid> Descendants(Guid screenId)
@@ -109,7 +177,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
             var node = item.Type == "node" ? nodes[item.Id] : null;
             return new(item.Id, item.Type, fields.Contains("kind") ? node?.Kind : null, fields.Contains("properties") ? node?.Properties : null, children, fields.Contains("childCount") ? ids.Length : null, children is not null && children.Count < ids.Length ? true : null, fields.Contains("name") ? (item.Type == "document" ? doc.Name : item.Type == "page" ? doc.Pages.First(p => p.Id == item.Id).Name : node?.Name) : null, fields.Contains("semanticKey") ? node?.SemanticKey : null, fields.Contains("dataBindings") ? node?.DataBindings : null, fields.Contains("repeater") ? node?.Repeater : null, fields.Contains("dimensions") && item.Type == "screen" ? screens[item.Id].Dimensions : null,
                 node is not null && parents?.TryGetValue(node.Id, out var parent) == true ? parent : null,
-                node is not null && fields.Contains("canContainChildren") ? profile.CanContainChildren(node.Kind) : null);
+                node is not null && fields.Contains("canContainChildren") ? selected!.CanContainChildren(node.Kind) : null);
         }
         return new("OK", new(documentId, state.Revision, resultPage.Select(x => Project(x, query.Depth)).ToArray(), query.Offset, query.Limit, all.Length));
     }

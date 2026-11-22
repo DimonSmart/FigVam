@@ -105,16 +105,10 @@ public static class DesignTokenValidator
     {
         var errors = Validate(tokens);
         if (errors.Count != 0) return new(null, errors);
-        var byId = tokens.ToDictionary(t => t.Id);
-        if (!byId.TryGetValue(tokenId, out var token))
-            return new(null, [new("missing-reference", tokenId, theme, tokenId, "Token does not exist.")]);
-        if (!Enum.IsDefined(theme))
-            return new(null, [new("incomplete-theme", tokenId, theme, null, "Unknown theme.")]);
-        while (token.Values[theme] is TokenAlias alias) token = byId[alias.TokenId];
-        return new(((LiteralTokenValue)token.Values[theme]).Value, []);
+        return new DesignTokenResolver(tokens).Resolve(tokenId, theme);
     }
 
-    private static bool Matches(TokenType type, TokenValue? value) => (type, value) switch
+    internal static bool Matches(TokenType type, TokenValue? value) => (type, value) switch
     {
         (TokenType.Color, ColorValue) => true,
         (TokenType.Spacing, SpacingValue spacing) => double.IsFinite(spacing.Value),
@@ -124,4 +118,50 @@ public static class DesignTokenValidator
             typography.FontWeight is >= 1 and <= 1000 && double.IsFinite(typography.LineHeight) && typography.LineHeight > 0,
         _ => false
     };
+}
+
+internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
+{
+    private readonly ILookup<Guid, DesignToken> byId = tokens.ToLookup(token => token.Id);
+    private readonly Dictionary<(Guid, TokenTheme), TokenResolution> resolved = [];
+
+    public DesignToken? Find(Guid id) => byId[id].FirstOrDefault();
+
+    public TokenResolution Resolve(Guid id, TokenTheme theme)
+    {
+        if (resolved.TryGetValue((id, theme), out var result)) return result;
+        if (Find(id) is not { } token)
+            return Error("missing-reference", id, "Token does not exist.");
+        if (!Enum.IsDefined(theme))
+            return Error("incomplete-theme", null, "Unknown theme.");
+        var path = new HashSet<Guid>();
+        while (path.Add(token.Id))
+        {
+            if (resolved.TryGetValue((token.Id, theme), out result) && result.IsSuccess)
+                return Complete(result);
+            if (token.Values is null || !token.Values.TryGetValue(theme, out var expression) || expression is null)
+                return Error("incomplete-theme", token.Id, "Token has no value for this theme.");
+            if (expression is LiteralTokenValue literal)
+                return DesignTokenValidator.Matches(token.Type, literal.Value)
+                    ? Complete(new(literal.Value, [])) : Error("type-mismatch", token.Id, "Literal value does not match token type.");
+            if (expression is not TokenAlias alias)
+                return Error("invalid-expression", token.Id, "Unknown token expression.");
+            if (Find(alias.TokenId) is not { } target)
+                return Error("missing-reference", alias.TokenId, "Alias target does not exist.");
+            if (target.Type != token.Type)
+                return Error("type-mismatch", alias.TokenId, "Alias target has a different type.");
+            token = target;
+        }
+        return Error("alias-cycle", token.Id, "Aliases form a cycle.");
+
+        TokenResolution Complete(TokenResolution resolution)
+        {
+            foreach (var item in path)
+                resolved[(item, theme)] = resolution;
+            return resolution;
+        }
+
+        TokenResolution Error(string code, Guid? reference, string message) =>
+            resolved[(id, theme)] = new(null, [new(code, id, theme, reference, message)]);
+    }
 }

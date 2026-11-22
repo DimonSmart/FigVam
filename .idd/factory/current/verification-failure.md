@@ -1,0 +1,5 @@
+Focused intent drift audit: implementation-drift, preserved requirement. IDD-0015 includes spacing tokens in MVP and IDD-0006 requires assigning tokens to properties in inspector. VisualNodeProfile.cs defines padding/gap as numeric, NodeProperties.cs rejects token references for numeric properties, and DocumentScreenLayout.cs reads numeric values. Existing tests do not prove spacing-token assignment and geometry. Reconcile current intent and request, implement and verify if confirmed; re-audit after correction.
+
+Integrated dotnet test FigVam.sln: ServerAuthenticationTests.DevelopmentDoesNotImplicitlyEnableLocalAuthentication failed; child server remained running 30s and listened in Development rather than refusing startup. Suite still running. Previous Worker 1 had reported same failure. Assess cause and necessary correction.
+
+Full Playwright 194 tests: 188 passed, six failed: four stale move-node ACK mocks, one resize request handler left running, one ambiguous theme locator. Diagnostics in test-results. Planner produced two corrective tasks.

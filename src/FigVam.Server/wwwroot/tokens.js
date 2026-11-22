@@ -25,6 +25,17 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       ? await readAllTokenPages(`${base}/tokens/${encodeURIComponent(selection)}/usages`, atRevision, signal, isCurrent) : [];
     return { items, selection, usages };
   }
+  async function readSelectedUsages(base, atRevision, signal, isCurrent) {
+    const selection = selectedToken;
+    const usages = selection ? await readAllTokenPages(`${base}/tokens/${encodeURIComponent(selection)}/usages`,
+      atRevision, signal, isCurrent) : [];
+    return { selection, usages };
+  }
+  function applySelectedUsages({ selection, usages }) {
+    if (selection !== selectedToken) { selectToken(selectedToken); return; }
+    tokenUsages = usages;
+    renderTokens();
+  }
   function applyTokens(snapshot) {
     tokenItems = snapshot.items;
     if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
@@ -112,5 +123,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     catch (error) { element('tokens-error').textContent = error.message; }
   });
 
-  return { reset: resetTokens, read: readTokens, apply: applyTokens };
+  return { reset: resetTokens, read: readTokens, apply: applyTokens, readSelectedUsages, applySelectedUsages,
+    get items() { return tokenItems; } };
 }

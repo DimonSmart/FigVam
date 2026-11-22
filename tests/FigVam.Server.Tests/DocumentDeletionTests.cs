@@ -12,7 +12,7 @@ public sealed class DocumentDeletionTests : IDisposable
     private readonly DocumentActor owner = new("owner");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool IsKnownKind(string kind) => false;
         public bool CanContainChildren(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;

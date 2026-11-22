@@ -21,7 +21,7 @@ public sealed partial class ComponentParameterCommandTests
 {
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -252,7 +252,7 @@ public sealed partial class ComponentParameterCommandTests
 
     private sealed class WithoutBooleanProperty : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -306,7 +306,7 @@ public sealed partial class ComponentParameterCommandTests
             Assert.Equal(403, (int)(await client.PostAsJsonAsync(route, payload)).StatusCode);
             client.DefaultRequestHeaders.Authorization = null;
             Assert.Equal(401, (int)(await client.PostAsJsonAsync(route, payload)).StatusCode);
-            Assert.Equal(0, (await new SqliteDocumentJournal(directory, new UnverifiedNodeProfile()).ReadAsync(id))!.Revision);
+            Assert.Equal(0, (await new SqliteDocumentJournal(directory, new VisualNodeProfile()).ReadAsync(id))!.Revision);
         }
         finally { Directory.Delete(directory, true); }
     }

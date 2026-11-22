@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using FigVam.Domain.Documents;
 using FigVam.Domain.Tokens;
 using FigVam.Domain.Components;
@@ -7,6 +9,7 @@ namespace FigVam.Application.Documents;
 // Constructed by the server's authenticated transport, never deserialized from a command payload.
 public sealed record DocumentActor(string Id);
 public sealed record RestoreDocumentVersionCommand(Guid DocumentId, Guid CommandId, Guid VersionId);
+public sealed record UpgradePortableUiProfileCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision);
 public sealed record SetNodeRepeaterCommand(Guid DocumentId, Guid CommandId, Guid NodeId, long ExpectedRevision, NodeRepeater? Repeater);
 public sealed record BindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property, NodeDataBinding Binding);
 public sealed record UnbindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property);
@@ -47,7 +50,10 @@ public sealed record DeleteNodeCommand(Guid DocumentId, Guid CommandId, Guid Nod
 public sealed record SetNodeNameCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Name);
 public sealed record SetNodeSemanticKeyCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string? SemanticKey);
 public sealed record SetNodePropertyCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property, NodePropertyValue Value);
-public sealed record AddNodeCommand(Guid DocumentId, Guid CommandId, Guid ParentId, Guid NodeId, string Kind);
+public sealed record SetNodePropertiesCommand(Guid DocumentId, Guid CommandId, Guid NodeId,
+    IReadOnlyDictionary<string, NodePropertyValue> Properties, Guid? ExpectedParentId = null, long? ExpectedRevision = null);
+public sealed record AddNodeCommand(Guid DocumentId, Guid CommandId, Guid ParentId, Guid NodeId, string Kind,
+    IReadOnlyDictionary<string, NodePropertyValue>? Properties = null);
 public sealed record DocumentState(DocumentStructure Document, long Revision);
 public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code, long? Revision,
     string ActorId, Guid? PageId, DateTimeOffset Timestamp, Guid? ScreenId = null, Guid? NodeId = null, Guid? VersionId = null, string? Explanation = null, string? Property = null, IReadOnlyList<Guid>? AffectedIds = null, IReadOnlyList<TokenImportDiagnostic>? Diagnostics = null)
@@ -110,8 +116,10 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeNameSet), "NODE_NAME_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeSemanticKeySet), "NODE_SEMANTIC_KEY_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodePropertySet), "NODE_PROPERTY_SET")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(NodePropertiesSet), "NODE_PROPERTIES_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionSaved), "VERSION_SAVED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionRestored), "VERSION_RESTORED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(PortableUiProfileUpgraded), "PORTABLE_UI_PROFILE_UPGRADED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(HistoryCompensated), "HISTORY_COMPENSATED")]
 public abstract record DocumentEvent;
 public sealed record ComponentSlotAdded(Guid DefinitionId, ComponentSlot Slot) : DocumentEvent;
@@ -127,6 +135,7 @@ public sealed record ComponentParameterOverrideSet(Guid NodeId, Guid ParameterId
 public sealed record ComponentParameterAdded(Guid DefinitionId, ComponentParameter Parameter, ComponentParameterBinding Binding) : DocumentEvent;
 public sealed record ComponentDefinitionAdded(ComponentDefinition Definition) : DocumentEvent;
 public sealed record VersionRestored(Guid VersionId, DocumentStructure Document) : DocumentEvent;
+public sealed record PortableUiProfileUpgraded(PortableUiProfileReference Profile) : DocumentEvent;
 public sealed record VersionSaved(Guid VersionId) : DocumentEvent;
 public sealed record TokenValueSet(Guid TokenId, TokenTheme Theme, TokenExpression Value) : DocumentEvent;
 public sealed record TokenRenamed(Guid TokenId, string Name) : DocumentEvent;
@@ -150,7 +159,10 @@ public sealed record NodeDeleted(Guid NodeId) : DocumentEvent;
 public sealed record NodeNameSet(Guid NodeId, string Name) : DocumentEvent;
 public sealed record NodeSemanticKeySet(Guid NodeId, string? SemanticKey) : DocumentEvent;
 public sealed record NodePropertySet(Guid NodeId, string Property, NodePropertyValue Value) : DocumentEvent;
-public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind) : DocumentEvent;
+public sealed record NodePropertiesSet(Guid NodeId, ImmutableSortedDictionary<string, NodePropertyValue> Properties) : DocumentEvent;
+public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    ImmutableSortedDictionary<string, NodePropertyValue>? Properties = null) : DocumentEvent;
 public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null);
 
 public interface IDocumentCommandJournal
@@ -204,6 +216,8 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(SetNodeNameCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodeSemanticKeyCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodePropertyCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(SetNodePropertiesCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(UpgradePortableUiProfileCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(UndoDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RedoDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RestoreDocumentVersionCommand command, DocumentActor actor,
@@ -450,7 +464,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
                 return new(Result("COMPONENT_IN_USE", explanation: "Provide an explicit compatible replacement or detach every instance before deleting its definition."), null);
             var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, state.Document.Assets.Select(a => a.Id).ToArray());
             ComponentModel changed;
-            try { changed = ComponentOperations.DeleteDefinition(model, command.DefinitionId, profile, command.Replacement); }
+            try { changed = ComponentOperations.DeleteDefinition(model, command.DefinitionId, ProfileFor(state.Document), command.Replacement); }
             catch (InvalidOperationException error) { return new(Result("INVALID_COMPONENT_REPLACEMENT", explanation: error.Message), null); }
             var document = state.Document with { ComponentDefinitions = changed.Definitions, ComponentInstances = changed.Instances };
             var patch = DocumentPatch.Between(state.Document, document);
@@ -476,10 +490,11 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (!state.Document.ComponentInstances.Any(i => i.NodeId == command.NodeId)) return new(Result("NOT_COMPONENT_INSTANCE"), null);
             if (state.Revision != command.ExpectedRevision) return new(Result("REVISION_CONFLICT"), null);
             var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, state.Document.Assets.Select(a => a.Id).ToArray());
-            var errors = ComponentValidator.Validate(model, profile);
+            var nodeProfile = ProfileFor(state.Document);
+            var errors = ComponentValidator.Validate(model, nodeProfile);
             if (errors.Count != 0) return new(Result("INVALID_COMPONENT", explanation: errors[0].Message), null);
             ComponentModel materialized;
-            try { materialized = ComponentOperations.Detach(model, command.NodeId, profile); }
+            try { materialized = ComponentOperations.Detach(model, command.NodeId, nodeProfile); }
             catch (InvalidOperationException error) { return new(Result("INVALID_COMPONENT", explanation: error.Message), null); }
             var document = materialized.Structure with { ComponentInstances = materialized.Instances };
             var validation = DocumentStructureValidator.Validate(document, profile);
@@ -509,7 +524,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var screen = document.Screens.FirstOrDefault(s => s.Id == command.ParentId);
             var parent = document.Nodes.FirstOrDefault(n => n.Id == command.ParentId);
             if (screen is null && parent is null) return new(Result(document.Assets.Any(a => a.Id == command.ParentId) || document.Datasets.Any(d => d.Id == command.ParentId) || document.Id == command.ParentId || document.Pages.Any(p => p.Id == command.ParentId) || document.ComponentDefinitions.Any(d => d.Id == command.ParentId) || document.Tokens.Any(t => t.Id == command.ParentId) ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
-            if (parent is not null && !profile.CanContainChildren(parent.Kind)) return new(Result("CHILDREN_NOT_ALLOWED"), null);
+            if (parent is not null && !ProfileFor(state.Document).CanContainChildren(parent.Kind)) return new(Result("CHILDREN_NOT_ALLOWED"), null);
             if (command.Position < 0 || command.Position > (screen?.ChildIds ?? parent!.ChildIds).Count) return new(Result("INVALID_POSITION"), null);
             var root = document.Nodes.Single(n => n.Id == definition.RootNodeId);
             var anchor = new NodeStructure(command.NodeId, root.Kind, []);
@@ -572,9 +587,10 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (!state.Document.Nodes.Any(n => n.Id == command.RootNodeId)) return new(Result("NODE_NOT_FOUND"), null);
             var definition = new ComponentDefinition(command.ComponentId, command.Name, command.Description, command.RootNodeId, [], [], []);
             var model = new ComponentModel(state.Document, state.Document.ComponentDefinitions, state.Document.ComponentInstances, state.Document.Tokens, state.Document.Assets.Select(a => a.Id).ToArray());
-            var errors = ComponentValidator.Validate(model with { Definitions = [.. model.Definitions, definition] }, profile);
+            var nodeProfile = ProfileFor(state.Document);
+            var errors = ComponentValidator.Validate(model with { Definitions = [.. model.Definitions, definition] }, nodeProfile);
             if (errors.Count != 0) return new(Result(errors.Any(e => e.Code == "duplicate-id") ? "DUPLICATE_ID" : "INVALID_COMPONENT", explanation: errors[0].Message), null);
-            var document = state.Document with { ComponentDefinitions = ComponentOperations.AddDefinition(model, definition, profile).Definitions };
+            var document = state.Document with { ComponentDefinitions = ComponentOperations.AddDefinition(model, definition, nodeProfile).Definitions };
             var next = new DocumentState(document, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new ComponentDefinitionAdded(definition));
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
@@ -596,8 +612,9 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var values = token.Values.ToDictionary(v => v.Key, v => v.Value);
             values[command.Theme] = command.Value;
             var document = state.Document with { Tokens = state.Document.Tokens.Select(t => t.Id == token.Id ? t with { Values = values } : t).ToArray() };
-            var errors = DesignTokenValidator.Validate(document.Tokens);
-            if (errors.Count != 0) return new(Result("INVALID_TOKEN", explanation: errors[0].Message), null);
+            if (DocumentStructureValidator.Validate(document, profile).FirstOrDefault() is { } error)
+                return new(Result("INVALID_TOKEN", explanation: error.Property is { } property
+                    ? $"{error.ObjectId} · {property}: {error.Message}" : error.Message), null);
             var next = new DocumentState(document, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new TokenValueSet(command.TokenId, command.Theme, command.Value));
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
@@ -683,7 +700,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             var node = state.Document.Nodes.FirstOrDefault(n => n.Id == command.NodeId);
             if (node is null) return new(Result("NODE_NOT_FOUND", explanation: "The target node does not exist."), null);
-            if (NodePropertyValidator.Validate(profile, node.Kind, command.Property, command.Value) is { } error)
+            if (NodePropertyValidator.Validate(ProfileFor(state.Document), node.Kind, command.Property, command.Value) is { } error)
                 return new(Result(error.Code, explanation: error.Reason), null);
             var next = new DocumentState(DocumentStructureEditor.SetNodeProperty(state.Document, node.Id, command.Property, command.Value),
                 checked(state.Revision + 1));
@@ -693,6 +710,62 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
+
+    public async Task<CommandResult> HandleAsync(SetNodePropertiesCommand command, DocumentActor actor,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(actor);
+        CommandResult Result(string code, long? revision = null, string? explanation = null, string? property = null) => new(
+            command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
+            NodeId: command.NodeId, Explanation: explanation, Property: property);
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
+            return Result("FORBIDDEN");
+        if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty ||
+            command.ExpectedParentId == Guid.Empty)
+            return Result("INVALID_ID");
+
+        return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
+        {
+            if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            var document = state.Document;
+            if (!document.Nodes.Any(n => n.Id == command.NodeId))
+                return new(Result("NODE_NOT_FOUND"), null);
+            if (command.ExpectedParentId is { } parentId &&
+                !document.Screens.Any(s => s.Id == parentId && s.ChildIds.Contains(command.NodeId)) &&
+                !document.Nodes.Any(n => n.Id == parentId && n.ChildIds.Contains(command.NodeId)))
+                return new(Result("INVALID_LAYOUT_CONTEXT"), null);
+            if (command.ExpectedRevision < 0)
+                return new(Result("INVALID_REVISION"), null);
+            if (command.ExpectedRevision is { } revision && state.Revision != revision)
+                return new(Result("REVISION_CONFLICT"), null);
+            if (command.Properties is not { Count: > 0 })
+                return new(Result("INVALID_PROPERTY_VALUE", explanation: "At least one property is required."), null);
+
+            var properties = command.Properties.ToImmutableSortedDictionary(StringComparer.Ordinal);
+            var updated = DocumentStructureEditor.SetNodeProperties(document, command.NodeId, properties);
+            if (DocumentStructureValidator.Validate(updated, profile).FirstOrDefault() is { } invalid)
+                return new(Result(NodePropertyDiagnosticCode(invalid, properties), explanation: invalid.Message,
+                    property: invalid.Property), null);
+            var next = new DocumentState(updated, checked(state.Revision + 1));
+            return new(Result("ACCEPTED", next.Revision), next, new NodePropertiesSet(command.NodeId, properties));
+        }, cancellationToken, authorize: async () =>
+            await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
+    }
+
+    private static string NodePropertyDiagnosticCode(StructureError error,
+        IReadOnlyDictionary<string, NodePropertyValue>? properties)
+        => error.Code switch
+        {
+            "missing-reference" when error.Property is { } property => properties?.GetValueOrDefault(property) switch
+            {
+                NodeAssetValue => "ASSET_NOT_FOUND",
+                NodeTokenValue => "TOKEN_NOT_FOUND",
+                _ => "INVALID_PROPERTY_VALUE"
+            },
+            "type-mismatch" => "INVALID_PROPERTY_VALUE",
+            _ => error.Code
+        };
 
     public Task<CommandResult> HandleAsync(UndoDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
     {
@@ -908,9 +981,10 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
-        CommandResult Result(string code, long? revision = null) => new(command.DocumentId,
+        CommandResult Result(string code, long? revision = null, StructureError? diagnostic = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-            NodeId: code == "ACCEPTED" ? command.NodeId : null);
+            NodeId: code == "ACCEPTED" || diagnostic is not null ? command.NodeId : null,
+            Explanation: diagnostic?.Message, Property: diagnostic?.Property);
 
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
@@ -931,14 +1005,19 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (screen is null && parent is null)
                 return new(Result(document.Assets.Any(a => a.Id == command.ParentId) || document.Datasets.Any(d => d.Id == command.ParentId) || document.Id == command.ParentId || document.Pages.Any(p => p.Id == command.ParentId)
                     ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
-            if (parent is not null && !profile.CanContainChildren(parent.Kind))
+            var nodeProfile = ProfileFor(document);
+            if (parent is not null && !nodeProfile.CanContainChildren(parent.Kind))
                 return new(Result("CHILDREN_NOT_ALLOWED"), null);
-            if (string.IsNullOrWhiteSpace(command.Kind) || !profile.IsKnownKind(command.Kind))
+            if (string.IsNullOrWhiteSpace(command.Kind) || !nodeProfile.IsKnownKind(command.Kind))
                 return new(Result("UNSUPPORTED_NODE_KIND"), null);
+            var properties = command.Properties is { Count: > 0 }
+                ? command.Properties.ToImmutableSortedDictionary(StringComparer.Ordinal) : null;
+            var updated = DocumentStructureEditor.AddNode(document, command.ParentId, command.NodeId, command.Kind, properties);
+            if (DocumentStructureValidator.Validate(updated, profile).FirstOrDefault() is { } invalid)
+                return new(Result(NodePropertyDiagnosticCode(invalid, properties), diagnostic: invalid), null);
             var revision = checked(state.Revision + 1);
-            return new(Result("ACCEPTED", revision), new(
-                DocumentStructureEditor.AddNode(document, command.ParentId, command.NodeId, command.Kind), revision),
-                new NodeAdded(command.ParentId, command.NodeId, command.Kind));
+            return new(Result("ACCEPTED", revision), new(updated, revision),
+                new NodeAdded(command.ParentId, command.NodeId, command.Kind, properties));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
@@ -975,7 +1054,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (screen is null && parent is null)
                 return new(Result(document.Assets.Any(a => a.Id == command.TargetParentId) || document.Datasets.Any(d => d.Id == command.TargetParentId) || document.Id == command.TargetParentId || document.Pages.Any(p => p.Id == command.TargetParentId)
                     ? "INVALID_PARENT_TYPE" : "PARENT_NOT_FOUND"), null);
-            if (parent is not null && !profile.CanContainChildren(parent.Kind))
+            if (parent is not null && !ProfileFor(document).CanContainChildren(parent.Kind))
                 return new(Result("CHILDREN_NOT_ALLOWED"), null);
             var pending = new Stack<Guid>();
             pending.Push(node.Id);
@@ -1026,6 +1105,8 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
+
+    private INodeProfile ProfileFor(DocumentStructure document) => PortableUiProfileResolver.Require(document.Profile, profile);
 
     private static Guid[] ChangedIds(DocumentPatch patch) => patch.Pages.Select(x => x.Id).Concat(patch.Assets.Select(x => x.Id))
         .Concat(patch.Scenarios.Select(x => x.Id)).Concat(patch.ComponentDefinitions.Select(x => x.Id)).Concat(patch.ComponentInstances.Select(x => x.Id))

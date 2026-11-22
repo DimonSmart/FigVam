@@ -71,7 +71,7 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   }
   let answer = (route, body) => { move(body.nodeId, body.expectedParentId, body.targetParentId, body.position); return ack(route, body); };
   function ack(route, body) {
-    return route.fulfill({ json: { code: 'ACCEPTED', documentId: doc, commandId: body.commandId, revision: 4 } });
+    return route.fulfill({ json: { status: 'ACCEPTED', documentId: doc, commandId: body.commandId, revision: 4 } });
   }
   await page.route('**/commands/move-node', route => {
     calls.push(route.request().postData());

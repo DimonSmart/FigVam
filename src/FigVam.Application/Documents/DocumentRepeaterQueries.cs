@@ -26,7 +26,9 @@ public sealed class DocumentRepeaterQueries(IDocumentAuthorization authorization
         var node = state.Document.Nodes.FirstOrDefault(n => n.Id == nodeId);
         if (node is null) return new("NODE_NOT_FOUND");
         if (node.Repeater is null) return new("REPEATER_NOT_FOUND");
-        var result = NodeRepeaterEvaluator.Evaluate(state.Document, node, node.Repeater, profile);
+        if (PortableUiProfileResolver.Resolve(state.Document.Profile, profile, out var selected) is { } invalid)
+            return new(invalid.Code);
+        var result = NodeRepeaterEvaluator.Evaluate(state.Document, node, node.Repeater, selected!);
         return new("OK", new(documentId, state.Revision, nodeId, result.EmptyViewNodeId,
             result.Items?.Skip(offset).Take(limit).ToArray() ?? [], offset, limit, result.Items?.Count ?? 0, result.Diagnostic)
         { TemplateNodes = result.TemplateNodes, EmptyViewNodes = result.EmptyViewNodes });

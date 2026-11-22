@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -165,8 +166,15 @@ public sealed partial class SqliteDocumentJournal
         var subjectId = Guid.Parse(reader.GetString(2));
         return reader.GetString(1) switch
         {
+            "UPGRADE_PORTABLE_UI_PROFILE" when !reader.IsDBNull(14)
+                => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is PortableUiProfileUpgraded upgraded
+                    ? upgraded : throw new InvalidDataException("Invalid profile upgrade event."),
             "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
+            "SET_NODE_PROPERTIES" when !reader.IsDBNull(14)
+                => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is NodePropertiesSet properties &&
+                    properties.NodeId == subjectId && properties.Properties is { Count: > 0 }
+                    ? properties : throw new InvalidDataException("Invalid node properties event."),
             "SET_NODE_PROPERTY" when !reader.IsDBNull(12) && !reader.IsDBNull(13)
                 => new NodePropertySet(subjectId, reader.GetString(12), JsonSerializer.Deserialize<NodePropertyValue>(reader.GetString(13))
                     ?? throw new InvalidDataException("Missing property value.")),
@@ -181,7 +189,10 @@ public sealed partial class SqliteDocumentJournal
             "ADD_PAGE" when reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
                 => new PageAdded(subjectId),
             "ADD_NODE" when reader.IsDBNull(3) && !reader.IsDBNull(4) && !reader.IsDBNull(5) && reader.IsDBNull(6)
-                => new NodeAdded(subjectId, Guid.Parse(reader.GetString(4)), reader.GetString(5)),
+                => new NodeAdded(subjectId, Guid.Parse(reader.GetString(4)), reader.GetString(5),
+                    reader.IsDBNull(14) ? null
+                        : JsonSerializer.Deserialize<ImmutableSortedDictionary<string, NodePropertyValue>>(reader.GetString(14))
+                            ?? throw new InvalidDataException("Missing initial node properties.")),
             "MOVE_NODE" when reader.IsDBNull(3) && reader.IsDBNull(4) && !reader.IsDBNull(6) && !reader.IsDBNull(7)
                 => new NodeMoved(subjectId, Guid.Parse(reader.GetString(6)), reader.GetInt32(7)),
             "DELETE_NODE" when reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
@@ -224,6 +235,9 @@ public sealed partial class SqliteDocumentJournal
                 var (eventType, subjectId, screenId, nodeId, kind) = change.Event switch
                 {
                     DocumentDeleted => ("DELETE_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
+                    PortableUiProfileUpgraded upgraded when previous.Document.Profile == PortableUiProfileReference.Version1 &&
+                        upgraded.Profile == PortableUiProfileReference.Version2 && next.Document == (previous.Document with { Profile = upgraded.Profile })
+                        => ("UPGRADE_PORTABLE_UI_PROFILE", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     HistoryCompensated compensation when change.Version is null
                         => (compensation.IsRedo ? "REDO" : "UNDO", compensation.TargetCommandId, (Guid?)null, (Guid?)null, (string?)null),
                     VersionRestored restored when change.Version is null && change.Result.VersionId == restored.VersionId &&
@@ -275,6 +289,8 @@ public sealed partial class SqliteDocumentJournal
                         => ("SET_NODE_SEMANTIC_KEY", key.NodeId, (Guid?)null, (Guid?)null, (string?)null),
                     NodePropertySet property when change.Result.NodeId == property.NodeId && change.Result.Property == property.Property
                         => ("SET_NODE_PROPERTY", property.NodeId, (Guid?)null, (Guid?)null, (string?)null),
+                    NodePropertiesSet properties when change.Result.NodeId == properties.NodeId && properties.Properties is { Count: > 0 }
+                        => ("SET_NODE_PROPERTIES", properties.NodeId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeMoved node when change.Result.NodeId == node.NodeId && change.Result.PageId is null && change.Result.ScreenId is null
                         => ("MOVE_NODE", node.NodeId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeDeleted node when change.Result.NodeId == node.NodeId && change.Result.PageId is null && change.Result.ScreenId is null
@@ -333,10 +349,12 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or PortableUiProfileUpgraded or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
-                    command.Parameters.AddWithValue("$metadata", JsonSerializer.Serialize<DocumentEvent>(change.Event));
+                    command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded added
+                        ? JsonSerializer.Serialize(added.Properties)
+                        : JsonSerializer.Serialize<DocumentEvent>(change.Event));
                     command.ExecuteNonQuery();
                 }
                 if (change.Event is NodePropertySet propertyEvent)
@@ -572,6 +590,13 @@ public sealed partial class SqliteDocumentJournal
                     throw new InvalidDataException("Invalid document journal sequence.");
                 switch (ReadEvent(reader))
                 {
+                    case PortableUiProfileUpgraded upgraded:
+                        if (document.Profile != PortableUiProfileReference.Version1 || upgraded.Profile != PortableUiProfileReference.Version2)
+                            throw new InvalidDataException("Invalid profile upgrade transition.");
+                        Validate(document);
+                        document = document with { Profile = upgraded.Profile };
+                        Validate(document);
+                        break;
                     case AssetAdded asset:
                         document = document with { Assets = [.. document.Assets, asset.Asset] };
                         break;
@@ -698,7 +723,8 @@ public sealed partial class SqliteDocumentJournal
                     case NodeAdded node:
                         if (!document.Screens.Any(s => s.Id == node.ParentId) && !document.Nodes.Any(n => n.Id == node.ParentId))
                             throw new InvalidDataException("Node event references a missing parent.");
-                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind);
+                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind, node.Properties);
+                        if (node.Properties is not null) Validate(document);
                         break;
                     case NodeNameSet name:
                         if (!document.Nodes.Any(n => n.Id == name.NodeId) || !NodeMetadataValidator.IsValidName(name.Name))
@@ -712,9 +738,16 @@ public sealed partial class SqliteDocumentJournal
                         break;
                     case NodePropertySet property:
                         var target = document.Nodes.FirstOrDefault(n => n.Id == property.NodeId);
-                        if (target is null || NodePropertyValidator.Validate(profile, target.Kind, property.Property, property.Value) is not null)
+                        if (target is null || NodePropertyValidator.Validate(PortableUiProfileResolver.Require(document.Profile, profile),
+                            target.Kind, property.Property, property.Value) is not null)
                             throw new InvalidDataException("Property event references a missing node or invalid property value.");
                         document = DocumentStructureEditor.SetNodeProperty(document, property.NodeId, property.Property, property.Value);
+                        break;
+                    case NodePropertiesSet properties:
+                        if (!document.Nodes.Any(n => n.Id == properties.NodeId))
+                            throw new InvalidDataException("Properties event references a missing node.");
+                        document = DocumentStructureEditor.SetNodeProperties(document, properties.NodeId, properties.Properties);
+                        Validate(document);
                         break;
                     case NodeMoved move:
                         if (!document.Nodes.Any(n => n.Id == move.NodeId) ||

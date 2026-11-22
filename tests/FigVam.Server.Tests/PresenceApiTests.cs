@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FigVam.Application.Documents;
+using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
@@ -58,7 +59,7 @@ public sealed class PresenceApiTests
         client.DefaultRequestHeaders.Authorization = null;
         Assert.Equal(401, (int)(await client.GetAsync(root + "/presence")).StatusCode);
         Actor("owner");
-        var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
+        var journal = new SqliteDocumentJournal(directory, new VisualNodeProfile());
         Assert.Equal(0, (await journal.ReadAsync(id))!.Revision);
         Assert.Empty((await journal.ReadEventsAsync(id, 0)).Events!);
         var api = JsonNode.Parse(await client.GetStringAsync("/openapi/v1.json"))!;

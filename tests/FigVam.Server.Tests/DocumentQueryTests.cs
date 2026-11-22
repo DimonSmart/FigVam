@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using FigVam.Application.Documents;
 using FigVam.Domain.Documents;
+using FigVam.Domain.Layout;
 using FigVam.Server.Documents;
 using FigVam.Infrastructure.Documents;
 using Microsoft.Data.Sqlite;
@@ -156,8 +157,9 @@ public sealed class DocumentQueryTests
         Assert.False(contract.EvaluateNode(JsonNode.Parse("{\"revision\":\"bad\"}")!).IsValid);
 
         // Simulate retention after a sufficient recovery snapshot exists.
-        var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-        var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+        var profile = new VisualNodeProfile();
+        var journal = new SqliteDocumentJournal(directory, profile);
+        var handler = new DocumentCommandHandler(journal, journal, profile);
         for (var i = 0; i < 30; i++) Assert.True((await handler.HandleAsync(new AddPageCommand(doc, Guid.NewGuid(), Guid.NewGuid()), new("owner"))).Accepted);
         using var connection = new SqliteConnection($"Data Source={Path.Combine(directory, $"{doc:N}.sqlite")};Pooling=False");
         await connection.OpenAsync();
@@ -166,6 +168,80 @@ public sealed class DocumentQueryTests
         Assert.Equal(404, (int)unavailable.StatusCode);
         Assert.Equal("REVISION_UNAVAILABLE", (await unavailable.Content.ReadFromJsonAsync<ApiError>())!.Code);
         Assert.Equal(32, (await client.GetFromJsonAsync<StructureResponse>(root))!.Revision);
+    }
+
+    [Fact]
+    public async Task LayoutQueryReturnsDiagnosticsOnlyToAuthorizedReaders()
+    {
+        var doc = Guid.NewGuid();
+        var screen = Guid.NewGuid();
+        var node = new NodeStructure(Guid.NewGuid(), "Text", []);
+        node = node with { Properties = node.Properties.Add("widthMode", new NodeEnumValue("Content")) };
+        var document = new DocumentStructure(doc, [], [new(screen, [node.Id], new(800, 600))], [node])
+        {
+            Profile = PortableUiProfileReference.Version2
+        };
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(document, 7)), new VisualNodeProfile());
+        var query = new ScreenLayoutQuery(screen, Revision: 7);
+        var denied = await service.ReadScreenLayoutAsync(doc, query, new("other"));
+        Assert.Equal("FORBIDDEN", denied.Code);
+        Assert.Null(denied.Response);
+
+        var layout = (await service.ReadScreenLayoutAsync(doc, query, new("reader"))).Response!;
+        Assert.Equal(7, layout.Revision);
+        Assert.Equal(0, layout.Total);
+        Assert.Empty(layout.Boxes);
+        Assert.Equal(new LayoutDiagnostic("unsupported-size-mode", node.Id, "widthMode",
+            "Size mode 'Content' is not supported for screen geometry."), Assert.Single(layout.Diagnostics));
+    }
+
+    [Fact]
+    public async Task HttpLayoutUsesCommittedScreenSizeAndCurrentReadAccess()
+    {
+        using var key = RSA.Create(2048);
+        await using var server = new ServerProcess(Production(key));
+        await server.WaitUntilReadyAsync();
+        using var client = server.CreateClient();
+        void Actor(string id) => client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: id));
+        Actor("owner");
+        var doc = Guid.NewGuid(); var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var node = Guid.NewGuid();
+        var root = $"/api/v1/documents/{doc}";
+        Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = doc })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-page", new { commandId = Guid.NewGuid(), pageId = page })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = page, screenId = screen, dimensions = new { width = 100, height = 80 } })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/add-node", new
+        {
+            commandId = Guid.NewGuid(), parentId = screen, nodeId = node, kind = "Text",
+            properties = new { x = new { type = "number", value = 90 } }
+        })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "/commands/resize-screen", new { commandId = Guid.NewGuid(), screenId = screen, dimensions = new { width = 200, height = 150 } })).StatusCode);
+        Assert.Equal(200, (int)(await client.PutAsJsonAsync(root + "/members", new { memberId = "viewer", role = "Viewer" })).StatusCode);
+
+        var url = root + $"/screens/{screen}/layout";
+        Actor("viewer");
+        var before = (await client.GetFromJsonAsync<ScreenLayoutResponse>(url + "?revision=3&offset=1&limit=1"))!;
+        Assert.Equal(3, before.Revision);
+        Assert.Equal(2, before.Total);
+        Assert.Equal(new LayoutBox(node, new(90, 0, 160, 36), new LayoutRect(0, 0, 100, 80)), Assert.Single(before.Boxes));
+        Assert.Empty(before.Diagnostics);
+        var after = (await client.GetFromJsonAsync<ScreenLayoutResponse>(url))!;
+        Assert.Equal(4, after.Revision);
+        Assert.Equal(new LayoutRect(0, 0, 200, 150), after.Boxes[0].Bounds);
+        Assert.Equal(new LayoutRect(0, 0, 200, 150), after.Boxes[1].Clip);
+        Assert.Equal(before.Boxes[0].Bounds, after.Boxes[1].Bounds);
+        Assert.Equal(404, (int)(await client.GetAsync(url + "?revision=1")).StatusCode);
+        Assert.Equal(400, (int)(await client.GetAsync(url + "?limit=101")).StatusCode);
+
+        Actor("owner");
+        var api = JsonNode.Parse(await client.GetStringAsync("/openapi/v1.json"))!;
+        Assert.Contains("ScreenLayoutResponse", api["paths"]!["/api/v1/documents/{documentId}/screens/{screenId}/layout"]!["get"]!["responses"]!["200"]!.ToJsonString());
+        using var schema = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync("/api/v1/schemas/ScreenLayoutResponse.json"));
+        var contract = JsonSchema.Build(schema.RootElement.Clone());
+        Assert.True(contract.EvaluateNode(JsonNode.Parse(await client.GetStringAsync(url))!).IsValid);
+
+        Assert.Equal(200, (int)(await client.DeleteAsync(root + "/members/viewer")).StatusCode);
+        Actor("viewer");
+        Assert.Equal(403, (int)(await client.GetAsync(url + "?revision=3")).StatusCode);
     }
 
     [Fact]

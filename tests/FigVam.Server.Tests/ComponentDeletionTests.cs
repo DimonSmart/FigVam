@@ -139,7 +139,7 @@ public sealed partial class ComponentParameterCommandTests
             Assert.Equal(403, (int)(await client.PostAsJsonAsync(route, payload)).StatusCode);
             client.DefaultRequestHeaders.Authorization = null;
             Assert.Equal(401, (int)(await client.PostAsJsonAsync(route, payload)).StatusCode);
-            Assert.Equal(0, (await new SqliteDocumentJournal(directory, new UnverifiedNodeProfile()).ReadAsync(id))!.Revision);
+            Assert.Equal(0, (await new SqliteDocumentJournal(directory, new VisualNodeProfile()).ReadAsync(id))!.Revision);
         }
         finally { Directory.Delete(directory, true); }
     }

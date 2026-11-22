@@ -17,7 +17,7 @@ public sealed class TokenCommandTests
 {
     private sealed class TokenProfile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -329,7 +329,7 @@ public sealed class TokenCommandTests
                 using var setRetry = await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/set-token-value", setPayload);
                 Assert.Equal(200, (int)setRetry.StatusCode);
                 Assert.Equal(3, (await setRetry.Content.ReadFromJsonAsync<CommandResponse>())!.Revision);
-                var state = (await new SqliteDocumentJournal(directory, new UnverifiedNodeProfile()).ReadAsync(id))!;
+                var state = (await new SqliteDocumentJournal(directory, new VisualNodeProfile()).ReadAsync(id))!;
                 Assert.Equal("renamed", Assert.Single(state.Document.Tokens).Name);
                 Assert.Equal(new SpacingValue(24), DesignTokenValidator.Resolve(state.Document.Tokens, tokenId, TokenTheme.Dark).Value);
             }

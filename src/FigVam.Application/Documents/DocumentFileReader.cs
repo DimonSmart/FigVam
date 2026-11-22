@@ -29,7 +29,6 @@ public sealed class DocumentFileReader(INodeProfile profile) : IDocumentFileRead
     public const int MaxManifestBytes = 64 * 1024;
     public const int MaxEntries = DocumentAssetValidator.MaxAssets + 2;
     public const int MaxNodes = 1000;
-    public const int MaxTreeDepth = 128;
     private const int MaxJsonValues = 100_000;
     private static readonly JsonSchema DocumentSchema = Build(DocumentFormatSchemas.CreateDocumentFormat());
     private static readonly JsonSchema ManifestSchema = Build(DocumentFormatSchemas.CreateManifestFormat());
@@ -154,7 +153,7 @@ public sealed class DocumentFileReader(INodeProfile profile) : IDocumentFileRead
             var pending = new Stack<(Guid Id, int Depth)>(doc.Screens.SelectMany(s => s.ChildIds).Select(id => (id, 1)));
             while (pending.TryPop(out var frame))
             {
-                if (frame.Depth > MaxTreeDepth) return Failure("DOCUMENT_DEPTH", "/document/nodes", "Node tree exceeds the depth limit.");
+                if (frame.Depth > DocumentStructureLimits.MaxTreeDepth) return Failure("DOCUMENT_DEPTH", "/document/nodes", "Node tree exceeds the depth limit.");
                 foreach (var child in nodes[frame.Id].ChildIds) pending.Push((child, frame.Depth + 1));
             }
             return new(export, []);

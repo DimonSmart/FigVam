@@ -18,13 +18,30 @@ public sealed class AddScreenRequest { public required Guid CommandId { get; ini
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ResizeScreenRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class AddNodeRequest { public required Guid CommandId { get; init; } public required Guid ParentId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Kind { get; init; } }
+public sealed class AddNodeRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid ParentId { get; init; }
+    public required Guid NodeId { get; init; }
+    [Required, StringLength(256, MinimumLength = 1)] public required string Kind { get; init; }
+    public IReadOnlyDictionary<string, NodePropertyValue>? Properties { get; init; }
+}
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DeleteNodeRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class MoveNodeRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } public required Guid ExpectedParentId { get; init; } public required Guid TargetParentId { get; init; } public required int Position { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SetNodePropertyRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } [Required] public required NodePropertyValue Value { get; init; } }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class SetNodePropertiesRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid NodeId { get; init; }
+    [Required] public required IReadOnlyDictionary<string, NodePropertyValue> Properties { get; init; }
+    public Guid? ExpectedParentId { get; init; }
+    public long? ExpectedRevision { get; init; }
+}
+public sealed class UpgradePortableUiProfileRequest { public required Guid CommandId { get; init; } public required long ExpectedRevision { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SaveDocumentRequest { public required Guid CommandId { get; init; } [StringLength(256)] public string? Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

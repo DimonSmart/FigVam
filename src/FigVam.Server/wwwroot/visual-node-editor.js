@@ -1,0 +1,382 @@
+import { createPropertyControl, propertyLabel } from './node-property-controls.js';
+
+const canEdit = role => role === 'Owner' || role === 'Editor';
+const sameRaw = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const draft = () => ({ values: new Map(), error: '', status: '' });
+const scopeKey = context => context.screen && Number.isSafeInteger(context.revision) ?
+  `${context.documentId}:${context.screen}` : null;
+
+export function createVisualNodeEditor({
+  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive
+}) {
+  const kindSelect = element('visual-kind'), parentSelect = element('visual-parent');
+  const paletteProperties = element('visual-required-properties'), inspectorProperties = element('visual-properties');
+  const operations = new Map(), paletteDrafts = new Map(), inspectorDrafts = new Map(), canvasDrafts = new Map();
+  let context, model, modelKey, loadedKey, loadError = '', queued = false;
+  let palette, inspector, node, paletteFields = new Map(), inspectorFields = new Map();
+  let loadingFocus, uploadDocument;
+  const uploads = new Map();
+
+  function refresh() {
+    if (queued) return;
+    queued = true;
+    queueMicrotask(() => {
+      queued = false;
+      context = getContext();
+      if (uploadDocument !== context.documentId) {
+        element('asset-upload-file').value = '';
+        uploadDocument = context.documentId;
+      }
+      const scope = scopeKey(context);
+      const key = scope && `${scope}:${context.revision}:${context.navigationEpoch}`;
+      const selectionId = context.selection?.id;
+      const renderKey = `${key}:${selectionId}:${context.documentRole}`;
+      if (loadedKey !== renderKey) {
+        loadedKey = renderKey;
+        if (modelKey !== key) load(key);
+        render();
+      } else updateControls();
+    });
+  }
+
+  function load(key) {
+    modelKey = key;
+    model = null; loadError = '';
+    if (!key) return;
+    readModel().then(result => {
+      if (modelKey !== key) return;
+      model = result;
+      render();
+    }).catch(error => {
+      if (modelKey !== key || error.name === 'AbortError') return;
+      if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') {
+        closeInaccessibleDocument(error.status);
+        return;
+      }
+      loadError = error.message || 'Не удалось загрузить профиль и свойства.';
+      updateControls();
+    });
+  }
+
+  function render() {
+    const focus = document.activeElement?.id;
+    if (!model && focus)
+      loadingFocus = { id: focus, key: loadedKey };
+    const scope = scopeKey(context), selected = context.selection;
+    const editable = canEdit(context.documentRole);
+    if (scope && !paletteDrafts.has(scope)) paletteDrafts.set(scope, { ...draft(), kind: '', parent: null, selectionId: undefined });
+    palette = paletteDrafts.get(scope);
+    node = model?.nodes.get(selected?.id);
+    const definition = model?.kinds.get(node?.kind);
+    const key = node && `${scope}:${node.id}`;
+    if (key && !inspectorDrafts.has(key)) inspectorDrafts.set(key, draft());
+    inspector = inspectorDrafts.get(key);
+    element('visual-palette').hidden = !scope || !editable;
+    element('visual-inspector').hidden = !scope || !selected;
+    element('visual-palette-form').hidden = !model?.kinds.size;
+    element('visual-properties-form').hidden = !definition;
+    if (model?.kinds.size && editable) {
+      const kinds = [...model.kinds.keys()];
+      kindSelect.replaceChildren(...kinds.map(kind => new Option(kind, kind)));
+      if (!model.kinds.has(palette.kind)) palette.kind = kinds[0];
+      kindSelect.value = palette.kind;
+      parentSelect.replaceChildren(new Option('Выбранный экран', context.screen));
+      if (selected && node) parentSelect.add(new Option(`Выбранный слой · ${selected.name?.trim() || selected.kind}`, selected.id));
+      if (palette.selectionId !== selected?.id) {
+        palette.selectionId = selected?.id;
+        palette.parent = selected?.id;
+      }
+      parentSelect.value = node && palette.parent === node.id ? node.id : context.screen;
+      renderRequiredFields();
+    }
+    inspectorFields = renderFields(inspectorProperties, definition?.properties, node?.properties,
+      editable ? inspector : undefined, 'visual-property');
+    updateControls();
+    const focusId = focus || (loadingFocus?.key === loadedKey ? loadingFocus.id : null);
+    const nextFocus = focusId && element(focusId);
+    if (document.activeElement === document.body && nextFocus && !nextFocus.closest('[hidden]') && !nextFocus.disabled)
+      nextFocus.focus({ preventScroll: true });
+    if (model) loadingFocus = null;
+  }
+
+  function renderRequiredFields() {
+    const properties = model?.kinds.get(palette.kind)?.properties ?? {};
+    const required = Object.fromEntries(Object.entries(properties).filter(([, definition]) => definition.required));
+    paletteFields = renderFields(paletteProperties, required, null, palette, 'visual-required');
+  }
+
+  function renderFields(container, definitions, values, state, prefix) {
+    const fields = new Map();
+    container.replaceChildren();
+    for (const [name, definition] of Object.entries(definitions ?? {})) {
+      const field = createPropertyControl(name, definition, model, values?.[name], prefix);
+      if (state?.values.has(name)) field.write(state.values.get(name));
+      function update() {
+        const raw = field.read();
+        if (sameRaw(field.baseline, raw)) state.values.delete(name);
+        else state.values.set(name, raw);
+        if (state === inspector && (name === 'x' || name === 'y')) {
+          if (state.values.has('x') || state.values.has('y')) state.coordinateParentId ??= node.parentId;
+          else state.coordinateParentId = undefined;
+        }
+        state.error = state.status = '';
+        field.validate();
+        updateControls();
+      }
+      if (state) {
+        field.row.addEventListener('input', update);
+        field.row.addEventListener('change', update);
+        if (state.values.has(name)) field.validate();
+      }
+      fields.set(name, field);
+      container.append(field.row);
+    }
+    return fields;
+  }
+
+  function eligibleParent() {
+    const id = parentSelect.value;
+    return id === context.screen || model?.kinds.get(model.nodes.get(id)?.kind)?.canContainChildren === true;
+  }
+
+  function updateControls() {
+    if (!context) return;
+    const op = operations.get(scopeKey(context));
+    const adding = op?.command === 'add-node', editing = op?.command === 'set-node-properties' && !op.canvas;
+    const canvas = canvasDrafts.get(scopeKey(context));
+    const editable = canEdit(context.documentRole);
+    const blocked = !editable || Boolean(op);
+    const upload = uploads.get(context.documentId);
+    const uploading = upload?.state === 'pending';
+    element('asset-upload-file').disabled = !editable || Boolean(upload);
+    element('asset-upload').disabled = !editable || Boolean(upload);
+    element('asset-upload-retry').hidden = !editable || upload?.state !== 'uncertain';
+    element('asset-upload-status').textContent = uploading ? 'Загрузка изображения…' :
+      upload?.state === 'uncertain' ? 'Подтверждение не получено. Повторите загрузку.' : palette?.uploadStatus || '';
+    element('asset-upload-error').textContent = palette?.uploadError || '';
+    kindSelect.disabled = parentSelect.disabled = blocked;
+    for (const field of paletteFields.values()) field.setDisabled(blocked);
+    for (const field of inspectorFields.values()) field.setDisabled(blocked);
+    const validParent = model?.kinds.size && eligibleParent();
+    const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
+    element('visual-add').disabled = blocked || !validParent || !requiredReady;
+    const save = element('visual-save');
+    save.hidden = !editable;
+    save.disabled = blocked || !inspector?.values.size;
+    element('visual-properties-reset').hidden = !editable || !inspector?.values.size;
+    element('visual-properties-reset').disabled = blocked;
+    element('visual-add-retry').hidden = !editable || !adding || op.state !== 'uncertain';
+    element('visual-save-retry').hidden = !editable || !editing || op.state !== 'uncertain';
+    element('visual-palette-retry').hidden = element('visual-data-retry').hidden = !loadError;
+    element('visual-palette-error').textContent = loadError || palette?.error || '';
+    element('visual-inspector-error').textContent = loadError || inspector?.error || '';
+    element('canvas-edit-error').textContent = canvas?.error || '';
+    element('canvas-edit-status').textContent = op?.canvas ?
+      operationStatus(op, 'Сохранение геометрии…') : canvas?.status || '';
+    element('canvas-edit-retry').hidden = !editable || !op?.canvas || op.state !== 'uncertain';
+    const defaults = model?.kinds.get(palette?.kind)?.properties;
+    const geometry = ['width', 'height', 'x', 'y'].map(name => defaults?.[name]?.defaultValue?.value);
+    const geometryHint = geometry.every(Number.isFinite) ?
+      `Размер ${geometry[0]} × ${geometry[1]}, положение X ${geometry[2]}, Y ${geometry[3]}.` : '';
+    const loading = scopeKey(context) && !model && !loadError ? 'Загрузка профиля…' : '';
+    const paletteStatus = !validParent && model?.kinds.size ?
+      'Выбранный слой не допускает дочерние элементы. Укажите экран или выберите контейнер.' :
+      model && !model.kinds.size ? 'Профиль документа не содержит визуальных видов.' : geometryHint;
+    element('visual-palette-status').textContent = adding ?
+      operationStatus(op, 'Добавление элемента…') : loading || [palette?.status, paletteStatus].filter(Boolean).join(' ');
+    element('visual-inspector-status').textContent = editing ?
+      operationStatus(op, 'Сохранение свойств…') : loading || inspector?.status || '';
+  }
+
+  function operationStatus(op, pending) {
+    return op.state === 'uncertain' ? 'Подтверждение не получено. Повторите ту же команду.' : pending;
+  }
+
+  function readProperties(fields, names) {
+    const properties = {};
+    let invalid;
+    for (const name of names) {
+      const { value, input, error } = fields.get(name).validate();
+      if (error) invalid ??= input;
+      else if (value !== undefined) properties[name] = value;
+    }
+    invalid?.focus();
+    return invalid ? null : properties;
+  }
+
+  element('asset-upload-file').addEventListener('change', () => {
+    if (palette) palette.uploadError = palette.uploadStatus = '';
+    updateControls();
+  });
+  element('asset-upload-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const current = getContext(), file = element('asset-upload-file').files[0];
+    if (!file || !scopeKey(current) || !canEdit(current.documentRole) || uploads.has(current.documentId)) return;
+    const op = { documentId: current.documentId, token: current.token, epoch: current.navigationEpoch,
+      assetId: crypto.randomUUID(), commandId: crypto.randomUUID(), file, draft: palette };
+    uploads.set(op.documentId, op);
+    sendUpload(op);
+  });
+  element('asset-upload-retry').addEventListener('click', () => {
+    const op = uploads.get(getContext().documentId);
+    if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) sendUpload(op);
+  });
+
+  async function sendUpload(op) {
+    const view = getContext();
+    op.token = view.token; op.epoch = view.navigationEpoch;
+    const current = () => uploads.get(op.documentId) === op && getContext().documentId === op.documentId &&
+      getContext().token === op.token && getContext().navigationEpoch === op.epoch;
+    op.state = 'pending'; op.draft.uploadError = op.draft.uploadStatus = '';
+    updateControls();
+    stopLive();
+    try {
+      const result = await request(`/api/v1/documents/${encodeURIComponent(op.documentId)}/assets/${op.assetId}?commandId=${op.commandId}`,
+        { method: 'PUT', headers: { 'Content-Type': 'image/png' }, body: op.file }, undefined, current);
+      if (!current() || result.status !== 'ACCEPTED' || result.commandId !== op.commandId ||
+        result.documentId?.toLowerCase() !== op.documentId.toLowerCase() || !Number.isSafeInteger(result.revision) ||
+        !await refreshDocument(result.revision, current, [], undefined, true)) {
+        op.state = 'uncertain';
+        return;
+      }
+      uploads.delete(op.documentId);
+      element('asset-upload-file').value = '';
+      op.draft.uploadStatus = 'Изображение загружено. Выберите его в поле «Ассет».';
+    } catch (error) {
+      if (!current() || error.status == null || error.status === 408 || error.status >= 500) op.state = 'uncertain';
+      else {
+        uploads.delete(op.documentId);
+        if (error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
+        op.draft.uploadError = error.code === 'ASSET_LIMIT_EXCEEDED' ? 'Достигнут лимит ассетов документа.' :
+          error.status === 413 ? 'Файл превышает 5 МиБ.' :
+          error.status === 400 || error.status === 415 ? 'Сервер отклонил изображение. Выберите допустимый PNG.' : error.message;
+      }
+    } finally { startLive(); refresh(); }
+  }
+
+  kindSelect.addEventListener('change', () => {
+    if (palette.kind === kindSelect.value) return;
+    palette.kind = kindSelect.value;
+    palette.values.clear();
+    palette.error = palette.status = '';
+    renderRequiredFields();
+    updateControls();
+  });
+  parentSelect.addEventListener('change', () => {
+    palette.parent = parentSelect.value;
+    palette.error = palette.status = '';
+    updateControls();
+  });
+  element('visual-palette-form').addEventListener('submit', event => {
+    event.preventDefault();
+    const kind = model?.kinds.get(kindSelect.value);
+    if (!kind || !eligibleParent() || !canEdit(getContext().documentRole)) return;
+    const properties = readProperties(paletteFields, paletteFields.keys());
+    if (!properties) return;
+    begin('add-node', { nodeId: crypto.randomUUID(), parentId: parentSelect.value, kind: kind.kind, properties }, palette);
+  });
+  element('visual-properties-form').addEventListener('submit', event => {
+    event.preventDefault();
+    if (!inspector?.values.size || !canEdit(getContext().documentRole)) return;
+    const names = [...inspector.values.keys()].filter(name => inspectorFields.has(name));
+    if (!names.length) return;
+    const properties = readProperties(inspectorFields, names);
+    if (!properties) return;
+    const expectedParentId = Object.hasOwn(properties, 'x') || Object.hasOwn(properties, 'y') ? inspector.coordinateParentId : undefined;
+    begin('set-node-properties', { nodeId: node.id, properties, expectedParentId }, inspector);
+  });
+  element('visual-properties-reset').addEventListener('click', () => {
+    if (!inspector || operations.has(scopeKey(getContext())) || !canEdit(getContext().documentRole)) return;
+    inspector.values.clear();
+    inspector.coordinateParentId = undefined;
+    inspector.error = inspector.status = '';
+    render();
+    inspectorProperties.querySelector('input, select, textarea')?.focus();
+  });
+  for (const id of ['visual-palette-retry', 'visual-data-retry'])
+    element(id).addEventListener('click', () => { load(modelKey); updateControls(); });
+  for (const id of ['visual-add-retry', 'visual-save-retry', 'canvas-edit-retry'])
+    element(id).addEventListener('click', () => {
+      const op = operations.get(scopeKey(getContext()));
+      if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) send(op);
+    });
+
+  function begin(command, body, state, canvas = null) {
+    const current = getContext(), key = scopeKey(current);
+    if (!key || scopeKey(context) !== key || context.revision !== current.revision ||
+      context.selection?.id !== current.selection?.id || operations.has(key)) return false;
+    const op = { key, command, state: 'ready', draft: state, documentId: current.documentId, screen: current.screen,
+      selectionId: current.selection?.id, body: { commandId: crypto.randomUUID(), ...body },
+      canvas: Boolean(canvas), settlePreview: canvas };
+    operations.set(key, op);
+    send(op);
+    return true;
+  }
+
+  async function send(op) {
+    const { token, navigationEpoch } = getContext(), adding = op.command === 'add-node';
+    const current = () => {
+      const view = getContext();
+      return operations.get(op.key) === op && scopeKey(view) === op.key &&
+        view.token === token && view.navigationEpoch === navigationEpoch;
+    };
+    op.state = 'pending';
+    op.draft.error = op.draft.status = '';
+    updateControls();
+    stopLive();
+    let confirmed = false;
+    try {
+      const result = await request(`/api/v1/documents/${encodeURIComponent(op.documentId)}/commands/${op.command}`, {
+        method: 'POST', body: JSON.stringify(op.body)
+      }, undefined, current);
+      if (!current() || result.status !== 'ACCEPTED' || result.documentId?.toLowerCase() !== op.documentId.toLowerCase() ||
+        result.commandId !== op.body.commandId || result.nodeId !== op.body.nodeId || !Number.isSafeInteger(result.revision)) {
+        op.state = 'uncertain';
+        return;
+      }
+      const reveal = adding && op.body.parentId !== op.screen ? [op.body.parentId] : [];
+      const selection = adding ? { nodeId: op.body.nodeId, previousId: op.selectionId } : undefined;
+      const synced = await refreshDocument(result.revision, current, reveal, selection);
+      if (!synced) {
+        op.state = 'uncertain';
+        return;
+      }
+      operations.delete(op.key);
+      confirmed = true;
+      op.draft.values.clear();
+      op.draft.coordinateParentId = undefined;
+      op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
+      if (scopeKey(getContext()) === op.key) render();
+    } catch (error) {
+      if (!current() || error.status == null || error.status === 408 || error.status >= 500) op.state = 'uncertain';
+      else {
+        operations.delete(op.key);
+        if (error.code === 'DOCUMENT_NOT_FOUND') {
+          closeInaccessibleDocument(error.status);
+          return;
+        }
+        const property = error.property ? `${propertyLabel(error.property)} · ` : '';
+        op.draft.error = property + (error.detail || error.message);
+      }
+    } finally {
+      op.settlePreview?.(confirmed);
+      op.settlePreview = null;
+      startLive();
+      refresh();
+    }
+  }
+
+  function editGeometry(body, settlePreview) {
+    const current = getContext(), key = scopeKey(current);
+    if (!key || !canEdit(current.documentRole) || current.revision !== body.expectedRevision ||
+      current.selection?.id !== body.nodeId || operations.has(key)) return false;
+    if (!canvasDrafts.has(key)) canvasDrafts.set(key, draft());
+    return begin('set-node-properties', body, canvasDrafts.get(key), settlePreview);
+  }
+
+  return {
+    refresh, editGeometry,
+    get editPending() { return operations.has(scopeKey(getContext())); },
+    clear() { operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
+  };
+}

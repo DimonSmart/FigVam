@@ -42,8 +42,9 @@ internal sealed class ServerProcess : IAsyncDisposable
     private readonly StringBuilder log = new();
     private readonly Stopwatch lifetime = Stopwatch.StartNew();
     private readonly int port;
+    private readonly string? isolatedUserProfile;
 
-    public ServerProcess(Dictionary<string, string> configuration)
+    public ServerProcess(Dictionary<string, string> configuration, bool isolateUserSecrets = false)
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -55,9 +56,18 @@ internal sealed class ServerProcess : IAsyncDisposable
             CreateNoWindow = true
         };
         start.ArgumentList.Add(typeof(Program).Assembly.Location);
+        if (isolateUserSecrets)
+        {
+            isolatedUserProfile = Path.Combine(Path.GetTempPath(), "figvam-auth-profile", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(isolatedUserProfile);
+            start.Environment["APPDATA"] = isolatedUserProfile;
+            start.Environment["HOME"] = isolatedUserProfile;
+        }
         start.Environment["Storage__Directory"] = Path.Combine(Path.GetTempPath(), "figvam-auth-tests", Guid.NewGuid().ToString("N"));
         foreach (var key in start.Environment.Keys.ToArray())
             if (key.StartsWith("Authentication__", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("ASPNETCORE_Authentication__", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("DOTNET_Authentication__", StringComparison.OrdinalIgnoreCase) ||
                 key.StartsWith("Kestrel__", StringComparison.OrdinalIgnoreCase) ||
                 key is "DOTNET_ENVIRONMENT" or "ASPNETCORE_HTTP_PORTS" or "ASPNETCORE_HTTPS_PORTS")
                 start.Environment.Remove(key);
@@ -120,6 +130,7 @@ internal sealed class ServerProcess : IAsyncDisposable
         await output;
         await error;
         process.Dispose();
+        if (isolatedUserProfile is not null) Directory.Delete(isolatedUserProfile, recursive: true);
     }
 
     private async Task CaptureAsync(StreamReader reader, string stream)

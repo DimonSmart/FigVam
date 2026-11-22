@@ -26,6 +26,7 @@ public sealed class DocumentDiagnostics(IDocumentAuthorization authorization, ID
         var read = await reader.ReadAsync(documentId, revision, cancellationToken);
         if (read.State is not { } state) return new(read.Code);
         var document = state.Document;
+        PortableUiProfileResolver.Resolve(document.Profile, profile, out var selected);
         HashSet<Guid>? scope = null;
         if (screenId is { } id)
         {
@@ -47,12 +48,12 @@ public sealed class DocumentDiagnostics(IDocumentAuthorization authorization, ID
             return "/documents/" + document.Id + category + property;
         }
         var errors = DocumentStructureValidator.Validate(document, profile)
-            .Concat(document.Nodes.Where(n => n.DataBindings is not null).SelectMany(node => node.DataBindings.Select(pair =>
-                (pair.Key, Binding: pair.Value, Result: NodeDataBindingEvaluator.Evaluate(document, node, pair.Key, pair.Value, profile)))
+            .Concat(document.Nodes.Where(n => selected is not null && n.DataBindings is not null).SelectMany(node => node.DataBindings.Select(pair =>
+                (pair.Key, Binding: pair.Value, Result: NodeDataBindingEvaluator.Evaluate(document, node, pair.Key, pair.Value, selected!)))
                 .Where(item => item.Result.Diagnostic is not null)
                 .Select(item => new StructureError(item.Result.Diagnostic!.Code, node.Id, item.Binding.DatasetId, item.Result.Diagnostic.Message, item.Key))))
-            .Concat(document.Nodes.Where(n => n.Repeater is not null).Select(node =>
-                (Node: node, Result: NodeRepeaterEvaluator.Evaluate(document, node, node.Repeater!, profile)))
+            .Concat(document.Nodes.Where(n => selected is not null && n.Repeater is not null).Select(node =>
+                (Node: node, Result: NodeRepeaterEvaluator.Evaluate(document, node, node.Repeater!, selected!)))
                 .Where(item => item.Result.Diagnostic is not null)
                 .Select(item => new StructureError(item.Result.Diagnostic!.Code, item.Node.Id, item.Node.Repeater!.DatasetId, item.Result.Diagnostic.Message, "repeater")))
             .Distinct()

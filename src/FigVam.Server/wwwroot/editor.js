@@ -3,6 +3,9 @@ import { createUserAdmin } from './user-admin.js';
 import { createApiClient } from './api-client.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
+import { createVisualScreens } from './visual-screen.js';
+import { createCanvasNodeEditor } from './canvas-node-editor.js';
+import { createVisualNodeEditor } from './visual-node-editor.js';
 import { createPresence } from './presence.js';
 import { createMembers } from './members.js';
 import { createLayers } from './layers.js';
@@ -25,6 +28,7 @@ let nextCursor = null;
 let retry = null;
 const pageSize = 20;
 let documentId = null, documentRole = null, revision = null, selectedPage = null, pagesOffset = 0, pagesTotal = 0;
+let catalogRevision = null;
 let pagesItems = [];
 let importOperation = null;
 let deletion = null;
@@ -95,19 +99,20 @@ const tokens = createTokens({
 });
 const components = createComponents({
   element, request: (...args) => request(...args), pageSize,
-  getContext: () => ({ documentId, revision })
+  getContext: () => ({ documentId, revision, catalogRevision })
 });
 const screenVariants = createScreenVariants({
   element, request: (...args) => request(...args), refreshPages: (...args) => refreshPages(...args), pageSize,
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
     get selectedScreen() { return selectedScreen; }, get revision() { return revision; },
+    get catalogRevision() { return catalogRevision; },
     get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
   }
 });
 const datasets = createDatasets({
   element, request: (...args) => request(...args), pageSize,
-  getContext: () => ({ documentId, documentRole, revision, token, generation }),
+  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status) {
@@ -140,6 +145,7 @@ function clearSession() {
   setCsrf('');
   userAdmin.hide();
   documentHistory.clearCommands(); screenResize.clear(); documentHistory.reset();
+  visualNodeEditor.clear();
   cancelRequest();
   element('token').value = '';
   element('document-name').value = '';
@@ -202,8 +208,8 @@ const layers = createLayers({
   },
   runPageRefresh: work => run(() => refreshPages(), work),
   readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, pagesOffset, null, isCurrent, reveal),
-  onSelectionCleared: () => scenarios.clearLayerSelection(),
-  onLayerSelected: () => scenarios.onLayerSelected()
+  onSelectionCleared: () => { scenarios.clearLayerSelection(); visualScreens.syncSelection(); visualNodeEditor.refresh(); },
+  onLayerSelected: () => { scenarios.onLayerSelected(); visualScreens.syncSelection(); visualNodeEditor.refresh(); }
 });
 
 const scenarios = createScenarios({
@@ -220,7 +226,7 @@ const scenarios = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentRole = role; },
+  setDocumentRole: role => { documentRole = role; visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
 
@@ -259,6 +265,7 @@ async function loadList(index = 0, cursor = null) {
   stopLive();
   layers.reset();
   documentHistory.reset(); documentId = documentRole = null;
+  selectedScreen = null; screensItems = []; renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
   element('document-list').replaceChildren();
@@ -355,10 +362,73 @@ const canvasViewport = createCanvasViewport({
   onViewportChange: presence.render,
   setPresenceCursor: presence.setCursor
 });
-const renderCanvas = canvasViewport.render;
+const visualScreens = createVisualScreens({
+  element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
+  getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
+    selection: layers.selection, tokens: tokens.items })
+});
+const visualNodeEditor = createVisualNodeEditor({
+  element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
+  getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen, selection: layers.selection, navigationEpoch, token }),
+  refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
+    let synced = false;
+    await run(() => refreshPages(), async (signal, current) => {
+      synced = (newRevision === revision + 1
+        ? await readNodeEditRevision(signal, newRevision, isCurrent, reveal, selection, resourcesChanged)
+        : await readPages(signal, pagesOffset, null, isCurrent, reveal, selection)) === true;
+      if (current()) message();
+    });
+    return synced;
+  }
+});
+const canvasNodes = createCanvasNodeEditor({
+  element, getContext: () => ({ documentRole, revision, selection: layers.selection }),
+  getModel: () => visualScreens.designModel, getScale: () => canvasViewport.scale,
+  selectLayer: layers.selectFromCanvas, editGeometry: visualNodeEditor.editGeometry,
+  isEditPending: () => visualNodeEditor.editPending
+});
+function renderCanvas(nodeEdit = false) {
+  canvasViewport.render();
+  visualScreens.refresh(nodeEdit);
+  visualNodeEditor.refresh();
+}
 const fitScreen = canvasViewport.fit;
 
-async function readPages(signal, offset = pagesOffset, targetRevision = null, isCurrent = () => true, reveal = []) {
+function selectionAfterCommand(change) {
+  return change && layers.selection?.id === change.previousId ? { id: change.nodeId } : layers.selection;
+}
+
+function renderRevision() {
+  element('revision').textContent = `Общий черновик · ревизия ${revision}`;
+  documentExport.render();
+}
+
+async function readNodeEditRevision(signal, newRevision, isCurrent, reveal, selectionChange, resourcesChanged = false) {
+  const doc = documentId, screen = selectedScreen, current = generation, previousRevision = revision;
+  const valid = () => !signal.aborted && current === generation && previousRevision === revision &&
+    doc === documentId && screen === selectedScreen && isCurrent();
+  const base = `/api/v1/documents/${encodeURIComponent(doc)}`;
+  // One confirmed node command cannot change the document header, page and screen lists, or token definitions.
+  const [layerSnapshot, usages] = await Promise.all([
+    layers.readSnapshot({ base, screen, revision: newRevision, signal, isCurrent: valid, reveal,
+      shouldReportFailure: () => signal === pending?.signal }),
+    tokens.readSelectedUsages(base, newRevision, signal, valid)
+  ]);
+  if (!valid()) return;
+  if (!layers.isExpansionCurrent(layerSnapshot)) return readNodeEditRevision(signal, newRevision, isCurrent, reveal, selectionChange, resourcesChanged);
+  const selection = selectionAfterCommand(selectionChange);
+  layers.reset();
+  revision = newRevision;
+  tokens.applySelectedUsages(usages);
+  renderCanvas(!resourcesChanged);
+  scenarios.retainAfterNodeEdit(screen, previousRevision);
+  layers.applySnapshot(layerSnapshot, selection);
+  diagnostics.refresh();
+  renderRevision();
+  return true;
+}
+
+async function readPages(signal, offset = pagesOffset, targetRevision = null, isCurrent = () => true, reveal = [], selectionChange) {
   const id = documentId, current = generation;
   const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
   const base = `/api/v1/documents/${encodeURIComponent(id)}`;
@@ -366,7 +436,7 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   if (targetRevision !== null) query.set('revision', String(targetRevision));
   const result = await request(`${base}/pages?${query}`, {}, signal, valid);
   if (!valid()) return;
-  if (offset && !result.items.length) return readPages(signal, Math.max(0, offset - pageSize), result.revision, isCurrent, reveal);
+  if (offset && !result.items.length) return readPages(signal, Math.max(0, offset - pageSize), result.revision, isCurrent, reveal, selectionChange);
   const nextRevision = result.revision;
   const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
   let screen = page === selectedPage ? selectedScreen : null;
@@ -391,23 +461,22 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   // An expansion can change while the pinned tree is loading. Stage it again
   // rather than discard that interaction or mix children from two revisions.
   if (!layers.isExpansionCurrent(layerSnapshot))
-    return readPages(signal, offset, nextRevision, isCurrent, reveal);
-  const selection = layers.selection;
+    return readPages(signal, offset, nextRevision, isCurrent, reveal, selectionChange);
+  const selection = selectionAfterCommand(selectionChange);
   layers.reset();
   pagesOffset = offset; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
   screensOffset = screenOffset; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
+  revision = catalogRevision = nextRevision;
+  tokens.apply(tokenSnapshot);
   renderPages(); renderScreens();
-  revision = nextRevision;
   layers.applySnapshot(layerSnapshot, selection);
   const name = header.items[0].name;
   element('document-title').textContent = name; document.title = `${name} — FigVam`;
   element('token-create').inert = element('token-edit').inert = false;
-  tokens.apply(tokenSnapshot);
   components.load(); datasets.load(); screenVariants.load();
   diagnostics.refresh();
   scenarios.refresh(screen);
-  element('revision').textContent = `Общий черновик · ревизия ${revision}`;
-  documentExport.render();
+  renderRevision();
   return true;
 }
 

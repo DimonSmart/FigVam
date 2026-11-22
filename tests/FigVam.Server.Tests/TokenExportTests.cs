@@ -1,5 +1,6 @@
 using FigVam.Application.Documents;
 using FigVam.Domain.Tokens;
+using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 

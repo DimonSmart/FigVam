@@ -24,10 +24,10 @@ export function createComponents({ element, request, pageSize, getContext }) {
     if (!items.length) { const li = document.createElement('li'); li.textContent = empty; list.append(li); }
   }
   async function load() {
-    const { documentId: doc, revision: atRevision } = getContext();
+    const { documentId: doc, revision: atRevision, catalogRevision } = getContext();
     if (!doc || !Number.isSafeInteger(atRevision)) return;
     const current = ++componentGeneration;
-    const valid = () => { const context = getContext(); return current === componentGeneration && doc === context.documentId && atRevision === context.revision; };
+    const valid = () => { const context = getContext(); return current === componentGeneration && doc === context.documentId && catalogRevision === context.catalogRevision; };
     const base = `/api/v1/documents/${encodeURIComponent(doc)}/components`;
     element('components-status').textContent = 'Загрузка компонентов…'; element('components-error').textContent = '';
     element('components-retry').hidden = true; element('components-list').replaceChildren(); element('component-detail').hidden = true;
@@ -45,14 +45,14 @@ export function createComponents({ element, request, pageSize, getContext }) {
         button.addEventListener('click', () => { componentSelection = item.id; usageOffset = 0; load(); }); li.append(button); list.append(li);
       }
       element('components-status').textContent = result.total ? `Компонентов: ${result.total} · ревизия ${atRevision}` : 'Компоненты не найдены.';
-      if (componentSelection) await loadComponentDetail(current, doc, atRevision);
+      if (componentSelection) await loadComponentDetail(current, doc, atRevision, catalogRevision);
     } catch (error) {
       if (!valid() || error.name === 'AbortError') return;
       element('components-status').textContent = ''; element('components-error').textContent = error.message; element('components-retry').hidden = false;
     }
   }
-  async function loadComponentDetail(current, doc, atRevision) {
-    const id = componentSelection, valid = () => { const context = getContext(); return current === componentGeneration && doc === context.documentId && atRevision === context.revision && id === componentSelection; };
+  async function loadComponentDetail(current, doc, atRevision, catalogRevision) {
+    const id = componentSelection, valid = () => { const context = getContext(); return current === componentGeneration && doc === context.documentId && catalogRevision === context.catalogRevision && id === componentSelection; };
     const base = `/api/v1/documents/${encodeURIComponent(doc)}/components/${encodeURIComponent(id)}`;
     element('component-detail').hidden = false; element('component-title').textContent = 'Загрузка…';
     element('component-description').textContent = ''; for (const name of ['component-parameters', 'component-slots', 'component-variants', 'component-usages']) element(name).replaceChildren();
@@ -61,7 +61,7 @@ export function createComponents({ element, request, pageSize, getContext }) {
       const query = new URLSearchParams({ revision: String(atRevision), offset: String(usageOffset), limit: String(pageSize) });
       const [detail, usages] = await Promise.all([request(`${base}?revision=${atRevision}`), request(`${base}/usages?${query}`)]);
       if (!valid()) return;
-      if (usageOffset && !usages.items.length) { usageOffset = Math.max(0, usageOffset - pageSize); return loadComponentDetail(current, doc, atRevision); }
+      if (usageOffset && !usages.items.length) { usageOffset = Math.max(0, usageOffset - pageSize); return loadComponentDetail(current, doc, atRevision, catalogRevision); }
       const item = detail.component; element('component-title').textContent = item.name;
       element('component-description').textContent = item.description || 'Описание отсутствует.';
       const types = ['Text', 'Asset', 'Bool', 'Number', 'TokenReference', 'Enum'], kinds = ['Default', 'Hover', 'Disabled', 'Selected', 'Custom'];

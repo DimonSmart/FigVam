@@ -11,9 +11,9 @@ public static class EditorEndpoints
                 context.Response.Headers.CacheControl = "no-store";
                 context.Response.Headers.XContentTypeOptions = "nosniff";
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
-                context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+                context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
                 return Results.File(Path.Combine(AppContext.BaseDirectory, "wwwroot", name), contentType);
-            }).AllowAnonymous().ExcludeFromDescription();
+            }).AllowAnonymous().DisableRateLimiting().ExcludeFromDescription();
         }
 
         MapFile("/", "index.html", "text/html; charset=utf-8");
@@ -23,6 +23,11 @@ public static class EditorEndpoints
         MapFile("/user-admin.js", "user-admin.js", "text/javascript; charset=utf-8");
         MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
         MapFile("/canvas-viewport.js", "canvas-viewport.js", "text/javascript; charset=utf-8");
+        MapFile("/canvas-node-editor.js", "canvas-node-editor.js", "text/javascript; charset=utf-8");
+        MapFile("/visual-screen.js", "visual-screen.js", "text/javascript; charset=utf-8");
+        MapFile("/visual-node-editor.js", "visual-node-editor.js", "text/javascript; charset=utf-8");
+        MapFile("/node-property-controls.js", "node-property-controls.js", "text/javascript; charset=utf-8");
+        MapFile("/screen-renderer.js", "screen-renderer.js", "text/javascript; charset=utf-8");
         MapFile("/components.js", "components.js", "text/javascript; charset=utf-8");
         MapFile("/datasets.js", "datasets.js", "text/javascript; charset=utf-8");
         MapFile("/members.js", "members.js", "text/javascript; charset=utf-8");

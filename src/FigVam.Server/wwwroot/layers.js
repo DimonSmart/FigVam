@@ -56,7 +56,10 @@ export function createLayers({
     for (const id of ['node-name', 'node-key']) element(id).readOnly = !editable || !ready || !!op;
     for (const id of ['node-name-form', 'node-key-form']) element(id).querySelector('button').hidden = !editable;
     for (const id of ['node-name-form', 'node-key-form']) element(id).querySelector('button').disabled = !ready || !!op;
-    if (ready) { element('node-name').value = nodeMetadata.name; element('node-key').value = nodeMetadata.semanticKey ?? ''; }
+    if (ready) {
+      element('node-name').value = editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name;
+      element('node-key').value = (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
+    }
     else { element('node-name').value = ''; element('node-key').value = ''; }
     element('node-metadata-status').textContent = op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready ? 'Загрузка слоя…' : '');
     element('node-metadata-error').textContent = op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? '');
@@ -106,7 +109,7 @@ export function createLayers({
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
       if (nodeOperations.get(key) !== op) return;
-      if (!Number.isSafeInteger(result.revision) || result.code !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      if (!Number.isSafeInteger(result.revision) || result.status !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       if (!active()) { op.state = 'uncertain'; return; }
       nodeOperations.delete(key);
       await runPageRefresh(signal => readCurrentPages(signal, activeAfterConfirmation));
@@ -124,7 +127,10 @@ export function createLayers({
           return;
         }
         if (nodeMetadata) nodeMetadata.error = error.message;
-        renderNodeMetadata(); return;
+        renderNodeMetadata();
+        const input = element(op.kind === 'name' ? 'node-name' : 'node-key');
+        input.value = (op.kind === 'name' ? op.body.name : op.body.semanticKey) ?? '';
+        return;
       }
     } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden) renderNodeMetadata(); }
   }
@@ -150,7 +156,7 @@ export function createLayers({
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/delete-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
       if (!active()) { op.state = 'uncertain'; return; }
-      if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       let synced = false;
       await runPageRefresh(async signal => { await readCurrentPages(signal, active); synced = true; });
       if (active() && synced) { nodeDeletions.delete(key); renderNodeDeletion(); }
@@ -347,7 +353,7 @@ export function createLayers({
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/move-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
       if (!active()) { op.state = 'uncertain'; return; }
-      if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       const reveal = layerSelection?.id === op.body.nodeId ? op.reveal : [];
       const synced = await refreshNodeMoveTree(active, reveal);
       if (context() && synced) {
@@ -503,12 +509,28 @@ export function createLayers({
   function applySnapshot({ screen, roots, children, expanded }, selection) {
     layerRoots = roots; layerChildren = children; layerExpanded = expanded;
     layerController = new AbortController();
-    renderLayers();
     if (selection) {
       const item = findLayer(selection.id);
       if (item) selectLayer(item);
     }
+    renderLayers();
     element('layers-status').textContent = screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.';
+  }
+
+  function selectFromCanvas(item, nodes) {
+    const byId = new Map(nodes.map(node => [node.id, node]));
+    const branches = new Map();
+    for (const node of nodes) {
+      if (!branches.has(node.parentId)) branches.set(node.parentId, []);
+      branches.get(node.parentId).push(node);
+    }
+    for (let parent = byId.get(item.parentId); parent; parent = byId.get(parent.parentId)) {
+      layerExpanded.add(parent.id);
+      layerChildren.set(parent.id, branches.get(parent.id));
+    }
+    layerRoots = branches.get(workspace.selectedScreen) ?? [];
+    selectLayer(item);
+    renderLayers();
   }
 
   function clearCommands() {
@@ -516,7 +538,7 @@ export function createLayers({
   }
 
   return {
-    reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer,
+    reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
     onScreenContextChanged: () => { screenContextEpoch++; },
     get selection() { return layerSelection; },
     get hasLayers() { return layerRoots.length > 0; }

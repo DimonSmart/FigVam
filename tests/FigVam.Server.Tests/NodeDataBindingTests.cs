@@ -20,7 +20,7 @@ public sealed class NodeDataBindingTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -125,7 +125,7 @@ public sealed class NodeDataBindingTests : IDisposable
     }
 
     [Fact]
-    public async Task CurrentProductionProfileIsNotExpanded()
+    public async Task Version1ProfileDoesNotGainNewBindingCapabilities()
     {
         await Seed(); var profile = new UnverifiedNodeProfile();
         var handler = new DocumentCommandHandler(new Authorization(), Journal(), profile);
@@ -176,7 +176,7 @@ public sealed class NodeDataBindingTests : IDisposable
             client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "viewer"));
             foreach (var (route, payload, _) in requests)
                 Assert.Equal(403, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{doc}/commands/{route}", payload)).StatusCode);
-            Assert.Equal(0, (await new SqliteDocumentJournal(storage, new UnverifiedNodeProfile()).ReadAsync(doc))!.Revision);
+            Assert.Equal(0, (await new SqliteDocumentJournal(storage, new VisualNodeProfile()).ReadAsync(doc))!.Revision);
         }
         finally { if (Directory.Exists(storage)) Directory.Delete(storage, true); }
     }

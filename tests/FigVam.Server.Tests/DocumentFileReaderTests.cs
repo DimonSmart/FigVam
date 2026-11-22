@@ -13,7 +13,7 @@ public sealed class DocumentFileReaderTests
 {
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool IsKnownKind(string kind) => kind == "frame";
         public bool CanContainChildren(string kind) => kind == "frame";
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -145,7 +145,7 @@ public sealed class DocumentFileReaderTests
         Error(await Container(new byte[DocumentFileReader.MaxContainerBytes + 1]), "FILE_TOO_LARGE");
         Error(await Json(Encoding.UTF8.GetBytes("{\"schemaVersion\":1,\"x\":" + new string('[', 65) + "0" + new string(']', 65) + "}")), "INVALID_JSON");
         var export = Export();
-        var ids = Enumerable.Range(0, DocumentFileReader.MaxTreeDepth + 1).Select(_ => Guid.NewGuid()).ToArray();
+        var ids = Enumerable.Range(0, DocumentStructureLimits.MaxTreeDepth + 1).Select(_ => Guid.NewGuid()).ToArray();
         var nodes = ids.Select((id, i) => new NodeStructure(id, "frame", i + 1 < ids.Length ? [ids[i + 1]] : [])).ToArray();
         var deep = export with { Document = export.Document with { Nodes = nodes,
             Screens = [export.Document.Screens[0] with { ChildIds = [ids[0]] }] } };

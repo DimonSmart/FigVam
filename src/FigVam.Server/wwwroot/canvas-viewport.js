@@ -5,6 +5,7 @@ export function createCanvasViewport({ element, getScreen, getSelectedScreen, on
   function paintViewport() {
     const boundary = element('screen-boundary');
     boundary.style.transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`;
+    boundary.style.setProperty('--canvas-scale', viewport.scale);
     element('zoom-level').textContent = `${Math.round(viewport.scale * 100)}%`;
     const grid = element('viewport');
     const spacing = 20 * viewport.scale;
@@ -59,20 +60,23 @@ export function createCanvasViewport({ element, getScreen, getSelectedScreen, on
   element('fit-screen').addEventListener('click', fitScreen);
   const canvasArea = element('viewport');
   canvasArea.addEventListener('wheel', event => {
-    if (!getSelectedScreen()) return;
+    if (!getSelectedScreen() || event.defaultPrevented) return;
     event.preventDefault();
     const rect = canvasArea.getBoundingClientRect();
     zoomAt(viewport.scale * Math.exp(-event.deltaY * 0.001), event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
   canvasArea.addEventListener('keydown', event => {
-    if (!getSelectedScreen()) return;
+    if (!getSelectedScreen() || event.defaultPrevented) return;
     const moves = { ArrowLeft: [30, 0], ArrowRight: [-30, 0], ArrowUp: [0, 30], ArrowDown: [0, -30] };
     if (!moves[event.key]) return;
     event.preventDefault(); viewport.x += moves[event.key][0]; viewport.y += moves[event.key][1]; paintViewport();
   });
   let drag = null;
   canvasArea.addEventListener('pointerdown', event => {
-    if (!getSelectedScreen() || event.button !== 0) return;
+    if (!getSelectedScreen() || event.defaultPrevented || !event.isPrimary || (event.button !== 0 && event.button !== 1)) return;
+    if (event.button === 0 && !event.altKey && event.target.closest('[data-visual-node]')) return;
+    event.preventDefault();
+    canvasArea.focus({ preventScroll: true });
     drag = { id: event.pointerId, x: event.clientX, y: event.clientY }; canvasArea.setPointerCapture(event.pointerId);
   });
   canvasArea.addEventListener('pointermove', event => {
@@ -91,6 +95,7 @@ export function createCanvasViewport({ element, getScreen, getSelectedScreen, on
   return {
     render: renderCanvas,
     fit: fitScreen,
+    get scale() { return viewport.scale; },
     toViewportPoint: point => ({ x: viewport.x + point.x * viewport.scale, y: viewport.y + point.y * viewport.scale })
   };
 }

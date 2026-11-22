@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
 using FigVam.Application.Documents;
+using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
@@ -15,6 +16,33 @@ namespace FigVam.Server.Tests;
 [Collection(ProcessTestCollection.Name)]
 public sealed class DocumentApiTests
 {
+    [Fact]
+    public async Task AuthenticatedReadsAndWritesHaveSeparateBoundedBudgets()
+    {
+        using var key = RSA.Create(2048);
+        var configuration = Production(key);
+        configuration["Storage__Directory"] = Path.Combine(Path.GetTempPath(), "figvam-rate-limit-tests", Guid.NewGuid().ToString("N"));
+        await using var server = new ServerProcess(configuration);
+        await server.WaitUntilReadyAsync();
+        using var client = server.CreateClient();
+        Authorize(client, key, "editor");
+
+        for (var index = 0; index < 300; index++)
+        {
+            using var response = await client.GetAsync("/api/identity");
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+        await Error(await client.GetAsync("/api/identity"), 429, "RATE_LIMITED");
+
+        for (var index = 0; index < 120; index++)
+            await Error(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = Guid.Empty }), 400, "INVALID_ID");
+        await Error(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = Guid.Empty }), 429, "RATE_LIMITED");
+
+        Authorize(client, key, "another-editor");
+        using var otherActor = await client.GetAsync("/api/identity");
+        Assert.Equal(HttpStatusCode.OK, otherActor.StatusCode);
+    }
+
     [Fact]
     public async Task AuthenticatedOwnersManageMembershipWithIsolationAndDurability()
     {
@@ -63,7 +91,7 @@ public sealed class DocumentApiTests
             Authorize(client, key, "owner");
             await Error(await client.PutAsJsonAsync($"/api/v1/documents/{first}/members", new { memberId = "owner", role = "Owner" }), 403, "FORBIDDEN");
         }
-        var storage = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
+        var storage = new SqliteDocumentJournal(directory, new VisualNodeProfile());
         Assert.True(await storage.CanEditAsync(new("editor"), first, default));
         Assert.True(await storage.CanReadAsync(new("viewer"), first, default));
         Assert.False(await storage.CanEditAsync(new("viewer"), first, default));
@@ -158,7 +186,7 @@ public sealed class DocumentApiTests
     }
 
     [Fact]
-    public void ProductionProfileCannotClaimUnverifiedCapabilities()
+    public void Version1ProfileRetainsItsOriginalCapabilities()
     {
         var profile = new UnverifiedNodeProfile();
         foreach (var kind in new[] { "Frame", "Text", "Button", "unknown" })

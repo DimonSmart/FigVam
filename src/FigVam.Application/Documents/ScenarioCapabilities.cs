@@ -9,7 +9,7 @@ public interface IScenarioCapabilitiesQuery
 {
     Task<ScenarioCapabilitiesResult> ReadAsync(Guid documentId, long revision, Guid nodeId, Guid? targetId, Guid? screenId, Guid? variantId, Guid? datasetId, Guid? demoNodeId, string? demoValue, DocumentActor actor, CancellationToken ct = default);
 }
-public sealed class ScenarioCapabilitiesQuery(IDocumentAuthorization authorization, IDocumentStateReader reader, INodeProfile profile) : IScenarioCapabilitiesQuery
+public sealed class ScenarioCapabilitiesQuery(IDocumentAuthorization authorization, IDocumentStateReader reader, INodeProfile installedProfile) : IScenarioCapabilitiesQuery
 {
     public async Task<ScenarioCapabilitiesResult> ReadAsync(Guid documentId, long revision, Guid nodeId, Guid? targetId, Guid? screenId, Guid? variantId, Guid? datasetId, Guid? demoNodeId, string? demoValue, DocumentActor actor, CancellationToken ct = default)
     {
@@ -17,7 +17,8 @@ public sealed class ScenarioCapabilitiesQuery(IDocumentAuthorization authorizati
         if (documentId == Guid.Empty || nodeId == Guid.Empty || targetId == Guid.Empty || screenId == Guid.Empty || variantId == Guid.Empty || datasetId == Guid.Empty || demoNodeId == Guid.Empty || demoValue?.Length > 4096 || (variantId is not null && screenId is null) || revision < 0) return new("INVALID_QUERY");
         var read = await reader.ReadAsync(documentId, revision, ct);
         if (read.State is not { } state) return new(read.Code);
-        if (PortableUiProfileResolver.Validate(state.Document.Profile, profile) is { } invalid) return new(invalid.Code);
+        if (PortableUiProfileResolver.Resolve(state.Document.Profile, installedProfile, out var selected) is { } invalid) return new(invalid.Code);
+        var profile = selected!;
         var node = state.Document.Nodes.FirstOrDefault(n => n.Id == nodeId);
         if (node is null) return new("NODE_NOT_FOUND");
         if (targetId is { } target && !state.Document.Screens.Any(s => s.Id == target)) return new("SCREEN_NOT_FOUND");

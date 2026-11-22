@@ -8,6 +8,9 @@ namespace FigVam.Domain.Documents;
 public interface INodeProfile
 {
     PortableUiProfileReference Identity { get; }
+    INodeProfile? GetInstalledVersion(int version) => version == Identity.Version ? this : null;
+    IReadOnlyList<NodeKindDefinition> Kinds => [];
+    IReadOnlyList<string> PreviewActions => [];
     bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event);
     bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action);
     bool SupportsDemoValue(string kind);
@@ -22,7 +25,7 @@ public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pag
     [System.Text.Json.Serialization.JsonRequired]
     public string Name { get; init; } = "Document";
     [System.Text.Json.Serialization.JsonRequired]
-    public PortableUiProfileReference Profile { get; init; } = PortableUiProfileReference.Production;
+    public PortableUiProfileReference Profile { get; init; } = PortableUiProfileReference.Version1;
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<DocumentAsset> Assets { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
@@ -164,10 +167,14 @@ public static class DocumentStructureEditor
     }
 
     public static DocumentStructure SetNodeProperty(DocumentStructure document, Guid nodeId, string property, NodePropertyValue value)
+        => SetNodeProperties(document, nodeId, [new(property, value)]);
+
+    public static DocumentStructure SetNodeProperties(DocumentStructure document, Guid nodeId,
+        IEnumerable<KeyValuePair<string, NodePropertyValue>> properties)
     {
         if (!document.Nodes.Any(n => n.Id == nodeId)) throw new InvalidOperationException("Node does not exist.");
         return document with { Nodes = document.Nodes.Select(n => n.Id == nodeId
-            ? n with { Properties = n.Properties.SetItem(property, value) } : n).ToArray() };
+            ? n with { Properties = n.Properties.SetItems(properties) } : n).ToArray() };
     }
 
     public static DocumentStructure AddScreen(DocumentStructure document, Guid pageId, Guid screenId, ScreenDimensions dimensions)
@@ -178,14 +185,18 @@ public static class DocumentStructureEditor
             Screens = document.Screens.Append(new ScreenStructure(screenId, [], dimensions)).ToArray()
         };
 
-    public static DocumentStructure AddNode(DocumentStructure document, Guid parentId, Guid nodeId, string kind)
+    public static DocumentStructure AddNode(DocumentStructure document, Guid parentId, Guid nodeId, string kind,
+        ImmutableSortedDictionary<string, NodePropertyValue>? properties = null)
         => document with
         {
             Screens = document.Screens.Select(s => s.Id == parentId
                 ? s with { ChildIds = s.ChildIds.Append(nodeId).ToArray() } : s).ToArray(),
             Nodes = document.Nodes.Select(n => n.Id == parentId
                 ? n with { ChildIds = n.ChildIds.Append(nodeId).ToArray() } : n)
-                .Append(new NodeStructure(nodeId, kind, [])).ToArray()
+                .Append(new NodeStructure(nodeId, kind, [])
+                {
+                    Properties = properties ?? ImmutableSortedDictionary<string, NodePropertyValue>.Empty
+                }).ToArray()
         };
 
     public static DocumentStructure InsertComponentInstance(DocumentStructure document, Guid parentId, int position,
@@ -264,10 +275,19 @@ public static class DocumentStructureEditor
 
 public sealed record StructureError(string Code, Guid ObjectId, Guid? ReferenceId, string Message, string? Property = null);
 
+public static class DocumentStructureLimits
+{
+    public const int MaxTreeDepth = 128;
+}
+
 public static class DocumentStructureValidator
 {
     public static IReadOnlyList<StructureError> Validate(DocumentStructure document, INodeProfile profile)
     {
+        ArgumentNullException.ThrowIfNull(document);
+        if (PortableUiProfileResolver.Resolve(document.Profile, profile, out var selected) is { } error)
+            return [new(error.Code, document.Id, null, error.Message, "profile")];
+        profile = selected!;
         var structureErrors = ValidateStructure(document, profile);
         if (structureErrors.Count != 0) return structureErrors;
         if (document.ComponentInstances is null || document.ComponentInstances.Any(i => i is null ||
@@ -283,8 +303,9 @@ public static class DocumentStructureValidator
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(profile);
-        if (PortableUiProfileResolver.Validate(document.Profile, profile) is { } profileError)
+        if (PortableUiProfileResolver.Resolve(document.Profile, profile, out var selected) is { } profileError)
             return [new(profileError.Code, document.Id, null, profileError.Message, "profile")];
+        profile = selected!;
         var errors = new List<StructureError>();
         if (!DocumentNameValidator.IsValid(document.Name)) errors.Add(new("INVALID_DOCUMENT_NAME", document.Id, null, "Document name is invalid.", "name"));
         var kinds = new Dictionary<Guid, string>();
@@ -304,6 +325,7 @@ public static class DocumentStructureValidator
         errors.AddRange(DocumentScenarioValidator.Validate(document, profile));
         foreach (var dataset in document.Datasets) Register(dataset.Id, "dataset");
         foreach (var token in document.Tokens) Register(token.Id, "token");
+        var tokens = new DesignTokenResolver(document.Tokens);
         errors.AddRange(DesignTokenValidator.Validate(document.Tokens).Select(e => new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message)));
         Register(document.Id, "document");
         foreach (var page in document.Pages) Register(page.Id, "page");
@@ -315,7 +337,7 @@ public static class DocumentStructureValidator
             if (screen.Variants is null) { errors.Add(new("INVALID_SCREEN_VARIANT", screen.Id, null, "Screen variants are required.")); continue; }
             foreach (var variant in screen.Variants)
                 if (variant is not null) Register(variant.Id, "screen variant");
-            errors.AddRange(ScreenVariantValidator.Validate(document, screen, profile));
+            errors.AddRange(ScreenVariantValidator.Validate(document, screen, profile, tokens));
         }
 
         bool Reference(Guid owner, Guid target, string expected)
@@ -361,20 +383,7 @@ public static class DocumentStructureValidator
                 errors.Add(new("unknown-node-kind", node.Id, null, $"Node kind '{node.Kind}' is not in the profile."));
             else if (node.ChildIds.Count > 0 && !profile.CanContainChildren(node.Kind))
                 errors.Add(new("children-not-allowed", node.Id, null, $"Node kind '{node.Kind}' cannot contain children."));
-            if (node.Properties is null)
-                errors.Add(new("invalid-properties", node.Id, null, "Properties are required."));
-            else foreach (var (property, value) in node.Properties)
-            {
-                if (NodePropertyValidator.Validate(profile, node.Kind, property, value) is { } error)
-                    errors.Add(new(error.Code, node.Id, null, error.Reason, property));
-                if (value is NodeTokenValue reference)
-                {
-                    var token = document.Tokens.FirstOrDefault(t => t.Id == reference.TokenId);
-                    if (token is null) errors.Add(new("missing-reference", node.Id, reference.TokenId, "Referenced token does not exist.", property));
-                    else if (profile.GetProperty(node.Kind, property)?.TokenType is { } expected && token.Type != expected)
-                        errors.Add(new("type-mismatch", node.Id, reference.TokenId, "Token type does not match the property.", property));
-                }
-            }
+            errors.AddRange(ValidateNodeProperties(document, node, profile, tokens));
             if (node.DataBindings is null) errors.Add(new("INVALID_DATA_BINDING", node.Id, null, "Data bindings are required."));
             else foreach (var (property, binding) in node.DataBindings)
                 if (NodeDataBindingEvaluator.Validate(document, node, property, binding, profile) is { } bindingError)
@@ -414,6 +423,28 @@ public static class DocumentStructureValidator
             }
         }
         return errors;
+    }
+
+    internal static IEnumerable<StructureError> ValidateNodeProperties(DocumentStructure document, NodeStructure node, INodeProfile profile,
+        DesignTokenResolver tokens, TokenTheme? theme = null)
+    {
+        if (node.Properties is null)
+        {
+            yield return new("invalid-properties", node.Id, null, "Properties are required.");
+            yield break;
+        }
+        if (profile.Kinds.FirstOrDefault(kind => kind.Kind == node.Kind) is { } kind)
+            foreach (var (property, definition) in kind.Properties)
+                if (definition.Required && !node.Properties.ContainsKey(property))
+                    yield return new("REQUIRED_PROPERTY", node.Id, null, $"Property '{property}' is required for '{node.Kind}'.", property);
+
+        foreach (var (property, value) in node.Properties)
+        {
+            if (NodePropertyValidator.Validate(profile, node.Kind, property, value) is { } error)
+                yield return new(error.Code, node.Id, null, error.Reason, property);
+            else if (NodePropertyValidator.ValidateReference(document, tokens, profile.GetProperty(node.Kind, property), property, value, theme) is { } reference)
+                yield return new(reference.Code, node.Id, reference.Id, reference.Reason, property);
+        }
     }
 }
 

@@ -13,6 +13,10 @@ namespace FigVam.Server.Documents;
 [ProducesResponseType<ApiError>(415), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
 public sealed class DocumentCommandController(IDocumentCommandHandler handler) : ControllerBase
 {
+    [HttpPost("upgrade-portable-ui-profile"), EndpointSummary("Upgrade a version 1 document to Portable UI Profile version 2 at the expected revision")]
+    public async Task<IActionResult> UpgradePortableUiProfile(Guid documentId, UpgradePortableUiProfileRequest request, CancellationToken ct) =>
+        Result(await handler.HandleAsync(new UpgradePortableUiProfileCommand(documentId, request.CommandId, request.ExpectedRevision), User.GetDocumentActor(), ct));
+
     [HttpPost("create-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Create a saved prototype event and ordered actions")]
     [EndpointDescription("Scenario requires a globally unique ID, screenId, nodeId, numeric event (Click=0, Change=1, Hover=2, Leave=3), and 1-32 typed actions. Profile must explicitly support the event, actions and demo value targets.")]
     public async Task<IActionResult> CreateScenario(Guid documentId, CreateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new CreateScenarioCommand(documentId, request.CommandId, request.Scenario), User.GetDocumentActor(), ct));
@@ -108,8 +112,11 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [HttpPost("add-screen"), EndpointSummary("Add a screen to a page")]
     [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid.")]
     public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));
-    [HttpPost("add-node"), EndpointSummary("Add a node to a screen or container")]
-    public async Task<IActionResult> AddNode(Guid documentId, AddNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddNodeCommand(documentId, request.CommandId, request.ParentId, request.NodeId, request.Kind), User.GetDocumentActor(), ct));
+    [HttpPost("add-node"), EndpointSummary("Atomically add a node with its initial typed properties")]
+    [EndpointDescription("Add a node to a screen or container. The properties map accepts names and typed values from the document profile. Image requires an asset property referencing an existing document asset.")]
+    public async Task<IActionResult> AddNode(Guid documentId, AddNodeRequest request, CancellationToken ct) =>
+        Result(await handler.HandleAsync(new AddNodeCommand(documentId, request.CommandId, request.ParentId, request.NodeId,
+            request.Kind, request.Properties), User.GetDocumentActor(), ct));
     [HttpPost("delete-node"), EndpointSummary("Delete a node")]
     public async Task<IActionResult> DeleteNode(Guid documentId, DeleteNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeleteNodeCommand(documentId, request.CommandId, request.NodeId), User.GetDocumentActor(), ct));
     [HttpPost("move-node"), EndpointSummary("Move or reorder a node")]
@@ -120,6 +127,11 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     public async Task<IActionResult> SetNodeSemanticKey(Guid documentId, SetNodeSemanticKeyRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodeSemanticKeyCommand(documentId, request.CommandId, request.NodeId, request.SemanticKey), User.GetDocumentActor(), ct));
     [HttpPost("set-node-property"), EndpointSummary("Set a typed node property")]
     public async Task<IActionResult> SetNodeProperty(Guid documentId, SetNodePropertyRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodePropertyCommand(documentId, request.CommandId, request.NodeId, request.Property, request.Value), User.GetDocumentActor(), ct));
+    [HttpPost("set-node-properties"), EndpointSummary("Atomically set one or more typed properties on one node")]
+    [EndpointDescription("Supply a nonempty map of property names and typed values from the document profile. Pass expectedParentId for edits based on parent-relative coordinates and expectedRevision for edits based on a document revision.")]
+    public async Task<IActionResult> SetNodeProperties(Guid documentId, SetNodePropertiesRequest request, CancellationToken ct) =>
+        Result(await handler.HandleAsync(new SetNodePropertiesCommand(documentId, request.CommandId, request.NodeId,
+            request.Properties, request.ExpectedParentId, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("save"), EndpointSummary("Save an immutable document version")]
     public async Task<IActionResult> Save(Guid documentId, SaveDocumentRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SaveDocumentCommand(documentId, request.CommandId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("restore"), EndpointSummary("Restore a saved version as a new revision")]
@@ -136,8 +148,9 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
         if (result.Accepted) return Ok(new CommandResponse(result.Code, result.DocumentId, result.CommandId, result.Revision!.Value, result.PageId, result.ScreenId, result.NodeId, result.VersionId, result.AffectedIds ?? new Guid?[] { result.PageId, result.ScreenId, result.NodeId, result.VersionId }.OfType<Guid>().Distinct().ToArray()));
         var status = result.Code switch
         {
+            "REQUIRED_PROPERTY" or "INVALID_PROFILE_UPGRADE" or "INVALID_PROFILE" or "PROFILE_UNAVAILABLE" or "UNSUPPORTED_PROFILE_VERSION" => 400,
             "FORBIDDEN" => 403,
-            "DATASET_CONNECTOR_NOT_FOUND" or "SCREEN_NOT_FOUND" or "SCENARIO_NOT_FOUND" or "SCREEN_VARIANT_NOT_FOUND" or "VARIANT_OVERRIDE_NOT_FOUND" or "DATA_BINDING_NOT_FOUND" or "DATASET_NOT_FOUND" or "COMPONENT_NOT_FOUND" or "DOCUMENT_NOT_FOUND" or "TOKEN_NOT_FOUND" or "PAGE_NOT_FOUND" or "NODE_NOT_FOUND" or "PARENT_NOT_FOUND" or "VERSION_NOT_FOUND" => 404,
+            "ASSET_NOT_FOUND" or "DATASET_CONNECTOR_NOT_FOUND" or "SCREEN_NOT_FOUND" or "SCENARIO_NOT_FOUND" or "SCREEN_VARIANT_NOT_FOUND" or "VARIANT_OVERRIDE_NOT_FOUND" or "DATA_BINDING_NOT_FOUND" or "DATASET_NOT_FOUND" or "COMPONENT_NOT_FOUND" or "DOCUMENT_NOT_FOUND" or "TOKEN_NOT_FOUND" or "PAGE_NOT_FOUND" or "NODE_NOT_FOUND" or "PARENT_NOT_FOUND" or "VERSION_NOT_FOUND" => 404,
             "INVALID_DOCUMENT_NAME" or "INVALID_SCREEN_DIMENSIONS" or "INVALID_PAGE" or "CONNECTOR_NOT_ALLOWED" or "INVALID_SCENARIO" or "INVALID_SCREEN_VARIANT" or "INVALID_VARIANT_NODE" or "INVALID_TOKEN_IMPORT" or "INVALID_REPEATER" or "DATA_REPEATER_LIMIT" or "INVALID_DATA_BINDING" or "DATA_MISSING_VALUE" or "DATA_INCOMPATIBLE_TYPE" or "DATA_INVALID_FIXTURE" or "DATA_INVALID_PATH" or "INVALID_CSV_FIXTURE" or "INVALID_DATASET" or "INVALID_DATASET_FIXTURE" or "DATASET_LIMIT_EXCEEDED" or "INVALID_COMPONENT_REPLACEMENT" or "INVALID_REVISION" or "INVALID_COMPONENT" or "INVALID_TOKEN" or "INVALID_NODE_METADATA" or "INVALID_ID" or "INVALID_VERSION_NAME" or "INVALID_POSITION" or "INVALID_PROPERTY_TYPE" or "INVALID_PROPERTY_VALUE" or "UNSUPPORTED_PROPERTY" or "UNSUPPORTED_NODE_KIND" => 400,
             _ => 409
         };

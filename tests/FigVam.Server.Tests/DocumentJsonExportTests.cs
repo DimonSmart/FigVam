@@ -124,7 +124,7 @@ public sealed class DocumentJsonExportTests
             Assert.True((await journal.CreateAsync(new(id), owner)).Accepted);
             var handler = new DocumentCommandHandler(journal, journal, profile);
             Assert.True((await handler.HandleAsync(new AddPageCommand(id, Guid.NewGuid(), Guid.NewGuid()), owner)).Accepted);
-            var exporter = new DocumentJsonExporter(journal, journal, journal, new FigVam.Server.Documents.UnverifiedNodeProfile());
+            var exporter = new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile());
             var before = await exporter.ExportAsync(id, 1, null, owner);
             var save = await handler.HandleAsync(new SaveDocumentCommand(id, Guid.NewGuid(), "Review"), owner);
             Assert.True(save.Accepted);

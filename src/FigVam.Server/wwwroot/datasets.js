@@ -19,8 +19,8 @@ export function createDatasets({ element, request, getContext, pageSize, startRe
   }
   async function loadDatasets() {
     if (!getContext().documentId || !Number.isSafeInteger(getContext().revision)) return;
-    const current = ++datasetGeneration, doc = getContext().documentId, atRevision = getContext().revision;
-    const valid = () => current === datasetGeneration && doc === getContext().documentId && atRevision === getContext().revision;
+    const { documentId: doc, revision: atRevision, catalogRevision } = getContext(), current = ++datasetGeneration;
+    const valid = () => current === datasetGeneration && doc === getContext().documentId && catalogRevision === getContext().catalogRevision;
     const base = `/api/v1/documents/${encodeURIComponent(doc)}/datasets`;
     element('datasets-status').textContent = 'Загрузка датасетов…'; element('datasets-error').textContent = '';
     element('datasets-retry').hidden = true; element('datasets-list').replaceChildren(); element('dataset-detail').hidden = true;

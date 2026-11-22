@@ -13,7 +13,7 @@ test('creates, renames, updates and follows direct usages', async ({ page, reque
   await page.getByRole('button', { name: 'Создать токен' }).click(); await expect(page.locator('#token-values')).toHaveText('Light: 8; Dark: 12');
   await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByRole('button', { name: 'Переименовать токен' }).click();
   await expect(page.locator('#token-detail-title')).toHaveText('Gap');
-  await page.getByLabel('Тема', { exact: true }).selectOption('Dark'); await page.getByLabel('Новое значение').fill('24');
+  await page.getByRole('region', { name: 'Токены дизайна' }).getByLabel('Тема', { exact: true }).selectOption('Dark'); await page.getByLabel('Новое значение').fill('24');
   await page.getByRole('button', { name: 'Сохранить значение' }).click(); await expect(page.locator('#token-values')).toHaveText('Light: 8; Dark: 24');
   const doc = page.url().split('/').pop(), headers = { Authorization: `Bearer ${bearer}` };
   const tokens = await (await request.get(`/api/v1/documents/${doc}/tokens`, { headers })).json();

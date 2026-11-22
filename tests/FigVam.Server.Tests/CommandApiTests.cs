@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json.Nodes;
+using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
@@ -121,7 +122,7 @@ public sealed class CommandApiTests
         var repeated = await Success("add-page", new { commandId, pageId = Guid.NewGuid() }, 1);
         Assert.Equal(first.PageId, repeated.PageId); Assert.Equal(first.AffectedIds, repeated.AffectedIds);
         await Success("add-screen", new { commandId = Guid.NewGuid(), pageId = page, screenId = screen , dimensions = new { width = 800, height = 600 } }, 2);
-        await Refused("add-node", new { commandId = Guid.NewGuid(), parentId = screen, nodeId = Guid.NewGuid(), kind = "Frame" }, 400, "UNSUPPORTED_NODE_KIND");
+        await Refused("add-node", new { commandId = Guid.NewGuid(), parentId = screen, nodeId = Guid.NewGuid(), kind = "Html" }, 400, "UNSUPPORTED_NODE_KIND");
         await Refused("delete-node", new { commandId = Guid.NewGuid(), nodeId = Guid.NewGuid() }, 404, "NODE_NOT_FOUND");
         await Refused("move-node", new { commandId = Guid.NewGuid(), nodeId = Guid.NewGuid(), expectedParentId = screen, targetParentId = screen, position = 0 }, 404, "NODE_NOT_FOUND");
         await Refused("set-node-property", new { commandId = Guid.NewGuid(), nodeId = Guid.NewGuid(), property = "width", value = new { type = "number", value = 1 } }, 404, "NODE_NOT_FOUND");
@@ -145,7 +146,7 @@ public sealed class CommandApiTests
         Assert.Equal(400, (int)invalid.StatusCode);
         using var oversized = await client.PostAsync(root + "save", new StringContent(new string(' ', 17000) + "{}", Encoding.UTF8, "application/json"));
         Assert.Equal(413, (int)oversized.StatusCode);
-        var storage = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
+        var storage = new SqliteDocumentJournal(directory, new VisualNodeProfile());
         Assert.Equal(6, (await storage.ReadAsync(doc))!.Revision);
         Assert.Equal(0, (await storage.ReadAsync(other))!.Revision);
         var renameId = Guid.NewGuid();
@@ -157,6 +158,68 @@ public sealed class CommandApiTests
     }
 
     [Fact]
+    public async Task VisualCommandsAcceptTypedPropertyMapsAndReportTargetedRejections()
+    {
+        using var key = RSA.Create(2048);
+        var config = Production(key);
+        await using var server = new ServerProcess(config);
+        await server.WaitUntilReadyAsync();
+        using var client = server.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "owner"));
+        var documentId = Guid.NewGuid();
+        var pageId = Guid.NewGuid();
+        var screenId = Guid.NewGuid();
+        var nodeId = Guid.NewGuid();
+        var root = $"/api/v1/documents/{documentId}/commands/";
+        Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "add-page", new { commandId = Guid.NewGuid(), pageId })).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync(root + "add-screen", new
+        {
+            commandId = Guid.NewGuid(), pageId, screenId, dimensions = new { width = 800, height = 600 }
+        })).StatusCode);
+
+        var add = new
+        {
+            commandId = Guid.NewGuid(), parentId = screenId, nodeId, kind = "Text",
+            properties = new { text = new { type = "string", value = "Initial" } }
+        };
+        using var inserted = await client.PostAsJsonAsync(root + "add-node", add);
+        Assert.Equal(200, (int)inserted.StatusCode);
+        Assert.Equal(3, (await inserted.Content.ReadFromJsonAsync<CommandResponse>())!.Revision);
+        var edit = new
+        {
+            commandId = Guid.NewGuid(), nodeId, expectedParentId = screenId, expectedRevision = 3,
+            properties = new { x = new { type = "number", value = 30 }, width = new { type = "number", value = 160 } }
+        };
+        using var updated = await client.PostAsJsonAsync(root + "set-node-properties", edit);
+        Assert.Equal(200, (int)updated.StatusCode);
+        Assert.Equal(4, (await updated.Content.ReadFromJsonAsync<CommandResponse>())!.Revision);
+
+        using var invalid = await client.PostAsJsonAsync(root + "set-node-properties", new
+        {
+            commandId = Guid.NewGuid(), nodeId,
+            properties = new { x = 50 }
+        });
+        Assert.Equal(400, (int)invalid.StatusCode);
+        using var dangling = await client.PostAsJsonAsync(root + "add-node", new
+        {
+            commandId = Guid.NewGuid(), parentId = screenId, nodeId = Guid.NewGuid(), kind = "Image",
+            properties = new { asset = new { type = "asset", assetId = Guid.NewGuid() } }
+        });
+        Assert.Equal(404, (int)dangling.StatusCode);
+        var diagnostic = (await dangling.Content.ReadFromJsonAsync<ApiError>())!;
+        Assert.Equal("ASSET_NOT_FOUND", diagnostic.Code);
+        Assert.Equal("asset", diagnostic.Property);
+        using var schemaJson = System.Text.Json.JsonDocument.Parse(await client.GetStringAsync("/api/v1/schemas/SetNodePropertiesRequest.json"));
+        var schema = JsonSchema.Build(schemaJson.RootElement.Clone());
+        Assert.True(schema.EvaluateNode(System.Text.Json.JsonSerializer.SerializeToNode(edit)!).IsValid);
+        Assert.False(schema.EvaluateNode(System.Text.Json.JsonSerializer.SerializeToNode(new
+        {
+            edit.commandId, edit.nodeId, properties = new { x = 50 }
+        })!).IsValid);
+    }
+
+    [Fact]
     public async Task CommandSchemasAndOpenApiDescribeRequestsAndResponses()
     {
         using var key = RSA.Create(2048);
@@ -165,14 +228,14 @@ public sealed class CommandApiTests
         using var client = server.CreateClient();
         client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "owner"));
         var api = JsonNode.Parse(await client.GetStringAsync("/openapi/v1.json"))!;
-        foreach (var route in new[] { "add-token", "add-page", "add-screen", "resize-screen", "add-node", "delete-node", "move-node", "set-node-property", "set-node-name", "set-node-semantic-key", "save", "restore", "undo", "redo" })
+        foreach (var route in new[] { "add-token", "add-page", "add-screen", "resize-screen", "add-node", "delete-node", "move-node", "set-node-property", "set-node-properties", "set-node-name", "set-node-semantic-key", "save", "restore", "undo", "redo" })
         {
             var operation = api["paths"]![$"/api/v1/documents/{{documentId}}/commands/{route}"]!["post"]!;
             Assert.NotNull(operation["security"]![0]!["Bearer"]);
             Assert.Contains("CommandResponse", operation["responses"]!["200"]!.ToJsonString());
             Assert.Contains("ApiError", operation["responses"]!["409"]!.ToJsonString());
         }
-        foreach (var type in new[] { typeof(AddTokenRequest), typeof(AddPageRequest), typeof(AddScreenRequest), typeof(ResizeScreenRequest), typeof(AddNodeRequest), typeof(DeleteNodeRequest), typeof(MoveNodeRequest), typeof(SetNodePropertyRequest), typeof(SetNodeNameRequest), typeof(SetNodeSemanticKeyRequest), typeof(SaveDocumentRequest), typeof(RestoreDocumentRequest), typeof(HistoryCommandRequest), typeof(CommandResponse) })
+        foreach (var type in new[] { typeof(AddTokenRequest), typeof(AddPageRequest), typeof(AddScreenRequest), typeof(ResizeScreenRequest), typeof(AddNodeRequest), typeof(DeleteNodeRequest), typeof(MoveNodeRequest), typeof(SetNodePropertyRequest), typeof(SetNodePropertiesRequest), typeof(SetNodeNameRequest), typeof(SetNodeSemanticKeyRequest), typeof(SaveDocumentRequest), typeof(RestoreDocumentRequest), typeof(HistoryCommandRequest), typeof(CommandResponse) })
         {
             var schema = JsonNode.Parse(await client.GetStringAsync($"/api/v1/schemas/{type.Name}.json"))!;
             Assert.Equal(api["components"]!["schemas"]![type.Name]!["properties"]!.AsObject().Select(x => x.Key).Order(), schema["properties"]!.AsObject().Select(x => x.Key).Order());

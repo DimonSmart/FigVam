@@ -20,7 +20,7 @@ public sealed partial class DocumentCommandHandler
             var changed = DocumentStructureEditor.SetNodeRepeater(state.Document, node.Id, command.Repeater);
             if (DocumentStructureValidator.Validate(changed, profile).FirstOrDefault() is { } invalid)
                 return new(Result(invalid.Code, explanation: invalid.Message), null);
-            if (command.Repeater is { } config && NodeRepeaterEvaluator.Evaluate(changed, changed.Nodes.Single(n => n.Id == node.Id), config, profile).Diagnostic is { } error)
+            if (command.Repeater is { } config && NodeRepeaterEvaluator.Evaluate(changed, changed.Nodes.Single(n => n.Id == node.Id), config, ProfileFor(changed)).Diagnostic is { } error)
                 return new(Result(error.Code, explanation: error.Message), null);
             var next = new DocumentState(changed, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new NodeRepeaterSet(node.Id, command.Repeater));

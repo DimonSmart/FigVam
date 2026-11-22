@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using FigVam.Application.Documents;
+using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
@@ -31,8 +32,8 @@ public sealed class DocumentSubscriptionTests
         Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/v1/documents", new { documentId = id })).StatusCode);
         for (var i = 0; i < 5; i++)
             Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(root + "/members", new { memberId = $"editor{i}", role = "Editor" })).StatusCode);
-        var journal = new SqliteDocumentJournal(config["Storage__Directory"], new UnverifiedNodeProfile());
-        var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+        var journal = new SqliteDocumentJournal(config["Storage__Directory"], new VisualNodeProfile());
+        var handler = new DocumentCommandHandler(journal, journal, new VisualNodeProfile());
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var streams = new List<Subscription>();
         try
@@ -89,8 +90,8 @@ public sealed class DocumentSubscriptionTests
         var root = $"/api/v1/documents/{id}";
         Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/v1/documents", new { documentId = id })).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await client.PutAsJsonAsync(root + "/members", new { memberId = "viewer", role = "Viewer" })).StatusCode);
-        var journal = new SqliteDocumentJournal(config["Storage__Directory"], new UnverifiedNodeProfile());
-        var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+        var journal = new SqliteDocumentJournal(config["Storage__Directory"], new VisualNodeProfile());
+        var handler = new DocumentCommandHandler(journal, journal, new VisualNodeProfile());
         for (var i = 0; i < 101; i++)
             Assert.True((await handler.HandleAsync(new SaveDocumentCommand(id, Guid.NewGuid()), new DocumentActor("owner"))).Accepted);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));

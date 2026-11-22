@@ -84,7 +84,7 @@ public sealed class PortableUiProfileTests : IDisposable
     [InlineData("figvam.portable-ui", 7, "UNSUPPORTED_PROFILE_VERSION")]
     public async Task ReaderAndAtomicImportRejectUnavailableProfileWithSpecificDiagnostic(string id, int version, string code)
     {
-        var profile = new UnverifiedNodeProfile();
+        var profile = new VisualNodeProfile();
         var doc = new DocumentStructure(Guid.NewGuid(), [], [], []) { Profile = new(id, version) };
         var bytes = DocumentJsonFormat.Serialize(new(1, 42, null, doc));
         var reader = new DocumentFileReader(profile);
@@ -109,12 +109,12 @@ public sealed class PortableUiProfileTests : IDisposable
     public async Task ProductionCannotReadRecoverExportOrSaveDocumentsFromUnavailableVersion()
     {
         var id = Guid.NewGuid();
-        var sourceProfile = new TestProfile(PortableUiProfileReference.Production with { Version = 7 });
+        var sourceProfile = new TestProfile(PortableUiProfileReference.Version1 with { Version = 7 });
         var source = new SqliteDocumentJournal(directory, sourceProfile);
         await source.CreateAsync(new(id), owner);
         var saved = await new DocumentCommandHandler(source, source, sourceProfile)
             .HandleAsync(new SaveDocumentCommand(id, Guid.NewGuid()), owner);
-        var currentProfile = new UnverifiedNodeProfile();
+        var currentProfile = new VisualNodeProfile();
         var current = new SqliteDocumentJournal(directory, currentProfile);
         var failures = new Func<Task>[]
         {
@@ -131,10 +131,10 @@ public sealed class PortableUiProfileTests : IDisposable
     }
 
     [Fact]
-    public async Task HttpReadsReportUnavailableProfileAndNewDocumentsUseEmptyProductionProfile()
+    public async Task HttpReadsReportUnavailableProfileAndNewDocumentsUseVersion2()
     {
         var id = Guid.NewGuid();
-        var sourceProfile = new TestProfile(PortableUiProfileReference.Production with { Version = 7 });
+        var sourceProfile = new TestProfile(PortableUiProfileReference.Version1 with { Version = 7 });
         var source = new SqliteDocumentJournal(directory, sourceProfile);
         await source.CreateAsync(new(id), owner);
         var saved = await new DocumentCommandHandler(source, source, sourceProfile)
@@ -155,8 +155,28 @@ public sealed class PortableUiProfileTests : IDisposable
         var created = Guid.NewGuid();
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = created })).StatusCode);
         var export = await client.GetFromJsonAsync<DocumentJsonExport>($"/api/v1/documents/{created}/document.json", DocumentJsonFormat.CreateOptions());
-        Assert.Equal(PortableUiProfileReference.Production, export!.Document.Profile);
+        Assert.Equal(PortableUiProfileReference.Version2, export!.Document.Profile);
         Assert.Empty(export.Document.Nodes);
+
+        var legacyId = Guid.NewGuid();
+        var legacy = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
+        Assert.True((await legacy.CreateAsync(new(legacyId), owner)).Accepted);
+        var path = $"/api/v1/documents/{legacyId}";
+        Assert.Equal(PortableUiProfileReference.Version1,
+            (await client.GetFromJsonAsync<DocumentJsonExport>(path + "/document.json", DocumentJsonFormat.CreateOptions()))!.Document.Profile);
+        using var upgrade = await client.PostAsJsonAsync(path + "/commands/upgrade-portable-ui-profile", new { commandId = Guid.NewGuid(), expectedRevision = 0 });
+        Assert.Equal(200, (int)upgrade.StatusCode);
+        Assert.Equal(PortableUiProfileReference.Version2,
+            (await client.GetFromJsonAsync<DocumentJsonExport>(path + "/document.json", DocumentJsonFormat.CreateOptions()))!.Document.Profile);
+        var metadata = (await client.GetFromJsonAsync<DocumentProfileResponse>(path + "/profile"))!;
+        Assert.Equal(PortableUiProfileReference.Version2, metadata.Profile);
+        Assert.Equal(5, metadata.Kinds.Count);
+        var frame = Assert.Single(metadata.Kinds, kind => kind.Kind == "Frame");
+        Assert.True(frame.CanContainChildren);
+        Assert.IsType<NodeColorValue>(frame.Properties["backgroundColor"].DefaultValue);
+        var originalMetadata = (await client.GetFromJsonAsync<DocumentProfileResponse>(path + "/profile?revision=0"))!;
+        Assert.Equal(PortableUiProfileReference.Version1, originalMetadata.Profile);
+        Assert.Empty(originalMetadata.Kinds);
     }
 
     [Fact]
@@ -166,7 +186,7 @@ public sealed class PortableUiProfileTests : IDisposable
         var json = JsonNode.Parse(bytes)!;
         var schema = JsonSchema.Build(JsonSerializer.SerializeToElement(DocumentFormatSchemas.CreateDocumentFormat()),
             new BuildOptions { SchemaRegistry = new SchemaRegistry() });
-        var reader = new DocumentFileReader(new UnverifiedNodeProfile());
+        var reader = new DocumentFileReader(new VisualNodeProfile());
         json["document"]!["profile"]!["version"] = 7;
         Assert.True(schema.EvaluateNode(json).IsValid);
         Assert.Equal("UNSUPPORTED_PROFILE_VERSION", Assert.Single((await reader.ReadJsonAsync(new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(json)))).Diagnostics).Code);

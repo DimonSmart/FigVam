@@ -50,7 +50,7 @@ dotnet test FigVam.sln --no-build --no-restore
 
 Все серверные экземпляры **обязаны использовать один и тот же абсолютный каталог на локальном диске одного хоста**. Разные каталоги для одного набора документов и файловые сетевые шары не поддерживаются. Несколько хостов потребуют общего транзакционного хранилища перед развёртыванием. `Storage:Directory` (`Storage__Directory` в окружении) задаёт durable каталог. Headless Production должен задавать абсолютный путь явно. Относительный путь разрешается относительно content root сервера; appsettings использует `data/documents`. Aspire передаёт абсолютный путь `src/FigVam.Server/data/documents`; переопределить его можно через `Storage:Directory` AppHost. Каталог не очищается при остановке сервера. `InitializeAsync` остаётся внутренней точкой начального импорта.
 
-Production journal использует `UnverifiedNodeProfile`: виды узлов, контейнерные возможности и свойства пока не разрешены. Исследовательские результаты не означают подтверждённую поддержку профиля. Создание пустого документа доступно; полный профиль и полный API пока не готовы.
+Новые документы используют профиль `figvam.portable-ui` версии 2 с типами Frame, Text, Button, TextInput и Image. Документы версии 1 открываются со своим профилем. Для перехода к визуальному редактированию доступна команда `upgrade-portable-ui-profile`, которая проверяет ожидаемую ревизию и соответствие документа версии 2.
 
 ## Локальный запуск
 
@@ -87,7 +87,7 @@ HTTP launch profile явно включает этот локальный реж
 
 ## HTTP API доступа к документам v1
 
-Все операции требуют серверно проверенную идентичность: Google cookie в браузерном режиме или Bearer в режимах Jwt/Local. Идентификатор актора определяется только проверенным `sub`; поля вне опубликованных DTO отклоняются. Тела запросов ограничены 16 KiB, `memberId` — 256 символами; лимит запросов — 120 в минуту на аутентифицированного актора (до аутентификации — по IP).
+Все операции требуют серверно проверенную идентичность: Google cookie в браузерном режиме или Bearer в режимах Jwt/Local. Идентификатор актора определяется только проверенным `sub`; поля вне опубликованных DTO отклоняются. Тела запросов ограничены 16 KiB, `memberId` — 256 символами. На аутентифицированного актора выделяется до 300 запросов GET и HEAD и отдельный лимит 120 запросов остальных методов в минуту. До аутентификации действует общий лимит 120 запросов в минуту по IP.
 
 | Операция | JSON запроса | Ответ |
 | --- | --- | --- |
@@ -495,8 +495,8 @@ server secrets are excluded, as in the standalone document export.
 `DocumentJsonExport`, or returns structured diagnostics with no partial document.
 It does not create documents, resolve connectors, access storage, or change its input.
 Both paths validate the published schemas and the domain/profile constraints. The
-central resolver requires the exact persisted profile ID and version to match the
-installed `INodeProfile` before checking node kinds, properties and behavior. Container asset content must match the
+central resolver selects the installed profile by the exact persisted profile ID and
+version before checking node kinds, properties and behavior. Container asset content must match the
 document manifest, including ID, type, hash, size and decoded dimensions. Safe raster
 validation is identical to upload validation. Missing dependencies, undeclared files
 and assets absent from the document manifest are rejected. Standalone JSON containing
@@ -520,8 +520,8 @@ Authenticated `POST /api/v1/documents/import/document.json` accepts the raw vers
 JSON body (`application/json`, maximum 16 MiB). `POST
 /api/v1/documents/import/container.figvam` accepts raw ZIP bytes (`application/zip`,
 maximum 80 MiB + 256 KiB). No multipart or base64 envelope is used. Published format
-schemas and reader limits above apply. The production profile rejects unverified
-node kinds; importing does not bypass profile validation.
+schemas and reader limits above apply. Imported node kinds and properties must
+be valid for the document's profile version.
 
 Success is HTTP 201 `DocumentImportResponse` with `code`, `documentId` and `revision:0`.
 The validated document and all technical IDs are preserved. One transaction creates
@@ -620,18 +620,36 @@ on the actor's role, it offers document and page management, screen creation and
 resizing, layer operations, datasets, tokens and scenarios, as well as undo/redo,
 saved versions and restore. Owners can manage members. Owners and Editors can
 export the current document as JSON or a `.figvam` container; Viewer cannot export.
-The canvas shows the selected screen boundary with zoom and pan controls, but does
-not render its layers. There is no Preview UI, and the production Portable UI
-Profile currently declares no supported node kinds or target platforms. Forms,
-links, pagination and session clearing work with the keyboard, visible focus and
-live status/error announcements. Text is inserted as text, and the shell uses a
-restrictive CSP with no inline or external scripts.
+
+Create a page and a screen, then use the palette to add a Frame, Text, Button,
+TextInput or Image. A Frame can contain other layers and arrange them freely or
+in a horizontal or vertical stack. Use the inspector to change geometry, text
+and appearance. On the canvas, drag freely positioned layers to move them and
+drag the resize handle to change their size. To pan, drag the empty canvas, drag
+with the middle mouse button, or hold Alt and drag with the left mouse button.
+Use the mouse wheel or zoom controls to change the scale.
+
+To add an image, upload a PNG up to 5 MiB from the palette, choose Image and select
+the uploaded asset. The inspector lets you set its alternative description and
+choose Contain, Cover or Stretch.
+
+Open Preview to try the selected screen with its rendered layout, buttons and
+text fields. Text entered in Preview is temporary. Return to Design to continue
+editing. Confirmed edits are restored when you reopen the document. To keep an
+immutable snapshot, optionally enter a version name and choose **Создать версию**.
+The snapshot appears under saved versions and can be restored from there.
+
+Forms, links, pagination and session clearing work with the keyboard, visible
+focus and live status/error announcements. Text renders as plain text, and the
+shell uses a restrictive CSP with no inline or external scripts.
 
 Verification: `dotnet test tests/FigVam.Server.Tests --filter EditorUiTests` checks
 the production shell/direct routes and retained bearer/membership boundaries.
 Browser tests cover real API creation/list pagination/direct opening, reload token
 clearing, keyboard operation, safe text rendering, loading, retry, forbidden and
-token failure states. Run after `dotnet build FigVam.sln`:
+token failure states. The visual workflow creates and edits a design through the UI,
+then checks Preview, a saved version, reopening after a server restart, and Undo/Redo
+against both the persisted model and browser layout. Run after `dotnet build FigVam.sln`:
 
 ```powershell
 Set-Location tests/FigVam.Ui.Tests

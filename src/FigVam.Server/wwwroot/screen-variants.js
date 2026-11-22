@@ -21,12 +21,13 @@ export function createScreenVariants({ element, request, refreshPages, pageSize,
     if (op?.state === 'uncertain') element('screen-variants-error').textContent = 'Результат создания неизвестен. Повторите ту же команду.';
   }
   async function loadScreenVariants() {
-    const screen = workspace.selectedScreen, doc = workspace.documentId, atRevision = workspace.revision, current = ++variantGeneration;
+    const screen = workspace.selectedScreen, doc = workspace.documentId, atRevision = workspace.revision,
+      catalogRevision = workspace.catalogRevision, current = ++variantGeneration;
     if (variantScreen !== screen) { variantOffset = variantTotal = 0; variantScreen = screen; }
     element('screen-variants-list').replaceChildren(); element('screen-variants-error').textContent = '';
     element('screen-variants-retry').hidden = true; renderScreenVariants();
     if (!screen || !doc || !Number.isSafeInteger(atRevision)) { element('screen-variants-status').textContent = 'Выберите экран.'; return; }
-    const valid = () => current === variantGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && atRevision === workspace.revision;
+    const valid = () => current === variantGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && catalogRevision === workspace.catalogRevision;
     element('screen-variants-status').textContent = 'Загрузка вариантов…';
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/screens/${encodeURIComponent(screen)}/variants?revision=${atRevision}&offset=${variantOffset}&limit=${pageSize}`);

@@ -1,4 +1,5 @@
 using FigVam.Domain.Documents;
+using FigVam.Domain.Tokens;
 
 namespace FigVam.Domain.Components;
 
@@ -19,7 +20,7 @@ internal static class ComponentPropertyBindings
     {
         var errors = new List<ComponentDiagnostic>();
         var nodes = model.Structure.Nodes.DistinctBy(n => n.Id).ToDictionary(n => n.Id);
-        var tokens = model.Tokens.DistinctBy(t => t.Id).ToDictionary(t => t.Id);
+        var tokens = new DesignTokenResolver(model.Tokens);
         foreach (var definition in model.Definitions)
         {
             var subtree = ComponentValidator.Descendants(nodes, definition.RootNodeId);
@@ -53,7 +54,7 @@ internal static class ComponentPropertyBindings
                     (ComponentParameterType.Number, NodePropertyType.Number) => true,
                     (ComponentParameterType.Bool, NodePropertyType.Boolean) => true,
                     (ComponentParameterType.Asset, NodePropertyType.Asset) => true,
-                    (ComponentParameterType.TokenReference, NodePropertyType.TokenReference) =>
+                    (ComponentParameterType.TokenReference, NodePropertyType.TokenReference or NodePropertyType.Color or NodePropertyType.Number) =>
                         parameter.TokenType is not null && parameter.TokenType == property.TokenType,
                     (ComponentParameterType.Enum, NodePropertyType.Enum) => parameter.EnumValues is not null &&
                         property.EnumValues is not null && parameter.EnumValues.All(property.EnumValues.Contains),
@@ -65,8 +66,14 @@ internal static class ComponentPropertyBindings
                     .Concat(model.Instances.Where(i => i.DefinitionId == definition.Id && i.ParameterOverrides.ContainsKey(parameter.Id))
                         .Select(i => i.ParameterOverrides[parameter.Id]));
                 foreach (var value in values)
-                    if (NodePropertyValidator.Validate(profile, node.Kind, binding.Property, Convert(value)) is { } error)
+                {
+                    var converted = Convert(value);
+                    if (NodePropertyValidator.Validate(profile, node.Kind, binding.Property, converted) is { } error)
                         Error(error.Code, error.Reason);
+                    else if (property.Type == NodePropertyType.Number && converted is NodeTokenValue token &&
+                        NodePropertyValidator.ValidateTokenReference(tokens, property, binding.Property, token) is { } reference)
+                        Error(reference.Code, reference.Reason);
+                }
             }
         }
         // References stored directly on nodes share the component model's asset/token catalogs.
@@ -78,7 +85,7 @@ internal static class ComponentPropertyBindings
                         errors.Add(new("missing-reference", node.Id, asset.AssetId, "Referenced asset does not exist.", name));
                     if (value is NodeTokenValue token)
                     {
-                        if (!tokens.TryGetValue(token.TokenId, out var target))
+                        if (tokens.Find(token.TokenId) is not { } target)
                             errors.Add(new("missing-reference", node.Id, token.TokenId, "Referenced token does not exist.", name));
                         else if (profile.GetProperty(node.Kind, name)?.TokenType != target.Type)
                             errors.Add(new("token-type-mismatch", node.Id, token.TokenId, "Token has an incompatible type.", name));

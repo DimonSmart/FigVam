@@ -30,7 +30,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class Limited : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => kind == "test" && e == PreviewEvent.Change;
         public bool SupportsPreviewAction(PreviewAction action) => action is Navigate or ResetPreview;
         public bool SupportsDemoValue(string kind) => false;
@@ -45,7 +45,7 @@ public sealed class ScenarioCapabilitiesTests
         var state = new DocumentState(new(doc, [], [new(screen, [node], new(100, 100))], [new(node, "test", [])]), 4);
         var access = new Access(); var reader = new Reader(state); var actor = new DocumentActor("owner");
         var empty = await new ScenarioCapabilitiesQuery(access, reader, new UnverifiedNodeProfile()).ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
-        Assert.Empty(empty.Response!.Events); Assert.Empty(empty.Response.Actions); Assert.Equal(PortableUiProfileReference.Production, empty.Response.Profile);
+        Assert.Empty(empty.Response!.Events); Assert.Empty(empty.Response.Actions); Assert.Equal(PortableUiProfileReference.Version1, empty.Response.Profile);
         var query = new ScenarioCapabilitiesQuery(access, reader, new Limited());
         var limited = await query.ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
         Assert.Equal([PreviewEvent.Change], limited.Response!.Events); Assert.Equal(["navigate", "resetPreview"], limited.Response.Actions);
@@ -111,7 +111,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class DemoProfile(Guid target) : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
         public bool SupportsPreviewAction(PreviewAction action) => action is SetDemoValue a && a.NodeId == target && (a.Value is null || a.Value == "allowed" || a.Value == new string('\u044f', 4096));
         public bool SupportsDemoValue(string kind) => kind == "test";
@@ -121,7 +121,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class DatasetProfile(Guid allowed) : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
         public bool SupportsPreviewAction(PreviewAction action) => action is SelectDataset d && (d.DatasetId is null || d.DatasetId == allowed);
         public bool SupportsDemoValue(string kind) => false;
@@ -131,7 +131,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class VariantProfile(Guid allowed) : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
         public bool SupportsPreviewAction(PreviewAction action) => action is ShowVariant v && (v.VariantId is null || v.VariantId == allowed);
         public bool SupportsDemoValue(string kind) => false;
@@ -171,7 +171,7 @@ public sealed class ScenarioCapabilitiesTests
         Assert.NotNull(result);
         Assert.Equal(doc, result.DocumentId); Assert.Equal(4, result.Revision);
         Assert.Equal(node, result.NodeId); Assert.Equal(screen, result.TargetId);
-        Assert.Equal(PortableUiProfileReference.Production, result.Profile);
+        Assert.Equal(PortableUiProfileReference.Version1, result.Profile);
         Assert.Empty(result.Events); Assert.Empty(result.Actions);
         using var selected = await client.PostAsJsonAsync(url + $"&screenId={screen}", new { demoValue = (string?)null });
         Assert.Equal(HttpStatusCode.OK, selected.StatusCode);

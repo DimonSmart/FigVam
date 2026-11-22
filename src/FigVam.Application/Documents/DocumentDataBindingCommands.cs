@@ -24,9 +24,10 @@ public sealed partial class DocumentCommandHandler
             if (string.IsNullOrWhiteSpace(property) || property.Length > 256) return new(Result("INVALID_DATA_BINDING", explanation: "A bounded target property is required."), null);
             if (bind)
             {
-                if (NodeDataBindingEvaluator.Validate(state.Document, node, property, binding, profile) is { } error)
+                var nodeProfile = ProfileFor(state.Document);
+                if (NodeDataBindingEvaluator.Validate(state.Document, node, property, binding, nodeProfile) is { } error)
                     return new(Result(error.Code, explanation: error.Message), null);
-                if (NodeDataBindingEvaluator.Evaluate(state.Document, node, property, binding!, profile).Diagnostic is { } invalid)
+                if (NodeDataBindingEvaluator.Evaluate(state.Document, node, property, binding!, nodeProfile).Diagnostic is { } invalid)
                     return new(Result(invalid.Code, explanation: invalid.Message), null);
             }
             else if (!node.DataBindings.ContainsKey(property)) return new(Result("DATA_BINDING_NOT_FOUND", explanation: "This node property has no data binding."), null);

@@ -113,7 +113,8 @@ public sealed class ServerAuthenticationTests
     [Fact]
     public async Task DevelopmentDoesNotImplicitlyEnableLocalAuthentication()
     {
-        await using var server = new ServerProcess(new() { ["ASPNETCORE_ENVIRONMENT"] = "Development" });
+        await using var server = new ServerProcess(new() { ["ASPNETCORE_ENVIRONMENT"] = "Development" },
+            isolateUserSecrets: true);
         await server.AssertStartupFailureAsync();
     }
 

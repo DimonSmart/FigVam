@@ -10,7 +10,7 @@ async function setup(page) {
 }
 test('keyboard cancel, confirmation and retry after lost response', async ({page})=>{
  const fixture=await setup(page); let calls=[];
- await page.route('**/commands/delete-node', async route=>{const body=route.request().postDataJSON(); calls.push(body); if(calls.length===1){fixture.remove(); return route.abort();} await route.fulfill({json:{code:'ACCEPTED',documentId:page.url().split('/').at(-1),commandId:body.commandId,revision:10}});});
+ await page.route('**/commands/delete-node', async route=>{const body=route.request().postDataJSON(); calls.push(body); if(calls.length===1){fixture.remove(); return route.abort();} await route.fulfill({json:{status:'ACCEPTED',documentId:page.url().split('/').at(-1),commandId:body.commandId,revision:10}});});
  page.once('dialog', async d=>{expect(d.message()).toContain('Parent'); expect(d.message()).toContain('поддерево'); await d.dismiss();}); await page.locator('#node-delete').focus(); await page.keyboard.press('Enter'); expect(calls).toHaveLength(0);
  page.once('dialog', d=>d.accept()); await page.locator('#node-delete').focus(); await page.keyboard.press('Enter'); await expect(page.locator('#node-delete-status')).toContainText('неизвестен'); await page.locator('#node-delete-retry').click(); await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.'); expect(calls[1]).toEqual(calls[0]); expect(Object.keys(calls[0]).sort()).toEqual(['commandId','nodeId']);
 });

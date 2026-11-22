@@ -1,0 +1,242 @@
+using System.Text.Json;
+using FigVam.Application.Documents;
+using FigVam.Domain.Documents;
+using FigVam.Domain.Preview;
+using FigVam.Domain.Tokens;
+using FigVam.Infrastructure.Documents;
+
+namespace FigVam.Server.Tests;
+
+public sealed class VisualNodeProfileTests : IDisposable
+{
+    private readonly VisualNodeProfile profile = new();
+    private readonly string directory = Path.Combine(Path.GetTempPath(), "figvam-visual-profile-" + Guid.NewGuid());
+    private readonly DocumentActor owner = new("owner");
+
+    [Theory]
+    [InlineData("Frame", NodeSemanticRole.Container, true, null)]
+    [InlineData("Text", NodeSemanticRole.Text, false, null)]
+    [InlineData("Button", NodeSemanticRole.Button, false, PreviewEvent.Click)]
+    [InlineData("TextInput", NodeSemanticRole.TextInput, false, PreviewEvent.Change)]
+    [InlineData("Image", NodeSemanticRole.Image, false, null)]
+    public void RegistryDescribesEachKindAndItsEffectiveDefaults(string kind, NodeSemanticRole role, bool children, PreviewEvent? previewEvent)
+    {
+        Assert.Equal(5, profile.Kinds.Count);
+        var definition = Assert.Single(profile.Kinds, item => item.Kind == kind);
+        Assert.Equal(role, definition.SemanticRole);
+        Assert.Equal(children, profile.CanContainChildren(kind));
+        Assert.Equal(previewEvent is { } enabled ? [enabled] : Array.Empty<PreviewEvent>(), definition.PreviewEvents);
+        Assert.Equal(kind == "TextInput", profile.SupportsDemoValue(kind));
+        foreach (var (property, metadata) in definition.Properties)
+        {
+            Assert.Same(metadata, profile.GetProperty(kind, property));
+            if (metadata.Required)
+                Assert.Null(metadata.DefaultValue);
+            else
+                Assert.Null(NodePropertyValidator.Validate(profile, kind, property, metadata.DefaultValue));
+        }
+        Assert.True(profile.SupportsPreviewAction(new Navigate(Guid.NewGuid())));
+        Assert.Contains("navigate", profile.PreviewActions);
+        Assert.False(profile.IsKnownKind(kind.ToLowerInvariant()));
+        Assert.Equal("UNSUPPORTED_PROPERTY", NodePropertyValidator.Validate(profile, kind, "style", new NodeStringValue("width: 1px"))!.Code);
+    }
+
+    [Fact]
+    public void ValidatesTypedValuesAndDocumentReferences()
+    {
+        void Valid(string kind, string property, NodePropertyValue value) =>
+            Assert.Null(NodePropertyValidator.Validate(profile, kind, property, value));
+        void Invalid(string code, string kind, string property, NodePropertyValue value) =>
+            Assert.Equal(code, NodePropertyValidator.Validate(profile, kind, property, value)!.Code);
+
+        Valid("Frame", "x", new NodeNumberValue(-20));
+        Valid("Frame", "layout", new NodeEnumValue("Horizontal"));
+        Valid("Text", "text", new NodeStringValue("<strong>Literal text</strong>"));
+        Valid("Text", "fontFamily", new NodeStringValue("IBM Plex Sans"));
+        Valid("Button", "enabled", new NodeBooleanValue(false));
+        Valid("TextInput", "multiline", new NodeBooleanValue(true));
+        Valid("Image", "fit", new NodeEnumValue("Cover"));
+        Invalid("INVALID_PROPERTY_VALUE", "Frame", "width", new NodeNumberValue(-1));
+        Invalid("INVALID_PROPERTY_VALUE", "Frame", "gap", new NodeNumberValue(double.NaN));
+        Invalid("INVALID_PROPERTY_VALUE", "Frame", "heightMode", new NodeEnumValue("Fill"));
+        Invalid("INVALID_PROPERTY_VALUE", "Text", "fontFamily", new NodeStringValue("arial;display:none"));
+        Invalid("INVALID_PROPERTY_VALUE", "Text", "fontFamily", new NodeStringValue("Arial\n"));
+        Invalid("INVALID_PROPERTY_TYPE", "Button", "enabled", new NodeStringValue("yes"));
+        Invalid("INVALID_PROPERTY_VALUE", "TextInput", "value", new NodeStringValue(new string('a', 4097)));
+        Invalid("INVALID_PROPERTY_VALUE", "Image", "fit", new NodeEnumValue("tile"));
+        Invalid("INVALID_PROPERTY_TYPE", "Frame", "backgroundColor", new NodeStringValue("red"));
+        Invalid("UNSUPPORTED_PROPERTY", "Text", "href", new NodeStringValue("https://example.org"));
+
+        var color = new NodeColorValue(16, 100, 210, 160);
+        var asset = new DocumentAsset(Guid.NewGuid(), "image/png", new string('0', 64), 32, 1, 1);
+        var colorToken = Token(TokenType.Color, new ColorValue(0, 20, 40));
+        var spacingToken = Token(TokenType.Spacing, new SpacingValue(8));
+        var frame = new NodeStructure(Guid.NewGuid(), "Frame", []);
+        var text = new NodeStructure(Guid.NewGuid(), "Text", []);
+        var image = new NodeStructure(Guid.NewGuid(), "Image", []);
+        frame = frame with { ChildIds = [text.Id, image.Id], Properties = frame.Properties.Add("backgroundColor", color) };
+        text = text with { Properties = text.Properties.Add("textColor", new NodeTokenValue(colorToken.Id)) };
+        image = image with { Properties = image.Properties.Add("asset", new NodeAssetValue(asset.Id)) };
+        var screen = new ScreenStructure(Guid.NewGuid(), [frame.Id], new(800, 600));
+        var document = new DocumentStructure(Guid.NewGuid(), [new(Guid.NewGuid(), [screen.Id])], [screen], [frame, text, image])
+        {
+            Profile = PortableUiProfileReference.Version2,
+            Assets = [asset],
+            Tokens = [colorToken, spacingToken]
+        };
+
+        Assert.Empty(DocumentStructureValidator.Validate(document, profile));
+        void Diagnose(DocumentStructure invalid, string code, Guid id, string? property)
+        {
+            Assert.Contains(DocumentStructureValidator.Validate(invalid, profile),
+                error => error.Code == code && error.ObjectId == id && error.Property == property);
+        }
+        Diagnose(document with { Tokens = [spacingToken] }, "missing-reference", text.Id, "textColor");
+        Diagnose(document with { Nodes = [frame, text with { Properties = text.Properties.SetItem("textColor", new NodeTokenValue(spacingToken.Id)) }, image] },
+            "type-mismatch", text.Id, "textColor");
+        Diagnose(document with { Assets = [] }, "missing-reference", image.Id, "asset");
+        Diagnose(document with { Nodes = [frame, text, image with { Properties = image.Properties.Clear() }] },
+            "REQUIRED_PROPERTY", image.Id, "asset");
+        Diagnose(document with { Nodes = [frame with { ChildIds = [text.Id] }, text with { ChildIds = [image.Id] }, image] },
+            "children-not-allowed", text.Id, null);
+        Diagnose(document with { Nodes = [frame with { Kind = "HTMLElement" }, text, image] }, "unknown-node-kind", frame.Id, null);
+        Assert.Equal(color, JsonSerializer.Deserialize<NodePropertyValue>(JsonSerializer.Serialize<NodePropertyValue>(color)));
+    }
+
+    [Fact]
+    public void OnlyFrameSpacingPropertiesAllowNumbersAndSpacingTokens()
+    {
+        var spacing = Assert.Single(profile.Kinds, kind => kind.Kind == "Frame").Properties;
+        Assert.Equal(new[] { "gap", "paddingBottom", "paddingLeft", "paddingRight", "paddingTop" },
+            spacing.Where(item => item.Value.TokenType == TokenType.Spacing).Select(item => item.Key).Order());
+        var token = new NodeTokenValue(Guid.NewGuid());
+        foreach (var (name, definition) in spacing.Where(item => item.Value.TokenType == TokenType.Spacing))
+        {
+            Assert.Equal(NodePropertyType.Number, definition.Type);
+            Assert.Null(NodePropertyValidator.Validate(profile, "Frame", name, new NodeNumberValue(0)));
+            Assert.Null(NodePropertyValidator.Validate(profile, "Frame", name, token));
+            Assert.Equal("INVALID_PROPERTY_VALUE", NodePropertyValidator.Validate(profile, "Frame", name, new NodeTokenValue(Guid.Empty))!.Code);
+        }
+        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "width", token)!.Code);
+        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "cornerRadius", token)!.Code);
+    }
+
+    [Fact]
+    public async Task PersistsAllKindsWithOrderedChildIdsAndImageContent()
+    {
+        var content = DocumentAssetTests.Png();
+        var asset = SafeRasterImage.Inspect(Guid.NewGuid(), "image/png", content)!;
+        var children = new[] { "Text", "Button", "TextInput", "Image" }
+            .Select(kind => new NodeStructure(Guid.NewGuid(), kind, [])).ToArray();
+        var image = children[^1];
+        children[^1] = image with { Properties = image.Properties.Add("asset", new NodeAssetValue(asset.Id)) };
+        var frame = new NodeStructure(Guid.NewGuid(), "Frame", children.Select(node => node.Id).ToArray());
+        var screen = new ScreenStructure(Guid.NewGuid(), [frame.Id], new(800, 600));
+        var document = new DocumentStructure(Guid.NewGuid(), [new(Guid.NewGuid(), [screen.Id])], [screen], [frame, .. children])
+        {
+            Profile = profile.Identity,
+            Assets = [asset]
+        };
+        var journal = new SqliteDocumentJournal(directory, profile);
+        Assert.Equal("ACCEPTED", (await journal.CreateImportedAsync(document, [new(asset, content)], owner)).Code);
+        var saved = await new DocumentCommandHandler(journal, journal, profile)
+            .HandleAsync(new SaveDocumentCommand(document.Id, Guid.NewGuid(), "All kinds"), owner);
+        Assert.True(saved.Accepted);
+
+        var reopened = new SqliteDocumentJournal(directory, new VisualNodeProfile());
+        var snapshot = (await reopened.ReadVersionAsync(document.Id, saved.VersionId!.Value)).Version!.Snapshot;
+        Assert.Equal(document.Nodes.Select(node => (node.Id, node.Kind)), snapshot.Document.Nodes.Select(node => (node.Id, node.Kind)));
+        Assert.Equal(frame.ChildIds, snapshot.Document.Nodes[0].ChildIds);
+        Assert.Equal(new NodeAssetValue(asset.Id), snapshot.Document.Nodes[^1].Properties["asset"]);
+        Assert.Equal(content, (await new DocumentAssets(reopened, reopened, reopened, reopened)
+            .ReadAsync(document.Id, asset.Id, owner, versionId: saved.VersionId)).Content!.Content);
+    }
+
+    [Fact]
+    public async Task ExplicitUpgradeIsAuthorizedRevisionCheckedReversibleAndPreservesOldSnapshots()
+    {
+        var legacyProfile = new UnverifiedNodeProfile();
+        var legacyJournal = new SqliteDocumentJournal(directory, legacyProfile);
+        var legacyHandler = new DocumentCommandHandler(legacyJournal, legacyJournal, legacyProfile);
+        var documentId = Guid.NewGuid();
+        var page = Guid.NewGuid();
+        var screen = Guid.NewGuid();
+        var frame = Guid.NewGuid();
+        var viewer = new DocumentActor("viewer");
+        Assert.True((await legacyJournal.CreateAsync(new(documentId), owner)).Accepted);
+        Assert.True((await legacyHandler.HandleAsync(new AddPageCommand(documentId, Guid.NewGuid(), page), owner)).Accepted);
+        Assert.True((await legacyHandler.HandleAsync(new AddScreenCommand(documentId, Guid.NewGuid(), page, screen, new(800, 600)), owner)).Accepted);
+        var oldVersion = await legacyHandler.HandleAsync(new SaveDocumentCommand(documentId, Guid.NewGuid(), "Before upgrade"), owner);
+        await legacyJournal.SetMemberAsync(documentId, viewer.Id, DocumentRole.Viewer, owner);
+
+        var journal = new SqliteDocumentJournal(directory, profile);
+        var handler = new DocumentCommandHandler(journal, journal, profile);
+        Assert.Equal(PortableUiProfileReference.Version1, (await journal.ReadAsync(documentId))!.Document.Profile);
+        Assert.Empty(PortableUiProfileResolver.Require(PortableUiProfileReference.Version1, profile).Kinds);
+        Assert.Equal("UNSUPPORTED_NODE_KIND", (await handler.HandleAsync(new AddNodeCommand(documentId, Guid.NewGuid(), screen, frame, "Frame"), owner)).Code);
+
+        var upgrade = new UpgradePortableUiProfileCommand(documentId, Guid.NewGuid(), oldVersion.Revision!.Value);
+        Assert.Equal("FORBIDDEN", (await handler.HandleAsync(upgrade, viewer)).Code);
+        Assert.Equal("REVISION_CONFLICT", (await handler.HandleAsync(upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = 0 }, owner)).Code);
+        var accepted = await handler.HandleAsync(upgrade, owner);
+        Assert.True(accepted.Accepted);
+        Assert.Equal(accepted, await handler.HandleAsync(upgrade, owner));
+        Assert.Equal(upgrade.ExpectedRevision + 1, accepted.Revision);
+        Assert.IsType<PortableUiProfileUpgraded>(Assert.Single((await journal.ReadEventsAsync(documentId, upgrade.ExpectedRevision)).Events!).Payload);
+        var diff = await new DocumentRevisionDiff(journal, journal).CompareAsync(documentId, upgrade.ExpectedRevision, accepted.Revision!.Value, 0, 10, owner);
+        Assert.Equal("profile", Assert.Single(Assert.Single(diff.Response!.Items).ChangedProperties));
+        Assert.Equal("PROFILE_UPGRADE_NOT_APPLICABLE", (await handler.HandleAsync(
+            upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = accepted.Revision.Value }, owner)).Code);
+
+        Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
+        Assert.Equal(PortableUiProfileReference.Version1, (await journal.ReadAsync(documentId))!.Document.Profile);
+        Assert.True((await handler.HandleAsync(new RedoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
+        Assert.True((await handler.HandleAsync(new AddNodeCommand(documentId, Guid.NewGuid(), screen, frame, "Frame"), owner)).Accepted);
+        var color = new NodeColorValue(1, 2, 3);
+        Assert.True((await handler.HandleAsync(new SetNodePropertyCommand(documentId, Guid.NewGuid(), frame, "backgroundColor", color), owner)).Accepted);
+        var token = Token(TokenType.Color, new ColorValue(100, 120, 140));
+        Assert.True((await handler.HandleAsync(new AddTokenCommand(documentId, Guid.NewGuid(), token), owner)).Accepted);
+        Assert.True((await handler.HandleAsync(new SetNodePropertyCommand(documentId, Guid.NewGuid(), frame, "borderColor", new NodeTokenValue(token.Id)), owner)).Accepted);
+        var newVersion = await handler.HandleAsync(new SaveDocumentCommand(documentId, Guid.NewGuid(), "After upgrade"), owner);
+        Assert.True(newVersion.Accepted);
+
+        var reopened = new SqliteDocumentJournal(directory, new VisualNodeProfile());
+        var state = (await reopened.ReadAsync(documentId))!;
+        Assert.Equal(PortableUiProfileReference.Version2, state.Document.Profile);
+        Assert.Equal(screen, Assert.Single(state.Document.Screens).Id);
+        var restoredNode = Assert.Single(state.Document.Nodes);
+        Assert.Equal(frame, restoredNode.Id);
+        Assert.Equal(color, restoredNode.Properties["backgroundColor"]);
+        Assert.Equal(new NodeTokenValue(token.Id), restoredNode.Properties["borderColor"]);
+        Assert.Equal(PortableUiProfileReference.Version1, (await reopened.ReadAsync(documentId, upgrade.ExpectedRevision)).State!.Document.Profile);
+        Assert.Equal(PortableUiProfileReference.Version1, (await reopened.ReadVersionAsync(documentId, oldVersion.VersionId!.Value)).Version!.Snapshot.Document.Profile);
+        Assert.Equal(PortableUiProfileReference.Version2, (await reopened.ReadVersionAsync(documentId, newVersion.VersionId!.Value)).Version!.Snapshot.Document.Profile);
+
+        var exported = await new DocumentJsonExporter(reopened, reopened, reopened, profile).ExportAsync(documentId, null, null, owner);
+        Assert.Equal("OK", exported.Code);
+        var decoded = await new DocumentFileReader(profile).ReadJsonAsync(new MemoryStream(exported.Content!));
+        Assert.Empty(decoded.Diagnostics);
+        Assert.Equal(color, Assert.Single(decoded.Document!.Document.Nodes).Properties["backgroundColor"]);
+
+        Assert.True((await handler.HandleAsync(new RestoreDocumentVersionCommand(documentId, Guid.NewGuid(), oldVersion.VersionId.Value), owner)).Accepted);
+        Assert.Equal(PortableUiProfileReference.Version1, (await reopened.ReadAsync(documentId))!.Document.Profile);
+        Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
+        Assert.Equal(PortableUiProfileReference.Version2, (await reopened.ReadAsync(documentId))!.Document.Profile);
+    }
+
+    private static DesignToken Token(TokenType type, TokenValue value)
+    {
+        var literal = new LiteralTokenValue(value);
+        return new(Guid.NewGuid(), type.ToString(), type, new Dictionary<TokenTheme, TokenExpression>
+        {
+            [TokenTheme.Light] = literal,
+            [TokenTheme.Dark] = literal
+        });
+    }
+
+    public void Dispose()
+    {
+        if (Directory.Exists(directory))
+            Directory.Delete(directory, recursive: true);
+    }
+}

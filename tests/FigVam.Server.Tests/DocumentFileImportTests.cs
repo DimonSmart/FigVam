@@ -13,7 +13,7 @@ public sealed class DocumentFileImportTests : IDisposable
     private readonly DocumentActor actor = new("importer");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Production;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
         public bool IsKnownKind(string kind) => kind == "frame";
         public bool CanContainChildren(string kind) => kind == "frame";
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -62,7 +62,7 @@ public sealed class DocumentFileImportTests : IDisposable
         Assert.Empty((await journal.ReadHistoryAsync(document.Id, actor.Id)).Entries!);
         Assert.Equal("VERSION_NOT_FOUND", (await journal.ReadVersionAsync(document.Id, savedId)).Code);
         Assert.Equal("INVALID_REVISION", (await journal.ReadAsync(document.Id, 37)).Code);
-        var exporter = new DocumentJsonExporter(journal, journal, journal, new FigVam.Server.Documents.UnverifiedNodeProfile());
+        var exporter = new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile());
         Assert.Equal(DocumentJsonFormat.Serialize(new(1, 0, null, document)),
             (await exporter.ExportAsync(document.Id, null, null, actor)).Content);
         var pageId = Guid.NewGuid();
@@ -76,7 +76,7 @@ public sealed class DocumentFileImportTests : IDisposable
         Assert.Equal(2, recovered!.Revision); Assert.Contains(recovered.Document.Pages, p => p.Id == pageId);
         Assert.Equal(2, (await journal.ReadEventsAsync(document.Id, 0)).Events!.Count);
         Assert.Equal(document.Id, (await journal.ReadVersionAsync(document.Id, save.VersionId!.Value)).Version!.Snapshot.Document.Id);
-        var zip = await new DocumentContainerExporter(new DocumentJsonExporter(journal, journal, journal, new FigVam.Server.Documents.UnverifiedNodeProfile()), journal)
+        var zip = await new DocumentContainerExporter(new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile()), journal)
             .ExportAsync(document.Id, null, null, actor);
         Assert.Empty((await new DocumentFileReader(new Profile()).ReadContainerAsync(new MemoryStream(zip.Content!))).Diagnostics);
         Assert.True((await journal.SetMemberAsync(document.Id, "reviewer", DocumentRole.Viewer, actor)).Accepted);

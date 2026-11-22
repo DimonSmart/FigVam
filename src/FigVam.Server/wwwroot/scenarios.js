@@ -79,7 +79,7 @@ export function createScenarios({
     const doc = workspace.documentId, screen = workspace.selectedScreen, atRevision = workspace.revision, requestToken = token, epoch = navigationEpoch, offset = scenariosOffset;
     if (!doc || !screen || !Number.isSafeInteger(atRevision)) { resetScenarios(); return; }
     scenariosKey = `${doc}:${screen}:${atRevision}`;
-    const valid = () => !controller.signal.aborted && current === scenariosGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && atRevision === workspace.revision && token === requestToken && epoch === navigationEpoch && !element('editor-view').hidden;
+    const valid = () => !controller.signal.aborted && current === scenariosGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && scenariosKey === `${doc}:${screen}:${workspace.revision}` && token === requestToken && epoch === navigationEpoch && !element('editor-view').hidden;
     element('scenarios-list').replaceChildren(); element('scenarios-error').textContent = '';
     element('scenarios-retry').hidden = true; element('scenarios-number').textContent = '';
     element('scenarios-previous').disabled = element('scenarios-next').disabled = true;
@@ -106,7 +106,7 @@ export function createScenarios({
         if (['Owner', 'Editor'].includes(workspace.documentRole)) {
           const edit = document.createElement('button');
           edit.type = 'button'; edit.textContent = `Изменить сценарий ${scenario.id}`;
-          edit.addEventListener('click', () => { if (valid()) openScenarioEditor(doc, screen, atRevision, scenario, edit); });
+          edit.addEventListener('click', () => { if (valid()) openScenarioEditor(doc, screen, workspace.revision, scenario, edit); });
           li.append(edit);
           const button = document.createElement('button'); button.type = 'button'; button.textContent = `Удалить сценарий ${scenario.id}`;
           button.disabled = scenarioOperations.has(scenarioKey(doc, screen));
@@ -772,6 +772,11 @@ export function createScenarios({
     scenariosOffset = offset;
     if (screen) loadScenarios();
   }
+  function retainAfterNodeEdit(screen, previousRevision) {
+    if (scenariosKey === `${workspace.documentId}:${screen}:${previousRevision}`) {
+      scenariosKey = `${workspace.documentId}:${screen}:${workspace.revision}`;
+    } else refresh(screen);
+  }
 
   function clearLayerSelection() {
     clearScenarioCapabilities('Возможности сценария недоступны.');
@@ -784,7 +789,7 @@ export function createScenarios({
   }
 
   return {
-    reset: resetScenarios, refresh, clearLayerSelection, onLayerSelected,
+    reset: resetScenarios, refresh, retainAfterNodeEdit, clearLayerSelection, onLayerSelected,
     clearCommands: () => scenarioOperations.clear()
   };
 }

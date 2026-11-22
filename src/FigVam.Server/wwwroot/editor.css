@@ -57,13 +57,43 @@ p { line-height: 1.6; }
 #zoom-level { min-width: 4rem; text-align: center; }
 #viewport { position: relative; overflow: hidden; height: 60vh; min-height: 300px; margin-top: .5rem; border: 1px solid #738198; background-color: #eef1f6; background-image: radial-gradient(#8995a7 1px, transparent 1px); background-size: 20px 20px; touch-action: none; cursor: grab; }
 #viewport:active { cursor: grabbing; }
-#screen-boundary { position: absolute; left: 0; top: 0; background: white; outline: 2px solid #214da6; transform-origin: 0 0; pointer-events: none; }
+#screen-boundary { position: absolute; left: 0; top: 0; overflow: clip; background: white; outline: 2px solid #214da6; transform-origin: 0 0; pointer-events: none; }
+.visual-node { position: absolute; pointer-events: none; }
+.visual-surface { position: absolute; inset: 0; width: 100%; height: 100%; min-width: 0; min-height: 0; padding: 0; margin: 0; border: 0 solid transparent; border-radius: 0; background: transparent; color: inherit; pointer-events: auto; }
+.visual-surface:disabled, .visual-surface[data-disabled=true] { cursor: default; opacity: .55; }
+.visual-surface:focus-visible { outline: 2px solid #7c2eb8; outline-offset: -3px; }
+.visual-node[data-semantic-role=TextInput] > .visual-surface { padding-inline: 4px; resize: none; }
+.visual-node[data-semantic-role=Text] > .visual-surface { overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
+.visual-node[data-semantic-role=Image] > .visual-surface { display: block; }
+#screen-boundary .visual-surface { cursor: default; }
+#screen-boundary [data-selected=true] > .visual-surface { outline: 2px solid #214da6; outline-offset: -2px; }
+#screen-boundary [data-canvas-editable] > .visual-surface { cursor: move; }
+.canvas-resize-handle { position: absolute; right: 0; bottom: 0; width: min(100%, calc(12px / var(--canvas-scale))); height: min(100%, calc(12px / var(--canvas-scale))); background: #214da6; box-shadow: inset 0 0 0 1px white; pointer-events: auto; cursor: nwse-resize; }
+#preview-viewport { position: relative; min-height: 1px; overflow: hidden; margin-inline: auto; background: white; }
+.preview-screen { position: absolute; left: 0; top: 0; background: white; }
+.preview-screen + .preview-screen { background: transparent; }
+:is(#design-render-status, #preview-render-status, #design-render-diagnostics, #preview-render-diagnostics):empty { display: none; }
+:is(#canvas-edit-hint, #canvas-edit-status, #canvas-edit-error):empty { display: none; }
+#editor-preview { min-height: 100vh; background: #f3f5f8; }
+#editor-preview [role=status], #preview-render-diagnostics { margin-inline: 1rem; }
 
 #layers [role=treeitem] { overflow-wrap: anywhere; }
 #layers [role=group] { margin-left: 1rem; }
 .layer-label { display: block; padding: .45rem; cursor: pointer; border: 1px solid transparent; border-radius: 4px; }
 #layers [aria-selected=true] > .layer-label { border-color: #214da6; background: #e8efff; font-weight: 700; }
 #node-order { display: grid; gap: .4rem; margin-top: .6rem; }
+#visual-palette-form, #visual-properties-form, .node-property fieldset { display: grid; gap: .55rem; }
+#visual-palette label, #visual-inspector label { display: block; }
+#visual-palette select, #visual-inspector select, #visual-inspector textarea,
+#visual-inspector input:not([type=checkbox]) { display: block; width: 100%; font: inherit; }
+#visual-palette select, #visual-inspector select, #visual-inspector textarea { padding: .45rem; }
+#visual-inspector textarea { min-height: 3rem; resize: vertical; }
+#visual-inspector input[type=color] { height: 2.5rem; padding: .2rem; }
+#visual-properties { display: grid; gap: .55rem; }
+.node-property fieldset { min-width: 0; margin: 0; border: 1px solid #ccd3df; border-radius: 6px; }
+.node-property-error, #visual-palette-error, #visual-inspector-error { color: #a01e2c; overflow-wrap: anywhere; }
+.node-property-error { margin: .2rem 0 0; font-size: .9rem; }
+#visual-palette p:empty, #visual-inspector p:empty { display: none; }
 #node-reparent-form { display: grid; gap: .55rem; margin-top: .65rem; padding-top: .55rem; border-top: 1px solid #ccd3df; }
 #node-reparent-form p { margin: 0; }
 #node-reparent-form select, #node-reparent-form input { display: block; width: 100%; font: inherit; }

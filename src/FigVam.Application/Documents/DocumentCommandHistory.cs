@@ -34,9 +34,23 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     [System.Text.Json.Serialization.JsonRequired]
     public NameChange? Name { get; init; }
 
+    public sealed record ProfileChange(PortableUiProfileReference Before, PortableUiProfileReference After);
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public ProfileChange? Profile { get; init; }
+
     public static DocumentPatch Between(DocumentStructure before, DocumentStructure after) => new(
         Diff(before.Pages, after.Pages, p => p.Id), Diff(before.Screens, after.Screens, s => s.Id),
-        Diff(before.Nodes, after.Nodes, n => n.Id)) { Name = before.Name == after.Name ? null : new(before.Name, after.Name), Assets = Diff(before.Assets, after.Assets, a => a.Id), Scenarios = Diff(before.Scenarios, after.Scenarios, s => s.Id), Datasets = Diff(before.Datasets, after.Datasets, d => d.Id), Tokens = Diff(before.Tokens, after.Tokens, t => t.Id), ComponentInstances = Diff(before.ComponentInstances, after.ComponentInstances, i => i.NodeId), ComponentDefinitions = Diff(before.ComponentDefinitions, after.ComponentDefinitions, d => d.Id) };
+        Diff(before.Nodes, after.Nodes, n => n.Id))
+    {
+        Name = before.Name == after.Name ? null : new(before.Name, after.Name),
+        Profile = before.Profile == after.Profile ? null : new(before.Profile, after.Profile),
+        Assets = Diff(before.Assets, after.Assets, a => a.Id),
+        Scenarios = Diff(before.Scenarios, after.Scenarios, s => s.Id),
+        Datasets = Diff(before.Datasets, after.Datasets, d => d.Id),
+        Tokens = Diff(before.Tokens, after.Tokens, t => t.Id),
+        ComponentInstances = Diff(before.ComponentInstances, after.ComponentInstances, i => i.NodeId),
+        ComponentDefinitions = Diff(before.ComponentDefinitions, after.ComponentDefinitions, d => d.Id)
+    };
 
     private static bool Equal<T>(T? left, T? right) => JsonSerializer.Serialize(left) == JsonSerializer.Serialize(right);
     private static EntityChange<T>[] Diff<T>(IReadOnlyList<T> before, IReadOnlyList<T> after, Func<T, Guid> id) where T : class
@@ -51,13 +65,24 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
             .Where(change => change.Reorder || !Equal(change.Before, change.After)).ToArray();
     }
 
-    public DocumentPatch Reverse() => new(Reverse(Pages), Reverse(Screens), Reverse(Nodes)) { Name = Name is null ? null : new(Name.After, Name.Before), Assets = Reverse(Assets), Scenarios = Reverse(Scenarios), Datasets = Reverse(Datasets), Tokens = Reverse(Tokens), ComponentInstances = Reverse(ComponentInstances), ComponentDefinitions = Reverse(ComponentDefinitions) };
+    public DocumentPatch Reverse() => new(Reverse(Pages), Reverse(Screens), Reverse(Nodes))
+    {
+        Name = Name is null ? null : new(Name.After, Name.Before),
+        Profile = Profile is null ? null : new(Profile.After, Profile.Before),
+        Assets = Reverse(Assets),
+        Scenarios = Reverse(Scenarios),
+        Datasets = Reverse(Datasets),
+        Tokens = Reverse(Tokens),
+        ComponentInstances = Reverse(ComponentInstances),
+        ComponentDefinitions = Reverse(ComponentDefinitions)
+    };
     private static EntityChange<T>[] Reverse<T>(IReadOnlyList<EntityChange<T>> changes) where T : class
         => changes.Select(c => new EntityChange<T>(c.Id, c.After, c.Before, c.AfterIndex, c.BeforeIndex, c.Reorder)).ToArray();
 
     public DocumentStructure? Apply(DocumentStructure current)
     {
         if (Name is not null && current.Name != Name.Before) return null;
+        if (Profile is not null && current.Profile != Profile.Before) return null;
         var assets = Apply(current.Assets, Assets, a => a.Id);
         var pages = Apply(current.Pages, Pages, p => p.Id);
         var screens = Apply(current.Screens, Screens, s => s.Id);
@@ -67,7 +92,20 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
         var tokens = Apply(current.Tokens, Tokens, t => t.Id);
         var instances = Apply(current.ComponentInstances, ComponentInstances, i => i.NodeId);
         var components = Apply(current.ComponentDefinitions, ComponentDefinitions, d => d.Id);
-        return assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || pages is null || screens is null || nodes is null ? null : current with { Name = Name?.After ?? current.Name, Assets = assets, Scenarios = scenarios, Datasets = datasets, Pages = pages, Screens = screens, Nodes = nodes, Tokens = tokens, ComponentDefinitions = components, ComponentInstances = instances };
+        return assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || pages is null || screens is null || nodes is null ? null : current with
+        {
+            Name = Name?.After ?? current.Name,
+            Profile = Profile?.After ?? current.Profile,
+            Assets = assets,
+            Scenarios = scenarios,
+            Datasets = datasets,
+            Pages = pages,
+            Screens = screens,
+            Nodes = nodes,
+            Tokens = tokens,
+            ComponentDefinitions = components,
+            ComponentInstances = instances
+        };
     }
     private static T[]? Apply<T>(IReadOnlyList<T> current, IReadOnlyList<EntityChange<T>> changes, Func<T, Guid> id) where T : class
     {
