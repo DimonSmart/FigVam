@@ -67,8 +67,11 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     controller = new AbortController();
     playbackRequest?.abort();
     playbackRequest = null;
-    for (const url of assetUrls.values()) url.then(URL.revokeObjectURL, () => {});
-    assetUrls.clear();
+    // Immutable asset IDs may reuse their loaded URL while editing this screen.
+    if (!sameScreen || !key) {
+      for (const url of assetUrls.values()) url.then(URL.revokeObjectURL, () => {});
+      assetUrls.clear();
+    }
     if (!sameScreen || !nodeEdit) loadedResources = null;
     resources = loadedResources ? Promise.resolve(loadedResources) : null;
     screenNodes.clear();
@@ -236,7 +239,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       }));
       if (!current()) return;
       const diagnostics = document.createDocumentFragment(), content = document.createDocumentFragment();
-      const images = [];
       let shown = false;
       for (const [index, model] of models.entries()) {
         const { screen, boxes } = model;
@@ -251,7 +253,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
           setInput: (id, value) => { if (acceptsInteraction()) inputValues.set(id, value); },
           report: (node, property, message) => addDiagnostic(diagnostics, `${node.name || node.id} · ${property}: ${message}`)
         });
-        images.push(...drawing.images);
         if (previewMode) {
           const surface = document.createElement('div');
           const bounds = boxes.get(screen).bounds;
@@ -295,8 +296,10 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         surface.onerror = report;
         readAsset(assetId).then(url => {
           if (current() && surface.isConnected && surface.dataset.assetId === assetId) {
+            surface.onload = () => {
+              if (surface.dataset.assetId === assetId) surface.dataset.loadedAsset = assetId;
+            };
             surface.src = url;
-            surface.dataset.loadedAsset = assetId;
           }
         }).catch(report);
       }

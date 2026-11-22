@@ -6,7 +6,7 @@ const option = value => ({ type: 'enum', value });
 const geometry = (x, y, width, height) => ({ x: number(x), y: number(y), width: number(width), height: number(height) });
 const visual = id => `[data-visual-node="${id}"]`;
 
-async function openCanvas(page, request) {
+async function openCanvas(page, request, extraNodes = 0) {
   const documentId = randomUUID(), pageId = randomUUID(), screen = randomUUID();
   const base = `/api/v1/documents/${documentId}`, headers = { Authorization: `Bearer ${bearer}` };
   async function post(path, data) {
@@ -27,6 +27,8 @@ async function openCanvas(page, request) {
   });
   const child = await node(frame, 'Button', geometry(20, 18, 82, 42));
   const cover = await node(frame, 'Text', geometry(20, 18, 16, 14));
+  for (let i = 0; i < extraNodes; i++)
+    await node(screen, 'Text', geometry(390 + (i % 8) * 12, 110 + Math.floor(i / 8) * 15, 9, 9));
   const stack = await node(screen, 'Frame', { ...geometry(250, 35, 110, 120), layout: option('Vertical') });
   const stackChild = await node(stack, 'Text', geometry(20, 18, 80, 30));
   const layout = async () => {
@@ -206,4 +208,102 @@ test('pans separately, blocks direct stack geometry edits and supports keyboard 
   await page.keyboard.press('Delete');
   await expect(node).toHaveCount(0);
   expect((await layout()).revision).toBe(original.revision + 3);
+});
+
+test('keeps canvas nodes, layers and unsaved inspector fields alive after a local move', async ({ page, request }) => {
+  const { child, cover, path } = await openCanvas(page, request);
+  const node = page.locator(visual(child));
+  await node.locator('.visual-surface').click();
+  const draft = page.locator('#visual-property-text');
+  await expect(draft).toBeVisible();
+  await draft.fill('Неотправленный текст');
+  await page.evaluate(({ child, cover }) => {
+    window.__stableEditor = {
+      moved: document.querySelector(`[data-visual-node="${child}"]`),
+      neighbor: document.querySelector(`[data-visual-node="${cover}"]`),
+      layer: document.querySelector(`#layers [data-id="${child}"]`),
+      width: document.querySelector('#visual-property-width'),
+      text: document.querySelector('#visual-property-text'),
+      boundary: document.querySelector('#screen-boundary')
+    };
+  }, { child, cover });
+  const calls = [];
+  await page.route(path, route => { calls.push(route.request().postDataJSON()); return route.continue(); });
+  const move = await startDrag(page, node);
+  await move(30, 20);
+  expect(calls).toHaveLength(0);
+  await page.mouse.up();
+  await expect(page.locator('#canvas-edit-status')).toHaveText('Геометрия сохранена.');
+  expect(calls).toHaveLength(1);
+  expect(await page.evaluate(() => {
+    const stable = window.__stableEditor;
+    return {
+      moved: stable.moved.isConnected && stable.moved === document.querySelector(`[data-visual-node="${stable.moved.dataset.visualNode}"]`),
+      neighbor: stable.neighbor.isConnected,
+      layer: stable.layer.isConnected && stable.layer === document.querySelector(`#layers [data-id="${stable.layer.dataset.id}"]`),
+      width: stable.width === document.querySelector('#visual-property-width'),
+      text: stable.text === document.querySelector('#visual-property-text'),
+      draft: stable.text.value,
+      boundary: stable.boundary === document.querySelector('#screen-boundary')
+    };
+  })).toEqual({
+    moved: true, neighbor: true, layer: true, width: true, text: true,
+    draft: 'Неотправленный текст', boundary: true
+  });
+});
+
+test('reconciles a remote property change without destroying the active inspector draft', async ({ page, request }) => {
+  const { child, cover, command } = await openCanvas(page, request);
+  const node = page.locator(visual(child));
+  await node.locator('.visual-surface').click();
+  const draft = page.locator('#visual-property-text');
+  await expect(draft).toBeVisible();
+  await draft.fill('Локальный черновик');
+  await page.evaluate(({ child, cover }) => {
+    window.__remoteStable = {
+      selected: document.querySelector(`[data-visual-node="${child}"]`),
+      neighbor: document.querySelector(`[data-visual-node="${cover}"]`),
+      layer: document.querySelector(`#layers [data-id="${child}"]`),
+      field: document.querySelector('#visual-property-text'),
+      width: document.querySelector('#visual-property-width')
+    };
+  }, { child, cover });
+  await command('set-node-properties', { nodeId: child, properties: { width: number(95) } });
+  await expect(node).toHaveCSS('width', '95px');
+  await expect(page.locator('#visual-property-width')).toHaveValue('95');
+  expect(await page.evaluate(() => {
+    const stable = window.__remoteStable;
+    return {
+      selected: stable.selected.isConnected && stable.selected === document.querySelector(`[data-visual-node="${stable.selected.dataset.visualNode}"]`),
+      neighbor: stable.neighbor.isConnected,
+      layer: stable.layer.isConnected && stable.layer === document.querySelector(`#layers [data-id="${stable.layer.dataset.id}"]`),
+      field: stable.field === document.querySelector('#visual-property-text'),
+      width: stable.width === document.querySelector('#visual-property-width'),
+      draft: stable.field.value
+    };
+  })).toEqual({
+    selected: true, neighbor: true, layer: true, field: true, width: true,
+    draft: 'Локальный черновик'
+  });
+});
+
+test('moving one layer in a populated screen never recreates unrelated nodes', async ({ page, request }) => {
+  const { child } = await openCanvas(page, request, 36);
+  const node = page.locator(visual(child));
+  await node.locator('.visual-surface').click();
+  await page.evaluate(() => {
+    window.__crowded = [...document.querySelectorAll('#screen-boundary [data-visual-node]')];
+  });
+  const move = await startDrag(page, node);
+  await move(20, 10);
+  await page.mouse.up();
+  await expect(page.locator('#canvas-edit-status')).toHaveText('Геометрия сохранена.');
+  expect(await page.evaluate(() => {
+    const elements = window.__crowded;
+    return {
+      count: elements.length,
+      detached: elements.filter(el => !el.isConnected || document.querySelector(
+        `#screen-boundary [data-visual-node="${el.dataset.visualNode}"]`) !== el).length
+    };
+  })).toEqual({ count: 41, detached: 0 });
 });

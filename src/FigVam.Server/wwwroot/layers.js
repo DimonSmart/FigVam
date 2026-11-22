@@ -25,14 +25,23 @@ export function createLayers({
   }
 
   function selectLayer(item) {
-    if (layerSelection?.id !== item.id) { layerSelectionEpoch++; closeNodeReparent(); }
+    const changed = layerSelection?.id !== item.id;
+    if (changed) { layerSelectionEpoch++; closeNodeReparent(); }
     layerSelection = item;
-    loadNodeMetadata();
-    onLayerSelected();
-    element('inspector-selection').textContent = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
+    if (changed || nodeMetadata?.id !== item.id) loadNodeMetadata();
+    if (changed) onLayerSelected();
+    if (!changed && nodeMetadata?.id === item.id && nodeMetadata.name !== item.name) {
+      nodeMetadata.name = item.name;
+      renderNodeMetadata();
+    }
+    const caption = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
+    if (element('inspector-selection').textContent !== caption)
+      element('inspector-selection').textContent = caption;
     renderNodeOrder();
-    for (const node of element('layers').querySelectorAll('[role=treeitem]'))
-      node.setAttribute('aria-selected', String(node.dataset.id === item.id));
+    for (const row of element('layers').querySelectorAll('[role=treeitem]')) {
+      const selected = String(row.dataset.id === item.id);
+      if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
+    }
   }
 
   function nodeOperationKey(doc, node) { return `${doc}:${node}`; }
@@ -389,28 +398,71 @@ export function createLayers({
 
   function renderLayers(focusId) {
     renderNodeDeletion();
-    const tree = element('layers'); tree.replaceChildren();
-    function append(items, parent) {
+    const tree = element('layers');
+    const old = new Map([...tree.querySelectorAll('[role=treeitem]')].map(row => [row.dataset.id, row]));
+
+    function reconcile(parent, items) {
+      const rows = [];
       for (const item of items) {
-        const row = document.createElement('div'); row.setAttribute('role', 'treeitem');
-        row.dataset.id = item.id; row.tabIndex = -1;
-        row.setAttribute('aria-selected', String(layerSelection?.id === item.id));
-        if (item.childCount) row.setAttribute('aria-expanded', String(layerExpanded.has(item.id)));
-        const label = document.createElement('span'); label.className = 'layer-label';
-        label.textContent = `${item.childCount ? (layerExpanded.has(item.id) ? '▾ ' : '▸ ') : '• '}${item.name?.trim() || 'Без имени'} — ${item.kind}`;
-        row.append(label);
-        label.addEventListener('click', () => { selectLayer(item); row.focus(); if (item.childCount) toggleLayer(item); });
-        if (layerExpanded.has(item.id)) {
-          const group = document.createElement('div'); group.setAttribute('role', 'group');
-          append(layerChildren.get(item.id) || [], group); row.append(group);
+        let row = old.get(item.id);
+        if (!row) {
+          row = document.createElement('div');
+          row.setAttribute('role', 'treeitem');
+          row.dataset.id = item.id;
+          row.tabIndex = -1;
+          const label = document.createElement('span');
+          label.className = 'layer-label';
+          row.append(label);
+          label.addEventListener('click', () => {
+            const latest = findLayer(item.id);
+            if (!latest) return;
+            selectLayer(latest);
+            row.focus();
+            if (latest.childCount) toggleLayer(latest);
+          });
         }
-        parent.append(row);
+        const selected = String(layerSelection?.id === item.id);
+        if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
+        if (item.childCount) {
+          const expanded = String(layerExpanded.has(item.id));
+          if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
+        } else row.removeAttribute('aria-expanded');
+        const label = row.querySelector(':scope > .layer-label');
+        const caption = `${item.childCount ? (layerExpanded.has(item.id) ? '▾ ' : '▸ ') : '• '}${item.name?.trim() || 'Без имени'} — ${item.kind}`;
+        if (label.textContent !== caption) label.textContent = caption;
+        let group = row.querySelector(':scope > [role=group]');
+        if (layerExpanded.has(item.id) && item.childCount) {
+          if (!group) {
+            group = document.createElement('div');
+            group.setAttribute('role', 'group');
+            row.append(group);
+          }
+          reconcile(group, layerChildren.get(item.id) || []);
+        } else group?.remove();
+        rows.push(row);
+      }
+      let following = null;
+      for (let index = rows.length - 1; index >= 0; index--) {
+        const row = rows[index];
+        if (row.parentNode !== parent || row.nextElementSibling !== following)
+          parent.insertBefore(row, following);
+        following = row;
+      }
+      const expected = new Set(items.map(item => item.id));
+      for (const child of [...parent.children]) {
+        if (child.getAttribute('role') === 'treeitem' && !expected.has(child.dataset.id))
+          child.remove();
       }
     }
-    append(layerRoots, tree);
+
+    const focusedElement = document.activeElement?.closest('[role=treeitem]');
+    reconcile(tree, layerRoots);
     const rows = [...tree.querySelectorAll('[role=treeitem]')];
-    const focused = rows.find(row => row.dataset.id === focusId) || rows.find(row => row.dataset.id === layerSelection?.id) || rows[0];
-    if (focused) { focused.tabIndex = 0; if (focusId) focused.focus(); }
+    const focused = rows.find(row => row.dataset.id === focusId) ||
+      rows.find(row => row === focusedElement) ||
+      rows.find(row => row.dataset.id === layerSelection?.id) || rows[0];
+    for (const row of rows) row.tabIndex = row === focused ? 0 : -1;
+    if (focused && focusId) focused.focus({ preventScroll: true });
   }
 
   async function readLayerChildren(base, parentId, signal, revision, isCurrent) {
@@ -507,11 +559,20 @@ export function createLayers({
   }
 
   function applySnapshot({ screen, roots, children, expanded }, selection) {
+    layerController?.abort();
+    layerGeneration++;
     layerRoots = roots; layerChildren = children; layerExpanded = expanded;
     layerController = new AbortController();
-    if (selection) {
-      const item = findLayer(selection.id);
-      if (item) selectLayer(item);
+    const selected = selection && findLayer(selection.id);
+    if (selected) selectLayer(selected);
+    else if (layerSelection) {
+      layerSelection = null;
+      layerSelectionEpoch++;
+      nodeReadGeneration++;
+      nodeMetadata = null;
+      renderNodeMetadata();
+      element('inspector-selection').textContent = 'Выберите слой.';
+      onSelectionCleared();
     }
     renderLayers();
     element('layers-status').textContent = screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.';

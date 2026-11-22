@@ -33,14 +33,18 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   function applySelectedUsages({ selection, usages }) {
     if (selection !== selectedToken) { selectToken(selectedToken); return; }
-    tokenUsages = usages;
-    renderTokens();
+    if (JSON.stringify(tokenUsages) !== JSON.stringify(usages)) {
+      tokenUsages = usages;
+      renderTokens();
+    }
   }
   function applyTokens(snapshot) {
+    const before = JSON.stringify([tokenItems, tokenUsages, selectedToken]);
     tokenItems = snapshot.items;
     if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
     if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
-    tokenUsages = snapshot.usages; renderTokens();
+    tokenUsages = snapshot.usages;
+    if (before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) renderTokens();
   }
   function describeExpression(expression) {
     if (expression?.expression === 'alias') return `Ссылка на токен ${expression.tokenId}`;
