@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 
 async function openDocument(page) {
   await page.goto('/');
@@ -7,6 +8,7 @@ async function openDocument(page) {
   await page.getByLabel('Имя нового документа').fill('Original');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Original');
+  await show(page, 'document');
 }
 
 test('renames through the command after acceptance and prevents duplicate submissions', async ({ page }) => {
@@ -39,7 +41,7 @@ test('hides rename for Viewer and permits Editor', async ({ page }) => {
     });
     await page.getByRole('link', { name: '← Документы' }).click();
     await page.getByRole('link', { name: 'Original', exact: true }).click();
-    await expect(page.locator('#document-rename')).toBeVisible({ visible: role === 'Editor' });
+    await show(page, 'document'); await expect(page.locator('#document-rename')).toBeVisible({ visible: role === 'Editor' });
     await page.unrouteAll({ behavior: 'wait' });
   }
 });
@@ -50,7 +52,7 @@ test('reports validation and authorization rejection without changing the title'
   for (const status of [400, 403]) {
     await page.route('**/commands/rename-document', route => route.fulfill({ status, json: {} }));
     await name.fill('Rejected');
-    await page.getByRole('button', { name: 'Переименовать документ' }).click();
+    await show(page, 'document'); await page.getByRole('button', { name: 'Переименовать документ' }).click();
     await expect(page.locator('#document-rename-error')).toContainText(status === 400 ? 'Проверьте' : 'Нет доступа');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Original');
     await expect(page).toHaveTitle('Original — FigVam');
@@ -64,7 +66,7 @@ test('ignores an in-flight response after logout', async ({ page }) => {
   const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/commands/rename-document', async route => { await gate; await route.fulfill({ status: 200, json: {} }).catch(() => {}); });
   await page.getByLabel('Имя документа', { exact: true }).fill('Late');
-  await page.getByRole('button', { name: 'Переименовать документ' }).click();
+  await show(page, 'document'); await page.getByRole('button', { name: 'Переименовать документ' }).click();
   await page.getByRole('button', { name: 'Забыть токен' }).click();
   release();
   await expect(page).toHaveTitle('FigVam — документы');

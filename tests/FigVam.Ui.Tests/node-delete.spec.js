@@ -1,7 +1,8 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 async function setup(page) {
  await page.goto('/'); await page.getByLabel('Bearer-токен',{exact:true}).fill(bearer); await page.getByRole('button',{name:'Продолжить',exact:true}).click();
- await page.getByLabel('Имя нового документа').fill('Delete layer'); await page.getByRole('button',{name:'Создать документ',exact:true}).click(); await page.getByRole('button',{name:'Создать страницу'}).click(); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600'); await page.getByRole('button',{name:'Создать экран'}).click();
+ await page.getByLabel('Имя нового документа').fill('Delete layer'); await page.getByRole('button',{name:'Создать документ',exact:true}).click(); await page.getByRole('button',{name:'Создать страницу'}).click(); await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600'); await page.getByRole('button',{name:'Создать экран'}).click();
  await expect(page.locator('#screens button')).toHaveCount(1);
  const id='11111111-1111-1111-1111-111111111111'; let exists=true;
  await page.route('**/children/**', route=>route.fulfill({json:{items:exists?[{id,name:'Parent',kind:'Frame',childCount:0}]:[],total:exists?1:0}}));

@@ -3,6 +3,7 @@ import { createUserAdmin } from './user-admin.js';
 import { createApiClient } from './api-client.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
+import { createEditorShell } from './editor-shell.js';
 import { createVisualScreens } from './visual-screen.js';
 import { createCanvasNodeEditor } from './canvas-node-editor.js';
 import { createVisualNodeEditor } from './visual-node-editor.js';
@@ -21,6 +22,7 @@ import { createTokens } from './tokens.js';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from './session.js';
 
 const element = id => document.getElementById(id);
+createEditorShell();
 const userAdmin = createUserAdmin(element);
 let cursors = [null];
 let pageIndex = 0;
@@ -332,9 +334,11 @@ function renderPages() {
 
 function renderScreens() {
   const list = element('screens'); list.replaceChildren();
-  for (const item of screensItems) {
+  for (const [index, item] of screensItems.entries()) {
     const row = document.createElement('li'), button = document.createElement('button');
-    button.type = 'button'; button.textContent = `Экран ${item.id} — ${item.dimensions.width} × ${item.dimensions.height}`;
+    button.type = 'button'; button.dataset.screenId = item.id;
+    button.textContent = `Экран ${screensOffset + index + 1} · ${item.dimensions.width} × ${item.dimensions.height}`;
+    button.title = `Экран ${screensOffset + index + 1}`;
     button.setAttribute('aria-pressed', String(item.id === selectedScreen));
     button.addEventListener('click', () => { if (selectedScreen !== item.id) { layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset(); screenVariants.reset(); screenResize.render(); refreshPages(); } for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', String(other === button)); renderCanvas(); });
     row.append(button); list.append(row);
@@ -344,6 +348,12 @@ function renderScreens() {
   element('screens-next').disabled = !selectedPage || screensOffset + screensItems.length >= screensTotal;
   element('screens-number').textContent = selectedPage ? `Страница списка ${Math.floor(screensOffset / pageSize) + 1}` : 'Выберите страницу';
   element('screen-create').querySelectorAll('input, button').forEach(control => { control.disabled = !selectedPage; });
+  const screenMenu = element('screen-preset').closest('details');
+  screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
+  // An empty page offers screen creation immediately; existing screens keep the form tucked away.
+  if (!selectedScreen && selectedPage && screensItems.length === 0 &&
+      (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
+  else if (selectedScreen) screenMenu.open = false;
 }
 
 
@@ -389,6 +399,17 @@ const canvasNodes = createCanvasNodeEditor({
 });
 function renderCanvas(nodeEdit = false) {
   canvasViewport.render();
+  const empty = element('canvas-empty');
+  empty.hidden = Boolean(selectedScreen);
+  if (!selectedScreen) {
+    const allowed = documentRole === 'Owner' || documentRole === 'Editor';
+    const action = empty.querySelector('button');
+    action.hidden = !allowed;
+    action.textContent = selectedPage ? 'Создать экран' : 'Создать страницу';
+    empty.querySelector('p').textContent = selectedPage
+      ? 'Выберите экран слева или создайте новый, чтобы начать работу.'
+      : 'Создайте первую страницу, затем добавьте экран.';
+  }
   visualScreens.refresh(nodeEdit);
   visualNodeEditor.refresh();
 }
@@ -811,6 +832,8 @@ async function initializeAuthentication() {
     if (!isGoogleMode()) {
       element('authentication-help').textContent = 'Для API-режима введите выданный Bearer-токен. Вход через Google настроен отдельно.';
       element('disconnect').textContent = 'Забыть токен';
+      element('editor-signout').textContent = 'Забыть токен';
+      element('editor-signout-menu').textContent = 'Забыть токен';
       element('authentication-form').hidden = false;
       return;
     }

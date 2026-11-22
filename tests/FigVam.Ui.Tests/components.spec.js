@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 
 test('catalog searches, pages and reads detail and usages at the editor revision', async ({ page }) => {

@@ -1,0 +1,91 @@
+const { test, expect, bearer } = require('./fixtures');
+
+async function openEditor(page) {
+  await page.goto('/');
+  await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
+  await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.getByLabel('Имя нового документа').fill('Editor shell test');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page.locator('#editor-view')).toBeVisible();
+}
+
+test('editor shell gives the canvas first-screen priority and retains existing tools', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openEditor(page);
+  const geometry = await page.evaluate(() => {
+    const rect = selector => {
+      const { x, y, width, height } = document.querySelector(selector).getBoundingClientRect();
+      return { x, y, width, height };
+    };
+    return {
+      viewport: rect('#viewport'), left: rect('.layers-sidebar'),
+      right: rect('.properties-sidebar'), header: rect('.app-toolbar'),
+      bodyScroll: document.documentElement.scrollHeight,
+      leftOverflow: getComputedStyle(document.querySelector('.layers-page')).overflowY,
+      rightOverflow: getComputedStyle(document.querySelector('.inspector-page')).overflowY
+    };
+  });
+  expect(geometry.header.height).toBeGreaterThanOrEqual(48);
+  expect(geometry.header.height).toBeLessThanOrEqual(56);
+  expect(geometry.viewport.height).toBeGreaterThan(550);
+  expect(geometry.viewport.width).toBeGreaterThan(600);
+  expect(geometry.left.width).toBeGreaterThanOrEqual(230);
+  expect(geometry.right.width).toBeGreaterThanOrEqual(280);
+  expect(geometry.bodyScroll).toBeLessThanOrEqual(902);
+  expect(geometry.leftOverflow).toBe('auto');
+  expect(geometry.rightOverflow).toBe('auto');
+
+  await expect(page.getByRole('tab', { name: 'Слои' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#canvas-empty')).toBeVisible();
+  await expect(page.locator('#export-json')).toBeHidden();
+  await page.locator('.document-menu > summary').click();
+  await expect(page.locator('#export-json')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#export-json')).toBeHidden();
+  await page.screenshot({ path: testInfo.outputPath('editor-shell-empty.png') });
+
+  await page.getByRole('button', { name: 'Создать страницу', exact: true }).click();
+  await expect(page.locator('#pages button')).toHaveCount(1);
+  await page.locator('#canvas-empty button').click();
+  await expect(page.locator('#screen-create')).toBeVisible();
+  await page.getByLabel('Ширина экрана').fill('800');
+  await page.getByLabel('Высота экрана').fill('600');
+  await page.locator('#screen-create button[type=submit]').click();
+  await expect(page.locator('#screen-boundary')).toBeVisible();
+  await expect(page.locator('#canvas-empty')).toBeHidden();
+
+  const created = page.waitForResponse(res => res.url().endsWith('/commands/add-node'));
+  await page.getByRole('button', { name: 'Добавить контейнер' }).click();
+  expect((await created).ok()).toBeTruthy();
+  await expect(page.locator('#layers [aria-selected=true]')).toHaveCount(1);
+  await expect(page.locator('#visual-inspector')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('editor-shell-selected.png') });
+
+  const selection = await page.locator('#layers [aria-selected=true]').getAttribute('data-id');
+  const zoom = await page.locator('#zoom-level').textContent();
+  await page.getByRole('button', { name: 'Показать или скрыть слои' }).click();
+  await expect(page.locator('.layers-sidebar')).toBeHidden();
+  await page.getByRole('button', { name: 'Показать или скрыть слои' }).click();
+  await expect(page.locator('#layers [aria-selected=true]')).toHaveAttribute('data-id', selection);
+  await expect(page.locator('#zoom-level')).toHaveText(zoom);
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.locator('#editor-preview')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('editor-shell-preview.png') });
+  await page.getByRole('button', { name: 'Вернуться в Design' }).click();
+  await expect(page.locator('#layers [aria-selected=true]')).toHaveAttribute('data-id', selection);
+});
+
+test('narrow editor keeps full page unscrolled and panels accessible', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openEditor(page);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await expect(page.locator('.layers-sidebar')).toBeHidden();
+  await page.getByRole('button', { name: 'Показать или скрыть слои' }).click();
+  await expect(page.locator('.layers-sidebar')).toBeVisible();
+  await page.getByRole('tab', { name: 'Ресурсы' }).click();
+  await expect(page.locator('#asset-upload-form')).toBeVisible();
+  await page.getByRole('button', { name: 'Показать или скрыть слои' }).click();
+  await page.getByRole('button', { name: 'Показать или скрыть инспектор' }).click();
+  await expect(page.locator('.properties-sidebar')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('editor-shell-mobile.png') });
+});

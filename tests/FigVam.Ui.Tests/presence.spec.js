@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function create(request) { const id = randomUUID(); expect((await request.post('/api/v1/documents', { headers: { Authorization: `Bearer ${bearer}` }, data: { documentId: id, name: 'Presence' } })).ok()).toBeTruthy(); return id; }
 async function open(page, id) { await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await expect(page.locator('#editor-view')).toBeVisible(); }

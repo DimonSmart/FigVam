@@ -59,6 +59,21 @@ export function createCanvasViewport({ element, getScreen, getSelectedScreen, on
   element('actual-size').addEventListener('click', () => zoomCenter(1));
   element('fit-screen').addEventListener('click', fitScreen);
   const canvasArea = element('viewport');
+  // Preserve zoom and canvas center when sidebars or the browser change size.
+  let previousWidth = 0, previousHeight = 0;
+  const observer = new ResizeObserver(entries => {
+    const { width, height } = entries[0].contentRect;
+    if (width > 0 && height > 0) {
+      if (previousWidth > 0 && previousHeight > 0 && displayedScreen) {
+        viewport.x += (width - previousWidth) / 2;
+        viewport.y += (height - previousHeight) / 2;
+        paintViewport();
+      }
+      previousWidth = width;
+      previousHeight = height;
+    }
+  });
+  observer.observe(canvasArea);
   canvasArea.addEventListener('wheel', event => {
     if (!getSelectedScreen() || event.defaultPrevented) return;
     event.preventDefault();

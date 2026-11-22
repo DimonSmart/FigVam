@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 
 async function postSuccessfully(request, url, options) {
   const started = performance.now();
@@ -130,7 +131,7 @@ test('manages pages with keyboard and confirmation, preserving IDs and revision'
     const result = await fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json());
     return result.items[0].id;
   });
-  await page.getByLabel('Имя выбранной страницы').fill('Главная');
+  await show(page, 'page'); await page.getByLabel('Имя выбранной страницы').fill('Главная');
   await page.getByLabel('Имя выбранной страницы').press('Enter');
   await expect(page.locator('#pages button')).toHaveText('Главная');
   const result = await page.evaluate(async () => fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json()));
@@ -167,7 +168,7 @@ test('paginates page results, handles command errors and hides editing for Viewe
     await page.unroute('**/commands/delete-page');
   }
   await page.route('**/commands/rename-page', route => route.abort());
-  await page.getByLabel('Имя выбранной страницы').fill('Network');
+  await show(page, 'page'); await page.getByLabel('Имя выбранной страницы').fill('Network');
   await page.getByRole('button', { name: 'Переименовать страницу' }).click();
   await expect(page.locator('#error')).toContainText('команда могла выполниться');
   await page.unroute('**/commands/rename-page');
@@ -236,7 +237,7 @@ test('shows selected screen and provides local accessible viewport controls', as
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(page.getByText('Выберите экран, чтобы показать его на холсте.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Вместить экран' })).toBeDisabled();
-  await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600');
+  await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
   await expect(page.getByText('Экран: 800 × 600 uiUnit')).toBeVisible();
   const boundary = page.locator('#screen-boundary'), area = page.getByRole('region', { name: 'Область холста' });
@@ -259,7 +260,7 @@ test('shows selected screen and provides local accessible viewport controls', as
   await page.mouse.wheel(0, -100); await expect(page.locator('#zoom-level')).not.toHaveText('125%');
   await page.getByRole('button', { name: 'Вместить экран' }).click();
   expect(await page.locator('#revision').textContent()).toBe(revision);
-  await page.getByLabel('Ширина экрана').fill('0'); await page.getByLabel('Высота экрана').fill('0');
+  await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('0'); await page.getByLabel('Высота экрана').fill('0');
   await page.getByRole('button', { name: 'Создать экран' }).click();
   await expect(page.getByText('Экран: 0 × 0 uiUnit')).toBeVisible();
   await page.getByRole('button', { name: 'Вместить экран' }).click();
@@ -278,10 +279,10 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await page.getByLabel('Имя нового документа').fill('Layers');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await page.getByRole('button', { name: 'Создать страницу' }).click();
-  await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600');
+  await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
   await expect(page.locator('#screens button')).toHaveCount(1);
-  const screenId = (await page.locator('#screens button').textContent()).match(/[0-9a-f-]{36}/)[0];
+  const screenId = await page.locator('#screens button').getAttribute('data-screen-id');
   const root = '11111111-1111-1111-1111-111111111111';
   let mode = 'ok', requests = [];
   await page.route('**/children/**', async route => {
@@ -375,8 +376,8 @@ test('late version response stays with its document', async ({ page }) => {
   let received;
   const sent = new Promise(resolve => { received = resolve; });
   await page.route('**/commands/save', async route => { const response = await route.fetch(); received(); await gate; await route.fulfill({ response }); });
-  await page.getByLabel('Имя версии (необязательно)').fill('Снимок');
-  await page.getByRole('button', { name: 'Создать версию' }).click();
+  await show(page, 'document'); await page.getByLabel('Имя версии (необязательно)').fill('Снимок');
+  await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   await sent;
   await page.getByRole('link', { name: '← Документы' }).click();
   await page.getByLabel('Имя нового документа').fill('Второй');
@@ -395,26 +396,26 @@ test('history pagination, viewer access and errors', async ({ page }) => {
   await page.goto('/'); await login(page);
   await page.getByLabel('Имя нового документа').fill('History'); await page.getByRole('button', { name: 'Создать документ' }).click();
   await expect(page.locator('#versions-status')).toContainText('нет');
-  await page.getByLabel('Имя версии (необязательно)').fill('Первая'); await page.getByRole('button', { name: 'Создать версию' }).click();
+  await show(page, 'document'); await page.getByLabel('Имя версии (необязательно)').fill('Первая'); await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   await expect(page.locator('#versions-list')).toContainText('Первая'); await expect(page.locator('#versions-list')).toContainText('Автор:');
   await page.route('**/versions?*', async route => {
     const second = new URL(route.request().url()).searchParams.has('beforeRevision');
     await route.fulfill({ json: { versions: [{ id: '00000000-0000-0000-0000-000000000001', name: second ? 'Старая' : 'Новая', authorId: 'Автор', timestamp: '2025-01-01T00:00:00Z', revision: second ? 1 : 2 }], nextBeforeRevision: second ? null : 2 } });
   });
-  await page.getByRole('button', { name: 'Обновить историю' }).click(); await expect(page.locator('#versions-list')).toContainText('Новая');
-  await page.getByRole('button', { name: 'Следующие версии' }).click(); await expect(page.locator('#versions-list')).toContainText('Старая');
-  await page.getByRole('button', { name: 'Предыдущие версии' }).click(); await expect(page.locator('#versions-list')).toContainText('Новая');
+  await show(page, 'document'); await page.getByRole('button', { name: 'Обновить историю' }).click(); await expect(page.locator('#versions-list')).toContainText('Новая');
+  await show(page, 'document'); await page.getByRole('button', { name: 'Следующие версии' }).click(); await expect(page.locator('#versions-list')).toContainText('Старая');
+  await show(page, 'document'); await page.getByRole('button', { name: 'Предыдущие версии' }).click(); await expect(page.locator('#versions-list')).toContainText('Новая');
   const url = page.url();
   await page.route('**/api/v1/documents?*', async route => { const response = await route.fetch(); const body = await response.json(); body.items = body.items.map(item => ({ ...item, role: 'Viewer' })); await route.fulfill({ response, json: body }); });
   await page.goto(url); await login(page); await expect(page.locator('#versions-list')).toContainText('Новая'); await expect(page.locator('#versions-list button')).toHaveCount(0);
   await page.route('**/versions?*', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }), { times: 1 });
-  await page.getByRole('button', { name: 'Обновить историю' }).click(); await expect(page.locator('#versions-error')).toContainText('Нет доступа');
+  await show(page, 'document'); await page.getByRole('button', { name: 'Обновить историю' }).click(); await expect(page.locator('#versions-error')).toContainText('Нет доступа');
 });
 
 test('restore confirmation, conflict and idempotent retry', async ({ page }) => {
   await page.goto('/'); await login(page);
   await page.getByLabel('Имя нового документа').fill('Restore'); await page.getByRole('button', { name: 'Создать документ' }).click();
-  await page.getByLabel('Имя версии (необязательно)').fill('Исходная'); await page.getByRole('button', { name: 'Создать версию' }).click();
+  await show(page, 'document'); await page.getByLabel('Имя версии (необязательно)').fill('Исходная'); await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   const restore = page.getByRole('button', { name: /Восстановить версию Исходная/ }); await expect(restore).toBeVisible();
   page.once('dialog', dialog => dialog.dismiss()); await restore.click(); await expect(page.locator('#restore-status')).toBeEmpty();
   await page.route('**/commands/restore', route => route.fulfill({ status: 409, json: { code: 'REVISION_CONFLICT' } }), { times: 1 });
@@ -434,7 +435,7 @@ test('restore confirmation, conflict and idempotent retry', async ({ page }) => 
 test('late restore response does not alter another document', async ({ page }) => {
   await page.goto('/'); await login(page);
   await page.getByLabel('Имя нового документа').fill('Первый restore'); await page.getByRole('button', { name: 'Создать документ' }).click();
-  await page.getByLabel('Имя версии (необязательно)').fill('Версия'); await page.getByRole('button', { name: 'Создать версию' }).click();
+  await show(page, 'document'); await page.getByLabel('Имя версии (необязательно)').fill('Версия'); await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   await expect(page.getByRole('button', { name: /Восстановить версию Версия/ })).toBeVisible();
   let release, received; const gate = new Promise(resolve => release = resolve), sent = new Promise(resolve => received = resolve);
   await page.route('**/commands/restore', async route => { const response = await route.fetch(); received(); await gate; await route.fulfill({ response }); });

@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 
 async function openDocument(page) {
   await page.goto('/');
@@ -7,6 +8,7 @@ async function openDocument(page) {
   await page.getByLabel('Имя нового документа').fill('Members target');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await expect(page.getByRole('heading', { name: 'Members target' })).toBeVisible();
+  await show(page, 'share');
 }
 
 test('keyboard assignment and confirmed removal use the real API', async ({ page }) => {
@@ -47,7 +49,7 @@ for (const role of ['Editor', 'Viewer']) test(`${role} does not see controls`, a
   await openDocument(page);
   await page.route('**/api/v1/documents?*', async route => { const response = await route.fetch(); const body = await response.json(); body.items.forEach(item => item.role = role); await route.fulfill({ response, json: body }); });
   await page.getByRole('link', { name: '← Документы' }).click();
-  await page.getByRole('link', { name: 'Members target' }).click();
+  await page.getByRole('link', { name: 'Members target' }).click(); await show(page, 'share');
   await expect(page.getByRole('heading', { name: 'Members target' })).toBeVisible();
   await expect(page.locator('#member-management')).toBeHidden();
   await page.unrouteAll({ behavior: 'wait' });
@@ -87,7 +89,7 @@ for (const action of ['navigate', 'logout']) test(`pending requests do not updat
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
   else await page.getByRole('button', { name: 'Забыть токен' }).click();
   release();
-  if (action === 'navigate') { await page.getByRole('link', { name: 'Members target' }).click(); await expect(page.locator('#member-error')).toBeEmpty(); }
+  if (action === 'navigate') { await page.getByRole('link', { name: 'Members target' }).click(); await show(page, 'share'); await expect(page.locator('#member-error')).toBeEmpty(); }
   else await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();
   expect(count).toBe(1);
 });

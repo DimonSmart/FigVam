@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function setup(request, name = 'История') {
   const id = randomUUID(), pageId = randomUUID(), headers = { Authorization: `Bearer ${bearer}` };
@@ -52,7 +53,7 @@ test('retries a lost acknowledgement with the same command ID', async ({ page, r
 test('shortcuts avoid text fields and work on the editor', async ({ page, request }) => {
   const id = await setup(request); await open(page, id); let calls = 0;
   await page.route('**/commands/undo', async route => { calls++; await route.continue(); });
-  await page.locator('#version-name').focus(); await page.keyboard.press('Control+z'); expect(calls).toBe(0);
+  await show(page, 'document'); await page.locator('#version-name').focus(); await page.keyboard.press('Control+z'); expect(calls).toBe(0);
   await page.locator('#content').focus(); await page.keyboard.press('Control+z'); await expect(page.locator('#pages button')).toHaveCount(0);
   await page.keyboard.press('Control+Shift+z'); await expect(page.locator('#pages button')).toHaveCount(1);
 });

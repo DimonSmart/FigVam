@@ -18,7 +18,7 @@ public sealed class EditorUiTests
         var id = Guid.NewGuid();
         foreach (var route in new[]
         {
-            "/", $"/documents/{id}", "/editor.css", "/editor.js", "/api-client.js", "/canvas-viewport.js",
+            "/", $"/documents/{id}", "/editor.css", "/editor-shell.css", "/editor.js", "/editor-shell.js", "/api-client.js", "/canvas-viewport.js",
             "/components.js", "/datasets.js", "/document-collaboration.js", "/document-export.js", "/document-history.js", "/members.js", "/presence.js", "/layers.js", "/scenarios.js", "/screen-diagnostics.js", "/screen-resize.js", "/screen-variants.js",
             "/tokens.js", "/session.js", "/auth-client.js", "/user-admin.js"
         })

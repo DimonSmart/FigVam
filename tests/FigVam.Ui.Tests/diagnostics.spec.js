@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 
 async function setup(request) {
@@ -14,6 +15,7 @@ async function open(page, id) {
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await expect(page.locator('#screens button')).toHaveCount(2);
+  await show(page, 'diagnostics');
 }
 function response(route, items, total = items.length) {
   const url = new URL(route.request().url()), q = url.searchParams;
