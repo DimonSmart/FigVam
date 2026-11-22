@@ -144,6 +144,7 @@ function message(status = '', error = '') {
 function clearSession() {
   importOperation = null;
   element('import-form').reset();
+  element('import-file-name').textContent = 'Файл не выбран';
   element('import-form').querySelector('button').disabled = false;
   element('import-status').textContent = element('import-error').textContent = '';
   element('import-diagnostics').replaceChildren();
@@ -756,6 +757,9 @@ element('create-form').addEventListener('submit', async event => {
     navigate(`/documents/${documentId}`);
   }, { create: true });
 });
+element('import-file').addEventListener('change', () => {
+  element('import-file-name').textContent = element('import-file').files[0]?.name || 'Файл не выбран';
+});
 element('import-form').addEventListener('submit', async event => {
   event.preventDefault();
   if (importOperation || !token) return;
@@ -795,6 +799,7 @@ element('import-form').addEventListener('submit', async event => {
     }
     if (body.code !== 'ACCEPTED' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.documentId ?? '')) throw new Error('uncertain');
     element('import-form').reset();
+    element('import-file-name').textContent = 'Файл не выбран';
     await loadList();
     if (importOperation === operation && token === operation.token && navigationEpoch === operation.epoch + 1) navigate(`/documents/${body.documentId}`);
   } catch {
