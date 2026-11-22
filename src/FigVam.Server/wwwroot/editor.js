@@ -485,12 +485,18 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   if (!layers.isExpansionCurrent(layerSnapshot))
     return readPages(signal, offset, nextRevision, isCurrent, reveal, selectionChange);
   const selection = selectionAfterCommand(selectionChange);
+  const pagesChanged = page !== selectedPage || offset !== pagesOffset ||
+    JSON.stringify(result.items) !== JSON.stringify(pagesItems) || result.total !== pagesTotal;
+  const screensChanged = screen !== selectedScreen || screenOffset !== screensOffset ||
+    JSON.stringify(screens.items) !== JSON.stringify(screensItems) || screens.total !== screensTotal;
   if (page !== selectedPage || screen !== selectedScreen) layers.reset();
   pagesOffset = offset; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
   screensOffset = screenOffset; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
   revision = catalogRevision = nextRevision;
   tokens.apply(tokenSnapshot);
-  renderPages(); renderScreens();
+  if (pagesChanged) renderPages();
+  if (screensChanged) renderScreens();
+  else renderCanvas();
   layers.applySnapshot(layerSnapshot, selection);
   const name = header.items[0].name;
   element('document-title').textContent = name; document.title = `${name} — FigVam`;
@@ -640,7 +646,6 @@ element('document-rename').addEventListener('submit', async event => {
 });
 
 async function refreshPages(offset = pagesOffset) {
-  layers.reset();
   await run(() => refreshPages(offset), async (signal, current) => {
     await readPages(signal, offset);
     if (current()) message('Страницы обновлены.');
@@ -650,7 +655,6 @@ async function refreshPages(offset = pagesOffset) {
 async function pageCommand(command, data, selection, screenSelection) {
   stopLive();
   if (!['Owner', 'Editor'].includes(documentRole)) return;
-  layers.reset();
   const { signal, current } = startRequest();
   retry = null; message('Отправка изменений в общий черновик…');
   element('page-edit').inert = true;

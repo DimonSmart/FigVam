@@ -138,7 +138,7 @@ export function createVisualNodeEditor({
     for (const [name, definition] of Object.entries(definitions ?? {})) {
       const choices = definition.type === 'Asset' ? [...model.assets.values()] :
         definition.type === 'TokenReference' || definition.tokenType != null ? [...model.tokens.values()] : null;
-      const signature = JSON.stringify([definition, choices]);
+      const signature = JSON.stringify([definition, choices, Boolean(state)]);
       const valueSignature = JSON.stringify(values?.[name] ?? definition.defaultValue);
       let field = existing.get(name);
       if (!field || field.signature !== signature) {
