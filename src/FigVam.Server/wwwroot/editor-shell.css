@@ -286,8 +286,14 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 @media (max-width: 640px) {
   .app-toolbar { padding: 0 8px !important; }
   .app-toolbar .editor-brand, .app-toolbar #revision,
-  .app-toolbar .presence-chips, .app-toolbar .share-menu, .app-toolbar .subtle-action { display: none; }
-  .app-toolbar #document-title { max-width: 27vw; font-size: 12px; }
+  .app-toolbar .presence-chips { display: none; }
+  .app-toolbar > a { font-size: 0; }
+  .app-toolbar > a::before { content: '←'; font-size: 18px; }
+  .app-toolbar .icon-action { width: 25px; }
+  .app-toolbar .share-menu > summary { font-size: 0; padding-inline: 6px; }
+  .app-toolbar .share-menu > summary::after { content: '+'; font-size: 15px; }
+  .app-toolbar #document-title { max-width: 21vw; font-size: 12px; }
+  .app-toolbar .subtle-action { font-size: 11px; padding-inline: 4px; }
   .app-header-actions { gap: 2px; }
   .app-toolbar #open-preview { font-size: 11px; padding-inline: 6px; }
   .drawing-toolbar { justify-content: flex-start; gap: 2px; padding-inline: 5px; }
