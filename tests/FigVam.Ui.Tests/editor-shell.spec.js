@@ -23,6 +23,8 @@ test('editor shell gives the canvas first-screen priority and retains existing t
       bodyScroll: document.documentElement.scrollHeight,
       leftOverflow: getComputedStyle(document.querySelector('.layers-master #pages')).overflowY,
       detailOverflow: getComputedStyle(document.querySelector('.layers-detail .layer-tree-group')).overflowY,
+      detailHeight: rect('.layers-detail').height,
+      layerSectionHeight: rect('.layers-detail .layer-tree-group').height,
       rightOverflow: getComputedStyle(document.querySelector('.inspector-page')).overflowY
     };
   });
@@ -35,6 +37,7 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   expect(geometry.bodyScroll).toBeLessThanOrEqual(902);
   expect(geometry.leftOverflow).toBe('auto');
   expect(geometry.detailOverflow).toBe('auto');
+  expect(Math.abs(geometry.detailHeight - geometry.layerSectionHeight)).toBeLessThanOrEqual(2);
   expect(geometry.rightOverflow).toBe('auto');
 
   await expect(page.getByRole('tab', { name: 'Слои' })).toHaveAttribute('aria-selected', 'true');

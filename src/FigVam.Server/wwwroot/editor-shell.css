@@ -143,7 +143,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .layers-master, .layers-detail { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
 .layers-master { flex: 0 0 42%; position: relative; z-index: 3; overflow: visible; }
 .layers-detail { flex: 1 1 0; position: relative; z-index: 1; }
-.app-shell .layers-master > .editor-group, .app-shell .layers-detail > .editor-group {
+.app-shell .layers-master > .editor-group, .app-shell .layers-detail > .layer-tree-group {
   min-height: 0; min-width: 0; height: 100%; margin: 0; border: 0;
   padding: 9px 9px 7px;
 }
