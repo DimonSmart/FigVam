@@ -282,7 +282,7 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
   await expect(page.locator('#screens button')).toHaveCount(1);
-  const screenId = (await page.locator('#screens button').textContent()).match(/[0-9a-f-]{36}/)[0];
+  const screenId = await page.locator('#screens button').getAttribute('data-screen-id');
   const root = '11111111-1111-1111-1111-111111111111';
   let mode = 'ok', requests = [];
   await page.route('**/children/**', async route => {
