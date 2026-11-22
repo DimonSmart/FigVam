@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4z8DA8J8BAAf/Af8Bf4mnAAAAAElFTkSuQmCC', 'base64');
 const number = value => ({ type: 'number', value });
@@ -16,8 +17,9 @@ async function signIn(page) {
 }
 
 async function addLayer(page, kind, parent, assetId) {
+  if (parent) await show(page, 'layers');
   if (parent) await page.locator(`#layers [data-id="${parent}"] > .layer-label`).click();
-  await page.getByLabel('Вид элемента').selectOption(kind);
+  await show(page, 'palette'); await page.getByLabel('Вид элемента').selectOption(kind);
   if (assetId) await page.locator('#visual-palette').getByRole('combobox', { name: 'Ассет', exact: true }).selectOption(assetId);
   const added = page.waitForResponse(response => response.url().endsWith('/commands/add-node'));
   await page.getByRole('button', { name: 'Добавить элемент', exact: true }).click();
@@ -81,7 +83,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
   };
 
   await page.getByRole('button', { name: 'Создать страницу', exact: true }).click();
-  await page.getByLabel('Ширина экрана').fill('800');
+  await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран', exact: true }).click();
   const frame = await addLayer(page, 'Frame');
@@ -93,7 +95,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
   const button = await addLayer(page, 'Button', frame);
   await editLayer(page, { ...position(24, 144, 180, 48), 'Текст': submitLabel, 'Цвет фона': '#24669a' });
 
-  await page.getByLabel('Изображение PNG').setInputFiles({ name: 'stripes.png', mimeType: 'image/png', buffer: png });
+  await show(page, 'assets'); await page.getByLabel('Изображение PNG').setInputFiles({ name: 'stripes.png', mimeType: 'image/png', buffer: png });
   const upload = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().includes('/assets/'));
   await page.getByRole('button', { name: 'Загрузить изображение', exact: true }).click();
   const uploaded = await upload;
@@ -153,7 +155,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
   const versionName = 'Готовая заявка';
   await page.getByLabel('Имя версии (необязательно)').fill(versionName);
   const saving = page.waitForResponse(response => response.url().endsWith('/commands/save'));
-  await page.getByRole('button', { name: 'Создать версию', exact: true }).click();
+  await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию', exact: true }).click();
   const saved = await saving;
   expect(saved.ok(), await saved.text()).toBeTruthy();
   const { versionId, revision: savedRevision } = await saved.json();
