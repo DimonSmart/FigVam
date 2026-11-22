@@ -5,6 +5,7 @@ async function open(page) {
   await page.goto('/'); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await page.getByLabel('Имя нового документа').fill('Tokens'); await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await show(page, 'assets');
   await expect(page.getByRole('heading', { name: 'Токены дизайна' })).toBeVisible();
 }
 test('creates, renames, updates and follows direct usages', async ({ page, request }) => {
