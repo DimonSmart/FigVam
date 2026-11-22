@@ -278,11 +278,15 @@ export function createEditorShell() {
   observer.observe(addForm, { attributes: true, attributeFilter: ['hidden'] });
   observer.observe(kindSelect, { childList: true, attributes: true, attributeFilter: ['disabled'] });
   syncTools();
-  if (matchMedia('(max-width: 1050px)').matches) {
-    workspace.classList.add('left-collapsed', 'right-collapsed');
-    leftToggle.setAttribute('aria-expanded', 'false');
-    rightToggle.setAttribute('aria-expanded', 'false');
+  const compact = matchMedia('(max-width: 1050px)');
+  function resetPanelLayout(narrow) {
+    workspace.classList.toggle('left-collapsed', narrow);
+    workspace.classList.toggle('right-collapsed', narrow);
+    leftToggle.setAttribute('aria-expanded', String(!narrow));
+    rightToggle.setAttribute('aria-expanded', String(!narrow));
   }
+  resetPanelLayout(compact.matches);
+  compact.addEventListener('change', event => resetPanelLayout(event.matches));
 
   const canvasTitle = byId('canvas-title');
   canvasTitle.classList.add('visually-hidden');
