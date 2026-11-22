@@ -298,7 +298,8 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await expect(tree.getByRole('treeitem')).toHaveCount(101);
   expect(requests).toContainEqual([screenId, 100]);
   const first = tree.getByRole('treeitem').first();
-  await expect(first).toContainText('Без имени — Frame');
+  await expect(first).toContainText('Без имени');
+  await expect(first).toHaveAttribute('aria-label', 'Без имени, Frame');
   await first.focus(); await page.keyboard.press('ArrowRight');
   await expect(tree.getByRole('treeitem')).toHaveCount(102);
   await page.keyboard.press('ArrowDown'); await page.keyboard.press('Enter');
