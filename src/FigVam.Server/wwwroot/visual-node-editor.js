@@ -106,11 +106,11 @@ export function createVisualNodeEditor({
   }
 
   function renderFields(container, definitions, values, state, prefix) {
-    const fields = new Map();
+    const fields = new Map(), geometryFields = new Map();
     container.replaceChildren();
     for (const [name, definition] of Object.entries(definitions ?? {})) {
       const field = createPropertyControl(name, definition, model, values?.[name], prefix);
-      if (state?.values.has(name)) field.write(state.values.get(name));
+      if (state?.values.has(name)) field.write(state.values.get(name), true);
       function update() {
         const raw = field.read();
         if (sameRaw(field.baseline, raw)) state.values.delete(name);
@@ -129,8 +129,18 @@ export function createVisualNodeEditor({
         if (state.values.has(name)) field.validate();
       }
       fields.set(name, field);
-      container.append(field.row);
+      if (field.row.classList.contains('node-property--geometry')) geometryFields.set(name, field.row);
+      else container.append(field.row);
     }
+    const geometryRows = [['x', 'y'], ['width', 'height']].map(names => {
+      const children = names.map(name => geometryFields.get(name)).filter(Boolean);
+      if (!children.length) return null;
+      const row = document.createElement('div');
+      row.className = 'node-geometry-row';
+      row.append(...children);
+      return row;
+    }).filter(Boolean);
+    container.prepend(...geometryRows);
     return fields;
   }
 

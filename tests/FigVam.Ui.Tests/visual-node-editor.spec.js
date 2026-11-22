@@ -162,6 +162,48 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   await expect(page.locator(`[data-visual-node="${nodeId}"] .visual-surface`)).toHaveCSS('color', 'rgba(51, 102, 153, 0.5)');
 });
 
+test('inspector displays geometry in two compact rows without rounding stored values', async ({ page, request }) => {
+  const { documentId, screenId, nodeId, base } = await seedText(request);
+  const geometry = { x: 60.625, y: 61.943999999999974, width: 336.60699999999997, height: 91.35400000000001 };
+  await post(request, `${base}/commands/set-node-properties`, {
+    commandId: randomUUID(), nodeId,
+    properties: Object.fromEntries(Object.entries(geometry).map(([name, value]) => [name, number(value)]))
+  });
+  await page.goto(`/documents/${documentId}`);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await page.locator(`[role=treeitem][data-id="${nodeId}"]`).press('Enter');
+  const panel = page.locator('#visual-inspector');
+  const rows = panel.locator('#visual-properties > .node-geometry-row');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.nth(0).locator('input')).toHaveCount(2);
+  await expect(rows.nth(1).locator('input')).toHaveCount(2);
+  await expect(rows.nth(0).locator('input').first()).toHaveAttribute('id', 'visual-property-x');
+  await expect(rows.nth(0).locator('input').last()).toHaveAttribute('id', 'visual-property-y');
+  await expect(rows.nth(1).locator('input').first()).toHaveAttribute('id', 'visual-property-width');
+  await expect(rows.nth(1).locator('input').last()).toHaveAttribute('id', 'visual-property-height');
+  const x = panel.getByLabel('X', { exact: true });
+  await expect(x).toHaveValue('60.63');
+  await expect(panel.getByLabel('Y', { exact: true })).toHaveValue('61.94');
+  await expect(panel.getByLabel('Ширина', { exact: true })).toHaveValue('336.61');
+  await expect(panel.getByLabel('Высота', { exact: true })).toHaveValue('91.35');
+  const xLabel = panel.locator('label:has(#visual-property-x)');
+  expect((await xLabel.boundingBox()).height).toBeLessThanOrEqual(35);
+  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
+  await expect(save).toBeDisabled();
+  expect((await readNodes(request, base, screenId))[0].properties.x.value).toBe(geometry.x);
+  await x.fill('70.126');
+  await x.press('Tab');
+  await expect(x).toHaveValue('70.13');
+  await save.click();
+  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  const properties = (await readNodes(request, base, screenId))[0].properties;
+  expect(properties.x).toEqual(number(70.13));
+  expect(properties.y).toEqual(number(geometry.y));
+  expect(properties.width).toEqual(number(geometry.width));
+  expect(properties.height).toEqual(number(geometry.height));
+});
+
 test('retry after a lost acknowledgement reuses the identical atomic edit', async ({ page, request }) => {
   const { documentId, screenId, nodeId, base } = await seedText(request);
   await page.goto(`/documents/${documentId}`);

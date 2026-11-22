@@ -13,6 +13,7 @@ const labels = {
 };
 
 export const propertyLabel = name => Object.hasOwn(labels, name) ? labels[name] : name;
+const geometryProperties = new Set(['x', 'y', 'width', 'height']);
 
 function tokenChoices(tokens, expected) {
   return [...tokens.values()]
@@ -101,7 +102,7 @@ function labeled(name, control, accessibleName) {
   return label;
 }
 
-function scalarControl(name, definition, model, initial) {
+function scalarControl(name, definition, model, initial, compactGeometry = false) {
   const type = definition.type;
   const assets = [...model.assets.values()];
   const choices = {
@@ -126,6 +127,14 @@ function scalarControl(name, definition, model, initial) {
     input.step = 'any';
     if (definition.minimum != null) input.min = definition.minimum;
     if (definition.maximum != null) input.max = definition.maximum;
+    if (compactGeometry) input.addEventListener('blur', () => {
+      if (!Number.isFinite(input.valueAsNumber) || !input.validity.valid) return;
+      const rounded = String(Number(input.valueAsNumber.toFixed(2)));
+      if (input.value !== rounded) {
+        input.value = rounded;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
   }
   if (type === 'String' && definition.maxLength != null) input.maxLength = definition.maxLength;
   const pattern = definition.pattern && new RegExp(definition.pattern, 'u');
@@ -143,16 +152,19 @@ function scalarControl(name, definition, model, initial) {
       return invalid(placeholder ?? 'Выберите допустимое значение.');
     }
     if (input.validity.valueMissing) return invalid('Заполните поле.');
-    const value = type === 'Number' ? input.valueAsNumber : raw;
+    const value = type === 'Number' ?
+      (compactGeometry ? Number(input.valueAsNumber.toFixed(2)) : input.valueAsNumber) : raw;
     return { value: { type: type === 'TokenReference' ? 'token' : type.toLowerCase(), [referenceKey ?? 'value']: value } };
   }
   return {
     content: [labeled(propertyLabel(name), input)],
     inputs: [input], initial: initial?.[referenceKey ?? 'value'] ?? (type === 'Boolean' ? false : ''),
     read, validate,
-    write(value) {
+    write(value, preserveInput = false) {
       if (type === 'Boolean') input.checked = value;
       else if (referenceKey) setReference(input, value);
+      else if (compactGeometry && !preserveInput && typeof value === 'number' && Number.isFinite(value))
+        input.value = String(Number(value.toFixed(2)));
       else input.value = value;
     }
   };
@@ -162,10 +174,14 @@ export function createPropertyControl(name, definition, model, value, prefix) {
   const initial = value ?? definition.defaultValue;
   const hasTokenChoice = definition.tokenType != null && definition.type !== 'TokenReference';
   const directValue = hasTokenChoice && initial?.type === 'token' ? definition.defaultValue : initial;
-  const direct = definition.type === 'Color' ? colorControl(name, directValue) : scalarControl(name, definition, model, directValue);
+  const direct = definition.type === 'Color' ? colorControl(name, directValue) :
+    scalarControl(name, definition, model, directValue,
+      prefix === 'visual-property' && geometryProperties.has(name));
   const control = hasTokenChoice ? tokenControl(name, definition, model, initial, direct) : direct;
   const row = document.createElement('div'), feedback = document.createElement('p');
   row.className = 'node-property';
+  if (prefix === 'visual-property' && geometryProperties.has(name) && definition.type === 'Number')
+    row.classList.add('node-property--geometry');
   feedback.id = `${prefix}-${name}-validation`;
   feedback.className = 'node-property-error';
   feedback.setAttribute('aria-live', 'polite');
