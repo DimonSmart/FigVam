@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function setup(request) {
   const id = randomUUID(), pageId = randomUUID(), screens = [randomUUID(), randomUUID()], headers = { Authorization: `Bearer ${bearer}` };
