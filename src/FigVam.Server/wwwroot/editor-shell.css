@@ -194,6 +194,8 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #node-metadata button { margin-top: 5px; }
 .app-shell #node-delete { color: #a12c3a; border-color: #efdee1; margin: 8px 0; }
 .app-shell .inspector-page > section { border-top: 1px solid var(--ui-border); padding-top: 9px; margin-top: 12px; }
+/* Screen properties are contextual to the absence of node selection. */
+.app-shell .inspector-page:has(#visual-inspector:not([hidden])) > section:has(#screen-size-title) { display: none; }
 .app-shell #visual-properties-form { display: grid; gap: 10px; }
 .app-shell #visual-properties-form .node-property-error:not(:empty) { color: #9a2737; }
 .app-shell .design-canvas {
