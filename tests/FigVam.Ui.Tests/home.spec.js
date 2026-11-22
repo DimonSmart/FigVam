@@ -53,3 +53,59 @@ test('administration is a separate navigation section for permitted users', asyn
   await expect(page.locator('#home-documents-content')).toBeVisible();
   await expect(page.locator('#home-admin-content')).toBeHidden();
 });
+
+test('desktop dashboard loads layout CSS and keeps navigation and actions separated', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const failedStyles = [];
+  page.on('response', response => {
+    if (response.url().endsWith('/home.css') && !response.ok())
+      failedStyles.push(response.status());
+  });
+  await login(page);
+  const geometry = await page.evaluate(() => {
+    const rect = selector => {
+      const { x, y, right, bottom, width, height } = document.querySelector(selector).getBoundingClientRect();
+      return { x, y, right, bottom, width, height };
+    };
+    return {
+      layout: getComputedStyle(document.querySelector('.home-layout')).display,
+      sidebar: rect('.home-sidebar'),
+      main: rect('.home-main'),
+      navIcon: rect('.home-nav-icon'),
+      projects: rect('.home-projects'),
+      actions: rect('.home-actions'),
+      create: rect('.home-action-card'),
+      import: rect('.home-action-secondary'),
+      filePicker: getComputedStyle(document.querySelector('.home-file-input')).opacity,
+      overflow: document.documentElement.scrollWidth > window.innerWidth + 1
+    };
+  });
+  expect(failedStyles).toEqual([]);
+  expect(geometry.layout).toBe('grid');
+  expect(geometry.sidebar.width).toBeGreaterThan(180);
+  expect(geometry.sidebar.width).toBeLessThan(260);
+  expect(geometry.navIcon.width).toBeLessThanOrEqual(24);
+  expect(geometry.navIcon.height).toBeLessThanOrEqual(24);
+  expect(geometry.main.x).toBeGreaterThanOrEqual(geometry.sidebar.right - 1);
+  expect(geometry.actions.x).toBeGreaterThanOrEqual(geometry.projects.right);
+  expect(geometry.import.y).toBeGreaterThanOrEqual(geometry.create.bottom);
+  expect(geometry.filePicker).toBe('0');
+  expect(geometry.overflow).toBe(false);
+
+  await page.getByLabel('Имя нового документа').fill('Design review');
+  await page.getByRole('button', { name: 'Создать документ' }).click();
+  await page.getByRole('link', { name: '← Документы' }).click();
+  const card = await page.locator('#document-list li').first().boundingBox();
+  expect(card.width).toBeGreaterThan(200);
+  expect(card.height).toBeGreaterThan(190);
+  await page.screenshot({ path: testInfo.outputPath('home-desktop.png'), fullPage: true });
+});
+
+test('localized file picker displays selected filename without native button text', async ({ page }) => {
+  await login(page);
+  await page.getByLabel('Файл документа (document.json или .figvam)').setInputFiles({
+    name: 'my-design.figvam', mimeType: 'application/zip', buffer: Buffer.from('fake')
+  });
+  await expect(page.locator('#import-file-name')).toHaveText('my-design.figvam');
+  await expect(page.locator('.home-file-picker')).toBeVisible();
+});
