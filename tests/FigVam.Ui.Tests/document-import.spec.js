@@ -4,7 +4,7 @@ async function login(page) {
   await page.goto('/');
   await page.getByLabel('Bearer-токен').fill(bearer);
   await page.getByRole('button', { name: 'Продолжить' }).click();
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
 }
 async function selectFile(page, name = 'document.json', buffer = Buffer.from('{}')) {
   await page.getByLabel('Файл документа (document.json или .figvam)').setInputFiles({ name, mimeType: 'application/octet-stream', buffer });
@@ -22,7 +22,7 @@ for (const [format, name, mime] of [['document.json', 'document.json', 'applicat
     expect(exported.ok()).toBeTruthy();
     const bytes = await exported.body();
     await page.getByRole('link', { name: '← Документы' }).click();
-    await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
     await page.evaluate(() => { const original = window.fetch; window.fetch = async (url, options) => { if (String(url).includes('/documents/import/')) window.importBytes = Array.from(new Uint8Array(await options.body.arrayBuffer())); return original(url, options); }; });
     await page.route('**/api/v1/documents/import/**', route => route.fulfill({ status: 201, json: { code: 'ACCEPTED', documentId: id, revision: 0 } }), { times: 1 });
     await selectFile(page, name, bytes);

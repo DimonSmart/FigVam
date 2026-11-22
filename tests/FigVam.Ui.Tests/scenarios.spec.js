@@ -172,10 +172,10 @@ for (const action of ['openOverlay', 'closeOverlay', 'resetPreview']) test(`send
     await route.fulfill({ status: 400, json: { code: 'INVALID' } });
   });
   const node = await prepareCreation(page, id, screens);
-  await page.getByLabel('Действие').focus();
+  await page.getByLabel('Действие', { exact: true }).focus();
   await page.keyboard.press('Home');
   for (let i = 0; i < ['openOverlay', 'closeOverlay', 'resetPreview'].indexOf(action) + 1; i++) await page.keyboard.press('ArrowDown');
-  await expect(page.getByLabel('Действие')).toHaveValue(action);
+  await expect(page.getByLabel('Действие', { exact: true })).toHaveValue(action);
   if (action === 'openOverlay') await expect(page.getByLabel('Целевой экран')).toBeVisible();
   else await expect(page.getByLabel('Целевой экран')).toBeHidden();
   await page.getByRole('button', { name: 'Создать сценарий' }).click();
@@ -192,7 +192,7 @@ test('targetless actions remain available without targets and retry the same com
   await expect(page.locator('#scenario-target-status')).toContainText('Нет доступных экранов');
   await expect(page.locator('#scenario-action option[value=openOverlay]')).toHaveCount(0);
   await page.route('**/commands/create-scenario', async route => { bodies.push(route.request().postData()); await route.fulfill({ status: 503, json: {} }); });
-  await page.getByLabel('Действие').selectOption('closeOverlay');
+  await page.getByLabel('Действие', { exact: true }).selectOption('closeOverlay');
   await page.getByRole('button', { name: 'Создать сценарий' }).click();
   await expect(page.locator('#scenario-command-error')).toContainText('неизвестен');
   expect(JSON.parse(bodies[0]).scenario.actions).toEqual([{ type: 'closeOverlay' }]);
@@ -226,7 +226,7 @@ for (const [exit, action] of [['screen', 'openOverlay'], ['navigation', 'closeOv
   const { id, screens } = await setup(request); let release, entered;
   const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
   await page.route('**/commands/create-scenario', async route => { const body = route.request().postDataJSON(); entered(); await gate; await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {}); });
-  await prepareCreation(page, id, screens); await page.getByLabel('Действие').selectOption(action); await page.getByRole('button', { name: 'Создать сценарий' }).click(); await held;
+  await prepareCreation(page, id, screens); await page.getByLabel('Действие', { exact: true }).selectOption(action); await page.getByRole('button', { name: 'Создать сценарий' }).click(); await held;
   await expect(page.getByRole('button', { name: 'Создать сценарий' })).toBeDisabled();
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
@@ -277,7 +277,7 @@ test('ShowVariant checks exact value and discards stale capabilities', async ({ 
   await page.getByLabel('Вариант экрана').selectOption(allowed); await held;
   await page.getByLabel('Вариант экрана').selectOption(denied); await expect(page.locator('#scenario-action option')).toHaveCount(0);
   release(); await expect(page.locator('#scenario-create-submit')).toBeDisabled();
-  await page.getByLabel('Вариант экрана').selectOption(''); await expect(page.getByLabel('Действие')).toHaveValue('showVariant');
+  await page.getByLabel('Вариант экрана').selectOption(''); await expect(page.getByLabel('Действие', { exact: true })).toHaveValue('showVariant');
   await page.getByRole('button', { name: 'Создать сценарий' }).click(); await expect(page.locator('#scenario-command-error')).toContainText('неизвестен');
   expect(JSON.parse(bodies[0]).scenario.actions).toEqual([{ type: 'showVariant', variantId: null }]);
   await page.getByRole('button', { name: 'Повторить создание сценария' }).click(); await expect.poll(() => bodies.length).toBe(2); expect(bodies[1]).toBe(bodies[0]);
@@ -291,7 +291,7 @@ test('ShowVariant sends the selected variant ID', async ({ page, request }) => {
   await page.route('**/commands/create-scenario', route => { body = route.request().postDataJSON(); return route.fulfill({ status: 400, json: { code: 'INVALID' } }); });
   await open(page, id); await page.locator('#screens button').first().click(); await page.getByRole('treeitem', { name: /Source/ }).click();
   await expect(page.getByLabel('Вариант экрана').locator('option')).toHaveCount(2); await page.getByLabel('Вариант экрана').selectOption(variant);
-  await expect(page.getByLabel('Действие')).toHaveValue('showVariant'); await page.getByRole('button', { name: 'Создать сценарий' }).click();
+  await expect(page.getByLabel('Действие', { exact: true })).toHaveValue('showVariant'); await page.getByRole('button', { name: 'Создать сценарий' }).click();
   await expect(page.locator('#scenario-command-error')).toContainText('отклонено'); expect(body.scenario.actions).toEqual([{ type: 'showVariant', variantId: variant }]);
 });
 
