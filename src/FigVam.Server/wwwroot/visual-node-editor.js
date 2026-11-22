@@ -12,7 +12,7 @@ export function createVisualNodeEditor({
   const kindSelect = element('visual-kind'), parentSelect = element('visual-parent');
   const paletteProperties = element('visual-required-properties'), inspectorProperties = element('visual-properties');
   const operations = new Map(), paletteDrafts = new Map(), inspectorDrafts = new Map(), canvasDrafts = new Map();
-  let context, model, modelKey, modelScope, loadedKey, loadError = '', queued = false;
+  let context, model, modelKey, resolvedModelKey, modelScope, loadedKey, loadError = '', queued = false;
   let palette, inspector, node, paletteFields = new Map(), inspectorFields = new Map();
   let paletteControlKey = null, inspectorControlKey = null;
   let loadingFocus, uploadDocument;
@@ -47,6 +47,7 @@ export function createVisualNodeEditor({
     if (scope !== modelScope) {
       modelScope = scope;
       model = null;
+      resolvedModelKey = null;
       paletteFields = new Map(); inspectorFields = new Map();
       paletteControlKey = inspectorControlKey = null;
     }
@@ -55,6 +56,7 @@ export function createVisualNodeEditor({
     readModel().then(result => {
       if (modelKey !== key) return;
       model = result;
+      resolvedModelKey = key;
       render();
     }).catch(error => {
       if (modelKey !== key || error.name === 'AbortError') return;
@@ -197,7 +199,8 @@ export function createVisualNodeEditor({
     const adding = op?.command === 'add-node', editing = op?.command === 'set-node-properties' && !op.canvas;
     const canvas = canvasDrafts.get(scopeKey(context));
     const editable = canEdit(context.documentRole);
-    const blocked = !editable || Boolean(op);
+    // An old inspector snapshot is visible while synchronizing, but it must not submit stale edits.
+    const blocked = !editable || Boolean(op) || Boolean(modelKey && resolvedModelKey !== modelKey);
     const upload = uploads.get(context.documentId);
     const uploading = upload?.state === 'pending';
     element('asset-upload-file').disabled = !editable || Boolean(upload);
@@ -356,7 +359,8 @@ export function createVisualNodeEditor({
   function begin(command, body, state, canvas = null) {
     const current = getContext(), key = scopeKey(current);
     if (!key || scopeKey(context) !== key || context.revision !== current.revision ||
-      context.selection?.id !== current.selection?.id || operations.has(key)) return false;
+      context.selection?.id !== current.selection?.id || operations.has(key) ||
+      resolvedModelKey !== modelKey) return false;
     const op = { key, command, state: 'ready', draft: state, documentId: current.documentId, screen: current.screen,
       selectionId: current.selection?.id, body: { commandId: crypto.randomUUID(), ...body },
       canvas: Boolean(canvas), settlePreview: canvas };
