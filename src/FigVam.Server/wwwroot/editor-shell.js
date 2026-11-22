@@ -183,6 +183,8 @@ export function createEditorShell() {
   pageEdit.append(pageOptions);
   byId('page-create').classList.add('add-page-action');
   byId('page-create').setAttribute('aria-label', 'Создать страницу');
+  byId('page-create').title = 'Создать страницу';
+  byId('page-refresh').title = 'Обновить страницы';
 
   const screensSection = byId('screens-title').closest('section');
   const screenForm = byId('screen-create');
