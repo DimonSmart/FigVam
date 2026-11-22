@@ -201,6 +201,7 @@ test('creates and selects all screens in the page tree, validates dimensions and
   await expect(page.locator('#screens button').first()).toBeFocused();
   for (const [status, code, expected] of [[404, 'PAGE_NOT_FOUND', 'Страница больше не существует'], [403, 'FORBIDDEN', 'Нет доступа']]) {
     await page.route('**/commands/add-screen', route => route.fulfill({ status, json: { code } }));
+    await show(page, 'screen');
     await page.getByRole('button', { name: 'Создать экран' }).click();
     await expect(page.locator('#error')).toContainText(expected);
     await page.unroute('**/commands/add-screen');
