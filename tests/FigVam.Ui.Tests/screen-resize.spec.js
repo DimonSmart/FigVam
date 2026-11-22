@@ -96,7 +96,7 @@ test('keeps a refusal visible when an overlapping state refresh redraws the scre
     await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
     release();
     await page.unrouteAll({ behavior: 'wait' });
-    await expect(page.locator('#pages button')).toHaveCount(2);
+    await expect(page.locator('#pages > li > .page-select')).toHaveCount(2);
     await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
     await expect(page.locator('#screen-size-saved')).toContainText('640 × 480');
     await page.getByLabel('Ширина выбранного экрана').fill('700');
