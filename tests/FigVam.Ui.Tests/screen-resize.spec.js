@@ -18,7 +18,7 @@ async function setup(request) {
 async function select(page) { await page.locator('#screens button').first().click(); await expect(page.locator('#screen-size-saved')).toContainText('640 × 480'); }
 test('version errors remain independent of resize errors', async ({ page, request }) => {
   const { id } = await setup(request); await open(page, id); await select(page);
-  await page.getByLabel('Имя версии (необязательно)').fill('Исходная');
+  await show(page, 'document'); await page.getByLabel('Имя версии (необязательно)').fill('Исходная');
   await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   const restore = page.getByRole('button', { name: /Восстановить версию Исходная/ });
   await expect(restore).toBeVisible();

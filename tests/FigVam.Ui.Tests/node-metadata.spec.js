@@ -17,7 +17,9 @@ test('node metadata supports confirmation, lost response retry, deletion and vie
   await route.fulfill({json:{status:'ACCEPTED',documentId,commandId:body.commandId,revision:revision+1}});
  });
  await page.locator('#node-name').fill('Updated'); await page.getByRole('button',{name:'Сохранить имя'}).click(); await expect(page.locator('#node-metadata-error')).toContainText('Результат неизвестен');
- await expect(page.getByRole('treeitem').first()).toContainText('Original'); await page.locator('#node-metadata-retry').click(); await expect(page.locator('#node-name')).toHaveValue('Updated'); expect(bodies[1]).toEqual(bodies[0]);
+ await expect(page.getByRole('treeitem').first()).toContainText('Original'); await page.locator('#node-metadata-retry').click(); await expect(page.locator('#node-name')).toHaveValue('Updated');
+ await expect(page.getByRole('treeitem').first()).toContainText('Updated');
+ await expect(page.locator('#node-key')).toBeEditable(); expect(bodies[1]).toEqual(bodies[0]);
  await page.locator('#node-key').fill(''); await page.getByRole('button',{name:'Сохранить semantic key'}).click(); await expect.poll(()=>bodies.length).toBe(3); expect(bodies[2].semanticKey).toBeNull();
  await expect(page.locator('#node-key')).toHaveValue(''); await expect(page.locator('#node-name')).toBeEditable(); deleted=true; await page.locator('#node-name').fill('Gone'); await page.getByRole('button',{name:'Сохранить имя'}).click(); await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.');
  deleted=false; await page.route('**/api/v1/documents?*',async route=>{const response=await route.fetch(), body=await response.json();body.items=body.items.map(item=>({...item,role:'Viewer'}));await route.fulfill({response,json:body});});

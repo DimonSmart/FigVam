@@ -122,8 +122,11 @@ export function createLayers({
       if (!Number.isSafeInteger(result.revision) || result.status !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       if (!active()) { op.state = 'uncertain'; return; }
       nodeOperations.delete(key);
-      // The confirmed command is no longer pending, even if the layer snapshot
-      // does not change. Restore editable controls without waiting for another selection.
+      // Keep confirmed values stable while refreshing the same selected layer.
+      if (nodeMetadata?.id === node) {
+        if (op.kind === 'name') nodeMetadata.name = op.body.name;
+        else nodeMetadata.semanticKey = op.body.semanticKey;
+      }
       renderNodeMetadata();
       await runPageRefresh(signal => readCurrentPages(signal, activeAfterConfirmation));
       function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }

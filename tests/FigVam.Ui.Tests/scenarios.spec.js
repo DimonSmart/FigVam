@@ -184,7 +184,7 @@ test('targetless actions remain available without targets and retry the same com
   const { id, screens } = await setup(request); const bodies = [];
   await mockCapabilities(page);
   await page.route('**/children/**', route => route.fulfill({ json: { items: [{ id: randomUUID(), name: 'Source', kind: 'Frame', childCount: 0 }], total: 1 } }));
-  await page.route('**/pages?*', route => new URL(route.request().url()).searchParams.get('limit') === '100' ? route.fulfill({ json: { items: [], total: 0 } }) : route.continue());
+  await page.route('**/pages?*', route => (new URL(route.request().url()).searchParams.get('limit') === '100' && new URL(route.request().url()).searchParams.get('fields') === 'name') ? route.fulfill({ json: { items: [], total: 0 } }) : route.continue());
   await open(page, id); await page.locator('#screens button').first().click();
   await page.getByRole('treeitem', { name: /Source/ }).click();
   await expect(page.locator('#scenario-target-status')).toContainText('Нет доступных экранов');
@@ -205,7 +205,7 @@ test('Viewer cannot create a scenario', async ({ page, request }) => {
 test('shows missing sources and targets and prevents submission', async ({ page, request }) => {
   const { id } = await setup(request);
   await page.route('**/pages?*', async route => {
-    if (new URL(route.request().url()).searchParams.get('limit') === '100') return route.fulfill({ json: { items: [], total: 0 } });
+    if (new URL(route.request().url()).searchParams.get('limit') === '100' && new URL(route.request().url()).searchParams.get('fields') === 'name') return route.fulfill({ json: { items: [], total: 0 } });
     return route.continue();
   });
   await open(page, id); await page.locator('#screens button').first().click();

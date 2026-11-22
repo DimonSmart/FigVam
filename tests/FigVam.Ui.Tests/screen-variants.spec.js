@@ -34,10 +34,12 @@ test('retains an uncertain command when changing screens', async ({ page, reques
   await show(page, 'layers'); await page.locator('#pages > li > .page-select').nth(1).click();
   await expect(page.locator('#screens button').first()).toContainText('320 × 240');
   await page.locator('#screens button').first().click();
+  await show(page, 'assets');
   await expect(page.getByRole('button', { name: 'Повторить создание варианта' })).toBeHidden();
   await show(page, 'layers'); await page.locator('#pages > li > .page-select').first().click();
   await expect(page.locator('#screens button').first()).toContainText('640 × 480');
   await page.locator('#screens button').first().click();
+  await show(page, 'assets');
   await page.getByRole('button', { name: 'Повторить создание варианта' }).click();
   await expect(page.locator('#screen-variants-list')).toContainText('Retained');
   expect(bodies[0]).toBe(bodies[1]);
