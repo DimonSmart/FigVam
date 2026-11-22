@@ -12,8 +12,9 @@ export function createVisualNodeEditor({
   const kindSelect = element('visual-kind'), parentSelect = element('visual-parent');
   const paletteProperties = element('visual-required-properties'), inspectorProperties = element('visual-properties');
   const operations = new Map(), paletteDrafts = new Map(), inspectorDrafts = new Map(), canvasDrafts = new Map();
-  let context, model, modelKey, loadedKey, loadError = '', queued = false;
+  let context, model, modelKey, modelScope, loadedKey, loadError = '', queued = false;
   let palette, inspector, node, paletteFields = new Map(), inspectorFields = new Map();
+  let paletteControlKey = null, inspectorControlKey = null;
   let loadingFocus, uploadDocument;
   const uploads = new Map();
 
@@ -30,19 +31,27 @@ export function createVisualNodeEditor({
       const scope = scopeKey(context);
       const key = scope && `${scope}:${context.revision}:${context.navigationEpoch}`;
       const selectionId = context.selection?.id;
-      const renderKey = `${key}:${selectionId}:${context.documentRole}`;
+      // UI identity follows selection, not the document revision.
+      const renderKey = `${scope}:${selectionId}:${context.documentRole}:${context.navigationEpoch}`;
+      if (modelKey !== key) load(key, scope);
       if (loadedKey !== renderKey) {
         loadedKey = renderKey;
-        if (modelKey !== key) load(key);
         render();
       } else updateControls();
     });
   }
 
-  function load(key) {
+  function load(key, scope = scopeKey(context)) {
     modelKey = key;
-    model = null; loadError = '';
+    loadError = '';
+    if (scope !== modelScope) {
+      modelScope = scope;
+      model = null;
+      paletteFields = new Map(); inspectorFields = new Map();
+      paletteControlKey = inspectorControlKey = null;
+    }
     if (!key) return;
+    // A new pinned snapshot is loaded without blanking the existing inspector.
     readModel().then(result => {
       if (modelKey !== key) return;
       model = result;
@@ -58,10 +67,15 @@ export function createVisualNodeEditor({
     });
   }
 
+  function sameChoices(select, choices) {
+    return select.options.length === choices.length &&
+      choices.every((choice, index) =>
+        select.options[index].value === choice.value && select.options[index].text === choice.text);
+  }
+
   function render() {
     const focus = document.activeElement?.id;
-    if (!model && focus)
-      loadingFocus = { id: focus, key: loadedKey };
+    if (!model && focus) loadingFocus = { id: focus, key: loadedKey };
     const scope = scopeKey(context), selected = context.selection;
     const editable = canEdit(context.documentRole);
     if (scope && !paletteDrafts.has(scope)) paletteDrafts.set(scope, { ...draft(), kind: '', parent: null, selectionId: undefined });
@@ -77,11 +91,16 @@ export function createVisualNodeEditor({
     element('visual-properties-form').hidden = !definition;
     if (model?.kinds.size && editable) {
       const kinds = [...model.kinds.keys()];
-      kindSelect.replaceChildren(...kinds.map(kind => new Option(kind, kind)));
+      const options = kinds.map(kind => ({ value: kind, text: kind }));
+      if (!sameChoices(kindSelect, options))
+        kindSelect.replaceChildren(...kinds.map(kind => new Option(kind, kind)));
       if (!model.kinds.has(palette.kind)) palette.kind = kinds[0];
       kindSelect.value = palette.kind;
-      parentSelect.replaceChildren(new Option('Выбранный экран', context.screen));
-      if (selected && node) parentSelect.add(new Option(`Выбранный слой · ${selected.name?.trim() || selected.kind}`, selected.id));
+      const choices = [{ value: context.screen, text: 'Выбранный экран' }];
+      if (selected && node)
+        choices.push({ value: selected.id, text: `Выбранный слой · ${selected.name?.trim() || selected.kind}` });
+      if (!sameChoices(parentSelect, choices))
+        parentSelect.replaceChildren(...choices.map(option => new Option(option.text, option.value)));
       if (palette.selectionId !== selected?.id) {
         palette.selectionId = selected?.id;
         palette.parent = selected?.id;
@@ -89,8 +108,12 @@ export function createVisualNodeEditor({
       parentSelect.value = node && palette.parent === node.id ? node.id : context.screen;
       renderRequiredFields();
     }
+    if (inspectorControlKey !== key) {
+      inspectorFields = new Map();
+      inspectorControlKey = key;
+    }
     inspectorFields = renderFields(inspectorProperties, definition?.properties, node?.properties,
-      editable ? inspector : undefined, 'visual-property');
+      editable ? inspector : undefined, 'visual-property', inspectorFields);
     updateControls();
     const focusId = focus || (loadingFocus?.key === loadedKey ? loadingFocus.id : null);
     const nextFocus = focusId && element(focusId);
@@ -100,47 +123,66 @@ export function createVisualNodeEditor({
   }
 
   function renderRequiredFields() {
+    const key = `${scopeKey(context)}:${palette.kind}`;
+    if (paletteControlKey !== key) {
+      paletteFields = new Map();
+      paletteControlKey = key;
+    }
     const properties = model?.kinds.get(palette.kind)?.properties ?? {};
     const required = Object.fromEntries(Object.entries(properties).filter(([, definition]) => definition.required));
-    paletteFields = renderFields(paletteProperties, required, null, palette, 'visual-required');
+    paletteFields = renderFields(paletteProperties, required, null, palette, 'visual-required', paletteFields);
   }
 
-  function renderFields(container, definitions, values, state, prefix) {
-    const fields = new Map(), geometryFields = new Map();
-    container.replaceChildren();
+  function renderFields(container, definitions, values, state, prefix, existing = new Map()) {
+    const fields = new Map(), rows = [];
     for (const [name, definition] of Object.entries(definitions ?? {})) {
-      const field = createPropertyControl(name, definition, model, values?.[name], prefix);
-      if (state?.values.has(name)) field.write(state.values.get(name), true);
-      function update() {
-        const raw = field.read();
-        if (sameRaw(field.baseline, raw)) state.values.delete(name);
-        else state.values.set(name, raw);
-        if (state === inspector && (name === 'x' || name === 'y')) {
-          if (state.values.has('x') || state.values.has('y')) state.coordinateParentId ??= node.parentId;
-          else state.coordinateParentId = undefined;
+      const choices = definition.type === 'Asset' ? [...model.assets.values()] :
+        definition.type === 'TokenReference' || definition.tokenType != null ? [...model.tokens.values()] : null;
+      const signature = JSON.stringify([definition, choices]);
+      const valueSignature = JSON.stringify(values?.[name] ?? definition.defaultValue);
+      let field = existing.get(name);
+      if (!field || field.signature !== signature) {
+        field = createPropertyControl(name, definition, model, values?.[name], prefix);
+        field.signature = signature;
+        field.valueSignature = valueSignature;
+        function update() {
+          const raw = field.read();
+          if (sameRaw(field.baseline, raw)) state.values.delete(name);
+          else state.values.set(name, raw);
+          if (state === inspector && (name === 'x' || name === 'y')) {
+            if (state.values.has('x') || state.values.has('y')) state.coordinateParentId ??= node.parentId;
+            else state.coordinateParentId = undefined;
+          }
+          state.error = state.status = '';
+          field.validate();
+          updateControls();
         }
-        state.error = state.status = '';
+        if (state) {
+          field.row.addEventListener('input', update);
+          field.row.addEventListener('change', update);
+        }
+      } else if (field.valueSignature !== valueSignature) {
+        // Create a detached control for a changed baseline, never replace the live DOM.
+        field.baseline = createPropertyControl(name, definition, model, values?.[name], prefix).baseline;
+        field.valueSignature = valueSignature;
+      }
+      if (state?.values.has(name)) {
+        const value = state.values.get(name);
+        if (!sameRaw(field.read(), value)) field.write(value);
         field.validate();
-        updateControls();
-      }
-      if (state) {
-        field.row.addEventListener('input', update);
-        field.row.addEventListener('change', update);
-        if (state.values.has(name)) field.validate();
-      }
+      } else if (!sameRaw(field.read(), field.baseline)) field.write(field.baseline);
       fields.set(name, field);
-      if (field.row.classList.contains('node-property--geometry')) geometryFields.set(name, field.row);
-      else container.append(field.row);
+      rows.push(field.row);
     }
-    const geometryRows = [['x', 'y'], ['width', 'height']].map(names => {
-      const children = names.map(name => geometryFields.get(name)).filter(Boolean);
-      if (!children.length) return null;
-      const row = document.createElement('div');
-      row.className = 'node-geometry-row';
-      row.append(...children);
-      return row;
-    }).filter(Boolean);
-    container.prepend(...geometryRows);
+    let following = null;
+    for (let index = rows.length - 1; index >= 0; index--) {
+      const row = rows[index];
+      if (row.parentNode !== container || row.nextElementSibling !== following)
+        container.insertBefore(row, following);
+      following = row;
+    }
+    const wanted = new Set(rows);
+    for (const child of [...container.children]) if (!wanted.has(child)) child.remove();
     return fields;
   }
 
@@ -166,7 +208,7 @@ export function createVisualNodeEditor({
     element('asset-upload-error').textContent = palette?.uploadError || '';
     kindSelect.disabled = parentSelect.disabled = blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
-    for (const field of inspectorFields.values()) field.setDisabled(blocked);
+    for (const field of inspectorFields.values()) field.setDisabled(!editable || Boolean(op && !op.canvas));
     const validParent = model?.kinds.size && eligibleParent();
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
     element('visual-add').disabled = blocked || !validParent || !requiredReady;
@@ -356,7 +398,7 @@ export function createVisualNodeEditor({
       op.draft.values.clear();
       op.draft.coordinateParentId = undefined;
       op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
-      if (scopeKey(getContext()) === op.key) render();
+      if (scopeKey(getContext()) === op.key) updateControls();
     } catch (error) {
       if (!current() || error.status == null || error.status === 408 || error.status >= 500) op.state = 'uncertain';
       else {
