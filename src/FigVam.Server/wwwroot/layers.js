@@ -28,10 +28,9 @@ export function createLayers({
     const changed = layerSelection?.id !== item.id;
     if (changed) { layerSelectionEpoch++; closeNodeReparent(); }
     layerSelection = item;
-    if (changed) {
-      loadNodeMetadata();
-      onLayerSelected();
-    } else if (nodeMetadata?.id === item.id && nodeMetadata.name !== item.name) {
+    if (changed || nodeMetadata?.id !== item.id) loadNodeMetadata();
+    if (changed) onLayerSelected();
+    if (!changed && nodeMetadata?.id === item.id && nodeMetadata.name !== item.name) {
       nodeMetadata.name = item.name;
       renderNodeMetadata();
     }
