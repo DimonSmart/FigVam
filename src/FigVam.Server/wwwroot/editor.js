@@ -503,7 +503,7 @@ function renderScreens() {
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
   if (!selectedScreen && selectedPage && screensItems.length === 0 &&
       (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
-  else if (selectedScreen) screenMenu.open = false;
+  else if (screensItems.length > 0 || selectedScreen) screenMenu.open = false;
 }
 
 

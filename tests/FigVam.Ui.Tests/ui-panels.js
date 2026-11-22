@@ -1,5 +1,8 @@
+const { expect } = require('@playwright/test');
 // Explicit navigation helpers for Playwright scenarios using FigVam's application shell.
 async function show(page, panel) {
+  // Wait for async navigation to finish before testing responsive panel visibility.
+  await expect(page.locator('#editor-view')).toBeVisible();
   const tabs = {
     layers: 'tab-layers', components: 'tab-components', assets: 'tab-assets',
     design: 'tab-design', prototype: 'tab-prototype', diagnostics: 'tab-diagnostics'
@@ -19,6 +22,7 @@ async function show(page, panel) {
       await page.getByRole('button', { name: 'Показать или скрыть инспектор' }).click();
     }
     if (await tab.getAttribute('aria-selected') !== 'true') await tab.click();
+    await expect(page.locator('#' + (await tab.getAttribute('aria-controls')))).toBeVisible();
     return;
   }
   if (!menus[panel]) throw new Error('Unknown editor panel: ' + panel);
