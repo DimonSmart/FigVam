@@ -6,7 +6,7 @@ const option = value => ({ type: 'enum', value });
 const geometry = (x, y, width, height) => ({ x: number(x), y: number(y), width: number(width), height: number(height) });
 const visual = id => `[data-visual-node="${id}"]`;
 
-async function openCanvas(page, request) {
+async function openCanvas(page, request, extraNodes = 0) {
   const documentId = randomUUID(), pageId = randomUUID(), screen = randomUUID();
   const base = `/api/v1/documents/${documentId}`, headers = { Authorization: `Bearer ${bearer}` };
   async function post(path, data) {
@@ -27,6 +27,8 @@ async function openCanvas(page, request) {
   });
   const child = await node(frame, 'Button', geometry(20, 18, 82, 42));
   const cover = await node(frame, 'Text', geometry(20, 18, 16, 14));
+  for (let i = 0; i < extraNodes; i++)
+    await node(screen, 'Text', geometry(390 + (i % 8) * 12, 110 + Math.floor(i / 8) * 15, 9, 9));
   const stack = await node(screen, 'Frame', { ...geometry(250, 35, 110, 120), layout: option('Vertical') });
   const stackChild = await node(stack, 'Text', geometry(20, 18, 80, 30));
   const layout = async () => {
@@ -283,4 +285,25 @@ test('reconciles a remote property change without destroying the active inspecto
     selected: true, neighbor: true, layer: true, field: true, width: true,
     draft: 'Локальный черновик'
   });
+});
+
+test('moving one layer in a populated screen never recreates unrelated nodes', async ({ page, request }) => {
+  const { child } = await openCanvas(page, request, 36);
+  const node = page.locator(visual(child));
+  await node.locator('.visual-surface').click();
+  await page.evaluate(() => {
+    window.__crowded = [...document.querySelectorAll('#screen-boundary [data-visual-node]')];
+  });
+  const move = await startDrag(page, node);
+  await move(20, 10);
+  await page.mouse.up();
+  await expect(page.locator('#canvas-edit-status')).toHaveText('Геометрия сохранена.');
+  expect(await page.evaluate(() => {
+    const elements = window.__crowded;
+    return {
+      count: elements.length,
+      detached: elements.filter(el => !el.isConnected || document.querySelector(
+        `#screen-boundary [data-visual-node="${el.dataset.visualNode}"]`) !== el).length
+    };
+  })).toEqual({ count: 41, detached: 0 });
 });
