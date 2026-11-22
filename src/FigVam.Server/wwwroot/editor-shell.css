@@ -109,8 +109,8 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   display: grid; grid-template-columns: var(--ui-left) minmax(0, 1fr) var(--ui-right);
   border: 0; background: var(--ui-canvas);
 }
-.workspace.left-collapsed { grid-template-columns: 0 minmax(0, 1fr) var(--ui-right); }
-.workspace.right-collapsed { grid-template-columns: var(--ui-left) minmax(0, 1fr) 0; }
+.workspace.left-collapsed { grid-template-columns: minmax(0, 1fr) var(--ui-right); }
+.workspace.right-collapsed { grid-template-columns: var(--ui-left) minmax(0, 1fr); }
 .workspace.left-collapsed.right-collapsed { grid-template-columns: minmax(0, 1fr); }
 .workspace > .layers-sidebar, .workspace > .properties-sidebar {
   display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden;
@@ -152,6 +152,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   background: var(--ui-selected); border-color: transparent; color: #344dbb; font-weight: 650;
 }
 .app-shell #page-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: start; margin: 6px 0 0; }
+.app-shell #page-create::before { content: '+ '; font-weight: 700; }
 #page-edit > .inline-menu { margin-left: auto; }
 .app-shell #page-access { color: var(--ui-muted); font-size: 11px; }
 .app-shell #page-refresh { font-size: 11px; padding: 3px 7px; }
