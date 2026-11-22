@@ -64,7 +64,7 @@ test('logout cancels pending presence and its timer before the next session', as
   });
   await open(page, id);
   await expect.poll(() => !!release).toBeTruthy();
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   const requestsAtLogout = requests;
   await page.waitForTimeout(700);
   expect(requests).toBe(requestsAtLogout);

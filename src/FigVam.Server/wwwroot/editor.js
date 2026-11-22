@@ -175,9 +175,13 @@ function clearSession() {
   element('document-name').value = '';
   element('document-list').replaceChildren();
   documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
+  // Detach the nested screen list before clearing its parent page rows.
+  const screenList = element('screens');
+  screenList.remove();
   element('pages').replaceChildren();
+  element('pages').closest('.editor-group').append(screenList);
   selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingScreenName = null;
-  element('screens').replaceChildren();
+  screenList.replaceChildren();
   layers.reset();
   tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset();
   renderCanvas();
@@ -502,8 +506,9 @@ function renderScreens() {
   const screenMenu = element('screen-preset').closest('details');
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
   if (!selectedScreen && selectedPage && screensItems.length === 0 &&
-      (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
-  else if (screensItems.length > 0 || selectedScreen) screenMenu.open = false;
+      (documentRole === 'Owner' || documentRole === 'Editor') &&
+      !element('page-edit').querySelector('.page-options').open) screenMenu.open = true;
+  else screenMenu.open = false;
 }
 
 

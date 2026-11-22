@@ -87,7 +87,7 @@ for (const action of ['navigate', 'logout']) test(`pending requests do not updat
   await page.getByRole('button', { name: 'Назначить роль' }).click();
   await expect(page.getByRole('button', { name: 'Назначить роль' })).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
-  else await page.getByRole('button', { name: 'Забыть токен' }).click();
+  else await page.locator('#editor-signout').click();
   release();
   if (action === 'navigate') { await page.getByRole('link', { name: 'Members target' }).click(); await show(page, 'share'); await expect(page.locator('#member-error')).toBeEmpty(); }
   else await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();

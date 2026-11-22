@@ -95,7 +95,7 @@ test('delayed response after logout cannot restore operation state', async ({ pa
   let release, entered; const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
   await page.route('**/commands/undo', async route => { const response = await route.fetch(); entered(); await gate; await route.fulfill({ response }).catch(() => {}); });
   await page.locator('#undo').click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click(); release();
+  await page.locator('#editor-signout').click(); release();
   await expect(page.locator('#authentication')).toBeVisible();
   await open(page, id); await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   await expect(page.locator('#history-action-retry')).toBeHidden();

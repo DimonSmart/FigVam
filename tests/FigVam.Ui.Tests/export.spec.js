@@ -59,7 +59,7 @@ for (const action of ['navigate', 'logout']) test(`ignores pending export after 
   await expect(page.locator('#export-json')).toBeDisabled();
   await expect(page.locator('#export-container')).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
-  else await page.getByRole('button', { name: 'Забыть токен' }).click();
+  else await page.locator('#editor-signout').click();
   release();
   await page.waitForTimeout(300);
   expect(calls).toBe(1); expect(downloads).toBe(0);

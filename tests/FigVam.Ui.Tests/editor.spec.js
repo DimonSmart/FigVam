@@ -137,6 +137,7 @@ test('manages pages with keyboard and confirmation, preserving IDs and revision'
   const result = await page.evaluate(async () => fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json()));
   expect(result.items[0].id).toBe(id);
   await expect(page.locator('#revision')).toHaveText(`Общий черновик · ревизия ${result.revision}`);
+  await show(page, 'page');
   page.once('dialog', dialog => { expect(dialog.message()).toContain('экраны'); dialog.dismiss(); });
   await page.getByRole('button', { name: 'Удалить страницу' }).click();
   await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
@@ -332,6 +333,7 @@ test('version success, refusal and safe retry', async ({ page }) => {
   await page.getByLabel('Имя нового документа').fill('Versions');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Versions');
+  await show(page, 'document');
   const name = page.getByLabel('Имя версии (необязательно)');
   await name.fill('Первая'); await name.press('Enter');
   await expect(page.locator('#version-result')).toContainText('Версия создана:');

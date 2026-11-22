@@ -123,7 +123,7 @@ test('ignores a delayed resize response after logout', async ({ page, request })
   await page.route('**/commands/resize-screen', async route => { const response = await route.fetch(); entered(); await gate; await route.fulfill({ response }).catch(() => {}); });
   await page.getByLabel('Ширина выбранного экрана').fill('710');
   await page.getByRole('button', { name: 'Изменить размер' }).click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release(); await page.unroute('**/commands/resize-screen');
   await expect(page.locator('#editor-view')).toBeHidden();
   await expect(page.locator('#authentication')).toBeVisible();

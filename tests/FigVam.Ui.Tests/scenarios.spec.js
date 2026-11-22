@@ -73,7 +73,7 @@ for (const exit of ['screen', 'logout', 'navigation', 'access']) test(`discards 
   await open(page, id); await page.locator('#screens button').first().click(); await held;
   await expect(page.locator('#scenarios-status')).toContainText('Загрузка');
   if (exit === 'screen') { await page.locator('#screens button').nth(1).click(); await expect(page.locator('#scenarios-status')).toContainText('нет'); }
-  if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (exit === 'logout') await page.locator('#editor-signout').click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
   if (exit === 'access') { denyAccess(); await expect(page.locator('#editor-view')).toBeHidden(); }
   release(); await expect(page.locator('#scenarios-list')).not.toContainText('STALE');
@@ -120,7 +120,7 @@ for (const exit of ['screen', 'navigation', 'logout']) test(`ignores pending del
   await open(page, id); await page.locator('#screens button').first().click(); page.once('dialog', dialog => dialog.accept()); await deleteButton(page).click(); await held;
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
-  if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (exit === 'logout') await page.locator('#editor-signout').click();
   release(); await expect(page.locator('#scenario-command-status')).not.toContainText('подтверждено');
 });
 test('confirmed deletion returns from an empty last page', async ({ page, request }) => {
@@ -230,7 +230,7 @@ for (const [exit, action] of [['screen', 'openOverlay'], ['navigation', 'closeOv
   await expect(page.getByRole('button', { name: 'Создать сценарий' })).toBeDisabled();
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
-  if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (exit === 'logout') await page.locator('#editor-signout').click();
   release(); await expect(page.locator('#scenario-command-status')).not.toContainText('подтверждено');
 });
 
@@ -374,7 +374,7 @@ for (const change of ['screen', 'document', 'revision', 'user']) test(`discards 
   await open(page, id); await page.locator('#screens button').first().click(); await held;
   if (change === 'screen') await page.locator('#screens button').nth(1).click();
   if (change === 'document') await page.getByRole('link', { name: '← Документы' }).click();
-  if (change === 'user') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (change === 'user') await page.locator('#editor-signout').click();
   if (change === 'revision') {
     expect((await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } })).ok()).toBeTruthy();
     await page.getByRole('button', { name: 'Обновить страницы' }).click(); await expect(page.locator('#revision')).toContainText('ревизия 4');
@@ -706,7 +706,7 @@ for (const exit of ['screen', 'document', 'logout']) test('discards a stale upda
     await page.getByRole('link', { name: '← Документы' }).click();
     await expect(page.locator('#documents-view')).toBeVisible();
   } else {
-    await page.getByRole('button', { name: 'Забыть токен' }).click();
+    await page.locator('#editor-signout').click();
     await expect(page.locator('#authentication')).toBeVisible();
   }
   release(); await done;

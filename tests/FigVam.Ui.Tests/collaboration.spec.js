@@ -111,7 +111,7 @@ test('logout cancels a held remote refresh without showing its revision or objec
   });
   await command(other, 'add-page', { pageId: randomUUID() });
   await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release();
   await expect(page.locator('#authentication')).toBeVisible();
   await expect(page.locator('#revision')).toHaveText('');
@@ -156,12 +156,13 @@ test('logout during a local command leaves the next session editable', async ({ 
   await page.getByLabel('Ширина экрана').fill('640');
   await page.getByLabel('Высота экрана').fill('480');
   await page.getByRole('button', { name: 'Создать экран' }).click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release(); await page.unroute('**/commands/add-screen');
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await connected(page);
   await expect(page.locator('#screens button')).toHaveCount(1);
+  await show(page, 'screen');
   await show(page, 'screen');
   await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
@@ -230,7 +231,7 @@ test('a late recovery cannot overwrite another document, logout or an access ref
   await expect(page.locator('#revision')).toHaveText('');
   await expect(page.locator('#document-title')).toHaveText('');
   await expect(page.locator('#layers [role=treeitem]')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   await expect(page.locator('#authentication')).toBeVisible();
   await expect(page.locator('#revision')).toHaveText('');
 });

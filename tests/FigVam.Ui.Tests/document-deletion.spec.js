@@ -86,7 +86,7 @@ for (const action of ['navigate', 'logout']) test(`ignores pending response afte
   await confirmDeletion(page);
   await expect(page.locator('#delete-document')).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
-  else await page.getByRole('button', { name: 'Забыть токен' }).click();
+  else await page.locator('#editor-signout').click();
   release();
   if (action === 'navigate') await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   else await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();

@@ -68,7 +68,7 @@ test('ignores delayed responses after screen change and logout', async ({ page, 
   await page.locator('#screens button').nth(1).click();
   await expect(page.locator('#diagnostics-status')).toHaveText('Диагностик для выбранного экрана нет.');
   release(); await expect(page.locator('#diagnostics-list')).not.toContainText('STALE');
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   await expect(page.locator('#diagnostics-list')).toBeEmpty();
 });
 
@@ -94,7 +94,7 @@ test('discards an outstanding response after logout', async ({ page, request }) 
     await response(route, [{ code: 'AFTER-LOGOUT', path: '/', message: 'stale' }]).catch(() => {});
   });
   await open(page, id); await page.locator('#screens button').first().click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click(); release();
+  await page.locator('#editor-signout').click(); release();
   await expect(page.locator('#diagnostics-list')).toBeEmpty();
   await expect(page.locator('#diagnostics-status')).toHaveText('Выберите экран.');
 });

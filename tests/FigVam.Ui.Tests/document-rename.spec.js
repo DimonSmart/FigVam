@@ -67,7 +67,7 @@ test('ignores an in-flight response after logout', async ({ page }) => {
   await page.route('**/commands/rename-document', async route => { await gate; await route.fulfill({ status: 200, json: {} }).catch(() => {}); });
   await page.getByLabel('Имя документа', { exact: true }).fill('Late');
   await show(page, 'document'); await page.getByRole('button', { name: 'Переименовать документ' }).click();
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release();
   await expect(page).toHaveTitle('FigVam — документы');
   await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();

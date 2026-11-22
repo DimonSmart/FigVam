@@ -217,6 +217,14 @@ export function createEditorShell() {
   screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
+  for (const current of [pageOptions, screenOptions]) {
+    current.addEventListener('toggle', () => {
+      if (!current.open) return;
+      for (const other of [pageOptions, screenOptions]) {
+        if (other !== current) other.open = false;
+      }
+    });
+  }
   const screensList = byId('screens');
   pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
   byId('pages').setAttribute('aria-label', 'Страницы и экраны');
