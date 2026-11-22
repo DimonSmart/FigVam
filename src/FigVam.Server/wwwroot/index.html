@@ -78,8 +78,12 @@
                   <h2 id="import-title">Импорт документа</h2>
                   <p>Загрузите ранее сохранённый дизайн.</p>
                   <form id="import-form">
-                    <label for="import-file">Файл документа (document.json или .figvam)</label>
-                    <input id="import-file" class="home-file-input" type="file" accept=".json,.figvam,application/json,application/zip" required>
+                    <label id="import-file-label" for="import-file">Файл документа (document.json или .figvam)</label>
+                    <div class="home-file-picker">
+                      <input id="import-file" class="home-file-input" type="file" accept=".json,.figvam,application/json,application/zip" aria-labelledby="import-file-label" required>
+                      <span class="home-file-trigger" aria-hidden="true">Выбрать файл</span>
+                      <span id="import-file-name" class="home-file-name" aria-live="polite">Файл не выбран</span>
+                    </div>
                     <button type="submit">Открыть файл как новый документ</button>
                     <p id="import-status" role="status" aria-live="polite"></p>
                     <p id="import-error" role="alert"></p>
