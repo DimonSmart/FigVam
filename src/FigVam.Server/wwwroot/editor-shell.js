@@ -1,8 +1,4 @@
 // Presentation-only composition. Existing editor modules continue to own documents and commands.
-// Keep references while sections move through temporarily detached panel fragments.
-const shellNodes = new Map();
-const byId = id => shellNodes.get(id) ?? document.getElementById(id);
-
 function el(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -48,6 +44,7 @@ function icon(name) {
 }
 
 function tabs(root, entries, label) {
+  const byId = id => document.getElementById(id);
   const nav = el('div', 'editor-tabs');
   nav.setAttribute('role', 'tablist');
   nav.setAttribute('aria-label', label);
@@ -91,7 +88,9 @@ function tabs(root, entries, label) {
 }
 
 export function createEditorShell() {
-  for (const node of document.querySelectorAll('[id]')) shellNodes.set(node.id, node);
+  // Capture original nodes before reparenting them into temporarily detached panels.
+  const shellNodes = new Map([...document.querySelectorAll('[id]')].map(node => [node.id, node]));
+  const byId = id => shellNodes.get(id) ?? document.getElementById(id);
   const design = byId('editor-design');
   const header = design.querySelector(':scope > .document-panel');
   const workspace = design.querySelector('.workspace');
@@ -227,7 +226,8 @@ export function createEditorShell() {
   const metadata = byId('node-metadata');
   const visualInspector = byId('visual-inspector');
   const screenSize = byId('screen-size-title').closest('section');
-  inspectorPage.append(inspectorTitle, selection, nodeDelete, visualInspector, metadata, screenSize);
+  inspectorPage.append(inspectorTitle, selection, nodeDelete,
+    byId('node-delete-status'), byId('node-delete-retry'), visualInspector, metadata, screenSize);
   const prototypePage = el('div', 'prototype-page');
   prototypePage.append(byId('scenarios-title').closest('section'));
   const diagnosticsPage = el('div', 'diagnostics-page');
