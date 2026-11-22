@@ -152,6 +152,7 @@ export function createEditorShell() {
     button.title = label; button.setAttribute('aria-label', label); button.classList.add('icon-action');
   }
   const signOut = el('button', 'subtle-action', 'Выйти');
+  signOut.id = 'editor-signout';
   signOut.type = 'button';
   signOut.addEventListener('click', () => byId('disconnect').click());
   const mode = el('span', 'design-mode', 'Design');
