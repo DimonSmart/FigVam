@@ -149,12 +149,12 @@ test('delayed resize response does not replace the newly selected screen', async
   });
   await page.getByLabel('Ширина выбранного экрана').fill('710');
   await page.getByRole('button', { name: 'Изменить размер' }).click(); await held;
-  await page.locator('#screens button').filter({ has: page.locator('[data-screen-id="' + otherScreen + '"]') }).click();
+  await page.locator('#screens button[data-screen-id="' + otherScreen + '"]').click();
   await expect(page.locator('#screen-size-saved')).toContainText('320 × 240');
   const delivered = page.waitForResponse(response => response.url().endsWith('/commands/resize-screen'));
   release(); await completed; await (await delivered).finished();
   await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
-  await expect(page.locator('#screens button').filter({ has: page.locator('[data-screen-id="' + otherScreen + '"]') })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#screens button[data-screen-id="' + otherScreen + '"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#screen-size-saved')).toContainText('320 × 240');
   await expect(page.getByLabel('Ширина выбранного экрана')).toHaveValue('320');
   await expect(page.locator('#resize-retry')).toBeHidden();
