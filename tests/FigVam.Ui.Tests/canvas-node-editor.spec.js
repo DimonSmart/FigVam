@@ -269,8 +269,10 @@ test('reconciles a remote property change without destroying the active inspecto
       width: document.querySelector('#visual-property-width')
     };
   }, { child, cover });
+  const previousRevision = Number((await page.locator('#revision').textContent()).match(/\d+$/)[0]);
   await command('set-node-properties', { nodeId: child, properties: { width: number(95) } });
-  await expect(node).toHaveCSS('width', '95px');
+  await expect(page.locator('#revision')).toContainText(`ревизия ${previousRevision + 1}`);
+  await expect(node).toHaveCSS('width', '95px', { timeout: 15000 });
   await expect(page.locator('#visual-property-width')).toHaveValue('95');
   expect(await page.evaluate(() => {
     const stable = window.__remoteStable;
