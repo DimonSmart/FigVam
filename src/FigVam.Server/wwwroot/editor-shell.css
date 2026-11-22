@@ -80,6 +80,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-toolbar #connection-status { font-size: 11px; color: var(--ui-muted);
   max-width: 96px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; margin: 0; }
 .app-toolbar .subtle-action { border-color: transparent; color: var(--ui-muted); background: transparent; }
+.app-shell .mobile-signout { display: none; }
 .presence-chips { display: flex; align-items: center; gap: 2px; padding: 0; max-width: 104px; overflow: hidden; list-style: none; }
 .presence-chips li { display: block; padding: 2px 4px; font-size: 10px; border-radius: 50%;
   width: 25px; height: 25px; line-height: 19px; background: var(--ui-selected);
@@ -295,7 +296,10 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   .app-toolbar .share-menu > summary { font-size: 0; padding-inline: 6px; }
   .app-toolbar .share-menu > summary::after { content: '+'; font-size: 15px; }
   .app-toolbar #document-title { max-width: 21vw; font-size: 12px; }
-  .app-toolbar .subtle-action { font-size: 11px; padding-inline: 4px; }
+  .app-toolbar .subtle-action { display: none; }
+  .app-shell .mobile-signout { display: block; width: 100%; }
+  .app-toolbar #document-title { min-width: 52px; }
+
   .app-header-actions { gap: 2px; }
   .app-toolbar #open-preview { font-size: 11px; padding-inline: 6px; }
   .drawing-toolbar { justify-content: flex-start; gap: 2px; padding-inline: 5px; }
