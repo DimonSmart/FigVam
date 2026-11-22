@@ -27,6 +27,12 @@ async function show(page, panel) {
   }
   if (!menus[panel]) throw new Error('Unknown editor panel: ' + panel);
   if (panel === 'screen' || panel === 'page') await show(page, 'layers');
+  // A newly added page is selected only after the server has committed the command.
+  // Opening the form before that transition can make its controls disappear mid-fill.
+  if (panel === 'screen') {
+    await expect(page.locator('#pages > li > .page-select[aria-pressed="true"]')).toHaveCount(1);
+    await expect(page.locator('#page-edit')).not.toHaveAttribute('inert', '');
+  }
   const details = page.locator(menus[panel]);
   if (!(await details.evaluate(node => node.open))) await details.locator('summary').click();
 }

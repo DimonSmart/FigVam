@@ -505,10 +505,13 @@ function renderScreens() {
   element('screen-create').querySelectorAll('input, button').forEach(control => { control.disabled = !selectedPage; });
   const screenMenu = element('screen-preset').closest('details');
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
-  if (!selectedScreen && selectedPage && screensItems.length === 0 &&
+  // Only suggest creation on the first empty page. Opening the popover on every
+  // navigation obscures the page tree, and closing a user-opened menu mid-command
+  // makes the form unusable while the page creation is still being committed.
+  if (selectedScreen || screensItems.length > 0 || pagesItems.length > 1) screenMenu.open = false;
+  else if (selectedPage && pagesItems.length === 1 &&
       (documentRole === 'Owner' || documentRole === 'Editor') &&
       !element('page-edit').querySelector('.page-options').open) screenMenu.open = true;
-  else screenMenu.open = false;
 }
 
 
