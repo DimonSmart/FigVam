@@ -155,6 +155,11 @@ export function createEditorShell() {
   signOut.id = 'editor-signout';
   signOut.type = 'button';
   signOut.addEventListener('click', () => byId('disconnect').click());
+  const mobileSignOut = el('button', 'mobile-signout', 'Выйти');
+  mobileSignOut.id = 'editor-signout-menu';
+  mobileSignOut.type = 'button';
+  mobileSignOut.addEventListener('click', () => byId('disconnect').click());
+  documentActions.append(group('Аккаунт', mobileSignOut));
   const mode = el('span', 'design-mode', 'Design');
   const brand = el('span', 'editor-brand', 'FigVam');
   header.insertBefore(brand, header.firstChild);
