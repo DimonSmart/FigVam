@@ -34,10 +34,14 @@ export function createLayers({
       nodeMetadata.name = item.name;
       renderNodeMetadata();
     }
-    element('inspector-selection').textContent = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
+    const caption = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
+    if (element('inspector-selection').textContent !== caption)
+      element('inspector-selection').textContent = caption;
     renderNodeOrder();
-    for (const node of element('layers').querySelectorAll('[role=treeitem]'))
-      node.setAttribute('aria-selected', String(node.dataset.id === item.id));
+    for (const row of element('layers').querySelectorAll('[role=treeitem]')) {
+      const selected = String(row.dataset.id === item.id);
+      if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
+    }
   }
 
   function nodeOperationKey(doc, node) { return `${doc}:${node}`; }
@@ -417,9 +421,12 @@ export function createLayers({
             if (latest.childCount) toggleLayer(latest);
           });
         }
-        row.setAttribute('aria-selected', String(layerSelection?.id === item.id));
-        if (item.childCount) row.setAttribute('aria-expanded', String(layerExpanded.has(item.id)));
-        else row.removeAttribute('aria-expanded');
+        const selected = String(layerSelection?.id === item.id);
+        if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
+        if (item.childCount) {
+          const expanded = String(layerExpanded.has(item.id));
+          if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
+        } else row.removeAttribute('aria-expanded');
         const label = row.querySelector(':scope > .layer-label');
         const caption = `${item.childCount ? (layerExpanded.has(item.id) ? '▾ ' : '▸ ') : '• '}${item.name?.trim() || 'Без имени'} — ${item.kind}`;
         if (label.textContent !== caption) label.textContent = caption;
