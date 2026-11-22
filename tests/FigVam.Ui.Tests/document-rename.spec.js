@@ -8,6 +8,7 @@ async function openDocument(page) {
   await page.getByLabel('Имя нового документа').fill('Original');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Original');
+  await show(page, 'document');
 }
 
 test('renames through the command after acceptance and prevents duplicate submissions', async ({ page }) => {
