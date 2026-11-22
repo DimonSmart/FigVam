@@ -20,14 +20,23 @@ export function createUserAdmin(element) {
     list.replaceChildren();
     for (const user of users) {
       const row = document.createElement('li');
-      const label = document.createElement('span');
-      label.textContent = `${user.email} (${user.name || 'Без имени'}) — ${user.isBound ? 'Google привязан' : 'Ожидает входа'}`;
+      const label = document.createElement('div');
+      label.className = 'user-row-label';
+      const name = document.createElement('strong');
+      name.textContent = user.name || user.email;
+      const details = document.createElement('span');
+      details.className = 'user-row-details';
+      details.textContent = user.name ? user.email : 'Имя не указано';
+      const binding = document.createElement('span');
+      binding.className = 'user-row-binding';
+      binding.textContent = user.isBound ? 'Google подключён' : 'Ожидает первого входа';
+      label.append(name, details, binding);
       const access = document.createElement('label');
-      access.textContent = ' Доступ ';
+      access.textContent = 'Доступ';
       const enabled = document.createElement('input');
       enabled.type = 'checkbox'; enabled.checked = user.enabled;
       const adminLabel = document.createElement('label');
-      adminLabel.textContent = ' Admin ';
+      adminLabel.textContent = 'Администратор';
       const admin = document.createElement('input');
       admin.type = 'checkbox'; admin.checked = user.isAdmin;
       async function save() {
