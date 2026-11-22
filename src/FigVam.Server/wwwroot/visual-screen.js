@@ -1,4 +1,4 @@
-import { renderScreen } from './screen-renderer.js';
+import { reconcileScreen, renderScreen } from './screen-renderer.js';
 
 export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
   const boundary = element('screen-boundary');
@@ -81,7 +81,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       cancelView(preview);
     }
     context = key ? next : null;
-    design.model = null;
+    if (!sameScreen || !key) design.model = null;
     onDesignChange();
     if (!context) return;
     if (isPreview && triggers.length) replay(triggers, null, true);
@@ -164,7 +164,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       parameters ? readCached(screenScenarios, screen, () => readPages('scenarios', { screenId: screen }, 'items', documentSignal)) : null
     ]);
     return {
-      ...shared, screen, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
+      ...shared, screen, revision: context.revision, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
       orderedNodes: structure.items, nodes: new Map(structure.items.map(node => [node.id, node])),
       boxes: new Map(layout.items.map(box => [box.objectId, box])),
       overrides: new Map(layout.overrides.map(item => [item.nodeId, item.properties]))
@@ -224,7 +224,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     const drawingContext = context;
     const acceptsInteraction = () => context === drawingContext && isPreview === previewMode &&
       (!previewMode || screens.at(-1) === (playback?.overlays.at(-1) ?? playback?.selection.screenId ?? context.screen.id));
-    view.status.textContent = 'Загрузка экрана…';
+    if (!view.host.hasChildNodes()) view.status.textContent = 'Загрузка экрана…';
     view.retry.hidden = true;
     try {
       const reads = new Map();
@@ -268,7 +268,8 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       const focus = view.host.contains(document.activeElement) ? document.activeElement : null;
       const focusedNode = focus?.closest('[data-visual-node]')?.dataset.visualNode;
       const selection = focus?.matches('input, textarea') ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] : null;
-      view.host.replaceChildren(content);
+      if (!previewMode && view.host.hasChildNodes()) reconcileScreen(view.host, content);
+      else view.host.replaceChildren(content);
       view.diagnostics.replaceChildren(diagnostics);
       view.status.textContent = shown ? '' : 'Геометрию экрана не удалось рассчитать.';
       if (previewMode) activeScenarios = models.at(-1).scenarios;
@@ -284,19 +285,26 @@ export function createVisualScreens({ element, request, getContext, closeInacces
           if (selection && control.matches('input, textarea')) control.setSelectionRange(...selection);
         } else if (previewMode) closeButton.focus({ preventScroll: true });
       }
-      for (const { assetId, surface } of images) {
+      // Existing image nodes retain their loaded asset and do not fetch it again.
+      for (const surface of view.host.querySelectorAll('img[data-asset-id]')) {
+        const assetId = surface.dataset.assetId;
+        if (surface.dataset.loadedAsset === assetId) continue;
         const report = () => {
           if (current()) addDiagnostic(view.diagnostics, `${surface.alt || assetId} · asset: Не удалось загрузить изображение.`);
         };
-        surface.addEventListener('error', report);
-        readAsset(assetId).then(url => { if (current()) surface.src = url; }).catch(report);
+        surface.onerror = report;
+        readAsset(assetId).then(url => {
+          if (current() && surface.isConnected && surface.dataset.assetId === assetId) {
+            surface.src = url;
+            surface.dataset.loadedAsset = assetId;
+          }
+        }).catch(report);
       }
     } catch (error) {
       if (!current() || error.name === 'AbortError') return;
       if (error.status === 403) { closeInaccessibleDocument(403); return; }
       view.key = null;
-      view.host.replaceChildren();
-      view.diagnostics.replaceChildren();
+      if (!view.host.hasChildNodes()) view.diagnostics.replaceChildren();
       view.status.textContent = `Не удалось показать экран. ${error.message}`;
       view.retry.hidden = false;
     }
@@ -390,5 +398,5 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
   }).observe(viewport);
-  return { refresh, syncSelection, readDesignModel, get designModel() { return isPreview ? null : design.model; } };
+  return { refresh, syncSelection, readDesignModel, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }

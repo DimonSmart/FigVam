@@ -121,6 +121,7 @@ export function renderScreen(model, options) {
         surface.alt = alt;
         surface.draggable = false;
         surface.style.objectFit = enumStyles.fit[value('fit')] ?? 'fill';
+        surface.dataset.assetId = assetId;
         images.push({ assetId, surface, report });
       } else {
         surface.textContent = alt || 'Изображение недоступно';
@@ -143,4 +144,63 @@ export function renderScreen(model, options) {
     elements.set(id, wrapper);
   }
   return { root, images };
+}
+
+// Patch a Design view by stable node IDs. The renderer remains the source of
+// appearance and layout; only the DOM reconciliation is incremental.
+export function reconcileScreen(host, next) {
+  const existing = new Map([...host.querySelectorAll('[data-visual-node]')]
+    .map(node => [node.dataset.visualNode, node]));
+
+  function attributes(current, target, preserve = new Set()) {
+    for (const attribute of [...current.attributes]) {
+      if (!preserve.has(attribute.name) && !target.hasAttribute(attribute.name))
+        current.removeAttribute(attribute.name);
+    }
+    for (const attribute of target.attributes) {
+      if (!preserve.has(attribute.name) && current.getAttribute(attribute.name) !== attribute.value)
+        current.setAttribute(attribute.name, attribute.value);
+    }
+  }
+
+  function update(current, target) {
+    attributes(current, target, new Set(['data-selected', 'data-canvas-editable']));
+    const before = current.querySelector(':scope > .visual-surface');
+    const after = target.querySelector(':scope > .visual-surface');
+    if (!before || !after || before.tagName !== after.tagName) {
+      before?.replaceWith(after);
+    } else {
+      const assetChanged = before.dataset.assetId !== after.dataset.assetId;
+      attributes(before, after, before.tagName === 'IMG' ? new Set(['src', 'data-loaded-asset']) : new Set());
+      if (assetChanged && before.tagName === 'IMG') {
+        before.removeAttribute('src');
+        delete before.dataset.loadedAsset;
+      }
+      if (before.matches('input, textarea')) {
+        if (before.value !== after.value) before.value = after.value;
+      } else if (before.tagName !== 'IMG' && before.textContent !== after.textContent)
+        before.textContent = after.textContent;
+    }
+    children(current, target);
+  }
+
+  function children(parent, template) {
+    const wanted = [...template.children].filter(child => child.hasAttribute('data-visual-node'));
+    const ids = new Set(wanted.map(child => child.dataset.visualNode));
+    let nextSibling = parent.querySelector(':scope > .canvas-resize-handle');
+    for (let index = wanted.length - 1; index >= 0; index--) {
+      const fresh = wanted[index], id = fresh.dataset.visualNode;
+      let node = existing.get(id);
+      if (node && node.dataset.semanticRole === fresh.dataset.semanticRole) update(node, fresh);
+      else node = fresh;
+      if (node.parentNode !== parent || node.nextElementSibling !== nextSibling)
+        parent.insertBefore(node, nextSibling);
+      nextSibling = node;
+    }
+    for (const child of [...parent.children]) {
+      if (child.hasAttribute('data-visual-node') && !ids.has(child.dataset.visualNode)) child.remove();
+    }
+  }
+
+  children(host, next);
 }

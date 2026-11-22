@@ -232,12 +232,14 @@ const scenarios = createScenarios({
   closeInaccessibleDocument
 });
 
-async function run(action, work, { create = false } = {}) {
+async function run(action, work, { create = false, quiet = false } = {}) {
   stopLive();
   const { signal, current } = startRequest();
   retry = create ? null : action;
-  message(create ? 'Создание документа…' : 'Загрузка…');
-  element('content').setAttribute('aria-busy', 'true');
+  if (!quiet) {
+    message(create ? 'Создание документа…' : 'Загрузка…');
+    element('content').setAttribute('aria-busy', 'true');
+  }
   element('create-form').querySelector('button').disabled = true;
   element('next').disabled = true;
   element('previous').disabled = true;
@@ -251,7 +253,7 @@ async function run(action, work, { create = false } = {}) {
     message('', explanation + (create && token ? ' Перед повторным созданием обновите список: запрос мог успеть выполниться.' : ''));
   } finally {
     if (current === generation) {
-      element('content').setAttribute('aria-busy', 'false');
+      if (!quiet) element('content').setAttribute('aria-busy', 'false');
       element('create-form').querySelector('button').disabled = false;
       element('previous').disabled = pageIndex === 0;
       element('next').disabled = !nextCursor;
@@ -386,8 +388,8 @@ const visualNodeEditor = createVisualNodeEditor({
       synced = (newRevision === revision + 1
         ? await readNodeEditRevision(signal, newRevision, isCurrent, reveal, selection, resourcesChanged)
         : await readPages(signal, pagesOffset, null, isCurrent, reveal, selection)) === true;
-      if (current()) message();
-    });
+      if (current() && !synced) message();
+    }, { quiet: true });
     return synced;
   }
 });
@@ -438,12 +440,11 @@ async function readNodeEditRevision(signal, newRevision, isCurrent, reveal, sele
   if (!valid()) return;
   if (!layers.isExpansionCurrent(layerSnapshot)) return readNodeEditRevision(signal, newRevision, isCurrent, reveal, selectionChange, resourcesChanged);
   const selection = selectionAfterCommand(selectionChange);
-  layers.reset();
   revision = newRevision;
   tokens.applySelectedUsages(usages);
+  layers.applySnapshot(layerSnapshot, selection);
   renderCanvas(!resourcesChanged);
   scenarios.retainAfterNodeEdit(screen, previousRevision);
-  layers.applySnapshot(layerSnapshot, selection);
   diagnostics.refresh();
   renderRevision();
   return true;
@@ -484,7 +485,7 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   if (!layers.isExpansionCurrent(layerSnapshot))
     return readPages(signal, offset, nextRevision, isCurrent, reveal, selectionChange);
   const selection = selectionAfterCommand(selectionChange);
-  layers.reset();
+  if (page !== selectedPage || screen !== selectedScreen) layers.reset();
   pagesOffset = offset; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
   screensOffset = screenOffset; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
   revision = catalogRevision = nextRevision;
