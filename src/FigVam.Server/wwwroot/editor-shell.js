@@ -400,14 +400,14 @@ export function createEditorShell() {
   // Menus are temporary views. Their controls keep their draft values when closed.
   // Close previously open menus before a pointer action; do not close a menu opened by that click.
   document.addEventListener('pointerdown', event => {
-    const clickedMenu = event.target.closest('details.editor-menu');
-    for (const details of document.querySelectorAll('details.editor-menu[open]')) {
+    const clickedMenu = event.target.closest('details.editor-menu, .navigator-toolbar details');
+    for (const details of document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open]')) {
       if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
     }
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    const opened = [...document.querySelectorAll('details.editor-menu[open]')];
+    const opened = [...document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open]')];
     if (!opened.length) return;
     opened[opened.length - 1].open = false;
     opened[opened.length - 1].querySelector('summary')?.focus();
