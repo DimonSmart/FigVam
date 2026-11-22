@@ -170,7 +170,7 @@ export function createEditorShell() {
   const pageOptions = menu('Действия страницы', 'inline-menu');
   pageOptions.append(byId('page-rename'), byId('page-delete'));
   pageEdit.append(pageOptions);
-  byId('page-create').textContent = '+ Страница';
+  byId('page-create').classList.add('add-page-action');
 
   const screensSection = byId('screens-title').closest('section');
   const screenForm = byId('screen-create');
@@ -198,11 +198,14 @@ export function createEditorShell() {
   const componentsPage = el('div', 'components-page');
   componentsPage.append(byId('components-title').closest('section'));
   const resources = el('div', 'assets-page');
-  const assetPanel = group('Изображения', byId('asset-upload-form'), byId('asset-upload-status'),
+  const pngHelp = byId('asset-upload-form').nextElementSibling;
+  const assetPanel = group('Изображения', byId('asset-upload-form'), pngHelp, byId('asset-upload-status'),
     byId('asset-upload-error'), byId('asset-upload-retry'));
   resources.append(assetPanel, byId('datasets-title').closest('section'),
     byId('tokens-title').closest('section'), byId('screen-variants-title').closest('section'));
-  left.replaceChildren();
+  const treeTitle = byId('tree-title');
+  treeTitle.classList.add('visually-hidden');
+  left.replaceChildren(treeTitle);
   tabs(left, [['layers', 'Слои', layersPage], ['components', 'Компоненты', componentsPage],
     ['assets', 'Ресурсы', resources]], 'Разделы документа');
 
@@ -275,6 +278,11 @@ export function createEditorShell() {
   observer.observe(addForm, { attributes: true, attributeFilter: ['hidden'] });
   observer.observe(kindSelect, { childList: true, attributes: true, attributeFilter: ['disabled'] });
   syncTools();
+  if (matchMedia('(max-width: 1050px)').matches) {
+    workspace.classList.add('left-collapsed', 'right-collapsed');
+    leftToggle.setAttribute('aria-expanded', 'false');
+    rightToggle.setAttribute('aria-expanded', 'false');
+  }
 
   const canvasTitle = byId('canvas-title');
   canvasTitle.classList.add('visually-hidden');
