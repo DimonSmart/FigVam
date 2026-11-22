@@ -45,5 +45,6 @@ public static class EditorEndpoints
         MapFile("/session.js", "session.js", "text/javascript; charset=utf-8");
         MapFile("/editor.css", "editor.css", "text/css; charset=utf-8");
         MapFile("/editor-shell.css", "editor-shell.css", "text/css; charset=utf-8");
+        MapFile("/home.css", "home.css", "text/css; charset=utf-8");
     }
 }
