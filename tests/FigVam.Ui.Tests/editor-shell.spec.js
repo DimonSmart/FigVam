@@ -75,6 +75,45 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   await expect(page.locator('#layers [aria-selected=true]')).toHaveAttribute('data-id', selection);
 });
 
+test('screen presets initialize dimensions, follow manual edits, and reset together', async ({ page }) => {
+  await openEditor(page);
+  await page.getByRole('button', { name: 'Создать страницу', exact: true }).click();
+
+  const preset = page.getByLabel('Типовой размер экрана');
+  const width = page.getByLabel('Ширина экрана');
+  const height = page.getByLabel('Высота экрана');
+  await expect(preset).toHaveValue('1440x900');
+  await expect(width).toHaveValue('1440');
+  await expect(height).toHaveValue('900');
+
+  await preset.selectOption('390x844');
+  await expect(width).toHaveValue('390');
+  await expect(height).toHaveValue('844');
+  await width.fill('420');
+  await expect(preset).toHaveValue('custom');
+
+  await preset.selectOption('768x1024');
+  await expect(width).toHaveValue('768');
+  await expect(height).toHaveValue('1024');
+  await preset.selectOption('custom');
+  await expect(width).toHaveValue('768');
+  await expect(height).toHaveValue('1024');
+
+  await width.fill('1440');
+  await expect(preset).toHaveValue('custom');
+  await height.fill('900');
+  await expect(preset).toHaveValue('1440x900');
+
+  await preset.selectOption('390x844');
+  await page.locator('#screen-create').evaluate(form => form.reset());
+  await expect(preset).toHaveValue('1440x900');
+  await expect(width).toHaveValue('1440');
+  await expect(height).toHaveValue('900');
+
+  await page.locator('#screen-create button[type=submit]').click();
+  await expect(page.locator('#screens button').first()).toContainText('1440 × 900');
+});
+
 test('narrow editor keeps full page unscrolled and panels accessible', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openEditor(page);
