@@ -19,6 +19,7 @@ public static class EditorEndpoints
         MapFile("/", "index.html", "text/html; charset=utf-8");
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
+        MapFile("/editor-shell.js", "editor-shell.js", "text/javascript; charset=utf-8");
         MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
         MapFile("/user-admin.js", "user-admin.js", "text/javascript; charset=utf-8");
         MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
@@ -43,5 +44,6 @@ public static class EditorEndpoints
         MapFile("/tokens.js", "tokens.js", "text/javascript; charset=utf-8");
         MapFile("/session.js", "session.js", "text/javascript; charset=utf-8");
         MapFile("/editor.css", "editor.css", "text/css; charset=utf-8");
+        MapFile("/editor-shell.css", "editor-shell.css", "text/css; charset=utf-8");
     }
 }
