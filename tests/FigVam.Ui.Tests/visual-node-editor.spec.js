@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 
 const headers = { Authorization: `Bearer ${bearer}` };
@@ -33,7 +34,8 @@ async function seedText(request) {
 }
 
 async function addFromPalette(page, kind) {
-  await page.getByLabel('Вид элемента').selectOption(kind);
+  await show(page, 'layers');
+  await show(page, 'palette'); await page.getByLabel('Вид элемента').selectOption(kind);
   const result = page.waitForResponse(response => response.url().endsWith('/commands/add-node'));
   await page.locator('#visual-add').press('Enter');
   const response = await result;
@@ -58,9 +60,10 @@ test('palette uploads an image, rejects invalid content, and creates all five ki
   await expect(page).toHaveURL(/\/documents\/[a-f0-9-]+$/);
   const base = `/api/v1${new URL(page.url()).pathname}`;
   await page.getByRole('button', { name: 'Создать страницу' }).click();
-  await page.getByLabel('Ширина экрана').fill('800');
+  await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
+  await show(page, 'assets');
   const upload = page.getByLabel('Изображение PNG');
   await upload.setInputFiles({ name: 'invalid.png', mimeType: 'image/png', buffer: Buffer.from('invalid') });
   await page.getByRole('button', { name: 'Загрузить изображение' }).press('Enter');
@@ -72,6 +75,7 @@ test('palette uploads an image, rejects invalid content, and creates all five ki
   expect(uploaded.ok(), await uploaded.text()).toBeTruthy();
   const assetId = new URL(uploaded.url()).pathname.split('/').pop();
   await expect(page.locator('#asset-upload-status')).toContainText('Изображение загружено');
+  await show(page, 'palette');
   const kindPicker = page.getByLabel('Вид элемента');
   await expect(kindPicker.locator('option')).toHaveText(['Frame', 'Text', 'Button', 'TextInput', 'Image']);
   await expect(page.locator('#visual-palette-status')).toContainText('240 × 160');
@@ -221,7 +225,7 @@ test('asset upload retries the same command after a lost acknowledgement', async
     if (attempts.length === 1) await route.abort();
     else await route.fulfill({ response });
   });
-  await page.getByLabel('Изображение PNG').setInputFiles({ name: 'image.png', mimeType: 'image/png', buffer: png });
+  await show(page, 'assets'); await page.getByLabel('Изображение PNG').setInputFiles({ name: 'image.png', mimeType: 'image/png', buffer: png });
   await page.getByRole('button', { name: 'Загрузить изображение', exact: true }).press('Enter');
   const retry = page.getByRole('button', { name: 'Повторить загрузку изображения', exact: true });
   await expect(retry).toBeVisible();
@@ -230,7 +234,7 @@ test('asset upload retries the same command after a lost acknowledgement', async
   expect(attempts).toHaveLength(2);
   expect(attempts[1]).toBe(attempts[0]);
   const assetId = new URL(attempts[0]).pathname.split('/').pop();
-  await page.getByLabel('Вид элемента').selectOption('Image');
+  await show(page, 'palette'); await show(page, 'palette'); await page.getByLabel('Вид элемента').selectOption('Image');
   await expect(page.locator('#visual-palette').getByRole('combobox', { name: 'Ассет', exact: true }).locator(`option[value="${assetId}"]`)).toHaveCount(1);
 });
 
@@ -251,7 +255,7 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
     await hold;
     await route.fulfill({ response });
   });
-  await page.getByLabel('Изображение PNG').setInputFiles({ name: 'image.png', mimeType: 'image/png', buffer: png });
+  await show(page, 'assets'); await page.getByLabel('Изображение PNG').setInputFiles({ name: 'image.png', mimeType: 'image/png', buffer: png });
   await page.getByRole('button', { name: 'Загрузить изображение', exact: true }).press('Enter');
   await received;
   await page.evaluate(id => { history.pushState(null, '', `/documents/${id}`); dispatchEvent(new PopStateEvent('popstate')); }, second.documentId);
@@ -259,6 +263,6 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
   await expect(page.getByLabel('Изображение PNG')).toHaveValue('');
   release();
   await expect(page.locator('#asset-upload-status')).toBeEmpty();
-  await page.getByLabel('Вид элемента').selectOption('Image');
+  await show(page, 'palette'); await show(page, 'palette'); await page.getByLabel('Вид элемента').selectOption('Image');
   await expect(page.locator('#visual-palette').getByRole('combobox', { name: 'Ассет', exact: true })).toContainText('В документе нет ассетов');
 });
