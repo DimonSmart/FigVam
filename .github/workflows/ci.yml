@@ -59,9 +59,20 @@ jobs:
       - name: Install Chromium
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright install chromium
+      - name: Home dashboard smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test home.spec.js --trace retain-on-failure
       - name: Editor shell smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test editor-shell.spec.js --trace retain-on-failure
+      - name: Upload home dashboard screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: home-dashboard-screenshots
+          path: tests/FigVam.Ui.Tests/test-results/**/home-desktop.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Upload editor shell screenshots
         if: always()
         uses: actions/upload-artifact@v4
