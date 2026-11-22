@@ -153,6 +153,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
   expect(await read('document.json')).toEqual(beforePreview);
 
   const versionName = 'Готовая заявка';
+  await show(page, 'document');
   await page.getByLabel('Имя версии (необязательно)').fill(versionName);
   const saving = page.waitForResponse(response => response.url().endsWith('/commands/save'));
   await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию', exact: true }).click();
