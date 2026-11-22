@@ -24,6 +24,13 @@ import { token, generation, pending, navigationEpoch, setToken, advanceNavigatio
 const element = id => document.getElementById(id);
 createEditorShell();
 const userAdmin = createUserAdmin(element);
+function selectHomeView(view) {
+  const users = view === 'users' && !element('home-users').hidden;
+  element('home-documents-content').hidden = users;
+  element('home-admin-content').hidden = !users;
+  element('home-documents').setAttribute('aria-current', users ? 'false' : 'page');
+  element('home-users').setAttribute('aria-current', users ? 'page' : 'false');
+}
 let cursors = [null];
 let pageIndex = 0;
 let nextCursor = null;
@@ -146,6 +153,8 @@ function clearSession() {
   setToken('');
   setCsrf('');
   userAdmin.hide();
+  element('home-users').hidden = true;
+  selectHomeView('documents');
   documentHistory.clearCommands(); screenResize.clear(); documentHistory.reset();
   visualNodeEditor.clear();
   cancelRequest();
@@ -272,7 +281,11 @@ async function loadList(index = 0, cursor = null) {
   selectedScreen = null; screensItems = []; renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
+  selectHomeView('documents');
   element('document-list').replaceChildren();
+  element('home-empty').hidden = true;
+  element('home-count').textContent = '';
+  element('home-pagination').hidden = true;
   element('page-number').textContent = '';
   document.title = 'FigVam — документы';
   nextCursor = null;
@@ -287,15 +300,27 @@ async function loadList(index = 0, cursor = null) {
     nextCursor = result.nextCursor;
     for (const item of result.items) {
       const row = document.createElement('li');
+      const art = document.createElement('div');
+      art.className = 'document-art';
+      art.setAttribute('aria-hidden', 'true');
+      // Neutral placeholder, not a fabricated preview of the document.
+      art.innerHTML = '<div class="document-art-window"><div class="document-art-content"><div class="document-art-rail"></div><div class="document-art-lines"><span></span><span></span><span></span></div></div></div>';
+      const details = document.createElement('div');
+      details.className = 'document-card-meta';
       const link = document.createElement('a');
       link.href = `/documents/${encodeURIComponent(item.documentId)}`;
       link.dataset.navigation = '';
       link.textContent = item.name;
       const role = document.createElement('span');
+      role.className = 'document-role';
       role.textContent = { Owner: 'Владелец', Editor: 'Редактор', Viewer: 'Просмотр' }[item.role] ?? item.role;
-      row.append(link, role);
+      details.append(link, role);
+      row.append(art, details);
       element('document-list').append(row);
     }
+    element('home-count').textContent = `${result.items.length} на странице`;
+    element('home-empty').hidden = result.items.length > 0 || index > 0;
+    element('home-pagination').hidden = index === 0 && !nextCursor;
     element('page-number').textContent = `Страница ${index + 1}`;
     message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
   });
@@ -817,6 +842,8 @@ element('page-delete').addEventListener('click', () => {
   if (page && confirm(`Удалить страницу «${page.name}»? Её экраны и их содержимое будут удалены.`))
     pageCommand('delete-page', { pageId: page.id, expectedRevision: revision }, null);
 });
+element('home-documents').addEventListener('click', () => selectHomeView('documents'));
+element('home-users').addEventListener('click', () => selectHomeView('users'));
 element('refresh').addEventListener('click', () => loadList());
 element('previous').addEventListener('click', () => loadList(pageIndex - 1, cursors[pageIndex - 1]));
 element('next').addEventListener('click', () => loadList(pageIndex + 1, nextCursor));
@@ -857,6 +884,7 @@ async function initializeAuthentication() {
     element('disconnect').hidden = false;
     element('content').hidden = false;
     route();
+    element('home-users').hidden = !session.admin;
     await userAdmin.show(session.admin);
   } catch (error) {
     element('authentication-error').textContent = error.message;
