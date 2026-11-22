@@ -50,6 +50,35 @@ public sealed class DocumentCommandTests : IDisposable
     private AddPageCommand Command() => new(documentId, Guid.NewGuid(), Guid.NewGuid());
 
     [Fact]
+    public async Task ScreenNameCanBeChangedWithoutChangingItsIdAndSurvivesJournalRecovery()
+    {
+        var journal = Journal();
+        await Seed(journal);
+        var handler = Handler(journal);
+        var pageId = Guid.NewGuid();
+        var screenId = Guid.NewGuid();
+        Assert.True((await handler.HandleAsync(new AddPageCommand(documentId, Guid.NewGuid(), pageId), actor)).Accepted);
+        Assert.True((await handler.HandleAsync(new AddScreenCommand(documentId, Guid.NewGuid(), pageId, screenId, new ScreenDimensions(640, 480)), actor)).Accepted);
+        var command = new RenameScreenCommand(documentId, Guid.NewGuid(), screenId, "Login screen");
+        var accepted = await handler.HandleAsync(command, actor);
+        Assert.True(accepted.Accepted);
+        Assert.Equal(accepted, await handler.HandleAsync(command with { Name = "Should not be applied" }, actor));
+
+        var recovered = await Journal().ReadAsync(documentId);
+        Assert.Equal(screenId, Assert.Single(recovered!.Document.Screens).Id);
+        Assert.Equal("Login screen", Assert.Single(recovered.Document.Screens).Name);
+        Assert.Equal(3, recovered.Revision);
+
+        var query = new DocumentStructureQueries(new Authorization(true), Journal(), new Profile());
+        var result = await query.QueryAsync(documentId, new StructureQuery("screens", Fields: "name,dimensions"), actor);
+        Assert.Equal("Login screen", Assert.Single(result.Response!.Items).Name);
+        Assert.Equal("INVALID_SCREEN_NAME", (await handler.HandleAsync(command with { CommandId = Guid.NewGuid(), Name = "   " }, actor)).Code);
+        Assert.Equal("SCREEN_NOT_FOUND", (await handler.HandleAsync(command with { CommandId = Guid.NewGuid(), ScreenId = Guid.NewGuid() }, actor)).Code);
+        Assert.Equal("FORBIDDEN", (await Handler(journal, false).HandleAsync(command with { CommandId = Guid.NewGuid() }, actor)).Code);
+        Assert.Equal(3, (await Journal().ReadAsync(documentId))!.Revision);
+    }
+
+    [Fact]
     public async Task ViewerCannotMutateOrReadOriginalResult()
     {
         var journal = Journal();

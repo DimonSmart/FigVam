@@ -47,6 +47,8 @@ public sealed record PageStructure(Guid Id, IReadOnlyList<Guid> ScreenIds)
 public sealed record ScreenStructure(Guid Id, IReadOnlyList<Guid> ChildIds,
     [property: System.Text.Json.Serialization.JsonRequired] ScreenDimensions Dimensions)
 {
+    // Legacy screens without a saved name retain their generated list label.
+    public string? Name { get; init; }
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<ScreenVariant> Variants { get; init; } = [];
 }
@@ -334,6 +336,7 @@ public static class DocumentStructureValidator
         foreach (var screen in document.Screens)
         {
             if (!ScreenDimensions.IsValid(screen.Dimensions)) errors.Add(new("INVALID_SCREEN_DIMENSIONS", screen.Id, null, "Screen width and height must be finite and non-negative."));
+            if (screen.Name is not null && !ScreenNameValidator.IsValid(screen.Name)) errors.Add(new("INVALID_SCREEN_NAME", screen.Id, null, "Screen name is invalid.", "name"));
             if (screen.Variants is null) { errors.Add(new("INVALID_SCREEN_VARIANT", screen.Id, null, "Screen variants are required.")); continue; }
             foreach (var variant in screen.Variants)
                 if (variant is not null) Register(variant.Id, "screen variant");
@@ -461,6 +464,11 @@ public static class DocumentNameValidator
 }
 
 public static class PageNameValidator
+{
+    public static bool IsValid(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256 && !value.Any(char.IsControl);
+}
+
+public static class ScreenNameValidator
 {
     public static bool IsValid(string? value) => !string.IsNullOrWhiteSpace(value) && value.Length <= 256 && !value.Any(char.IsControl);
 }

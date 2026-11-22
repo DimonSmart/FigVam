@@ -55,6 +55,8 @@ function leaveDeletion() {
   element('delete-message').textContent = `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.`;
 }
 let selectedScreen = null, screensOffset = 0, screensTotal = 0, screensItems = [];
+let editingScreenName = null;
+let statusDismissTimer = null;
 const diagnostics = createScreenDiagnostics({
   element, request: (...args) => request(...args), pageSize,
   getContext: () => ({ documentId, screen: selectedScreen, revision, token, navigationEpoch })
@@ -127,7 +129,7 @@ const datasets = createDatasets({
 function closeInaccessibleDocument(status) {
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null;
+  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingScreenName = null;
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
@@ -136,9 +138,18 @@ function closeInaccessibleDocument(status) {
 }
 
 function message(status = '', error = '') {
+  clearTimeout(statusDismissTimer);
+  statusDismissTimer = null;
   element('status').textContent = status;
   element('error').textContent = error;
   element('retry').hidden = !error || !retry;
+  // Progress and errors are persistent; successful editor notifications expire.
+  if (status && !error && !status.endsWith('…') && !element('editor-view').hidden) {
+    statusDismissTimer = setTimeout(() => {
+      if (element('status').textContent === status) element('status').textContent = '';
+      statusDismissTimer = null;
+    }, 4000);
+  }
 }
 
 function clearSession() {
@@ -164,7 +175,7 @@ function clearSession() {
   element('document-list').replaceChildren();
   documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
   element('pages').replaceChildren();
-  selectedScreen = null; screensOffset = screensTotal = 0; screensItems = [];
+  selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingScreenName = null;
   element('screens').replaceChildren();
   layers.reset();
   tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset();
@@ -360,16 +371,103 @@ function renderPages() {
   element('pages-number').textContent = `Страница списка ${Math.floor(pagesOffset / pageSize) + 1}`;
 }
 
+function startScreenNameEdit(id, name) {
+  if (!['Owner', 'Editor'].includes(documentRole)) return;
+  editingScreenName = { id, value: name };
+  renderScreens();
+  const input = element('screen-name-input');
+  input?.focus();
+  input?.select();
+}
+
 function renderScreens() {
-  const list = element('screens'); list.replaceChildren();
+  const list = element('screens');
+  const previousInput = document.activeElement?.id === 'screen-name-input' ? document.activeElement : null;
+  const selection = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
+  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName.id) ||
+      !['Owner', 'Editor'].includes(documentRole))) editingScreenName = null;
+  list.replaceChildren();
   for (const [index, item] of screensItems.entries()) {
-    const row = document.createElement('li'), button = document.createElement('button');
-    button.type = 'button'; button.dataset.screenId = item.id;
-    button.textContent = `Экран ${screensOffset + index + 1} · ${item.dimensions.width} × ${item.dimensions.height}`;
-    button.title = `Экран ${screensOffset + index + 1}`;
-    button.setAttribute('aria-pressed', String(item.id === selectedScreen));
-    button.addEventListener('click', () => { if (selectedScreen !== item.id) { layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset(); screenVariants.reset(); screenResize.render(); refreshPages(); } for (const other of list.querySelectorAll('button')) other.setAttribute('aria-pressed', String(other === button)); renderCanvas(); });
-    row.append(button); list.append(row);
+    const name = item.name ?? `Экран ${screensOffset + index + 1}`;
+    const row = document.createElement('li');
+    row.className = 'screen-row';
+    if (editingScreenName?.id === item.id) {
+      const form = document.createElement('form');
+      form.className = 'screen-rename-form';
+      const input = document.createElement('input');
+      input.id = 'screen-name-input';
+      input.type = 'text';
+      input.required = true;
+      input.maxLength = 256;
+      input.autocomplete = 'off';
+      input.setAttribute('aria-label', 'Имя экрана');
+      input.value = editingScreenName.value;
+      input.addEventListener('input', () => {
+        editingScreenName.value = input.value;
+        input.setCustomValidity('');
+      });
+      const save = document.createElement('button');
+      save.type = 'submit'; save.className = 'screen-rename-confirm';
+      save.textContent = '✓'; save.title = 'Сохранить название';
+      save.setAttribute('aria-label', 'Сохранить название экрана');
+      const cancel = document.createElement('button');
+      cancel.type = 'button'; cancel.className = 'screen-rename-cancel';
+      cancel.textContent = '×'; cancel.title = 'Отменить переименование';
+      cancel.setAttribute('aria-label', 'Отменить переименование экрана');
+      const discard = () => { editingScreenName = null; renderScreens(); };
+      cancel.addEventListener('click', discard);
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Escape') { event.preventDefault(); discard(); }
+      });
+      form.addEventListener('submit', event => {
+        event.preventDefault();
+        const newName = input.value.trim();
+        if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
+          input.setCustomValidity('Укажите непустое имя без управляющих символов.');
+          input.reportValidity();
+          return;
+        }
+        editingScreenName = null;
+        renderScreens();
+        if (newName !== name) pageCommand('rename-screen', { screenId: item.id, name: newName });
+      });
+      form.append(input, save, cancel);
+      row.append(form);
+    } else {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'screen-select'; button.dataset.screenId = item.id;
+      button.textContent = `${name} · ${item.dimensions.width} × ${item.dimensions.height}`;
+      button.title = name;
+      button.setAttribute('aria-pressed', String(item.id === selectedScreen));
+      button.addEventListener('click', () => {
+        if (selectedScreen !== item.id) {
+          layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset();
+          screenVariants.reset(); screenResize.render(); refreshPages();
+        }
+        for (const other of list.querySelectorAll('button[data-screen-id]'))
+          other.setAttribute('aria-pressed', String(other === button));
+        renderCanvas();
+      });
+      row.append(button);
+      if (['Owner', 'Editor'].includes(documentRole)) {
+        const rename = document.createElement('button');
+        rename.type = 'button'; rename.className = 'screen-rename-action';
+        rename.title = 'Переименовать экран';
+        rename.setAttribute('aria-label', `Переименовать экран «${name}»`);
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L9 17l-4 1 1-4L16.5 3.5Z');
+        svg.append(path); rename.append(svg);
+        rename.addEventListener('click', () => startScreenNameEdit(item.id, name));
+        row.append(rename);
+      }
+    }
+    list.append(row);
+  }
+  if (selection && editingScreenName) {
+    const input = element('screen-name-input');
+    if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
   }
   renderCanvas(); screenResize.render();
   element('screens-previous').disabled = !selectedPage || screensOffset === 0;
@@ -378,12 +476,10 @@ function renderScreens() {
   element('screen-create').querySelectorAll('input, button').forEach(control => { control.disabled = !selectedPage; });
   const screenMenu = element('screen-preset').closest('details');
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
-  // An empty page offers screen creation immediately; existing screens keep the form tucked away.
   if (!selectedScreen && selectedPage && screensItems.length === 0 &&
       (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
   else if (selectedScreen) screenMenu.open = false;
 }
-
 
 
 
@@ -492,7 +588,7 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   let screens = { items: [], total: 0 };
   if (page) {
     do {
-      screens = await request(`${base}/pages/${encodeURIComponent(page)}/screens?offset=${screenOffset}&limit=${pageSize}&fields=dimensions&revision=${nextRevision}`, {}, signal, valid);
+      screens = await request(`${base}/pages/${encodeURIComponent(page)}/screens?offset=${screenOffset}&limit=${pageSize}&fields=dimensions,name&revision=${nextRevision}`, {}, signal, valid);
       if (!valid()) return;
       if (!screenOffset || screens.items.length) break;
       screenOffset = Math.max(0, screenOffset - pageSize);

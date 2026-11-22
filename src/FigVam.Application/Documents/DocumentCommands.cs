@@ -43,6 +43,7 @@ public sealed record DeletePageCommand(Guid DocumentId, Guid CommandId, Guid Pag
 public sealed record DeleteDocumentCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision);
 public sealed record RenameDocumentCommand(Guid DocumentId, Guid CommandId, string Name);
 public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string Name);
+public sealed record RenameScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, string Name);
 public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position);
@@ -108,6 +109,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentDeleted), "DOCUMENT_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentRenamed), "DOCUMENT_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageRenamed), "PAGE_RENAMED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenRenamed), "SCREEN_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenResized), "SCREEN_RESIZED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenAdded), "SCREEN_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeAdded), "NODE_ADDED")]
@@ -152,6 +154,7 @@ public sealed record PageAdded(Guid PageId) : DocumentEvent;
 public sealed record DocumentDeleted : DocumentEvent;
 public sealed record DocumentRenamed(string Name) : DocumentEvent;
 public sealed record PageRenamed(Guid PageId, string Name) : DocumentEvent;
+public sealed record ScreenRenamed(Guid ScreenId, string Name) : DocumentEvent;
 public sealed record ScreenAdded(Guid PageId, Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
 public sealed record ScreenResized(Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
 public sealed record NodeMoved(Guid NodeId, Guid TargetParentId, int Position) : DocumentEvent;
@@ -233,6 +236,7 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(DeletePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenameDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenamePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(RenameScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddPageCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(ResizeScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
@@ -891,6 +895,24 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var document = state.Document with { Pages = state.Document.Pages.Select(p => p.Id == command.PageId ? p with { Name = command.Name } : p).ToArray() };
             var next = new DocumentState(document, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new PageRenamed(command.PageId, command.Name));
+        }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
+    }
+
+    public async Task<CommandResult> HandleAsync(RenameScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        ArgumentNullException.ThrowIfNull(actor);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null);
+        if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
+        if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.ScreenId == Guid.Empty) return Result("INVALID_ID");
+        return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
+        {
+            if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            if (!state.Document.Screens.Any(s => s.Id == command.ScreenId)) return new(Result("SCREEN_NOT_FOUND"), null);
+            if (!ScreenNameValidator.IsValid(command.Name)) return new(Result("INVALID_SCREEN_NAME"), null);
+            var document = state.Document with { Screens = state.Document.Screens.Select(s => s.Id == command.ScreenId ? s with { Name = command.Name } : s).ToArray() };
+            var next = new DocumentState(document, checked(state.Revision + 1));
+            return new(Result("ACCEPTED", next.Revision), next, new ScreenRenamed(command.ScreenId, command.Name));
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
 

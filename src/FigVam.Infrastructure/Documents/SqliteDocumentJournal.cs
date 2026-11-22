@@ -169,7 +169,7 @@ public sealed partial class SqliteDocumentJournal
             "UPGRADE_PORTABLE_UI_PROFILE" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is PortableUiProfileUpgraded upgraded
                     ? upgraded : throw new InvalidDataException("Invalid profile upgrade event."),
-            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
+            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
             "SET_NODE_PROPERTIES" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is NodePropertiesSet properties &&
@@ -253,6 +253,7 @@ public sealed partial class SqliteDocumentJournal
                     ScreenAdded screen when change.Result.PageId == screen.PageId && change.Result.ScreenId == screen.ScreenId
                         => ("ADD_SCREEN", screen.PageId, (Guid?)screen.ScreenId, (Guid?)null, (string?)null),
                     ScreenResized screen => ("RESIZE_SCREEN", screen.ScreenId, (Guid?)null, (Guid?)null, (string?)null),
+                    ScreenRenamed screen when change.Result.ScreenId == screen.ScreenId => ("RENAME_SCREEN", screen.ScreenId, (Guid?)null, (Guid?)null, (string?)null),
                     ScenarioChanged scenario => (scenario.Operation, scenario.ScenarioId, (Guid?)null, (Guid?)null, (string?)null),
                     ScreenVariantChanged variant => (variant.Operation, variant.ScreenId, (Guid?)null, (Guid?)null, (string?)null),
                     NodeRepeaterSet repeater => ("SET_NODE_REPEATER", repeater.NodeId, (Guid?)null, (Guid?)null, (string?)null),
@@ -349,7 +350,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or PortableUiProfileUpgraded or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or PortableUiProfileUpgraded or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded added
@@ -710,6 +711,10 @@ public sealed partial class SqliteDocumentJournal
                         break;
                     case PageAdded page:
                         document = document with { Pages = document.Pages.Append(new PageStructure(page.PageId, [])).ToArray() };
+                        break;
+                    case ScreenRenamed screen:
+                        if (!document.Screens.Any(s => s.Id == screen.ScreenId) || !ScreenNameValidator.IsValid(screen.Name)) throw new InvalidDataException("Invalid screen rename event.");
+                        document = document with { Screens = document.Screens.Select(s => s.Id == screen.ScreenId ? s with { Name = screen.Name } : s).ToArray() };
                         break;
                     case ScreenResized screen:
                         if (!document.Screens.Any(s => s.Id == screen.ScreenId) || !ScreenDimensions.IsValid(screen.Dimensions)) throw new InvalidDataException("Invalid screen resize event.");
