@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function open(page) {
   await page.goto('/'); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
