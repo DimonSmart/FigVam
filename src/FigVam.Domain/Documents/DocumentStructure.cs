@@ -48,6 +48,7 @@ public sealed record ScreenStructure(Guid Id, IReadOnlyList<Guid> ChildIds,
     [property: System.Text.Json.Serialization.JsonRequired] ScreenDimensions Dimensions)
 {
     // Legacy screens without a saved name retain their generated list label.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Name { get; init; }
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<ScreenVariant> Variants { get; init; } = [];
