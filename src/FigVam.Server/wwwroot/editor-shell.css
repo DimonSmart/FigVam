@@ -152,6 +152,28 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #pages button[aria-pressed=true], .app-shell #screens button[aria-pressed=true] {
   background: var(--ui-selected); border-color: transparent; color: #344dbb; font-weight: 650;
 }
+
+.app-shell #screens .screen-row { display: flex; align-items: center; min-width: 0; gap: 2px; }
+.app-shell #screens .screen-select { flex: 1 1 auto; min-width: 0; }
+.app-shell #screens .screen-rename-action {
+  flex: 0 0 26px; width: 26px; min-height: 26px; padding: 4px;
+  text-align: center; font-size: 17px; line-height: 1; cursor: pointer;
+  color: var(--ui-muted); opacity: .65; background: transparent; border-color: transparent;
+}
+.app-shell #screens .screen-rename-action:hover,
+.app-shell #screens .screen-rename-action:focus-visible,
+.app-shell #screens .screen-select[aria-pressed=true] + .screen-rename-action { opacity: 1; color: var(--ui-accent); }
+.app-shell #screens .screen-rename-form { display: flex; flex: 1; min-width: 0; gap: 3px; align-items: center; }
+.app-shell #screens .screen-rename-form input {
+  flex: 1 1 auto; width: 0; min-width: 0; height: 29px;
+  min-height: 29px; padding: 4px 6px; font-size: 12px;
+}
+.app-shell #screens .screen-rename-form button {
+  width: 25px; flex: 0 0 25px; min-height: 26px; height: 26px;
+  padding: 0; text-align: center; font-size: 15px; line-height: 1;
+}
+.app-shell #screens .screen-rename-cancel { color: var(--ui-muted); }
+
 .app-shell #page-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: start; margin: 6px 0 0; }
 .app-shell #page-create::before { content: '+ '; font-weight: 700; }
 #page-edit > .inline-menu { margin-left: auto; }

@@ -81,6 +81,7 @@ public static class DocumentSchemas
         [nameof(DeletePageRequest)] = typeof(DeletePageRequest),
         [nameof(RenameDocumentRequest)] = typeof(RenameDocumentRequest),
         [nameof(RenamePageRequest)] = typeof(RenamePageRequest),
+        [nameof(RenameScreenRequest)] = typeof(RenameScreenRequest),
         [nameof(AddPageRequest)] = typeof(AddPageRequest),
         [nameof(ResizeScreenRequest)] = typeof(ResizeScreenRequest),
         [nameof(FigVam.Domain.Documents.ScreenDimensions)] = typeof(FigVam.Domain.Documents.ScreenDimensions),
