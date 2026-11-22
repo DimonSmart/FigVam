@@ -303,6 +303,7 @@ export function createEditorShell() {
   const blankText = el('p', '', 'Выберите экран слева или создайте новый, чтобы начать работу.');
   const blankAction = el('button', 'primary-action', 'Создать экран');
   blankAction.type = 'button';
+  blankAction.setAttribute('aria-label', 'Открыть создание экрана');
   blankAction.addEventListener('click', () => {
     if (!byId('page-edit').hidden && !byId('pages').querySelector('[aria-pressed=true]')) {
       byId('page-create').click();
