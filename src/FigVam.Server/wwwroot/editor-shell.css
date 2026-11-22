@@ -157,16 +157,12 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #screens .screen-select { flex: 1 1 auto; min-width: 0; }
 .app-shell #screens .screen-rename-action {
   flex: 0 0 26px; width: 26px; min-height: 26px; padding: 4px;
-  display: grid; place-items: center; color: var(--ui-muted);
-  opacity: .65; background: transparent; border-color: transparent;
+  text-align: center; font-size: 17px; line-height: 1; cursor: pointer;
+  color: var(--ui-muted); opacity: .65; background: transparent; border-color: transparent;
 }
 .app-shell #screens .screen-rename-action:hover,
 .app-shell #screens .screen-rename-action:focus-visible,
 .app-shell #screens .screen-select[aria-pressed=true] + .screen-rename-action { opacity: 1; color: var(--ui-accent); }
-.app-shell #screens .screen-rename-action svg {
-  width: 15px; height: 15px; fill: none; stroke: currentColor;
-  stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
-}
 .app-shell #screens .screen-rename-form { display: flex; flex: 1; min-width: 0; gap: 3px; align-items: center; }
 .app-shell #screens .screen-rename-form input {
   flex: 1 1 auto; width: 0; min-width: 0; height: 29px;

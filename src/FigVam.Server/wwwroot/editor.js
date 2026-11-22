@@ -450,15 +450,10 @@ function renderScreens() {
       });
       row.append(button);
       if (['Owner', 'Editor'].includes(documentRole)) {
-        const rename = document.createElement('button');
-        rename.type = 'button'; rename.className = 'screen-rename-action';
+        const rename = document.createElement('input');
+        rename.type = 'button'; rename.value = '✎'; rename.className = 'screen-rename-action';
         rename.title = 'Переименовать экран';
         rename.setAttribute('aria-label', `Переименовать экран «${name}»`);
-        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        path.setAttribute('d', 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L9 17l-4 1 1-4L16.5 3.5Z');
-        svg.append(path); rename.append(svg);
         rename.addEventListener('click', () => startScreenNameEdit(item.id, name));
         row.append(rename);
       }
