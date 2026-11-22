@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 
 const text = value => ({ type: 'string', value });
@@ -159,7 +160,7 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await page.getByRole('button', { name: 'Вернуться в Design', exact: true }).click();
   await page.getByLabel('Имя версии (необязательно)').fill('Spacing reference');
   const saving = page.waitForResponse(response => response.url().endsWith('/commands/save'));
-  await page.getByRole('button', { name: 'Создать версию', exact: true }).click();
+  await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию', exact: true }).click();
   const response = await saving;
   expect(response.ok(), await response.text()).toBeTruthy();
   const { versionId } = await response.json();
