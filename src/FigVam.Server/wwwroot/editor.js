@@ -379,9 +379,10 @@ function renderPages() {
       layers.onScreenContextChanged();
       selectedPage = item.id;
       selectedScreen = null;
+      screensItems = []; screensTotal = 0;
       pageExpanded = true;
       diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
-      renderPages(); renderCanvas(); refreshPages();
+      renderPages(); renderScreens(); refreshPages();
     });
     row.append(button);
     if (selected && pageExpanded) row.append(screensList);
@@ -407,6 +408,7 @@ function startScreenNameEdit(id, name) {
 
 function renderScreens() {
   const list = element('screens');
+  const focusedScreenId = document.activeElement?.dataset?.screenId;
   const previousInput = document.activeElement?.id === 'screen-name-input' ? document.activeElement : null;
   const selection = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
   if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName.id) ||
@@ -489,6 +491,8 @@ function renderScreens() {
     const input = element('screen-name-input');
     if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
   }
+  if (focusedScreenId && !editingScreenName)
+    list.querySelector('[data-screen-id="' + focusedScreenId + '"]')?.focus({ preventScroll: true });
   renderCanvas(); screenResize.render();
   const activeScreen = screensItems.find(item => item.id === selectedScreen);
   element('layers-title').textContent = activeScreen
@@ -621,6 +625,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   if (!valid() || !result) return;
   const nextRevision = result.revision;
   const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
+  if (page !== selectedPage) pageExpanded = true;
   let screen = page === selectedPage ? selectedScreen : null;
   let screens = { items: [], total: 0 };
   if (page) {
@@ -695,7 +700,7 @@ async function openDocument(id) {
     element('delete-document').hidden = role !== 'Owner';
     members.prepare(role);
     document.title = `${name} — FigVam`;
-    element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? 'Управление страницами' : 'Права на редактирование не определены. Обновите страницу.';
+    element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? '' : 'Права на редактирование не определены. Обновите страницу.';
     element('page-edit').hidden = !['Owner', 'Editor'].includes(role);
     element('screen-create').hidden = !['Owner', 'Editor'].includes(role);
     element('token-create').hidden = !['Owner', 'Editor'].includes(role);
