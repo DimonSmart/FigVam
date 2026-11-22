@@ -336,7 +336,8 @@ export function createEditorShell() {
   byId('canvas-selection').classList.add('canvas-caption');
 
   // Menus are temporary views. Their controls keep their draft values when closed.
-  document.addEventListener('click', event => {
+  // Close previously open menus before a pointer action; do not close a menu opened by that click.
+  document.addEventListener('pointerdown', event => {
     const clickedMenu = event.target.closest('details.editor-menu');
     for (const details of document.querySelectorAll('details.editor-menu[open]')) {
       if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
