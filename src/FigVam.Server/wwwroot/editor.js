@@ -347,6 +347,11 @@ function renderScreens() {
   element('screens-next').disabled = !selectedPage || screensOffset + screensItems.length >= screensTotal;
   element('screens-number').textContent = selectedPage ? `Страница списка ${Math.floor(screensOffset / pageSize) + 1}` : 'Выберите страницу';
   element('screen-create').querySelectorAll('input, button').forEach(control => { control.disabled = !selectedPage; });
+  const screenMenu = element('screen-preset').closest('details');
+  // An empty page offers screen creation immediately; existing screens keep the form tucked away.
+  if (!selectedScreen && selectedPage && screensItems.length === 0 &&
+      (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
+  else if (selectedScreen) screenMenu.open = false;
 }
 
 
