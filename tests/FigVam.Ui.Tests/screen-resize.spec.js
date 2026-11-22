@@ -22,6 +22,7 @@ test('version errors remain independent of resize errors', async ({ page, reques
   await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   const restore = page.getByRole('button', { name: /Восстановить версию Исходная/ });
   await expect(restore).toBeVisible();
+  await page.locator('.document-menu > summary').click();
   await page.getByLabel('Ширина выбранного экрана').fill('-1');
   await page.getByRole('button', { name: 'Изменить размер' }).click();
   await expect(page.locator('#screen-size-error')).toContainText('неотрицательные');

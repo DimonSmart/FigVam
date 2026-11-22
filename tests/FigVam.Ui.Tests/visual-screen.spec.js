@@ -158,6 +158,7 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   expect(await read('document.json')).toEqual(before);
 
   await page.getByRole('button', { name: 'Вернуться в Design', exact: true }).click();
+  await show(page, 'document');
   await page.getByLabel('Имя версии (необязательно)').fill('Spacing reference');
   const saving = page.waitForResponse(response => response.url().endsWith('/commands/save'));
   await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию', exact: true }).click();

@@ -306,6 +306,7 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
   await page.getByRole('button', { name: 'Загрузить изображение', exact: true }).press('Enter');
   await received;
   await page.evaluate(id => { history.pushState(null, '', `/documents/${id}`); dispatchEvent(new PopStateEvent('popstate')); }, second.documentId);
+  await show(page, 'layers');
   await page.locator('#screens button').first().click();
   await expect(page.getByLabel('Изображение PNG')).toHaveValue('');
   release();
