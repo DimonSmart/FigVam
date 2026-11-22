@@ -6,11 +6,12 @@
   <title>FigVam — документы</title>
   <link rel="stylesheet" href="/editor.css">
   <link rel="stylesheet" href="/editor-shell.css">
+  <link rel="stylesheet" href="/home.css">
   <script type="module" src="/editor.js"></script>
 </head>
 <body>
   <a class="skip" href="#content">К содержимому</a>
-  <header class="brand"><a href="/" data-navigation>FigVam</a><span>Переносимые интерфейсы · начальная версия</span><button id="disconnect" hidden>Выйти</button></header>
+  <header class="brand"><a class="brand-mark" href="/" data-navigation><span class="brand-symbol" aria-hidden="true">F</span>FigVam</a><span class="brand-section">Рабочее пространство</span><button id="disconnect" hidden>Выйти</button></header>
   <section id="authentication" aria-labelledby="authentication-title">
     <h1 id="authentication-title">Открыть рабочее пространство</h1>
     <p id="authentication-help">Войдите с помощью Google. Доступ предоставляется администратором FigVam.</p>
@@ -26,30 +27,85 @@
   <main id="content" tabindex="-1" hidden>
     <section id="delete-result" hidden aria-label="Удаление документа"><p id="delete-message" role="alert"></p><button id="delete-retry" type="button" hidden>Повторить проверку удаления</button></section>
     <div id="documents-view" hidden>
-      <div class="heading"><div><p class="eyebrow">Рабочее пространство</p><h1>Документы</h1></div><button id="refresh">Обновить список</button></div>
-      <form id="create-form" class="create">
-        <label for="document-name">Имя нового документа</label>
-        <input id="document-name" required maxlength="256" autocomplete="off">
-        <button type="submit">Создать документ</button>
-      </form>
-      <form id="import-form">
-        <label for="import-file">Файл документа (document.json или .figvam)</label>
-        <input id="import-file" type="file" accept=".json,.figvam,application/json,application/zip" required>
-        <button type="submit">Открыть файл как новый документ</button>
-        <p id="import-status" role="status" aria-live="polite"></p>
-        <p id="import-error" role="alert"></p>
-        <ul id="import-diagnostics" aria-label="Диагностика импорта"></ul>
-      </form>
-      <ul id="document-list" aria-label="Доступные документы"></ul>
-      <section id="user-admin" hidden aria-labelledby="user-admin-title">
-        <h2 id="user-admin-title">Пользователи FigVam</h2>
-        <form id="user-invite"><label for="user-email">Email приглашённого пользователя</label>
-        <input id="user-email" type="email" required maxlength="254" autocomplete="off">
-        <button type="submit">Добавить</button></form>
-        <p id="user-admin-status" role="status"></p>
-        <ul id="user-admin-list"></ul>
-      </section>
-      <nav class="pagination" aria-label="Страницы списка"><button id="previous" disabled>Предыдущая</button><span id="page-number"></span><button id="next" disabled>Следующая</button></nav>
+      <div class="home-layout">
+        <aside class="home-sidebar" aria-label="Разделы рабочего пространства">
+          <p class="home-sidebar-title">Рабочее пространство</p>
+          <nav class="home-navigation" aria-label="Навигация">
+            <button id="home-documents" type="button" aria-current="page"><span class="home-nav-icon" aria-hidden="true">▤</span>Документы</button>
+            <button id="home-users" type="button" hidden><span class="home-nav-icon" aria-hidden="true">♙</span>Пользователи</button>
+          </nav>
+          <div class="home-sidebar-footer">FigVam<br>Редактор интерфейсов</div>
+        </aside>
+        <div class="home-main">
+          <section id="home-documents-content" aria-labelledby="home-documents-title">
+            <div class="home-heading">
+              <div>
+                <p class="eyebrow">Мои проекты</p>
+                <h1 id="home-documents-title">Документы</h1>
+                <p class="home-description">Макеты, компоненты и прототипы интерфейсов</p>
+              </div>
+              <button id="refresh" class="home-refresh" type="button">Обновить список</button>
+            </div>
+            <div class="home-content-grid">
+              <section class="home-projects" aria-labelledby="recent-documents-title">
+                <div class="home-section-heading">
+                  <h2 id="recent-documents-title">Недавние документы</h2>
+                  <span class="home-count" id="home-count"></span>
+                </div>
+                <ul id="document-list" aria-label="Доступные документы"></ul>
+                <div id="home-empty" class="home-empty" hidden>
+                  <strong>Пока нет документов</strong>
+                  <p>Создайте документ или откройте существующий файл.</p>
+                </div>
+                <nav id="home-pagination" class="pagination home-pagination" aria-label="Страницы списка">
+                  <button id="previous" type="button" disabled>Предыдущая</button>
+                  <span id="page-number"></span>
+                  <button id="next" type="button" disabled>Следующая</button>
+                </nav>
+              </section>
+              <aside class="home-actions" aria-label="Действия с документами">
+                <section class="home-action-card" aria-labelledby="create-title">
+                  <div class="home-action-icon" aria-hidden="true">+</div>
+                  <h2 id="create-title">Новый документ</h2>
+                  <p>Создайте макет и начните работу в редакторе.</p>
+                  <form id="create-form" class="create">
+                    <label for="document-name">Имя нового документа</label>
+                    <input id="document-name" required maxlength="256" autocomplete="off" placeholder="Например, LoginDialog">
+                    <button type="submit">Создать документ</button>
+                  </form>
+                </section>
+                <section class="home-action-card home-action-secondary" aria-labelledby="import-title">
+                  <h2 id="import-title">Импорт документа</h2>
+                  <p>Загрузите ранее сохранённый дизайн.</p>
+                  <form id="import-form">
+                    <label for="import-file">Файл документа (document.json или .figvam)</label>
+                    <input id="import-file" class="home-file-input" type="file" accept=".json,.figvam,application/json,application/zip" required>
+                    <button type="submit">Открыть файл как новый документ</button>
+                    <p id="import-status" role="status" aria-live="polite"></p>
+                    <p id="import-error" role="alert"></p>
+                    <ul id="import-diagnostics" aria-label="Диагностика импорта"></ul>
+                  </form>
+                </section>
+              </aside>
+            </div>
+          </section>
+          <section id="home-admin-content" aria-labelledby="home-admin-title" hidden>
+            <div class="home-heading">
+              <div><p class="eyebrow">Настройки пространства</p><h1 id="home-admin-title">Пользователи</h1>
+              <p class="home-description">Управление доступом к FigVam</p></div>
+            </div>
+            <section id="user-admin" hidden aria-labelledby="user-admin-title">
+              <h2 id="user-admin-title">Пользователи FigVam</h2>
+              <form id="user-invite">
+                <label for="user-email">Email приглашённого пользователя<input id="user-email" type="email" required maxlength="254" autocomplete="off"></label>
+                <button type="submit">Добавить</button>
+              </form>
+              <p id="user-admin-status" role="status"></p>
+              <ul id="user-admin-list" aria-label="Пользователи приложения"></ul>
+            </section>
+          </section>
+        </div>
+      </div>
     </div>
     <div id="editor-view" hidden>
       <div id="editor-design">
