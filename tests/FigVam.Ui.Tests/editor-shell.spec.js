@@ -70,6 +70,7 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   await expect(page.locator('#zoom-level')).toHaveText(zoom);
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(page.locator('#editor-preview')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('editor-shell-preview.png') });
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await expect(page.locator('#layers [aria-selected=true]')).toHaveAttribute('data-id', selection);
 });
