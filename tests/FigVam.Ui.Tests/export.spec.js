@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { show } = require('./ui-panels');
 
 async function open(page, request) {
   const id = require('node:crypto').randomUUID();
@@ -6,7 +7,7 @@ async function open(page, request) {
   await page.goto(`/documents/${id}`);
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить' }).click();
-  await expect(page.locator('#export-json')).toBeEnabled();
+  await show(page, 'document'); await expect(page.locator('#export-json')).toBeEnabled();
   return id;
 }
 
@@ -29,11 +30,11 @@ test('shows errors and viewer policy', async ({ page, request }) => {
   await open(page, request);
   for (const [status, code, text] of [[403, 'FORBIDDEN', 'Нет прав'], [404, 'REVISION_UNAVAILABLE', 'ревизия больше недоступна'], [400, 'EXPORT_DEPENDENCY_UNAVAILABLE', 'ассет'], [413, 'EXPORT_TOO_LARGE', 'размер']]) {
     await page.route('**/document.json?*', route => route.fulfill({ status, json: { code } }), { times: 1 });
-    await page.locator('#export-json').click();
+    await show(page, 'document'); await page.locator('#export-json').click();
     await expect(page.locator('#export-error')).toContainText(text);
   }
   await page.route('**/document.json?*', route => route.abort(), { times: 1 });
-  await page.locator('#export-json').click();
+  await show(page, 'document'); await page.locator('#export-json').click();
   await expect(page.locator('#export-error')).toContainText('связаться');
   await page.route('**/api/v1/documents?*', async route => {
     const response = await route.fetch(), body = await response.json();
@@ -42,7 +43,7 @@ test('shows errors and viewer policy', async ({ page, request }) => {
   });
   await page.getByRole('link', { name: '← Документы' }).click();
   await page.getByRole('link', { name: 'Export test' }).click();
-  await expect(page.locator('#export-access')).toContainText('недоступно');
+  await show(page, 'document'); await expect(page.locator('#export-access')).toContainText('недоступно');
   await expect(page.locator('#export-json')).toBeDisabled();
   await expect(page.locator('#export-container')).toBeDisabled();
 });
@@ -54,7 +55,7 @@ for (const action of ['navigate', 'logout']) test(`ignores pending export after 
   let calls = 0, downloads = 0;
   page.on('download', () => downloads++);
   await page.route('**/document.json?*', async route => { calls++; started(); await gate; await route.fulfill({ body: '{}' }).catch(() => {}); });
-  await page.locator('#export-json').click(); await arrival;
+  await show(page, 'document'); await page.locator('#export-json').click(); await arrival;
   await expect(page.locator('#export-json')).toBeDisabled();
   await expect(page.locator('#export-container')).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
@@ -67,7 +68,7 @@ for (const action of ['navigate', 'logout']) test(`ignores pending export after 
 test('expired export token clears the session', async ({ page, request }) => {
   await open(page, request);
   await page.route('**/document.json?*', route => route.fulfill({ status: 401 }), { times: 1 });
-  await page.locator('#export-json').click();
+  await show(page, 'document'); await page.locator('#export-json').click();
   await expect(page.locator('#authentication')).toBeVisible();
   await expect(page.locator('#error')).toContainText('Сессия завершена. Войдите повторно.');
 });
