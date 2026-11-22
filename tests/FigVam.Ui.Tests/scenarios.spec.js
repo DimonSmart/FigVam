@@ -172,9 +172,7 @@ for (const action of ['openOverlay', 'closeOverlay', 'resetPreview']) test(`send
     await route.fulfill({ status: 400, json: { code: 'INVALID' } });
   });
   const node = await prepareCreation(page, id, screens);
-  await page.getByLabel('Действие', { exact: true }).focus();
-  await page.keyboard.press('Home');
-  for (let i = 0; i < ['openOverlay', 'closeOverlay', 'resetPreview'].indexOf(action) + 1; i++) await page.keyboard.press('ArrowDown');
+  await page.locator('#scenario-action').selectOption(action);
   await expect(page.getByLabel('Действие', { exact: true })).toHaveValue(action);
   if (action === 'openOverlay') await expect(page.getByLabel('Целевой экран')).toBeVisible();
   else await expect(page.getByLabel('Целевой экран')).toBeHidden();

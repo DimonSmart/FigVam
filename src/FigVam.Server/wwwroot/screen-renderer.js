@@ -153,13 +153,27 @@ export function reconcileScreen(host, next) {
     .map(node => [node.dataset.visualNode, node]));
 
   function attributes(current, target, preserve = new Set()) {
+    // CSP permits individual CSSOM changes, but rejects setAttribute('style', ...).
+    // A remote document revision must update the existing wrapper's geometry.
     for (const attribute of [...current.attributes]) {
+      if (attribute.name === 'style') continue;
       if (!preserve.has(attribute.name) && !target.hasAttribute(attribute.name))
         current.removeAttribute(attribute.name);
     }
     for (const attribute of target.attributes) {
+      if (attribute.name === 'style') continue;
       if (!preserve.has(attribute.name) && current.getAttribute(attribute.name) !== attribute.value)
         current.setAttribute(attribute.name, attribute.value);
+    }
+    for (const property of [...current.style]) {
+      if (!target.style.getPropertyValue(property)) current.style.removeProperty(property);
+    }
+    for (const property of target.style) {
+      const value = target.style.getPropertyValue(property);
+      const priority = target.style.getPropertyPriority(property);
+      if (current.style.getPropertyValue(property) !== value ||
+          current.style.getPropertyPriority(property) !== priority)
+        current.style.setProperty(property, value, priority);
     }
   }
 

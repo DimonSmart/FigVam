@@ -112,8 +112,9 @@ export function createLayers({
     if (op?.state === 'uncertain') sendNodeMetadata(workspace.documentId, workspace.selectedScreen, layerSelection.id, op);
   });
   async function sendNodeMetadata(doc, screen, node, op) {
-    const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionGeneration = nodeReadGeneration;
-    const active = () => nodeReadGeneration === selectionGeneration && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+    const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionEpoch = layerSelectionEpoch;
+    // Rereading metadata for the same selected node must not invalidate a command.
+    const active = () => layerSelectionEpoch === selectionEpoch && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
     op.state = 'pending'; if (active()) renderNodeMetadata();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
@@ -122,7 +123,7 @@ export function createLayers({
       if (!active()) { op.state = 'uncertain'; return; }
       nodeOperations.delete(key);
       await runPageRefresh(signal => readCurrentPages(signal, activeAfterConfirmation));
-      function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && nodeReadGeneration === selectionGeneration && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }
+      function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }
     } catch (error) {
       if (nodeOperations.get(key) !== op) return;
       if (!active() || error instanceof TypeError || error.status >= 500 || error.name === 'AbortError') op.state = 'uncertain';
@@ -130,7 +131,7 @@ export function createLayers({
         nodeOperations.delete(key);
         if (error.status === 403) { closeInaccessibleDocument(error.status); return; }
         if (error.code === 'NODE_NOT_FOUND') {
-          const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && nodeReadGeneration === selectionGeneration && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+          const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
           await runPageRefresh(signal => readCurrentPages(signal, currentContext));
           if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden && !layerSelection) element('layers-status').textContent = 'Слой больше не существует.';
           return;
@@ -370,7 +371,7 @@ export function createLayers({
         if (op.body.expectedParentId !== op.body.targetParentId) nodeMoveNotices.set(key, 'Слой перемещён к новому родителю.');
       } else op.state = 'uncertain';
     } catch (error) {
-      if (!active() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (!context() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
       if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
       const explanations = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',
@@ -386,8 +387,8 @@ export function createLayers({
       };
       const notice = explanations[error.code] ?? error.message;
       const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED'].includes(error.code);
-      const synced = refresh && await refreshNodeMoveTree(active);
-      if ((synced && context()) || active())
+      const synced = refresh && await refreshNodeMoveTree(context);
+      if (context())
         nodeMoveNotices.set(key, notice + (synced ? ' Дерево обновлено.' : ''));
       if (nodeMoves.get(key) === op) nodeMoves.delete(key);
     } finally {
