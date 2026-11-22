@@ -174,8 +174,12 @@ export function createEditorShell() {
   // Master-detail navigation: document pages/screens above, selected screen's layers below.
   const pagesGroup = group('Страницы и экраны');
   const pageEdit = byId('page-edit');
-  const pageOptions = menu('Действия страницы', 'inline-menu');
-  pageOptions.append(byId('page-rename'), byId('page-delete'));
+  const pageOptions = menu('⋯', 'inline-menu page-options');
+  pageOptions.querySelector('summary').setAttribute('aria-label', 'Действия страницы');
+  pageOptions.querySelector('summary').title = 'Действия страницы';
+  const pageMenuBody = el('div', 'navigator-page-menu');
+  pageMenuBody.append(byId('page-rename'), byId('page-delete'));
+  pageOptions.append(pageMenuBody);
   pageEdit.append(pageOptions);
   byId('page-create').classList.add('add-page-action');
   byId('page-create').setAttribute('aria-label', 'Создать страницу');
@@ -206,11 +210,15 @@ export function createEditorShell() {
   screenWidth.addEventListener('input', syncPreset);
   screenHeight.addEventListener('input', syncPreset);
   screenForm.addEventListener('reset', () => { preset.value = initialPreset; });
-  screenOptions.append(preset, screenForm);
+  const screenMenuBody = el('div', 'screen-options-body');
+  screenMenuBody.append(preset, screenForm);
+  screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
   const screensList = byId('screens');
   pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
+  byId('pages').setAttribute('aria-label', 'Страницы и экраны');
+  byId('screens').setAttribute('aria-label', 'Экраны выбранной страницы');
   // The screen list is moved under its selected page by renderPages.
   screensSection.remove();
   const layersSection = byId('layers-title').closest('section');
