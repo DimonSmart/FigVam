@@ -176,16 +176,39 @@ export function createVisualNodeEditor({
       fields.set(name, field);
       rows.push(field.row);
     }
+    // Keep the compact geometry rows while retaining input DOM identity between revisions.
+    const geometryGroups = [], groupedRows = new Set();
+    if (prefix === 'visual-property') {
+      for (const names of [['x', 'y'], ['width', 'height']]) {
+        const children = names.map(name => fields.get(name)?.row)
+          .filter(row => row?.classList.contains('node-property--geometry'));
+        if (!children.length) continue;
+        let group = [...container.children].find(child =>
+          child.classList.contains('node-geometry-row') && child.dataset.geometryGroup === names[0]);
+        if (!group) {
+          group = document.createElement('div');
+          group.className = 'node-geometry-row';
+          group.dataset.geometryGroup = names[0];
+        }
+        reconcileChildren(group, children);
+        geometryGroups.push(group);
+        children.forEach(row => groupedRows.add(row));
+      }
+    }
+    reconcileChildren(container, [...geometryGroups, ...rows.filter(row => !groupedRows.has(row))]);
+    return fields;
+  }
+
+  function reconcileChildren(parent, rows) {
     let following = null;
     for (let index = rows.length - 1; index >= 0; index--) {
       const row = rows[index];
-      if (row.parentNode !== container || row.nextElementSibling !== following)
-        container.insertBefore(row, following);
+      if (row.parentNode !== parent || row.nextElementSibling !== following)
+        parent.insertBefore(row, following);
       following = row;
     }
     const wanted = new Set(rows);
-    for (const child of [...container.children]) if (!wanted.has(child)) child.remove();
-    return fields;
+    for (const child of [...parent.children]) if (!wanted.has(child)) child.remove();
   }
 
   function eligibleParent() {
