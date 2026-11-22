@@ -428,8 +428,28 @@ export function createLayers({
           if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
         } else row.removeAttribute('aria-expanded');
         const label = row.querySelector(':scope > .layer-label');
-        const caption = `${item.childCount ? (layerExpanded.has(item.id) ? '▾ ' : '▸ ') : '• '}${item.name?.trim() || 'Без имени'} — ${item.kind}`;
-        if (label.textContent !== caption) label.textContent = caption;
+        const name = item.name?.trim() || 'Без имени';
+        const expansion = item.childCount ? (layerExpanded.has(item.id) ? '▾' : '▸') : '';
+        const caption = `${expansion}:${name}:${item.kind}`;
+        if (label.dataset.caption !== caption) {
+          const disclosure = document.createElement('span');
+          disclosure.className = 'layer-disclosure';
+          disclosure.setAttribute('aria-hidden', 'true');
+          disclosure.textContent = expansion;
+          const icon = document.createElement('span');
+          icon.className = 'layer-kind-icon';
+          icon.setAttribute('aria-hidden', 'true');
+          icon.title = item.kind;
+          icon.textContent = ({ Frame: '▣', Container: '▣', Text: 'T', Button: '▭',
+            TextInput: '▤', Image: '▧' })[item.kind] ?? '◇';
+          const title = document.createElement('span');
+          title.className = 'layer-name';
+          title.textContent = name;
+          label.replaceChildren(disclosure, icon, title);
+          label.dataset.caption = caption;
+          label.title = `${name} · ${item.kind}`;
+          row.setAttribute('aria-label', `${name}, ${item.kind}`);
+        }
         let group = row.querySelector(':scope > [role=group]');
         if (layerExpanded.has(item.id) && item.childCount) {
           if (!group) {
