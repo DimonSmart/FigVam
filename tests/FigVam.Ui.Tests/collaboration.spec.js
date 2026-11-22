@@ -37,6 +37,7 @@ test('two clients converge through authenticated events while local commands ret
   await page.getByLabel('Имя выбранной страницы', { exact: true }).fill('Renamed remotely');
   await page.locator('#page-rename button').click();
   await expect(second.locator('#pages > li > .page-select')).toHaveText('Renamed remotely');
+  await show(second, 'screen');
   await second.getByLabel('Ширина экрана').fill('640');
   await second.getByLabel('Высота экрана').fill('480');
   await second.getByRole('button', { name: 'Создать экран' }).click();
@@ -151,6 +152,7 @@ test('logout during a local command leaves the next session editable', async ({ 
     const response = await route.fetch(); entered(); await gate;
     await route.fulfill({ response }).catch(() => {});
   });
+  await show(page, 'screen');
   await page.getByLabel('Ширина экрана').fill('640');
   await page.getByLabel('Высота экрана').fill('480');
   await page.getByRole('button', { name: 'Создать экран' }).click(); await held;

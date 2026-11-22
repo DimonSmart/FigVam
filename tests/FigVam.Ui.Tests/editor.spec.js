@@ -140,6 +140,7 @@ test('manages pages with keyboard and confirmation, preserving IDs and revision'
   page.once('dialog', dialog => { expect(dialog.message()).toContain('экраны'); dialog.dismiss(); });
   await page.getByRole('button', { name: 'Удалить страницу' }).click();
   await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
+  await show(page, 'page');
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Удалить страницу' }).click();
   await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
@@ -161,6 +162,7 @@ test('loads all pages into the tree, handles command errors and hides editing fo
   await expect(page.locator('#pages-next')).toHaveCount(0);
   for (const [code, expected] of [['REVISION_CONFLICT', 'Документ изменился'], ['PAGE_IN_USE', 'используется другими объектами'], ['FORBIDDEN', 'Нет доступа']]) {
     await page.route('**/commands/delete-page', route => route.fulfill({ status: code === 'FORBIDDEN' ? 403 : 409, json: { code } }));
+    await show(page, 'page');
     page.once('dialog', dialog => dialog.accept());
     await page.getByRole('button', { name: 'Удалить страницу' }).click();
     await expect(page.locator('#error')).toContainText(expected);
@@ -207,6 +209,7 @@ test('creates and selects all screens in the page tree, validates dimensions and
     await page.unroute('**/commands/add-screen');
   }
   await page.route('**/commands/add-screen', route => route.abort());
+  await show(page, 'screen');
   await page.getByRole('button', { name: 'Создать экран' }).click();
   await expect(page.locator('#error')).toContainText('команда могла выполниться');
   await page.unroute('**/commands/add-screen');

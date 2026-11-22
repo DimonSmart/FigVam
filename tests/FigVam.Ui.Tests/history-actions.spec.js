@@ -44,6 +44,7 @@ test('retries a lost acknowledgement with the same command ID', async ({ page, r
     if (bodies.length === 1) { await route.fetch(); await route.abort(); } else await route.continue();
   });
   await page.locator('#undo').click();
+  await show(page, 'document');
   await expect(page.locator('#history-action-retry')).toBeVisible();
   await page.locator('#history-action-retry').click();
   await expect(page.locator('#history-action-retry')).toBeHidden();

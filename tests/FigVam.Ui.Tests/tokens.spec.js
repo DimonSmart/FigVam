@@ -37,7 +37,7 @@ test('viewer inspects tokens without mutation controls', async ({ page }) => {
   expect((await page.request.post('/api/v1/documents', { headers, data: { documentId: id, name: 'Read only' } })).ok()).toBeTruthy();
   const literal = { expression: 'literal', value: { type: 'spacing', value: 8 } };
   expect((await page.request.post(`/api/v1/documents/${id}/commands/add-token`, { headers, data: { commandId: randomUUID(), tokenId: randomUUID(), name: 'Space', type: 1, values: { Light: literal, Dark: literal } } })).ok()).toBeTruthy();
-  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'assets');
   await page.getByRole('button', { name: 'Space (Отступ)' }).click(); await expect(page.locator('#token-values')).toContainText('Light: 8');
   await expect(page.locator('#token-usages')).toContainText('Прямых использований нет');
   await expect(page.getByRole('button', { name: 'Создать токен' })).toBeHidden(); await expect(page.getByRole('button', { name: 'Переименовать токен' })).toBeHidden();
