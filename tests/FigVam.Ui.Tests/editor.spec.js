@@ -126,26 +126,26 @@ test('manages pages with keyboard and confirmation, preserving IDs and revision'
   await expect(page.locator('#editor-view')).toBeVisible();
   await page.getByRole('button', { name: 'Создать страницу' }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
   const id = await page.evaluate(async () => {
     const result = await fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json());
     return result.items[0].id;
   });
   await show(page, 'page'); await page.getByLabel('Имя выбранной страницы').fill('Главная');
   await page.getByLabel('Имя выбранной страницы').press('Enter');
-  await expect(page.locator('#pages button')).toHaveText('Главная');
+  await expect(page.locator('#pages > li > .page-select')).toHaveText('Главная');
   const result = await page.evaluate(async () => fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json()));
   expect(result.items[0].id).toBe(id);
   await expect(page.locator('#revision')).toHaveText(`Общий черновик · ревизия ${result.revision}`);
   page.once('dialog', dialog => { expect(dialog.message()).toContain('экраны'); dialog.dismiss(); });
   await page.getByRole('button', { name: 'Удалить страницу' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Удалить страницу' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(0);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
 });
 
-test('paginates page results, handles command errors and hides editing for Viewer', async ({ page }) => {
+test('loads all pages into the tree, handles command errors and hides editing for Viewer', async ({ page }) => {
   await page.goto('/'); await login(page);
   await page.getByLabel('Имя нового документа').fill('Paged');
   await page.getByRole('button', { name: 'Создать документ' }).click();
@@ -156,10 +156,9 @@ test('paginates page results, handles command errors and hides editing for Viewe
     expect(response.ok()).toBeTruthy();
   }
   await page.getByRole('button', { name: 'Обновить страницы' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(20);
-  await page.getByRole('button', { name: 'Следующие страницы' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Предыдущие страницы' }).click();
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(21);
+  await expect(page.locator('#pages-previous')).toHaveCount(0);
+  await expect(page.locator('#pages-next')).toHaveCount(0);
   for (const [code, expected] of [['REVISION_CONFLICT', 'Документ изменился'], ['PAGE_IN_USE', 'используется другими объектами'], ['FORBIDDEN', 'Нет доступа']]) {
     await page.route('**/commands/delete-page', route => route.fulfill({ status: code === 'FORBIDDEN' ? 403 : 409, json: { code } }));
     page.once('dialog', dialog => dialog.accept());
@@ -180,16 +179,16 @@ test('paginates page results, handles command errors and hides editing for Viewe
   await page.reload(); await login(page);
   await expect(page.getByText('Только просмотр страниц.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Создать страницу' })).toBeHidden();
-  await expect(page.locator('#pages button').first()).toBeVisible();
+  await expect(page.locator('#pages > li > .page-select').first()).toBeVisible();
 });
 
 
-test('creates and selects screens, validates dimensions, paginates and keeps Viewer read-only', async ({ page }) => {
+test('creates and selects all screens in the page tree, validates dimensions and keeps Viewer read-only', async ({ page }) => {
   await page.goto('/'); await login(page);
   await page.getByLabel('Имя нового документа').fill('Screens');
   await page.getByRole('button', { name: 'Создать документ' }).click();
   await page.getByRole('button', { name: 'Создать страницу' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
   const width = page.getByLabel('Ширина экрана'), height = page.getByLabel('Высота экрана');
   await width.fill('-1'); await height.fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
@@ -218,15 +217,15 @@ test('creates and selects screens, validates dimensions, paginates and keeps Vie
     await postSuccessfully(page.request, `${api}/commands/add-screen`, { headers, data: { commandId: require('node:crypto').randomUUID(), pageId: pages.items[0].id, screenId: require('node:crypto').randomUUID(), dimensions: { width: i, height: 10 } } });
   }
   await page.getByRole('link', { name: 'Screens', exact: true }).click();
-  await expect(page.locator('#screens button')).toHaveCount(20);
-  await page.getByRole('button', { name: 'Следующие экраны' }).click();
-  await expect(page.locator('#screens button')).toHaveCount(1);
-  await page.locator('#screens button').first().focus(); await page.keyboard.press('Enter');
-  await expect(page.locator('#screens button').first()).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#screens button')).toHaveCount(21);
+  await expect(page.locator('#screens-previous')).toHaveCount(0);
+  await expect(page.locator('#screens-next')).toHaveCount(0);
+  await page.locator('#screens button').last().focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('#screens button').last()).toHaveAttribute('aria-pressed', 'true');
   await page.route('**/api/v1/documents?*', async route => { const response = await route.fetch(); const body = await response.json(); body.items = body.items.map(item => ({ ...item, role: 'Viewer' })); await route.fulfill({ response, json: body }); });
   await page.reload(); await login(page);
   await expect(page.getByRole('button', { name: 'Создать экран' })).toBeHidden();
-  await expect(page.locator('#screens button')).toHaveCount(20);
+  await expect(page.locator('#screens button')).toHaveCount(21);
 });
 
 
@@ -315,7 +314,7 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(tree.getByRole('treeitem')).toHaveCount(0);
   await expect(page.locator('#layers-status')).toHaveText('Выберите экран.');
-  await page.locator('#pages button').first().click();
+  await page.locator('#pages > li > .page-select').first().click();
   await page.locator('#screens button').first().click();
   await expect(tree.getByRole('treeitem')).toHaveCount(101);
   mode = 'forbidden'; await page.getByRole('button', { name: 'Обновить страницы' }).click();
