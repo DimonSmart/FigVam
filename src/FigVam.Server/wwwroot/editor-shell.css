@@ -274,8 +274,25 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #screen-preset { width: 100%; }
 .app-shell #layers { padding: 0; margin-top: 4px; }
 .app-shell #layers [role=treeitem] { border-radius: 4px; }
-.app-shell .layer-label { display: flex; align-items: center; min-height: 28px;
-  font-size: 12px; padding: 4px 7px; border: 1px solid transparent; border-radius: 4px; }
+.app-shell .layer-label {
+  display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 29px;
+  font-size: 12px; padding: 4px 5px; border: 1px solid transparent;
+  border-radius: 4px; cursor: pointer;
+}
+.app-shell .layer-label:hover { background: #f4f6fc; }
+.app-shell .layer-disclosure {
+  display: inline-grid; place-items: center; flex: 0 0 12px;
+  font-size: 11px; color: var(--ui-muted);
+}
+.app-shell .layer-kind-icon {
+  display: inline-grid; place-items: center; flex: 0 0 17px; height: 18px;
+  border: 1px solid var(--ui-border); border-radius: 3px;
+  font-size: 11px; line-height: 1; font-weight: 700;
+  color: var(--ui-muted); background: var(--ui-bg);
+}
+.app-shell .layer-name {
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .app-shell #layers [aria-selected=true] > .layer-label {
   color: #344dbb; background: var(--ui-selected); border-color: transparent; font-weight: 650;
 }
