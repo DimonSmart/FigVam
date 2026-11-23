@@ -129,7 +129,7 @@ public sealed class DocumentFileReader(INodeProfile profile) : IDocumentFileRead
             if (json is null) return Failure("INVALID_JSON", "document.json", "JSON is malformed, contains duplicate properties or exceeds limits.");
             if (json["schemaVersion"]?.ToJsonString() != "1") return Failure("UNSUPPORTED_SCHEMA_VERSION", "/schemaVersion", "Only schema version 1 is supported.");
             // Return a precise profile diagnostic even when the fixed-version JSON schema would reject it.
-            if (json["document"]?["profile"] is System.Text.Json.Nodes.JsonObject reference &&
+            if (json["document"] is JsonObject rawDocument && rawDocument["profile"] is JsonObject reference &&
                 reference["id"] is JsonValue rawId && reference["version"] is JsonValue rawVersion &&
                 rawId.TryGetValue<string>(out var profileId) && rawVersion.TryGetValue<int>(out var version) &&
                 PortableUiProfileResolver.Validate(new(profileId, version), profile) is { } unsupported)
