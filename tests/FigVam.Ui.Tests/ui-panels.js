@@ -34,6 +34,6 @@ async function show(page, panel) {
     await expect(page.locator('#page-edit')).not.toHaveAttribute('inert', '');
   }
   const details = page.locator(menus[panel]);
-  if (!(await details.evaluate(node => node.open))) await details.locator('summary').click();
+  if (!(await details.evaluate(node => node.open))) await details.locator(':scope > summary').click();
 }
 module.exports = { show };
