@@ -48,6 +48,9 @@ public sealed class DocumentTokenQueries(IDocumentAuthorization authorization, I
         if (!state.Document.Tokens.Any(t => t.Id == tokenId)) return new("TOKEN_NOT_FOUND");
         var usages = state.Document.Nodes.SelectMany(n => n.Properties.Where(p => p.Value is NodeTokenValue reference && reference.TokenId == tokenId)
                 .Select(p => new TokenUsage("nodeProperty", n.Id, p.Key, null, null)))
+            .Concat(state.Document.Screens.SelectMany(s => s.Variants.SelectMany(v => v.Overrides
+                .Where(o => o.Value is NodeTokenValue reference && reference.TokenId == tokenId)
+                .Select(o => new TokenUsage("screenVariantOverride", v.Id, o.Property, null, null)))))
             .Concat(state.Document.Tokens.SelectMany(t => t.Values.Where(v => v.Value is TokenAlias alias && alias.TokenId == tokenId)
                 .Select(v => new TokenUsage("tokenAlias", t.Id, null, v.Key, null))))
             .Concat(state.Document.ComponentDefinitions.SelectMany(d => d.Parameters
