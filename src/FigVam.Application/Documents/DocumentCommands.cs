@@ -45,6 +45,7 @@ public sealed record RenameDocumentCommand(Guid DocumentId, Guid CommandId, stri
 public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string Name);
 public sealed record RenameScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, string Name);
 public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
+public sealed record DuplicateScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid NewScreenId, long ExpectedRevision);
 public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position);
 public sealed record DeleteNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId);
@@ -112,6 +113,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenRenamed), "SCREEN_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenResized), "SCREEN_RESIZED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenAdded), "SCREEN_ADDED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenDuplicated), "SCREEN_DUPLICATED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeAdded), "NODE_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeMoved), "NODE_MOVED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodeDeleted), "NODE_DELETED")]
@@ -156,6 +158,7 @@ public sealed record DocumentRenamed(string Name) : DocumentEvent;
 public sealed record PageRenamed(Guid PageId, string Name) : DocumentEvent;
 public sealed record ScreenRenamed(Guid ScreenId, string Name) : DocumentEvent;
 public sealed record ScreenAdded(Guid PageId, Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
+public sealed record ScreenDuplicated(Guid ScreenId, DocumentPatch Patch) : DocumentEvent;
 public sealed record ScreenResized(Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
 public sealed record NodeMoved(Guid NodeId, Guid TargetParentId, int Position) : DocumentEvent;
 public sealed record NodeDeleted(Guid NodeId) : DocumentEvent;
@@ -242,6 +245,8 @@ public interface IDocumentCommandHandler
         CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(ResizeScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddScreenCommand command, DocumentActor actor,
+        CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(DuplicateScreenCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default);
 }
 
