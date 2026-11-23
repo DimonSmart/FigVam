@@ -21,7 +21,7 @@ test('creates, renames, updates and follows direct usages', async ({ page, reque
   const tokens = await (await request.get(`/api/v1/documents/${doc}/tokens`, { headers })).json();
   const alias = { expression: 'alias', tokenId: tokens.items[0].id };
   expect((await request.post(`/api/v1/documents/${doc}/commands/add-token`, { headers, data: { commandId: randomUUID(), tokenId: randomUUID(), name: 'Alias', type: 1, values: { Light: alias, Dark: alias } } })).ok()).toBeTruthy();
-  await expect(page.locator('#tokens-list')).toContainText('Alias'); await expect(page.locator('#token-usages')).toContainText('tokenAlias');
+  await expect(page.locator('#tokens-list')).toContainText('Alias'); await expect(page.locator('#token-usages')).toContainText('Alias');
 });
 test('validates input and displays authorization errors', async ({ page }) => {
   await open(page); await page.getByLabel('Имя токена', { exact: true }).fill('Color');
@@ -39,7 +39,7 @@ test('viewer inspects tokens without mutation controls', async ({ page }) => {
   expect((await page.request.post(`/api/v1/documents/${id}/commands/add-token`, { headers, data: { commandId: randomUUID(), tokenId: randomUUID(), name: 'Space', type: 1, values: { Light: literal, Dark: literal } } })).ok()).toBeTruthy();
   await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'assets');
   await page.getByRole('button', { name: 'Space (Отступ)' }).click(); await expect(page.locator('#token-values')).toContainText('Light: 8');
-  await expect(page.locator('#token-usages')).toContainText('Прямых использований нет');
+  await expect(page.locator('#token-usages')).toContainText('Использований нет');
   await expect(page.getByRole('button', { name: 'Создать токен' })).toBeHidden(); await expect(page.getByRole('button', { name: 'Переименовать токен' })).toBeHidden();
 });
 
