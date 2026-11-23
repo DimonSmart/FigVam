@@ -1,3 +1,4 @@
+import { resolveTokenValue } from './token-resolution.js';
 const enumStyles = {
   fontFallback: { SansSerif: 'sans-serif', Serif: 'serif', Monospace: 'monospace' },
   fontWeight: { Normal: '400', Medium: '500', Semibold: '600', Bold: '700' },
@@ -20,18 +21,10 @@ function place(wrapper, { bounds, clip }, parent) {
 }
 
 function color(property, tokens, theme) {
-  const visited = new Set();
-  while (property?.type === 'token') {
-    const id = property.tokenId;
-    if (visited.has(id)) return null;
-    visited.add(id);
-    const expression = tokens.get(id)?.values?.[theme];
-    property = expression?.expression === 'alias' ? { type: 'token', tokenId: expression.tokenId } : expression?.value;
-  }
-  if (property?.type !== 'color') return null;
-  const channels = [property.red, property.green, property.blue, property.alpha];
-  if (!channels.every(value => Number.isInteger(value) && value >= 0 && value <= 255)) return null;
-  return `rgba(${channels[0]}, ${channels[1]}, ${channels[2]}, ${channels[3] / 255})`;
+  const result = resolveTokenValue(property, tokens, theme, 'Color');
+  const value = result.value;
+  if (result.error || value?.type !== 'color') return null;
+  return 'rgba(' + [value.red, value.green, value.blue, value.alpha / 255].join(', ') + ')';
 }
 
 function appearance(surface, property, tokens, theme, bounds, report) {
@@ -44,8 +37,11 @@ function appearance(surface, property, tokens, theme, bounds, report) {
     else report(name, 'Не удалось разрешить цветовой токен.');
   }
   for (const [name, key] of Object.entries({ borderWidth: 'borderWidth', cornerRadius: 'borderRadius', fontSize: 'fontSize' })) {
-    const value = property(name)?.value;
+    const propertyValue = property(name);
+    const resolved = resolveTokenValue(propertyValue, tokens, theme);
+    const value = resolved.value?.type === 'geometry' ? resolved.value.radius : resolved.value?.value;
     if (Number.isFinite(value)) style[key] = px(name === 'borderWidth' ? Math.min(value, bounds.width / 2, bounds.height / 2) : value);
+    else if (propertyValue?.type === 'token') report(name, resolved.error ?? 'Числовой токен не разрешён.');
   }
   for (const name of ['fontWeight', 'fontStyle', 'textAlignment']) {
     const value = enumStyles[name][property(name)?.value];

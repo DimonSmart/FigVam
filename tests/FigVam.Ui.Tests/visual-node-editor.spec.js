@@ -116,7 +116,7 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   const panel = page.locator('#visual-inspector');
   const width = panel.getByLabel('Ширина', { exact: true });
   const text = panel.getByLabel('Текст', { exact: true });
-  const source = panel.getByLabel('Цвет текста — источник', { exact: true });
+  const tokenLink = () => panel.getByRole('button', { name: /Привязать токен|Изменить привязку токена/ });
   const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
   await expect(width).toHaveValue('160');
   await expect(panel.getByLabel('Семейство шрифта', { exact: true })).toBeVisible();
@@ -139,13 +139,13 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   await text.fill('Первая строка\nВторая строка');
   await panel.getByRole('combobox', { name: 'Толщина шрифта' }).selectOption('Bold');
   await panel.getByRole('checkbox', { name: 'Перенос строк' }).uncheck();
-  await source.selectOption('token');
-  await panel.getByLabel('Цвет текста — токен', { exact: true }).selectOption(tokenId);
+  await tokenLink().click();
+  await panel.getByRole('dialog', { name: 'Цвет текста — дизайн-токены' }).getByRole('button', { name: /Ink/ }).click();
   await save.click();
   await expect(panel.getByRole('alert')).toHaveText('Ширина · Тестовый отказ сервера');
   await expect(width).toHaveValue('224.5');
   await expect(text).toHaveValue('Первая строка\nВторая строка');
-  await expect(panel.getByLabel('Цвет текста — токен', { exact: true })).toHaveValue(tokenId);
+  await expect(panel.locator('.node-property--token .token-value-name')).toHaveText('Ink');
   expect((await readNodes(request, base, screenId))[0].properties).toEqual({});
   await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
@@ -156,8 +156,11 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   };
   expect(bodies[1]).toMatchObject({ nodeId, expectedParentId: screenId, properties: expected });
   expect((await readNodes(request, base, screenId))[0].properties).toEqual(expected);
-  await source.selectOption('color');
+  await tokenLink().click();
+  await panel.getByRole('dialog', { name: 'Цвет текста — дизайн-токены' })
+    .getByRole('button', { name: 'Отвязать токен' }).click();
   await panel.getByLabel('Цвет текста', { exact: true }).fill('#336699');
+  await panel.getByRole('button', { name: 'Изменить Alpha' }).click();
   await panel.getByLabel('Цвет текста — альфа', { exact: true }).fill('128');
   await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
@@ -316,4 +319,173 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
   await expect(page.locator('#asset-upload-status')).toBeEmpty();
   await show(page, 'palette'); await show(page, 'palette'); await page.getByLabel('Вид элемента').selectOption('Image');
   await expect(page.locator('#visual-palette').getByRole('combobox', { name: 'Ассет', exact: true })).toContainText('В документе нет ассетов');
+});
+
+
+test('compact numeric control binds, switches and unlinks aliases without auto-saving', async ({ page, request }) => {
+  const { documentId, screenId, base } = await seedText(request);
+  const frameId = randomUUID(), spacingId = randomUUID(), aliasId = randomUUID(), alternateId = randomUUID();
+  const command = (name, data) => post(request, base + '/commands/' + name, {
+    commandId: randomUUID(), ...data
+  });
+  const spacing = value => ({ expression: 'literal', value: { type: 'spacing', value } });
+  await command('add-node', { nodeId: frameId, parentId: screenId, kind: 'Frame' });
+  await command('add-token', { tokenId: spacingId, name: 'space.base', type: 1,
+    values: { Light: spacing(12), Dark: spacing(24) } });
+  await command('add-token', { tokenId: aliasId, name: 'space.alias', type: 1,
+    values: { Light: { expression: 'alias', tokenId: spacingId },
+      Dark: { expression: 'alias', tokenId: spacingId } } });
+  await command('add-token', { tokenId: alternateId, name: 'space.small', type: 1,
+    values: { Light: spacing(4), Dark: spacing(6) } });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
+
+  const panel = page.locator('#visual-inspector');
+  const row = panel.locator('.node-property--token').filter({
+    has: page.locator('.token-value-label', { hasText: 'Промежуток' })
+  });
+  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
+  const direct = row.getByRole('spinbutton', { name: 'Промежуток' });
+  await expect(row.getByText('Источник')).toHaveCount(0);
+  await direct.fill('7.5');
+  await save.click();
+  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
+    .toEqual(number(7.5));
+
+  await row.getByRole('button', { name: 'Привязать токен' }).click();
+  const menu = row.getByRole('dialog', { name: 'Промежуток — дизайн-токены' });
+  await menu.getByRole('searchbox', { name: 'Поиск токена' }).fill('space.alias');
+  await menu.getByRole('button', { name: /space.alias/ }).click();
+  await expect(row.locator('.token-value-name')).toHaveText('space.alias');
+  await expect(row.locator('.token-value-resolved')).toContainText('12 px · Light');
+  await expect(row.getByRole('button', { name: 'Изменить привязку токена' }))
+    .toHaveAttribute('aria-pressed', 'true');
+  // A selection only changes the local draft.
+  expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
+    .toEqual(number(7.5));
+  await save.click();
+  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
+    .toEqual({ type: 'token', tokenId: aliasId });
+
+  await row.getByRole('button', { name: 'Изменить привязку токена' }).click();
+  await menu.getByRole('button', { name: /space.small/ }).click();
+  await save.click();
+  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
+    .toEqual({ type: 'token', tokenId: alternateId });
+
+  await row.getByRole('button', { name: 'Изменить привязку токена' }).click();
+  await menu.getByRole('button', { name: 'Отвязать токен' }).click();
+  await expect(direct).toHaveValue('4');
+  await save.click();
+  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
+    .toEqual(number(4));
+});
+
+test('token resolver detects missing, cyclic, incompatible and theme-specific values', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { resolveTokenValue } = await import('/token-resolution.js');
+    const tokens = new Map([
+      ['a', { id: 'a', type: 'Spacing', values: {
+        Light: { expression: 'alias', tokenId: 'b' },
+        Dark: { expression: 'literal', value: { type: 'spacing', value: 25 } }
+      } }],
+      ['b', { id: 'b', type: 'Spacing', values: {
+        Light: { expression: 'literal', value: { type: 'spacing', value: 12 } }
+      } }],
+      ['loop', { id: 'loop', type: 'Spacing', values: {
+        Light: { expression: 'alias', tokenId: 'loop' }
+      } }],
+      ['wrong', { id: 'wrong', type: 'Color', values: {
+        Light: { expression: 'literal', value: { type: 'color', red: 1, green: 2, blue: 3, alpha: 255 } }
+      } }]
+    ]);
+    const resolve = (id, theme = 'Light', expected = 'Spacing') =>
+      resolveTokenValue({ type: 'token', tokenId: id }, tokens, theme, expected);
+    return {
+      alias: resolve('a').value,
+      dark: resolve('a', 'Dark').value,
+      missing: resolve('deleted').error,
+      cyclic: resolve('loop').error,
+      incompatible: resolve('wrong').error,
+      incomplete: resolve('b', 'Dark').error
+    };
+  });
+  expect(result.alias).toEqual({ type: 'spacing', value: 12 });
+  expect(result.dark).toEqual({ type: 'spacing', value: 25 });
+  expect(result.missing).toContain('отсутствует');
+  expect(result.cyclic).toContain('Цикл');
+  expect(result.incompatible).toContain('Несовместимый');
+  expect(result.incomplete).toContain('Dark');
+});
+
+test('token popover supports keyboard search, Escape and preserves a read-only inspector', async ({ page, request }) => {
+  const { documentId, nodeId, tokenId, base } = await seedText(request);
+  await post(request, base + '/commands/set-node-properties', {
+    commandId: randomUUID(), nodeId,
+    properties: { textColor: { type: 'token', tokenId } }
+  });
+  await page.route('**/api/v1/documents?*', async route => {
+    const response = await route.fetch(), json = await response.json();
+    json.items = json.items.map(item => ({ ...item, role: 'Viewer' }));
+    await route.fulfill({ response, json });
+  });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await page.locator('[role=treeitem][data-id="' + nodeId + '"]').press('Enter');
+  const row = page.locator('#visual-inspector .node-property--token').filter({
+    has: page.locator('.token-value-label', { hasText: 'Цвет текста' })
+  });
+  const link = row.getByRole('button', { name: 'Просмотреть дизайн-токен' });
+  await expect(link).toBeEnabled();
+  await expect(row.locator('.token-value-name')).toHaveText('Ink');
+  await link.focus();
+  await link.press('Enter');
+  const menu = row.getByRole('dialog', { name: 'Цвет текста — дизайн-токены' });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('button', { name: /Ink/ })).toBeDisabled();
+  await expect(menu.getByRole('button', { name: 'Отвязать токен' })).toBeHidden();
+  await menu.getByRole('searchbox').press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(link).toBeFocused();
+  await expect(page.locator('#visual-save')).toBeHidden();
+});
+
+
+test('an unresolvable token never silently becomes a default literal on unlink', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { createPropertyControl } = await import('/node-property-controls.js');
+    const definition = {
+      type: 'Number', tokenType: 'Spacing',
+      defaultValue: { type: 'number', value: 99 }, minimum: 0, maximum: 100
+    };
+    const field = createPropertyControl('gap', definition, {
+      tokens: new Map(), assets: new Map()
+    }, { type: 'token', tokenId: 'deleted' }, 'test');
+    document.body.append(field.row);
+    const errorBefore = field.validate().error;
+    const link = field.row.querySelector('.token-value-link');
+    link.click();
+    field.row.querySelector('.token-value-unlink').click();
+    const after = field.validate();
+    const input = field.row.querySelector('input[type=number]');
+    const result = {
+      errorBefore, errorAfter: after.error, valueAfter: input.value,
+      modeAfter: field.read()[0]
+    };
+    field.row.remove();
+    return result;
+  });
+  expect(result.errorBefore).toContain('отсутствует');
+  expect(result.errorAfter).toContain('Введите число');
+  expect(result.modeAfter).toBe('number');
+  expect(result.valueAfter).toBe('');
 });

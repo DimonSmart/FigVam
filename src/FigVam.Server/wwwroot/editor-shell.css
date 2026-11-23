@@ -474,3 +474,84 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #screen-variants-list button[aria-pressed="true"] { font-weight: 650; color: var(--ui-accent); }
 .app-shell #visual-properties [data-variant-override="true"] { border-inline-start: 2px solid var(--ui-accent); padding-inline-start: 5px; }
 .app-shell #visual-properties .variant-override-reset { font-size: 11px; padding: 2px 5px; margin-inline-start: 5px; }
+
+
+/* Compact literal/token editor: a single value field with an attached token action. */
+.app-shell .node-property--token .token-value-layout {
+  display: grid; grid-template-columns: minmax(68px, 94px) minmax(0, 1fr);
+  align-items: center; gap: 6px; min-width: 0;
+}
+.app-shell .token-value-label { color: var(--ui-muted); font-size: 12px; overflow-wrap: anywhere; }
+.app-shell .token-value-editor { display: flex; align-items: stretch; min-width: 0; }
+.app-shell .token-value-direct { flex: 1; display: flex; min-width: 0; align-items: center; }
+.app-shell .token-value-direct > input { flex: 1; min-width: 0; width: 100%; margin: 0; border-radius: 6px 0 0 6px; }
+.app-shell .token-value-link {
+  flex: 0 0 31px; width: 31px; min-width: 31px; min-height: 30px;
+  border-radius: 0 6px 6px 0; border-left: 0; padding: 3px;
+  background: #f6f7fb; filter: grayscale(1); font-size: 13px;
+}
+.app-shell .token-value-layout.is-linked .token-value-link {
+  filter: none; background: var(--ui-selected); color: var(--ui-accent);
+  border-color: #9faee5; box-shadow: inset 0 -2px var(--ui-accent);
+}
+.app-shell .token-value-reference {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr);
+  align-content: center; column-gap: 5px; padding: 3px 5px;
+  border: 1px solid var(--ui-border); border-radius: 6px 0 0 6px;
+  background: #f7f9ff;
+}
+.app-shell .token-value-name {
+  grid-column: 2; font-size: 12px; font-weight: 650; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.app-shell .token-value-resolved {
+  grid-column: 2; font-size: 11px; color: var(--ui-muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.app-shell .token-value-theme { position: absolute; width: 1px; height: 1px; clip-path: inset(50%); overflow: hidden; }
+.app-shell .token-value-swatch {
+  grid-column: 1; grid-row: 1 / 3; align-self: center; width: 12px; height: 12px;
+  border: 1px solid #aeb7c7; border-radius: 3px;
+}
+.app-shell .token-value-swatch[hidden], .app-shell .token-value-reference[hidden],
+.app-shell .token-value-direct[hidden], .app-shell .token-color-alpha-panel[hidden],
+.app-shell .token-value-popover[hidden] { display: none !important; }
+.app-shell .token-value-layout.is-invalid .token-value-reference { border-color: #b42d45; background: #fff6f7; }
+.app-shell .token-value-resolved.is-invalid { color: #aa2034; white-space: normal; }
+.app-shell .token-color-editor { display: flex; align-items: center; position: relative; width: 100%; min-width: 0; gap: 3px; }
+.app-shell .token-color-editor .token-color-picker {
+  width: 26px !important; min-width: 26px; height: 29px !important; min-height: 29px;
+  padding: 2px !important; margin: 0; cursor: pointer;
+}
+.app-shell .token-color-editor .token-color-hex {
+  min-width: 0; flex: 1; width: 0; margin: 0; padding: 5px 2px;
+  font-family: ui-monospace, monospace; font-size: 11px;
+}
+.app-shell .token-color-editor .token-color-alpha-button {
+  flex: 0 0 20px; min-width: 20px; width: 20px; padding: 1px; font-size: 11px;
+}
+.app-shell .token-color-alpha-panel {
+  position: absolute; z-index: 25; top: calc(100% + 4px); right: 0;
+  min-width: 125px; padding: 8px; background: var(--ui-surface);
+  border: 1px solid var(--ui-border); border-radius: 6px; box-shadow: 0 6px 15px #1b273829;
+}
+.app-shell .token-color-alpha-panel input { width: 100%; }
+.app-shell .token-value-popover {
+  position: fixed; z-index: 200; max-height: 260px; overflow-y: auto; min-width: 160px;
+  padding: 8px; background: var(--ui-surface); border: 1px solid var(--ui-border);
+  border-radius: 8px; box-shadow: 0 12px 30px #1b273844;
+}
+.app-shell .token-value-search { width: 100%; margin-bottom: 6px; }
+.app-shell .token-value-choices { display: grid; gap: 2px; max-height: 160px; overflow-y: auto; }
+.app-shell .token-value-option {
+  width: 100%; display: flex; flex-direction: column; align-items: flex-start;
+  text-align: left; gap: 1px; padding: 5px 7px; border-color: transparent;
+}
+.app-shell .token-value-option[aria-pressed="true"] { border-color: #99a8e6; background: var(--ui-selected); }
+.app-shell .token-value-option-name { font-weight: 600; }
+.app-shell .token-value-option-preview { color: var(--ui-muted); font-size: 11px; }
+.app-shell .token-value-unlink { width: 100%; margin-top: 7px; text-align: left; }
+.app-shell .token-value-empty { color: var(--ui-muted); padding: 5px; }
+@media (max-width: 400px) {
+  .app-shell .node-property--token .token-value-layout { grid-template-columns: minmax(60px, 78px) minmax(0, 1fr); }
+}

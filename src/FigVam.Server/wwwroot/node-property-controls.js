@@ -1,3 +1,4 @@
+import { createTokenValueControl } from './token-value-control.js';
 const labels = {
   x: 'X', y: 'Y', width: 'Ширина', height: 'Высота',
   widthMode: 'Режим ширины', heightMode: 'Режим высоты', visible: 'Видимость', opacity: 'Непрозрачность',
@@ -38,59 +39,74 @@ function setReference(select, value) {
   select.value = value ?? '';
 }
 
-function tokenControl(name, definition, model, initial, direct) {
-  const label = propertyLabel(name);
-  const tokenList = tokenChoices(model.tokens, definition.tokenType);
-  const group = document.createElement('fieldset'), legend = document.createElement('legend');
-  legend.textContent = label;
-  const directType = definition.type.toLowerCase();
-  const mode = selectChoices([[directType, definition.type === 'Color' ? 'Цвет' : 'Число'], ['token', 'Токен']]);
-  const token = selectChoices(tokenList, tokenList.length ? 'Выберите токен' : 'Нет доступных токенов');
-  const tokenLabel = labeled('Токен', token, `${label} — токен`);
-  group.append(legend, labeled('Источник', mode, `${label} — источник`), ...direct.content, tokenLabel);
-  function showMode() {
-    const isDirect = mode.value !== 'token';
-    for (const control of direct.content) control.hidden = !isDirect;
-    tokenLabel.hidden = isDirect;
-  }
-  mode.addEventListener('change', showMode);
-  return {
-    content: [group], inputs: [mode, ...direct.inputs, token],
-    initial: [initial?.type === 'token' ? 'token' : directType, direct.initial, initial?.tokenId ?? ''],
-    read: () => [mode.value, direct.read(), token.value],
-    write([source, value, tokenId]) {
-      mode.value = source;
-      direct.write(value);
-      setReference(token, tokenId);
-      showMode();
-    },
-    validate() {
-      if (mode.value === 'token') {
-        if (!tokenList.some(([id]) => id === token.value)) return { input: token, error: 'Выберите доступный токен.' };
-        return { value: { type: 'token', tokenId: token.value } };
-      }
-      return direct.validate();
-    }
-  };
-}
-
-function colorControl(name, initial) {
+function colorControl(name, initial, compact = false) {
   const label = propertyLabel(name);
   const color = document.createElement('input'), alpha = document.createElement('input');
   color.type = 'color';
   alpha.type = 'number'; alpha.min = '0'; alpha.max = '255'; alpha.step = '1'; alpha.required = true;
-  const hex = [initial?.red, initial?.green, initial?.blue].map(channel => (channel ?? 0).toString(16).padStart(2, '0')).join('');
+  const rgb = '#' + [initial?.red, initial?.green, initial?.blue]
+    .map(channel => (channel ?? 0).toString(16).padStart(2, '0')).join('');
+  if (!compact) {
+    return {
+      content: [labeled('Цвет', color, label), labeled('Альфа (0–255)', alpha, label + ' — альфа')],
+      inputs: [color, alpha], initial: [rgb, String(initial?.alpha ?? 255)],
+      read: () => [color.value, alpha.value],
+      write([hex, opacity]) { color.value = hex; alpha.value = opacity; },
+      validate() {
+        if (!alpha.validity.valid) return { input: alpha, error: 'Введите целое значение от 0 до 255.' };
+        const [red, green, blue] = [1, 3, 5].map(offset => parseInt(color.value.slice(offset, offset + 2), 16));
+        return { value: { type: 'color', red, green, blue, alpha: alpha.valueAsNumber } };
+      }
+    };
+  }
+
+  const holder = document.createElement('div');
+  holder.className = 'token-color-editor';
+  const hex = document.createElement('input');
+  hex.type = 'text'; hex.maxLength = 7; hex.spellcheck = false;
+  hex.className = 'token-color-hex';
+  hex.setAttribute('aria-label', label);
+  color.className = 'token-color-picker';
+  color.setAttribute('aria-label', label + ' — палитра');
+  const alphaButton = document.createElement('button');
+  alphaButton.type = 'button';
+  alphaButton.textContent = 'A';
+  alphaButton.title = 'Изменить Alpha';
+  alphaButton.className = 'token-color-alpha-button';
+  alphaButton.setAttribute('aria-label', 'Изменить Alpha');
+  alphaButton.setAttribute('aria-expanded', 'false');
+  const alphaPanel = document.createElement('div');
+  alphaPanel.className = 'token-color-alpha-panel';
+  alphaPanel.hidden = true;
+  alphaPanel.append(labeled('Альфа (0–255)', alpha, label + ' — альфа'));
+  holder.append(color, hex, alphaButton, alphaPanel);
+  alphaButton.addEventListener('click', () => {
+    alphaPanel.hidden = !alphaPanel.hidden;
+    alphaButton.setAttribute('aria-expanded', String(!alphaPanel.hidden));
+    if (!alphaPanel.hidden) alpha.focus();
+  });
+  color.addEventListener('input', () => {
+    hex.value = color.value;
+    hex.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  hex.addEventListener('input', () => {
+    if (/^#[0-9a-f]{6}$/i.test(hex.value)) color.value = hex.value;
+  });
   return {
-    content: [labeled('Цвет', color, label), labeled('Альфа (0–255)', alpha, `${label} — альфа`)],
-    inputs: [color, alpha], initial: [`#${hex}`, String(initial?.alpha ?? 255)],
-    read: () => [color.value, alpha.value],
-    write([rgb, opacity]) {
-      color.value = rgb;
-      alpha.value = opacity;
+    content: [holder], inputs: [color, hex, alpha, alphaButton],
+    initial: [rgb, String(initial?.alpha ?? 255)],
+    read: () => [hex.value, alpha.value],
+    write([value, opacity]) {
+      hex.value = value ?? '';
+      color.value = /^#[0-9a-f]{6}$/i.test(value) ? value : '#000000';
+      alpha.value = opacity ?? '';
     },
     validate() {
-      if (!alpha.validity.valid) return { input: alpha, error: 'Введите целое значение от 0 до 255.' };
-      const [red, green, blue] = [1, 3, 5].map(offset => parseInt(color.value.slice(offset, offset + 2), 16));
+      if (!/^#[0-9a-f]{6}$/i.test(hex.value))
+        return { input: hex, error: 'Введите цвет в формате #RRGGBB.' };
+      if (!alpha.validity.valid || !Number.isInteger(alpha.valueAsNumber))
+        return { input: alpha, error: 'Введите целое значение Alpha от 0 до 255.' };
+      const [red, green, blue] = [1, 3, 5].map(offset => parseInt(hex.value.slice(offset, offset + 2), 16));
       return { value: { type: 'color', red, green, blue, alpha: alpha.valueAsNumber } };
     }
   };
@@ -175,12 +191,13 @@ export function createPropertyControl(name, definition, model, value, prefix) {
   const initial = value ?? definition.defaultValue;
   const hasTokenChoice = definition.tokenType != null && definition.type !== 'TokenReference';
   const directValue = hasTokenChoice && initial?.type === 'token' ? definition.defaultValue : initial;
-  const direct = definition.type === 'Color' ? colorControl(name, directValue) :
+  const direct = definition.type === 'Color' ? colorControl(name, directValue, hasTokenChoice) :
     scalarControl(name, definition, model, directValue,
       prefix === 'visual-property' && geometryProperties.has(name));
-  const control = hasTokenChoice ? tokenControl(name, definition, model, initial, direct) : direct;
+  const control = hasTokenChoice ? createTokenValueControl(name, definition, model, initial, direct, propertyLabel(name)) : direct;
   const row = document.createElement('div'), feedback = document.createElement('p');
   row.className = 'node-property';
+  if (hasTokenChoice) row.classList.add('node-property--token');
   if (prefix === 'visual-property' && geometryProperties.has(name) && definition.type === 'Number')
     row.classList.add('node-property--geometry');
   feedback.id = `${prefix}-${name}-validation`;
@@ -192,10 +209,11 @@ export function createPropertyControl(name, definition, model, value, prefix) {
   }
   row.append(...control.content, feedback);
   control.write(control.initial);
-  return {
+  const resultControl = {
     row, read: control.read, write: control.write, baseline: control.read(),
     setDisabled(disabled) {
-      for (const input of control.inputs) input.disabled = disabled;
+      if (control.setDisabled) control.setDisabled(disabled);
+      else for (const input of control.inputs) input.disabled = disabled;
     },
     validate(show = true) {
       const result = control.validate();
@@ -209,4 +227,6 @@ export function createPropertyControl(name, definition, model, value, prefix) {
       return result;
     }
   };
+  if (hasTokenChoice && initial?.type === 'token') resultControl.validate();
+  return resultControl;
 }
