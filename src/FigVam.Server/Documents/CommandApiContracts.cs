@@ -330,6 +330,8 @@ public sealed class ImportDesignTokensRequest
     [Required, StringLength(1048576)] public required string LightJson { get; init; }
     [Required, StringLength(1048576)] public required string DarkJson { get; init; }
     [Required] public required IReadOnlyDictionary<string, FigVam.Domain.Tokens.TokenType> DimensionTypes { get; init; }
+    public IReadOnlyDictionary<string, FigVam.Domain.Tokens.TokenCategory>? DimensionCategories { get; init; }
+    public IReadOnlyDictionary<string, FigVam.Domain.Tokens.TokenCategory>? NumberCategories { get; init; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
