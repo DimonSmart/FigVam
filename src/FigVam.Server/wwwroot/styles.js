@@ -243,7 +243,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     const changed = JSON.stringify(items) !== JSON.stringify(next);
     items = next;
     if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
-    if (changed) render();
+    if (changed || el('styles-form').hidden === editable()) render();
   }
 
   async function write(endpoint, payload, id = selectedId) {
