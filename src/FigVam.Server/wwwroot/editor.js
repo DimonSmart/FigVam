@@ -56,6 +56,7 @@ function leaveDeletion() {
 }
 let selectedScreen = null, screensOffset = 0, screensTotal = 0, screensItems = [];
 let editingScreenName = null;
+let pageExpanded = true;
 let statusDismissTimer = null;
 const diagnostics = createScreenDiagnostics({
   element, request: (...args) => request(...args), pageSize,
@@ -129,7 +130,7 @@ const datasets = createDatasets({
 function closeInaccessibleDocument(status) {
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingScreenName = null;
+  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingScreenName = null; pageExpanded = true;
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
@@ -174,9 +175,13 @@ function clearSession() {
   element('document-name').value = '';
   element('document-list').replaceChildren();
   documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
+  // Detach the nested screen list before clearing its parent page rows.
+  const screenList = element('screens');
+  screenList.remove();
   element('pages').replaceChildren();
+  element('pages').closest('.editor-group').append(screenList);
   selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingScreenName = null;
-  element('screens').replaceChildren();
+  screenList.replaceChildren();
   layers.reset();
   tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset();
   renderCanvas();
@@ -352,23 +357,48 @@ async function findRole(id, signal) {
 }
 
 function renderPages() {
-  const list = element('pages'); list.replaceChildren();
+  const list = element('pages');
+  const screensList = element('screens');
+  // Preserve the same live screen list (and its handlers) as the selected page changes.
+  screensList.remove();
+  list.replaceChildren();
   for (const item of pagesItems) {
+    const selected = item.id === selectedPage;
     const row = document.createElement('li');
+    row.className = 'page-tree-item';
     const button = document.createElement('button');
-    button.type = 'button'; button.textContent = item.name;
-    button.setAttribute('aria-pressed', String(item.id === selectedPage));
-    button.addEventListener('click', () => { if (selectedPage !== item.id) { layers.onScreenContextChanged(); selectedPage = item.id; selectedScreen = null; diagnostics.reset(); scenarios.reset(); screenVariants.reset(); screensOffset = 0; layers.reset(); renderPages(); renderCanvas(); refreshPages(); } });
-    row.append(button); list.append(row);
+    button.type = 'button';
+    button.className = 'page-select';
+    button.dataset.pageId = item.id;
+    button.textContent = item.name;
+    button.setAttribute('aria-pressed', String(selected));
+    button.setAttribute('aria-expanded', String(selected && pageExpanded));
+    button.addEventListener('click', () => {
+      if (selectedPage === item.id) {
+        pageExpanded = !pageExpanded;
+        renderPages();
+        element('pages').querySelector('[data-page-id="' + item.id + '"]')?.focus();
+        return;
+      }
+      layers.onScreenContextChanged();
+      selectedPage = item.id;
+      selectedScreen = null;
+      screensItems = []; screensTotal = 0;
+      pageExpanded = true;
+      diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
+      renderPages(); renderScreens(); refreshPages();
+    });
+    row.append(button);
+    if (selected && pageExpanded) row.append(screensList);
+    list.append(row);
   }
+  if (!screensList.isConnected) list.closest('.editor-group').append(screensList);
+  screensList.hidden = !selectedPage || !pageExpanded;
   const selected = pagesItems.find(item => item.id === selectedPage);
   element('page-name').value = selected?.name ?? '';
   element('page-rename').querySelector('button').disabled = !selected;
   element('page-name').disabled = !selected;
   element('page-delete').disabled = !selected;
-  element('pages-previous').disabled = pagesOffset === 0;
-  element('pages-next').disabled = pagesOffset + pagesItems.length >= pagesTotal;
-  element('pages-number').textContent = `Страница списка ${Math.floor(pagesOffset / pageSize) + 1}`;
 }
 
 function startScreenNameEdit(id, name) {
@@ -382,6 +412,7 @@ function startScreenNameEdit(id, name) {
 
 function renderScreens() {
   const list = element('screens');
+  const focusedScreenId = document.activeElement?.dataset?.screenId;
   const previousInput = document.activeElement?.id === 'screen-name-input' ? document.activeElement : null;
   const selection = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
   if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName.id) ||
@@ -464,16 +495,23 @@ function renderScreens() {
     const input = element('screen-name-input');
     if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
   }
+  if (focusedScreenId && !editingScreenName)
+    list.querySelector('[data-screen-id="' + focusedScreenId + '"]')?.focus({ preventScroll: true });
   renderCanvas(); screenResize.render();
-  element('screens-previous').disabled = !selectedPage || screensOffset === 0;
-  element('screens-next').disabled = !selectedPage || screensOffset + screensItems.length >= screensTotal;
-  element('screens-number').textContent = selectedPage ? `Страница списка ${Math.floor(screensOffset / pageSize) + 1}` : 'Выберите страницу';
+  const activeScreen = screensItems.find(item => item.id === selectedScreen);
+  element('layers-title').textContent = activeScreen
+    ? `Слои · ${activeScreen.name ?? 'Экран ' + (screensItems.indexOf(activeScreen) + 1)}`
+    : 'Слои выбранного экрана';
   element('screen-create').querySelectorAll('input, button').forEach(control => { control.disabled = !selectedPage; });
   const screenMenu = element('screen-preset').closest('details');
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
-  if (!selectedScreen && selectedPage && screensItems.length === 0 &&
-      (documentRole === 'Owner' || documentRole === 'Editor')) screenMenu.open = true;
-  else if (selectedScreen) screenMenu.open = false;
+  // Only suggest creation on the first empty page. Opening the popover on every
+  // navigation obscures the page tree, and closing a user-opened menu mid-command
+  // makes the form unusable while the page creation is still being committed.
+  if (selectedScreen || screensItems.length > 0 || pagesItems.length > 1) screenMenu.open = false;
+  else if (selectedPage && pagesItems.length === 1 &&
+      (documentRole === 'Owner' || documentRole === 'Editor') &&
+      !element('page-edit').querySelector('.page-options').open) screenMenu.open = true;
 }
 
 
@@ -567,27 +605,41 @@ async function readNodeEditRevision(signal, newRevision, isCurrent, reveal, sele
   return true;
 }
 
-async function readPages(signal, offset = pagesOffset, targetRevision = null, isCurrent = () => true, reveal = [], selectionChange) {
+// The structure API is intentionally capped at 100 items per request; the editor tree
+// collects every page and every screen instead of exposing technical pagination.
+async function readAllStructure(url, fields, signal, valid, pinnedRevision = null) {
+  const items = [];
+  let expectedRevision = pinnedRevision, total = 0;
+  do {
+    const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields });
+    if (expectedRevision !== null) query.set('revision', String(expectedRevision));
+    const result = await request(`${url}?${query}`, {}, signal, valid);
+    if (!valid()) return null;
+    if (expectedRevision !== null && result.revision !== expectedRevision)
+      throw new Error('Ревизия документа изменилась во время загрузки дерева.');
+    expectedRevision = result.revision;
+    total = result.total;
+    if (!result.items.length && items.length < total) throw new Error('Не удалось загрузить полный список.');
+    items.push(...result.items);
+  } while (items.length < total);
+  return { items, total, revision: expectedRevision };
+}
+
+async function readPages(signal, _offset = 0, targetRevision = null, isCurrent = () => true, reveal = [], selectionChange) {
   const id = documentId, current = generation;
   const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
   const base = `/api/v1/documents/${encodeURIComponent(id)}`;
-  const query = new URLSearchParams({ offset: String(offset), limit: String(pageSize), fields: 'name,childCount' });
-  if (targetRevision !== null) query.set('revision', String(targetRevision));
-  const result = await request(`${base}/pages?${query}`, {}, signal, valid);
-  if (!valid()) return;
-  if (offset && !result.items.length) return readPages(signal, Math.max(0, offset - pageSize), result.revision, isCurrent, reveal, selectionChange);
+  const result = await readAllStructure(`${base}/pages`, 'name,childCount', signal, valid, targetRevision);
+  if (!valid() || !result) return;
   const nextRevision = result.revision;
   const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
+  if (page !== selectedPage) pageExpanded = true;
   let screen = page === selectedPage ? selectedScreen : null;
-  let screenOffset = page === selectedPage ? screensOffset : 0;
   let screens = { items: [], total: 0 };
   if (page) {
-    do {
-      screens = await request(`${base}/pages/${encodeURIComponent(page)}/screens?offset=${screenOffset}&limit=${pageSize}&fields=dimensions,name&revision=${nextRevision}`, {}, signal, valid);
-      if (!valid()) return;
-      if (!screenOffset || screens.items.length) break;
-      screenOffset = Math.max(0, screenOffset - pageSize);
-    } while (true);
+    screens = await readAllStructure(`${base}/pages/${encodeURIComponent(page)}/screens`,
+      'dimensions,name', signal, valid, nextRevision);
+    if (!valid() || !screens) return;
   }
   if (!screens.items.some(item => item.id === screen)) screen = null;
   const layerSnapshot = await layers.readSnapshot({
@@ -597,22 +649,19 @@ async function readPages(signal, offset = pagesOffset, targetRevision = null, is
   const tokenSnapshot = await tokens.read(base, nextRevision, signal, valid);
   const header = await request(`${base}?fields=name&revision=${nextRevision}`, {}, signal, valid);
   if (!valid()) return;
-  // An expansion can change while the pinned tree is loading. Stage it again
-  // rather than discard that interaction or mix children from two revisions.
   if (!layers.isExpansionCurrent(layerSnapshot))
-    return readPages(signal, offset, nextRevision, isCurrent, reveal, selectionChange);
+    return readPages(signal, 0, nextRevision, isCurrent, reveal, selectionChange);
   const selection = selectionAfterCommand(selectionChange);
-  const pagesChanged = page !== selectedPage || offset !== pagesOffset ||
-    JSON.stringify(result.items) !== JSON.stringify(pagesItems) || result.total !== pagesTotal;
-  const screensChanged = screen !== selectedScreen || screenOffset !== screensOffset ||
-    JSON.stringify(screens.items) !== JSON.stringify(screensItems) || screens.total !== screensTotal;
+  const pagesChanged = page !== selectedPage ||
+    JSON.stringify(result.items) !== JSON.stringify(pagesItems);
+  const screensChanged = screen !== selectedScreen ||
+    JSON.stringify(screens.items) !== JSON.stringify(screensItems);
   if (page !== selectedPage || screen !== selectedScreen) layers.reset();
-  pagesOffset = offset; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
-  screensOffset = screenOffset; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
+  pagesOffset = 0; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
+  screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
   revision = catalogRevision = nextRevision;
   tokens.apply(tokenSnapshot);
   if (pagesChanged) renderPages();
-  // A new page changes screen creation controls even if its screen list is empty.
   if (screensChanged || pagesChanged) renderScreens();
   else renderCanvas();
   layers.applySnapshot(layerSnapshot, selection);
@@ -646,7 +695,7 @@ async function openDocument(id) {
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; screensItems = []; pagesOffset = 0; layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const result = await request(`/api/v1/documents/${encodeURIComponent(id)}?fields=name`, {}, signal);
     const role = await findRole(id, signal);
@@ -659,7 +708,7 @@ async function openDocument(id) {
     element('delete-document').hidden = role !== 'Owner';
     members.prepare(role);
     document.title = `${name} — FigVam`;
-    element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? 'Управление страницами' : 'Права на редактирование не определены. Обновите страницу.';
+    element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? '' : 'Права на редактирование не определены. Обновите страницу.';
     element('page-edit').hidden = !['Owner', 'Editor'].includes(role);
     element('screen-create').hidden = !['Owner', 'Editor'].includes(role);
     element('token-create').hidden = !['Owner', 'Editor'].includes(role);
@@ -783,9 +832,12 @@ async function pageCommand(command, data, selection, screenSelection) {
     }, signal);
     if (signal.aborted || current !== generation) return;
     if (selection !== undefined) selectedPage = selection;
-    if (screenSelection) { selectedScreen = screenSelection; screensOffset = Math.floor(screensTotal / pageSize) * pageSize; }
+    if (screenSelection) selectedScreen = screenSelection;
     await readPages(signal);
-    if (current === generation) message('Изменения подтверждены в общем черновике.');
+    if (current === generation) {
+      if (command === 'rename-page') element('page-edit').querySelector('.page-options').open = false;
+      message('Изменения подтверждены в общем черновике.');
+    }
   } catch (error) {
     if (error.name === 'AbortError' || current !== generation) return;
     const uncertain = error instanceof TypeError || error.status >= 500;
@@ -903,14 +955,6 @@ element('import-form').addEventListener('submit', async event => {
     }
   }
 });
-element('screens-previous').addEventListener('click', () => refreshScreens(Math.max(0, screensOffset - pageSize)));
-element('screens-next').addEventListener('click', () => refreshScreens(screensOffset + pageSize));
-async function refreshScreens(offset) {
-  layers.reset();
-  await run(() => refreshScreens(offset), async (signal, current) => {
-    screensOffset = offset; await readPages(signal); if (current()) message('Экраны обновлены.');
-  });
-}
 element('screen-create').addEventListener('submit', event => {
   event.preventDefault();
   const width = element('screen-width').valueAsNumber, height = element('screen-height').valueAsNumber;
@@ -920,11 +964,8 @@ element('screen-create').addEventListener('submit', event => {
   pageCommand('add-screen', { pageId: selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 });
 element('page-refresh').addEventListener('click', () => refreshPages());
-element('pages-previous').addEventListener('click', () => refreshPages(Math.max(0, pagesOffset - pageSize)));
-element('pages-next').addEventListener('click', () => refreshPages(pagesOffset + pageSize));
 element('page-create').addEventListener('click', () => {
   const pageId = crypto.randomUUID();
-  pagesOffset = Math.floor(pagesTotal / pageSize) * pageSize;
   pageCommand('add-page', { pageId }, pageId);
 });
 element('page-rename').addEventListener('submit', event => {

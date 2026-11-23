@@ -73,7 +73,7 @@ for (const exit of ['screen', 'logout', 'navigation', 'access']) test(`discards 
   await open(page, id); await page.locator('#screens button').first().click(); await held;
   await expect(page.locator('#scenarios-status')).toContainText('Загрузка');
   if (exit === 'screen') { await page.locator('#screens button').nth(1).click(); await expect(page.locator('#scenarios-status')).toContainText('нет'); }
-  if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (exit === 'logout') await page.locator('#editor-signout').click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
   if (exit === 'access') { denyAccess(); await expect(page.locator('#editor-view')).toBeHidden(); }
   release(); await expect(page.locator('#scenarios-list')).not.toContainText('STALE');
@@ -120,7 +120,7 @@ for (const exit of ['screen', 'navigation', 'logout']) test(`ignores pending del
   await open(page, id); await page.locator('#screens button').first().click(); page.once('dialog', dialog => dialog.accept()); await deleteButton(page).click(); await held;
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
-  if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (exit === 'logout') await page.locator('#editor-signout').click();
   release(); await expect(page.locator('#scenario-command-status')).not.toContainText('подтверждено');
 });
 test('confirmed deletion returns from an empty last page', async ({ page, request }) => {
@@ -172,10 +172,8 @@ for (const action of ['openOverlay', 'closeOverlay', 'resetPreview']) test(`send
     await route.fulfill({ status: 400, json: { code: 'INVALID' } });
   });
   const node = await prepareCreation(page, id, screens);
-  await page.getByLabel('Действие').focus();
-  await page.keyboard.press('Home');
-  for (let i = 0; i < ['openOverlay', 'closeOverlay', 'resetPreview'].indexOf(action) + 1; i++) await page.keyboard.press('ArrowDown');
-  await expect(page.getByLabel('Действие')).toHaveValue(action);
+  await page.locator('#scenario-action').selectOption(action);
+  await expect(page.locator('#scenario-action')).toHaveValue(action);
   if (action === 'openOverlay') await expect(page.getByLabel('Целевой экран')).toBeVisible();
   else await expect(page.getByLabel('Целевой экран')).toBeHidden();
   await page.getByRole('button', { name: 'Создать сценарий' }).click();
@@ -186,13 +184,13 @@ test('targetless actions remain available without targets and retry the same com
   const { id, screens } = await setup(request); const bodies = [];
   await mockCapabilities(page);
   await page.route('**/children/**', route => route.fulfill({ json: { items: [{ id: randomUUID(), name: 'Source', kind: 'Frame', childCount: 0 }], total: 1 } }));
-  await page.route('**/pages?*', route => new URL(route.request().url()).searchParams.get('limit') === '100' ? route.fulfill({ json: { items: [], total: 0 } }) : route.continue());
+  await page.route('**/pages?*', route => (new URL(route.request().url()).searchParams.get('limit') === '100' && new URL(route.request().url()).searchParams.get('fields') === 'name') ? route.fulfill({ json: { items: [], total: 0 } }) : route.continue());
   await open(page, id); await page.locator('#screens button').first().click();
   await page.getByRole('treeitem', { name: /Source/ }).click();
   await expect(page.locator('#scenario-target-status')).toContainText('Нет доступных экранов');
   await expect(page.locator('#scenario-action option[value=openOverlay]')).toHaveCount(0);
   await page.route('**/commands/create-scenario', async route => { bodies.push(route.request().postData()); await route.fulfill({ status: 503, json: {} }); });
-  await page.getByLabel('Действие').selectOption('closeOverlay');
+  await page.locator('#scenario-action').selectOption('closeOverlay');
   await page.getByRole('button', { name: 'Создать сценарий' }).click();
   await expect(page.locator('#scenario-command-error')).toContainText('неизвестен');
   expect(JSON.parse(bodies[0]).scenario.actions).toEqual([{ type: 'closeOverlay' }]);
@@ -207,7 +205,7 @@ test('Viewer cannot create a scenario', async ({ page, request }) => {
 test('shows missing sources and targets and prevents submission', async ({ page, request }) => {
   const { id } = await setup(request);
   await page.route('**/pages?*', async route => {
-    if (new URL(route.request().url()).searchParams.get('limit') === '100') return route.fulfill({ json: { items: [], total: 0 } });
+    if (new URL(route.request().url()).searchParams.get('limit') === '100' && new URL(route.request().url()).searchParams.get('fields') === 'name') return route.fulfill({ json: { items: [], total: 0 } });
     return route.continue();
   });
   await open(page, id); await page.locator('#screens button').first().click();
@@ -226,11 +224,11 @@ for (const [exit, action] of [['screen', 'openOverlay'], ['navigation', 'closeOv
   const { id, screens } = await setup(request); let release, entered;
   const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
   await page.route('**/commands/create-scenario', async route => { const body = route.request().postDataJSON(); entered(); await gate; await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {}); });
-  await prepareCreation(page, id, screens); await page.getByLabel('Действие').selectOption(action); await page.getByRole('button', { name: 'Создать сценарий' }).click(); await held;
+  await prepareCreation(page, id, screens); await page.locator('#scenario-action').selectOption(action); await page.getByRole('button', { name: 'Создать сценарий' }).click(); await held;
   await expect(page.getByRole('button', { name: 'Создать сценарий' })).toBeDisabled();
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
-  if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (exit === 'logout') await page.locator('#editor-signout').click();
   release(); await expect(page.locator('#scenario-command-status')).not.toContainText('подтверждено');
 });
 
@@ -277,7 +275,7 @@ test('ShowVariant checks exact value and discards stale capabilities', async ({ 
   await page.getByLabel('Вариант экрана').selectOption(allowed); await held;
   await page.getByLabel('Вариант экрана').selectOption(denied); await expect(page.locator('#scenario-action option')).toHaveCount(0);
   release(); await expect(page.locator('#scenario-create-submit')).toBeDisabled();
-  await page.getByLabel('Вариант экрана').selectOption(''); await expect(page.getByLabel('Действие')).toHaveValue('showVariant');
+  await page.getByLabel('Вариант экрана').selectOption(''); await expect(page.locator('#scenario-action')).toHaveValue('showVariant');
   await page.getByRole('button', { name: 'Создать сценарий' }).click(); await expect(page.locator('#scenario-command-error')).toContainText('неизвестен');
   expect(JSON.parse(bodies[0]).scenario.actions).toEqual([{ type: 'showVariant', variantId: null }]);
   await page.getByRole('button', { name: 'Повторить создание сценария' }).click(); await expect.poll(() => bodies.length).toBe(2); expect(bodies[1]).toBe(bodies[0]);
@@ -291,7 +289,7 @@ test('ShowVariant sends the selected variant ID', async ({ page, request }) => {
   await page.route('**/commands/create-scenario', route => { body = route.request().postDataJSON(); return route.fulfill({ status: 400, json: { code: 'INVALID' } }); });
   await open(page, id); await page.locator('#screens button').first().click(); await page.getByRole('treeitem', { name: /Source/ }).click();
   await expect(page.getByLabel('Вариант экрана').locator('option')).toHaveCount(2); await page.getByLabel('Вариант экрана').selectOption(variant);
-  await expect(page.getByLabel('Действие')).toHaveValue('showVariant'); await page.getByRole('button', { name: 'Создать сценарий' }).click();
+  await expect(page.locator('#scenario-action')).toHaveValue('showVariant'); await page.getByRole('button', { name: 'Создать сценарий' }).click();
   await expect(page.locator('#scenario-command-error')).toContainText('отклонено'); expect(body.scenario.actions).toEqual([{ type: 'showVariant', variantId: variant }]);
 });
 
@@ -374,7 +372,7 @@ for (const change of ['screen', 'document', 'revision', 'user']) test(`discards 
   await open(page, id); await page.locator('#screens button').first().click(); await held;
   if (change === 'screen') await page.locator('#screens button').nth(1).click();
   if (change === 'document') await page.getByRole('link', { name: '← Документы' }).click();
-  if (change === 'user') await page.getByRole('button', { name: 'Забыть токен' }).click();
+  if (change === 'user') await page.locator('#editor-signout').click();
   if (change === 'revision') {
     expect((await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } })).ok()).toBeTruthy();
     await page.getByRole('button', { name: 'Обновить страницы' }).click(); await expect(page.locator('#revision')).toContainText('ревизия 4');
@@ -706,7 +704,7 @@ for (const exit of ['screen', 'document', 'logout']) test('discards a stale upda
     await page.getByRole('link', { name: '← Документы' }).click();
     await expect(page.locator('#documents-view')).toBeVisible();
   } else {
-    await page.getByRole('button', { name: 'Забыть токен' }).click();
+    await page.locator('#editor-signout').click();
     await expect(page.locator('#authentication')).toBeVisible();
   }
   release(); await done;

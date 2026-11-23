@@ -15,11 +15,11 @@ async function open(page, id) {
 }
 test('undo and redo update the authoritative document', async ({ page, request }) => {
   const id = await setup(request); await open(page, id);
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
   await page.getByRole('button', { name: 'Отменить действие' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(0);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   await page.getByRole('button', { name: 'Повторить действие', exact: true }).click();
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
 });
 test('explains both incompatible refusal codes without changing the document', async ({ page, request }) => {
   const id = await setup(request); await open(page, id);
@@ -27,7 +27,7 @@ test('explains both incompatible refusal codes without changing the document', a
     await page.route(`**/commands/${action}`, route => route.fulfill({ status: 409, json: { code } }), { times: 1 });
     await page.getByRole('button', { name: button, exact: true }).click();
     await expect(page.locator('#history-action-error')).toContainText(text);
-    await expect(page.locator('#pages button')).toHaveCount(1);
+    await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
   }
 });
 test('Viewer sees read-only actions', async ({ page, request }) => {
@@ -44,18 +44,19 @@ test('retries a lost acknowledgement with the same command ID', async ({ page, r
     if (bodies.length === 1) { await route.fetch(); await route.abort(); } else await route.continue();
   });
   await page.locator('#undo').click();
+  await show(page, 'document');
   await expect(page.locator('#history-action-retry')).toBeVisible();
   await page.locator('#history-action-retry').click();
   await expect(page.locator('#history-action-retry')).toBeHidden();
-  await expect(page.locator('#pages button')).toHaveCount(0);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
 });
 test('shortcuts avoid text fields and work on the editor', async ({ page, request }) => {
   const id = await setup(request); await open(page, id); let calls = 0;
   await page.route('**/commands/undo', async route => { calls++; await route.continue(); });
   await show(page, 'document'); await page.locator('#version-name').focus(); await page.keyboard.press('Control+z'); expect(calls).toBe(0);
-  await page.locator('#content').focus(); await page.keyboard.press('Control+z'); await expect(page.locator('#pages button')).toHaveCount(0);
-  await page.keyboard.press('Control+Shift+z'); await expect(page.locator('#pages button')).toHaveCount(1);
+  await page.locator('#content').focus(); await page.keyboard.press('Control+z'); await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
+  await page.keyboard.press('Control+Shift+z'); await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
 });
 test('delayed response cannot overwrite another document', async ({ page, request }) => {
   const id = await setup(request), other = await setup(request, 'Второй'); await open(page, id);
@@ -64,7 +65,7 @@ test('delayed response cannot overwrite another document', async ({ page, reques
   await page.locator('#undo').click(); await held;
   await page.getByRole('link', { name: '← Документы' }).click();
   await page.getByRole('link', { name: 'Второй' }).click(); await expect(page.locator('#document-title')).toHaveText('Второй');
-  release(); await expect(page.locator('#pages button')).toHaveCount(1); await expect(page.locator('#history-action-error')).toBeEmpty();
+  release(); await expect(page.locator('#pages > li > .page-select')).toHaveCount(1); await expect(page.locator('#history-action-error')).toBeEmpty();
 });
 test('leaving a document cancels its outstanding version history read', async ({ page, request }) => {
   const id = await setup(request), other = await setup(request, 'Другой документ');
@@ -94,8 +95,8 @@ test('delayed response after logout cannot restore operation state', async ({ pa
   let release, entered; const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
   await page.route('**/commands/undo', async route => { const response = await route.fetch(); entered(); await gate; await route.fulfill({ response }).catch(() => {}); });
   await page.locator('#undo').click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click(); release();
+  await page.locator('#editor-signout').click(); release();
   await expect(page.locator('#authentication')).toBeVisible();
-  await open(page, id); await expect(page.locator('#pages button')).toHaveCount(0);
+  await open(page, id); await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   await expect(page.locator('#history-action-retry')).toBeHidden();
 });

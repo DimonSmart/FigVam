@@ -18,10 +18,11 @@ async function setup(request) {
 async function select(page) { await page.locator('#screens button').first().click(); await expect(page.locator('#screen-size-saved')).toContainText('640 × 480'); }
 test('version errors remain independent of resize errors', async ({ page, request }) => {
   const { id } = await setup(request); await open(page, id); await select(page);
-  await page.getByLabel('Имя версии (необязательно)').fill('Исходная');
+  await show(page, 'document'); await page.getByLabel('Имя версии (необязательно)').fill('Исходная');
   await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
   const restore = page.getByRole('button', { name: /Восстановить версию Исходная/ });
   await expect(restore).toBeVisible();
+  await page.locator('.document-menu > summary').click();
   await page.getByLabel('Ширина выбранного экрана').fill('-1');
   await page.getByRole('button', { name: 'Изменить размер' }).click();
   await expect(page.locator('#screen-size-error')).toContainText('неотрицательные');
@@ -96,7 +97,7 @@ test('keeps a refusal visible when an overlapping state refresh redraws the scre
     await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
     release();
     await page.unrouteAll({ behavior: 'wait' });
-    await expect(page.locator('#pages button')).toHaveCount(2);
+    await expect(page.locator('#pages > li > .page-select')).toHaveCount(2);
     await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
     await expect(page.locator('#screen-size-saved')).toContainText('640 × 480');
     await page.getByLabel('Ширина выбранного экрана').fill('700');
@@ -123,7 +124,7 @@ test('ignores a delayed resize response after logout', async ({ page, request })
   await page.route('**/commands/resize-screen', async route => { const response = await route.fetch(); entered(); await gate; await route.fulfill({ response }).catch(() => {}); });
   await page.getByLabel('Ширина выбранного экрана').fill('710');
   await page.getByRole('button', { name: 'Изменить размер' }).click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release(); await page.unroute('**/commands/resize-screen');
   await expect(page.locator('#editor-view')).toBeHidden();
   await expect(page.locator('#authentication')).toBeVisible();

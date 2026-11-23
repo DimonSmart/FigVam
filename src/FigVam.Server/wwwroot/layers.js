@@ -112,8 +112,9 @@ export function createLayers({
     if (op?.state === 'uncertain') sendNodeMetadata(workspace.documentId, workspace.selectedScreen, layerSelection.id, op);
   });
   async function sendNodeMetadata(doc, screen, node, op) {
-    const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionGeneration = nodeReadGeneration;
-    const active = () => nodeReadGeneration === selectionGeneration && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+    const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionEpoch = layerSelectionEpoch;
+    // Rereading metadata for the same selected node must not invalidate a command.
+    const active = () => layerSelectionEpoch === selectionEpoch && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
     op.state = 'pending'; if (active()) renderNodeMetadata();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
@@ -121,8 +122,14 @@ export function createLayers({
       if (!Number.isSafeInteger(result.revision) || result.status !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       if (!active()) { op.state = 'uncertain'; return; }
       nodeOperations.delete(key);
+      // Keep confirmed values stable while refreshing the same selected layer.
+      if (nodeMetadata?.id === node) {
+        if (op.kind === 'name') nodeMetadata.name = op.body.name;
+        else nodeMetadata.semanticKey = op.body.semanticKey;
+      }
+      renderNodeMetadata();
       await runPageRefresh(signal => readCurrentPages(signal, activeAfterConfirmation));
-      function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && nodeReadGeneration === selectionGeneration && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }
+      function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }
     } catch (error) {
       if (nodeOperations.get(key) !== op) return;
       if (!active() || error instanceof TypeError || error.status >= 500 || error.name === 'AbortError') op.state = 'uncertain';
@@ -130,7 +137,7 @@ export function createLayers({
         nodeOperations.delete(key);
         if (error.status === 403) { closeInaccessibleDocument(error.status); return; }
         if (error.code === 'NODE_NOT_FOUND') {
-          const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && nodeReadGeneration === selectionGeneration && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+          const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
           await runPageRefresh(signal => readCurrentPages(signal, currentContext));
           if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden && !layerSelection) element('layers-status').textContent = 'Слой больше не существует.';
           return;
@@ -370,7 +377,7 @@ export function createLayers({
         if (op.body.expectedParentId !== op.body.targetParentId) nodeMoveNotices.set(key, 'Слой перемещён к новому родителю.');
       } else op.state = 'uncertain';
     } catch (error) {
-      if (!active() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (!context() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
       if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
       const explanations = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',
@@ -386,8 +393,8 @@ export function createLayers({
       };
       const notice = explanations[error.code] ?? error.message;
       const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED'].includes(error.code);
-      const synced = refresh && await refreshNodeMoveTree(active);
-      if ((synced && context()) || active())
+      const synced = refresh && await refreshNodeMoveTree(context);
+      if (context())
         nodeMoveNotices.set(key, notice + (synced ? ' Дерево обновлено.' : ''));
       if (nodeMoves.get(key) === op) nodeMoves.delete(key);
     } finally {
@@ -428,8 +435,28 @@ export function createLayers({
           if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
         } else row.removeAttribute('aria-expanded');
         const label = row.querySelector(':scope > .layer-label');
-        const caption = `${item.childCount ? (layerExpanded.has(item.id) ? '▾ ' : '▸ ') : '• '}${item.name?.trim() || 'Без имени'} — ${item.kind}`;
-        if (label.textContent !== caption) label.textContent = caption;
+        const name = item.name?.trim() || 'Без имени';
+        const expansion = item.childCount ? (layerExpanded.has(item.id) ? '▾' : '▸') : '';
+        const caption = `${expansion}:${name}:${item.kind}`;
+        if (label.dataset.caption !== caption) {
+          const disclosure = document.createElement('span');
+          disclosure.className = 'layer-disclosure';
+          disclosure.setAttribute('aria-hidden', 'true');
+          disclosure.textContent = expansion;
+          const icon = document.createElement('span');
+          icon.className = 'layer-kind-icon';
+          icon.setAttribute('aria-hidden', 'true');
+          icon.title = item.kind;
+          icon.textContent = ({ Frame: '▣', Container: '▣', Text: 'T', Button: '▭',
+            TextInput: '▤', Image: '▧' })[item.kind] ?? '◇';
+          const title = document.createElement('span');
+          title.className = 'layer-name';
+          title.textContent = name;
+          label.replaceChildren(disclosure, icon, title);
+          label.dataset.caption = caption;
+          label.title = `${name} · ${item.kind}`;
+          row.setAttribute('aria-label', `${name}, ${item.kind}`);
+        }
         let group = row.querySelector(':scope > [role=group]');
         if (layerExpanded.has(item.id) && item.childCount) {
           if (!group) {

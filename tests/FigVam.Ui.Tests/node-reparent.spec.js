@@ -237,7 +237,7 @@ for (const exit of ['selection', 'screen', 'document', 'logout']) {
       await expect(page.locator('#layers')).toContainText('Other screen container');
     }
     if (exit === 'document') await page.getByRole('link', { name: '← Документы' }).click();
-    if (exit === 'logout') await page.getByRole('button', { name: 'Забыть токен' }).click();
+    if (exit === 'logout') await page.locator('#editor-signout').click();
     const received = page.waitForResponse(response => response.url().endsWith('/commands/move-node'));
     release.resolve();
     expect((await received).status()).toBe(403);

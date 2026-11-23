@@ -133,6 +133,87 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .panel-page { height: 100%; overflow-y: auto; overflow-x: hidden;
   scrollbar-gutter: stable; padding: 10px 12px 18px; }
 .panel-page[hidden] { display: none; }
+
+/* Master-detail layers panel: navigation and selected-screen layers scroll independently. */
+.app-shell .layers-page.panel-page {
+  display: flex; flex-direction: column; gap: 0;
+  overflow: hidden; padding: 0; scrollbar-gutter: auto;
+}
+.app-shell .layers-page.panel-page[hidden] { display: none; }
+.layers-master, .layers-detail { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+.layers-master { flex: 0 0 42%; position: relative; z-index: 3; overflow: visible; }
+.layers-detail { flex: 1 1 0; position: relative; z-index: 1; }
+.app-shell .layers-master > .editor-group, .app-shell .layers-detail > .layer-tree-group {
+  min-height: 0; min-width: 0; height: 100%; margin: 0; border: 0;
+  padding: 9px 9px 7px;
+}
+.app-shell .layers-master > .editor-group { display: flex; flex-direction: column; }
+.app-shell .layers-master .editor-group-title, .app-shell .layers-detail h2 {
+  flex: 0 0 auto; margin: 2px 0 8px;
+}
+.app-shell .layers-detail h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-shell .layers-detail > .layer-tree-group { overflow-y: auto; scrollbar-gutter: stable; }
+.app-shell .layers-master #pages {
+  min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
+  scrollbar-gutter: stable; padding: 0 2px 4px 0;
+}
+.app-shell .layers-master #pages > .page-tree-item { list-style: none; margin: 0 0 2px; min-width: 0; }
+.app-shell .layers-master #pages .page-select {
+  width: 100%; display: flex; align-items: center; text-align: left;
+  padding: 6px 6px; min-height: 30px; font-weight: 600; min-width: 0;
+}
+.app-shell .layers-master #pages .page-select::before {
+  content: '▸'; flex: 0 0 17px; font-size: 12px; color: var(--ui-muted);
+}
+.app-shell .layers-master #pages .page-select[aria-expanded=true]::before { content: '▾'; }
+.app-shell .layers-master #pages #screens {
+  list-style: none; margin: 2px 0 5px 11px; padding: 0 0 0 9px;
+  border-left: 1px solid var(--ui-border);
+}
+.app-shell .layers-master #screens[hidden] { display: none; }
+.app-shell .layers-master #screens .screen-select { font-weight: 400; padding: 5px 6px; }
+.app-shell .layers-master #screens .screen-select[aria-pressed=true] { font-weight: 650; }
+.app-shell .navigator-toolbar { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; margin-bottom: 8px; }
+.app-shell .navigator-toolbar #page-edit { flex: 0 0 auto; display: flex; flex-wrap: nowrap; margin: 0; gap: 3px; }
+.app-shell .navigator-toolbar #page-edit[hidden] { display: none; }
+.app-shell .navigator-toolbar #page-create { width: 30px; min-height: 29px; padding: 0; font-size: 0; }
+.app-shell .navigator-toolbar #page-create::before { content: '+'; font-size: 18px; }
+.app-shell .navigator-toolbar .page-options > summary { min-height: 29px; padding: 5px 8px; }
+.app-shell .navigator-toolbar .screen-options { flex: 0 0 auto; }
+.app-shell .navigator-toolbar .screen-options > summary { min-height: 29px; padding: 5px 7px; }
+.app-shell .navigator-toolbar #page-refresh {
+  margin-left: auto; width: 30px; min-height: 29px;
+  flex: 0 0 30px; padding: 0; font-size: 0;
+}
+.app-shell .navigator-toolbar #page-refresh::before { content: '↻'; font-size: 17px; }
+.app-shell .navigator-toolbar .page-options[open],
+.app-shell .navigator-toolbar .screen-options[open] { box-shadow: none; background: transparent; padding: 0; border: 0; }
+.app-shell .navigator-toolbar .navigator-page-menu,
+.app-shell .navigator-toolbar .screen-options-body {
+  position: absolute; z-index: 22; top: calc(100% + 6px);
+  padding: 10px; background: var(--ui-surface);
+  border: 1px solid var(--ui-border); border-radius: 8px;
+  box-shadow: 0 10px 22px #1b273826;
+  width: 226px; max-width: calc(100vw - 26px);
+}
+.app-shell .navigator-toolbar .page-options .navigator-page-menu { left: 0; }
+.app-shell .navigator-toolbar .screen-options .screen-options-body { left: 0; width: 240px; }
+.app-shell .navigator-toolbar .inline-menu > :not(summary) { margin: 0; display: none; }
+.app-shell .navigator-toolbar .inline-menu[open] > :not(summary) { display: block; }
+.app-shell .navigator-toolbar #page-rename { display: grid; gap: 6px; }
+.app-shell .navigator-toolbar #page-delete { margin-top: 9px; width: 100%; }
+.app-shell .navigator-toolbar #page-access { display: none; }
+.app-shell .layers-master #page-access { margin-top: 5px; font-size: 11px; }
+.layers-splitter {
+  height: 9px; flex: 0 0 9px; cursor: row-resize; touch-action: none;
+  border-block: 1px solid var(--ui-border); background: var(--ui-bg);
+  display: grid; place-items: center; outline-offset: -2px;
+}
+.layers-splitter::before {
+  content: ''; width: 28px; height: 3px; border-radius: 5px; background: #a9b4c6;
+}
+.layers-splitter:hover, .layers-splitter:focus-visible { background: var(--ui-selected); }
+.layers-splitter:focus-visible { outline: 2px solid var(--ui-accent); }
 .panel-page .editor-group { border-bottom: 1px solid var(--ui-border); padding: 6px 0 13px; }
 .panel-page .editor-group:last-child { border-bottom: 0; }
 .editor-group-title, .panel-page > section > h2 { font-size: 11px !important;
@@ -193,8 +274,25 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #screen-preset { width: 100%; }
 .app-shell #layers { padding: 0; margin-top: 4px; }
 .app-shell #layers [role=treeitem] { border-radius: 4px; }
-.app-shell .layer-label { display: flex; align-items: center; min-height: 28px;
-  font-size: 12px; padding: 4px 7px; border: 1px solid transparent; border-radius: 4px; }
+.app-shell .layer-label {
+  display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 29px;
+  font-size: 12px; padding: 4px 5px; border: 1px solid transparent;
+  border-radius: 4px; cursor: pointer;
+}
+.app-shell .layer-label:hover { background: #f4f6fc; }
+.app-shell .layer-disclosure {
+  display: inline-grid; place-items: center; flex: 0 0 12px;
+  font-size: 11px; color: var(--ui-muted);
+}
+.app-shell .layer-kind-icon {
+  display: inline-grid; place-items: center; flex: 0 0 17px; height: 18px;
+  border: 1px solid var(--ui-border); border-radius: 3px;
+  font-size: 11px; line-height: 1; font-weight: 700;
+  color: var(--ui-muted); background: var(--ui-bg);
+}
+.app-shell .layer-name {
+  min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .app-shell #layers [aria-selected=true] > .layer-label {
   color: #344dbb; background: var(--ui-selected); border-color: transparent; font-weight: 650;
 }
@@ -293,7 +391,16 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 }
 .app-shell #design-render-status:empty, .app-shell #canvas-edit-error:empty { display: none; }
 .app-shell #design-render-diagnostics { position: absolute; z-index: 7; top: 100px; left: 12px; }
-.app-shell #canvas-edit-status, .app-shell #canvas-edit-hint { color: var(--ui-muted); font-size: 11px; }
+/* Status feedback must not resize the viewport when the active layer changes. */
+.app-shell #canvas-edit-status, .app-shell #canvas-edit-hint {
+  position: absolute; z-index: 8; bottom: 44px; left: 12px;
+  max-width: min(470px, 60%); padding: 5px 8px; margin: 0;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
+  background: var(--ui-surface); box-shadow: 0 3px 10px #1b27381c;
+  color: var(--ui-muted); font-size: 11px; pointer-events: none;
+}
+.app-shell #canvas-edit-hint { bottom: 72px; }
+.app-shell #canvas-edit-status:empty, .app-shell #canvas-edit-hint:empty { display: none; }
 #editor-preview { min-height: 0; height: 100%; overflow: auto; background: var(--ui-bg); }
 #editor-preview > .document-panel { padding: 10px 18px; gap: 10px; }
 #editor-preview > .document-panel h1 { font-size: 16px; margin-right: auto; }

@@ -24,7 +24,7 @@ test('confirmation names document, cancellation does nothing, acceptance deletes
   expect(count).toBe(0);
   const revision = Number((await page.locator('#revision').textContent()).match(/\d+/)[0]);
   await confirmDeletion(page);
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Deletion target' })).toHaveCount(0);
   await expect(page.locator('#status')).toContainText('Документ удалён');
   expect(count).toBe(1); expect(body.expectedRevision).toBe(revision);
@@ -50,7 +50,7 @@ test('conflict refreshes and access errors leave the document', async ({ page })
   await page.unroute('**/commands/delete-document');
   await page.route('**/commands/delete-document', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }));
   await confirmDeletion(page);
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   await expect(page.locator('#error')).toContainText('Нет прав');
 });
 
@@ -65,7 +65,7 @@ test('lost acknowledgement retries identical command and hides stale content', a
   await expect(page.locator('#delete-message')).toContainText('неизвестен');
   await expect(page.locator('#editor-view')).toBeHidden();
   await page.getByRole('button', { name: 'Повторить проверку удаления' }).click();
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
 });
 
@@ -73,7 +73,7 @@ test('concurrent deletion is reported without stale content', async ({ page }) =
   await openDocument(page);
   await page.route('**/commands/delete-document', route => route.fulfill({ status: 404, json: { code: 'DOCUMENT_NOT_FOUND' } }));
   await confirmDeletion(page);
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   await expect(page.locator('#error')).toContainText('уже удалён');
   await expect(page.locator('#editor-view')).toBeHidden();
 });
@@ -86,9 +86,9 @@ for (const action of ['navigate', 'logout']) test(`ignores pending response afte
   await confirmDeletion(page);
   await expect(page.locator('#delete-document')).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
-  else await page.getByRole('button', { name: 'Забыть токен' }).click();
+  else await page.locator('#editor-signout').click();
   release();
-  if (action === 'navigate') await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  if (action === 'navigate') await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   else await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();
   if (action === 'navigate') {
     await expect(page.locator('#delete-message')).toContainText('неизвестен');

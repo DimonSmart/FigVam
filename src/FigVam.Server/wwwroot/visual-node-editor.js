@@ -289,9 +289,14 @@ export function createVisualNodeEditor({
   element('asset-upload-form').addEventListener('submit', event => {
     event.preventDefault();
     const current = getContext(), file = element('asset-upload-file').files[0];
-    if (!file || !scopeKey(current) || !canEdit(current.documentRole) || uploads.has(current.documentId)) return;
+    const scope = scopeKey(current);
+    if (!file || !scope || !canEdit(current.documentRole) || uploads.has(current.documentId)) return;
+    // Uploads may start before the async palette render finishes. Bind the
+    // operation to its scoped draft rather than the potentially unset UI field.
+    if (!paletteDrafts.has(scope))
+      paletteDrafts.set(scope, { ...draft(), kind: '', parent: null, selectionId: undefined });
     const op = { documentId: current.documentId, token: current.token, epoch: current.navigationEpoch,
-      assetId: crypto.randomUUID(), commandId: crypto.randomUUID(), file, draft: palette };
+      assetId: crypto.randomUUID(), commandId: crypto.randomUUID(), file, draft: paletteDrafts.get(scope) };
     uploads.set(op.documentId, op);
     sendUpload(op);
   });

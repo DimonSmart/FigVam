@@ -1,5 +1,6 @@
 const { test, expect, bearer } = require('./fixtures');
 const { randomUUID } = require('node:crypto');
+const { show } = require('./ui-panels');
 
 async function open(page, id) {
   await page.goto(`/documents/${id}`);
@@ -31,16 +32,18 @@ test('two clients converge through authenticated events while local commands ret
   second.on('request', request => { if (request.url().includes('/events?')) subscriptions.push(request); });
   await open(page, id); await open(second, id); await connected(second);
   await page.getByRole('button', { name: 'Создать страницу' }).click();
-  await expect(second.locator('#pages button')).toHaveCount(1);
+  await expect(second.locator('#pages > li > .page-select')).toHaveCount(1);
+  await show(page, 'page');
   await page.getByLabel('Имя выбранной страницы', { exact: true }).fill('Renamed remotely');
   await page.locator('#page-rename button').click();
-  await expect(second.locator('#pages button')).toHaveText('Renamed remotely');
+  await expect(second.locator('#pages > li > .page-select')).toHaveText('Renamed remotely');
+  await show(second, 'screen');
   await second.getByLabel('Ширина экрана').fill('640');
   await second.getByLabel('Высота экрана').fill('480');
   await second.getByRole('button', { name: 'Создать экран' }).click();
   await expect(page.locator('#screens button')).toContainText('640 × 480');
   await expect(second.locator('#revision')).toHaveText(await page.locator('#revision').textContent());
-  const screenId = (await second.locator('#screens button').textContent()).match(/[0-9a-f-]{36}/)[0];
+  const screenId = await second.locator('#screens button').getAttribute('data-screen-id');
   await page.locator('#screens button').click();
   await connected(page);
   await command(second, 'resize-screen', { screenId, dimensions: { width: 800, height: 600 } });
@@ -61,7 +64,7 @@ test('five open editors converge within the five-stream actor limit', async ({ p
   for (const client of clients) { await open(client, id); await connected(client); }
   await command(page, 'add-page', { pageId: randomUUID() });
   for (const client of clients) {
-    await expect(client.locator('#pages button')).toHaveCount(1);
+    await expect(client.locator('#pages > li > .page-select')).toHaveCount(1);
     await expect(client.locator('#revision')).toContainText('ревизия 1');
   }
 });
@@ -90,7 +93,7 @@ test('refreshes the expanded layer tree and selected object, then clears a remot
   await expect(page.locator('#inspector-selection')).toContainText('Updated fixture');
   await expect(page.locator('#layers [data-id=root]')).toHaveAttribute('aria-expanded', 'true');
   await command(other, 'delete-page', { pageId, expectedRevision: 3 });
-  await expect(page.locator('#pages button')).toHaveCount(0);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   await expect(page.locator('#layers [role=treeitem]')).toHaveCount(0);
   await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.');
   await expect(page.locator('#screen-boundary')).toBeHidden();
@@ -108,11 +111,11 @@ test('logout cancels a held remote refresh without showing its revision or objec
   });
   await command(other, 'add-page', { pageId: randomUUID() });
   await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release();
   await expect(page.locator('#authentication')).toBeVisible();
   await expect(page.locator('#revision')).toHaveText('');
-  await expect(page.locator('#pages button')).toHaveCount(0);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   await expect(page.locator('#connection-status')).toHaveText('');
 });
 
@@ -130,18 +133,18 @@ test('a local command supersedes a held remote refresh without regressing the cu
   });
   await command(other, 'add-page', { pageId: randomUUID() }); await held;
   await page.getByRole('button', { name: 'Создать страницу' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(2);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(2);
   await expect(page.locator('#revision')).toContainText('ревизия 2');
   release(); await connected(page);
-  await expect(other.locator('#pages button')).toHaveCount(2);
+  await expect(other.locator('#pages > li > .page-select')).toHaveCount(2);
   await expect(page.locator('#revision')).toContainText('ревизия 2');
-  await expect(page.locator('#pages button')).toHaveCount(2);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(2);
 });
 
 test('logout during a local command leaves the next session editable', async ({ page, request }) => {
   const id = await create(request, 'New session'); await open(page, id);
   await page.getByRole('button', { name: 'Создать страницу' }).click();
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
   let release, entered;
   const gate = new Promise(resolve => { release = resolve; });
   const held = new Promise(resolve => { entered = resolve; });
@@ -149,15 +152,18 @@ test('logout during a local command leaves the next session editable', async ({ 
     const response = await route.fetch(); entered(); await gate;
     await route.fulfill({ response }).catch(() => {});
   });
+  await show(page, 'screen');
   await page.getByLabel('Ширина экрана').fill('640');
   await page.getByLabel('Высота экрана').fill('480');
   await page.getByRole('button', { name: 'Создать экран' }).click(); await held;
-  await page.getByRole('button', { name: 'Забыть токен' }).click();
+  await page.locator('#editor-signout').click();
   release(); await page.unroute('**/commands/add-screen');
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await connected(page);
   await expect(page.locator('#screens button')).toHaveCount(1);
+  await show(page, 'screen');
+  await show(page, 'screen');
   await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
@@ -182,7 +188,7 @@ for (const mode of ['gap', 'RECONNECT_REQUIRED', 'EOF']) {
     await open(page, id);
     await expect.poll(() => streams).toBe(1);
     await other.getByRole('button', { name: 'Создать страницу' }).click();
-    await expect(other.locator('#pages button')).toHaveCount(1);
+    await expect(other.locator('#pages > li > .page-select')).toHaveCount(1);
     let pinned = false;
     await page.route('**/pages?*', async route => {
       if (new URL(route.request().url()).searchParams.get('revision') === '1' && !pinned) {
@@ -193,9 +199,9 @@ for (const mode of ['gap', 'RECONNECT_REQUIRED', 'EOF']) {
     let finish; const gate2 = new Promise(resolve => { finish = resolve; });
     release(); await ready;
     await expect(page.locator('#revision')).toContainText('ревизия 0');
-    await expect(page.locator('#pages button')).toHaveCount(0);
+    await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
     finish();
-    await expect(page.locator('#pages button')).toHaveCount(1);
+    await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
     await expect(page.locator('#revision')).toContainText('ревизия 1');
     await connected(page);
     expect(streams).toBeGreaterThan(1);
@@ -217,7 +223,7 @@ test('a late recovery cannot overwrite another document, logout or an access ref
   release(); await connected(page);
   await other.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(page.locator('#document-title')).toHaveText('Next document');
-  await expect(page.locator('#pages button')).toHaveCount(0);
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(0);
   await page.route(`**/${next}/events?*`, route => route.fulfill({ contentType: 'text/event-stream', body: 'data: {"code":"FORBIDDEN","revision":0}\n\n' }));
   await page.getByRole('button', { name: 'Обновить страницы' }).click();
   await expect(page.locator('#editor-view')).toBeHidden();

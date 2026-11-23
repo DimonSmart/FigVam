@@ -75,7 +75,7 @@ test('own removal leaves the document', async ({ page }) => {
   await page.getByLabel('ID участника').fill('local-developer');
   page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Удалить участника' }).click();
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   await expect(page.locator('#status')).toContainText('Доступ к документу больше не предоставлен');
 });
 
@@ -87,7 +87,7 @@ for (const action of ['navigate', 'logout']) test(`pending requests do not updat
   await page.getByRole('button', { name: 'Назначить роль' }).click();
   await expect(page.getByRole('button', { name: 'Назначить роль' })).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
-  else await page.getByRole('button', { name: 'Забыть токен' }).click();
+  else await page.locator('#editor-signout').click();
   release();
   if (action === 'navigate') { await page.getByRole('link', { name: 'Members target' }).click(); await show(page, 'share'); await expect(page.locator('#member-error')).toBeEmpty(); }
   else await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();
@@ -98,6 +98,6 @@ test('unknown outcome leaves stale Owner view and explains how to recover', asyn
   await page.route('**/members', route => route.abort('failed'));
   await page.getByLabel('ID участника').fill('local-developer');
   await page.getByRole('button', { name: 'Назначить роль' }).click();
-  await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   await expect(page.locator('#error')).toContainText('Не удалось подтвердить результат');
 });

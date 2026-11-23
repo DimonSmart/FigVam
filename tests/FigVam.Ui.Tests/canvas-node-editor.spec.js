@@ -43,6 +43,7 @@ async function openCanvas(page, request, extraNodes = 0) {
   await page.locator('#screens button').click();
   await expect(page.locator(`#screen-boundary ${visual(child)}`)).toBeVisible();
   await page.locator('#actual-size').click();
+  await expect(page.locator('#connection-status')).toContainText('Подключено', { timeout: 15000 });
   return { frame, child, cover, stack, stackChild, layout, command, path: '**/commands/set-node-properties' };
 }
 
@@ -268,8 +269,10 @@ test('reconciles a remote property change without destroying the active inspecto
       width: document.querySelector('#visual-property-width')
     };
   }, { child, cover });
+  const previousRevision = Number((await page.locator('#revision').textContent()).match(/\d+$/)[0]);
   await command('set-node-properties', { nodeId: child, properties: { width: number(95) } });
-  await expect(node).toHaveCSS('width', '95px');
+  await expect(page.locator('#revision')).toContainText(`ревизия ${previousRevision + 1}`);
+  await expect(node).toHaveCSS('width', '95px', { timeout: 15000 });
   await expect(page.locator('#visual-property-width')).toHaveValue('95');
   expect(await page.evaluate(() => {
     const stable = window.__remoteStable;

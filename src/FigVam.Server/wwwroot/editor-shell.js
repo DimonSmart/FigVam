@@ -171,15 +171,20 @@ export function createEditorShell() {
     presence, byId('connection-status'), shareMenu, docMenu, signOut);
   header.append(headerEnd);
 
-  // Left: pages and the selected screen's hierarchy, with resources in separate tabs.
-  const pagesGroup = group('Страницы', byId('page-access'), byId('page-refresh'), byId('pages'),
-    byId('pages-number').closest('nav'), byId('page-edit'));
+  // Master-detail navigation: document pages/screens above, selected screen's layers below.
+  const pagesGroup = group('Страницы и экраны');
   const pageEdit = byId('page-edit');
-  const pageOptions = menu('Действия страницы', 'inline-menu');
-  pageOptions.append(byId('page-rename'), byId('page-delete'));
+  const pageOptions = menu('⋯', 'inline-menu page-options');
+  pageOptions.querySelector('summary').setAttribute('aria-label', 'Действия страницы');
+  pageOptions.querySelector('summary').title = 'Действия страницы';
+  const pageMenuBody = el('div', 'navigator-page-menu');
+  pageMenuBody.append(byId('page-rename'), byId('page-delete'));
+  pageOptions.append(pageMenuBody);
   pageEdit.append(pageOptions);
   byId('page-create').classList.add('add-page-action');
   byId('page-create').setAttribute('aria-label', 'Создать страницу');
+  byId('page-create').title = 'Создать страницу';
+  byId('page-refresh').title = 'Обновить страницы';
 
   const screensSection = byId('screens-title').closest('section');
   const screenForm = byId('screen-create');
@@ -207,12 +212,69 @@ export function createEditorShell() {
   screenWidth.addEventListener('input', syncPreset);
   screenHeight.addEventListener('input', syncPreset);
   screenForm.addEventListener('reset', () => { preset.value = initialPreset; });
-  screenOptions.append(preset, screenForm);
-  screensSection.insertBefore(screenOptions, byId('screens'));
+  const screenMenuBody = el('div', 'screen-options-body');
+  screenMenuBody.append(preset, screenForm);
+  screenOptions.append(screenMenuBody);
+  const navigatorToolbar = el('div', 'navigator-toolbar');
+  navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
+  for (const current of [pageOptions, screenOptions]) {
+    current.addEventListener('toggle', () => {
+      if (!current.open) return;
+      for (const other of [pageOptions, screenOptions]) {
+        if (other !== current) other.open = false;
+      }
+    });
+  }
+  const screensList = byId('screens');
+  pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
+  byId('pages').setAttribute('aria-label', 'Страницы и экраны');
+  byId('screens').setAttribute('aria-label', 'Экраны выбранной страницы');
+  // The screen list is moved under its selected page by renderPages.
+  screensSection.remove();
   const layersSection = byId('layers-title').closest('section');
   layersSection.classList.add('layer-tree-group');
   const layersPage = el('div', 'layers-page');
-  layersPage.append(pagesGroup, screensSection, layersSection);
+  const master = el('div', 'layers-master');
+  const detail = el('div', 'layers-detail');
+  master.append(pagesGroup);
+  detail.append(layersSection);
+  const splitter = el('div', 'layers-splitter');
+  splitter.tabIndex = 0;
+  splitter.setAttribute('role', 'separator');
+  splitter.setAttribute('aria-label', 'Изменить высоту навигации и дерева слоёв');
+  splitter.setAttribute('aria-orientation', 'horizontal');
+  splitter.setAttribute('aria-valuemin', '22');
+  splitter.setAttribute('aria-valuemax', '72');
+  function setSplit(percent) {
+    const value = Math.round(Math.min(72, Math.max(22, percent)));
+    master.style.flexBasis = `${value}%`;
+    splitter.setAttribute('aria-valuenow', String(value));
+  }
+  function resizeAt(y) {
+    const bounds = layersPage.getBoundingClientRect();
+    if (bounds.height) setSplit((y - bounds.top) / bounds.height * 100);
+  }
+  let dragging = false;
+  splitter.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    dragging = true;
+    splitter.setPointerCapture(event.pointerId);
+    resizeAt(event.clientY);
+    event.preventDefault();
+  });
+  splitter.addEventListener('pointermove', event => {
+    if (dragging) resizeAt(event.clientY);
+  });
+  splitter.addEventListener('pointerup', () => { dragging = false; });
+  splitter.addEventListener('pointercancel', () => { dragging = false; });
+  splitter.addEventListener('lostpointercapture', () => { dragging = false; });
+  splitter.addEventListener('keydown', event => {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+    event.preventDefault();
+    setSplit(Number(splitter.getAttribute('aria-valuenow')) + (event.key === 'ArrowDown' ? 5 : -5));
+  });
+  setSplit(42);
+  layersPage.append(master, splitter, detail);
 
   const componentsPage = el('div', 'components-page');
   componentsPage.append(byId('components-title').closest('section'));
@@ -348,14 +410,14 @@ export function createEditorShell() {
   // Menus are temporary views. Their controls keep their draft values when closed.
   // Close previously open menus before a pointer action; do not close a menu opened by that click.
   document.addEventListener('pointerdown', event => {
-    const clickedMenu = event.target.closest('details.editor-menu');
-    for (const details of document.querySelectorAll('details.editor-menu[open]')) {
+    const clickedMenu = event.target.closest('details.editor-menu, .navigator-toolbar details');
+    for (const details of document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open]')) {
       if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
     }
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    const opened = [...document.querySelectorAll('details.editor-menu[open]')];
+    const opened = [...document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open]')];
     if (!opened.length) return;
     opened[opened.length - 1].open = false;
     opened[opened.length - 1].querySelector('summary')?.focus();

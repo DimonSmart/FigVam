@@ -15,7 +15,7 @@ test('catalog searches, pages and reads detail and usages at the editor revision
     const search = url.searchParams.get('search');
     return route.fulfill({ json: { items: search === 'missing' ? [] : offset ? [{ ...component, name: 'Second page' }] : [component], total: search === 'missing' ? 0 : 21 } });
   });
-  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'components');
   await page.getByRole('button', { name: 'Button', exact: true }).click();
   await expect(page.locator('#component-description')).toHaveText('<script>description</script>');
   await expect(page.locator('#component-parameters')).toContainText('Label · Text'); await expect(page.locator('#component-slots')).toContainText('Content'); await expect(page.locator('#component-variants')).toContainText('Hover');
@@ -30,7 +30,7 @@ test('catalog reports errors and can retry without blocking the editor', async (
   expect((await page.request.post('/api/v1/documents', { headers, data: { documentId: id, name: 'Catalog errors' } })).ok()).toBeTruthy();
   let fail = true;
   await page.route('**/api/v1/documents/*/components**', route => fail ? route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }) : route.fulfill({ json: { items: [], total: 0 } }));
-  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'components');
   await expect(page.locator('#components-error')).toContainText('Нет доступа'); await expect(page.getByRole('heading', { name: 'Холст' })).toBeVisible();
   fail = false; await page.getByRole('button', { name: 'Повторить загрузку каталога' }).click(); await expect(page.locator('#components-status')).toHaveText('Компоненты не найдены.');
 });
@@ -47,7 +47,7 @@ test('catalog ignores a late search response', async ({ page }) => {
     const name = search === 'slow' ? 'Old result' : search === 'fast' ? 'Current result' : 'Initial result';
     await route.fulfill({ json: { items: [{ id: randomUUID(), name }], total: 1 } });
   });
-  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'components');
   await expect(page.locator('#components-list')).toContainText('Initial result');
   await page.getByLabel('Поиск компонентов').fill('slow'); await page.getByRole('button', { name: 'Найти компоненты' }).click(); await started;
   await page.getByLabel('Поиск компонентов').fill('fast'); await page.getByRole('button', { name: 'Найти компоненты' }).click();
