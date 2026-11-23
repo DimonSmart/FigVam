@@ -58,7 +58,7 @@ public sealed class TokenQueryTests
             var page = (await service.UsagesAsync(doc, tokenId, null, offset, 2, actor)).Response!;
             Assert.Equal(all.Total, page.Total); paged.AddRange(page.Items);
         }
-        Assert.Equal(all.Items, paged);
+        Assert.Equal(JsonSerializer.Serialize(all.Items), JsonSerializer.Serialize(paged));
         var old = (await service.UsagesAsync(doc, tokenId, 1, 0, 100, actor)).Response!;
         Assert.Equal(1, old.Revision); Assert.Equal(2, old.Total);
         Assert.All(old.Items, u => Assert.Equal("componentParameterDefault", u.Kind));
