@@ -29,10 +29,10 @@ export function createVisualNodeEditor({
         uploadDocument = context.documentId;
       }
       const scope = scopeKey(context);
-      const key = scope && `${scope}:${context.revision}:${context.navigationEpoch}`;
+      const key = scope && `${scope}:${context.revision}:${context.variantId ?? "base"}:${context.navigationEpoch}`;
       const selectionId = context.selection?.id;
       // UI identity follows selection, not the document revision.
-      const renderKey = `${scope}:${selectionId}:${context.documentRole}:${context.navigationEpoch}`;
+      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.documentRole}:${context.navigationEpoch}`;
       if (modelKey !== key) load(key, scope);
       if (loadedKey !== renderKey) {
         loadedKey = renderKey;
@@ -84,7 +84,7 @@ export function createVisualNodeEditor({
     palette = paletteDrafts.get(scope);
     node = model?.nodes.get(selected?.id);
     const definition = model?.kinds.get(node?.kind);
-    const key = node && `${scope}:${node.id}`;
+    const key = node && `${scope}:${context.variantId ?? "base"}:${node.id}`;
     if (key && !inspectorDrafts.has(key)) inspectorDrafts.set(key, draft());
     inspector = inspectorDrafts.get(key);
     element('visual-palette').hidden = !scope || !editable;
@@ -173,6 +173,28 @@ export function createVisualNodeEditor({
         if (!sameRaw(field.read(), value)) field.write(value);
         field.validate();
       } else if (!sameRaw(field.read(), field.baseline)) field.write(field.baseline);
+      if (prefix === 'visual-property') {
+        const overridden = Boolean(context.variantId && model?.overridden?.get(node?.id)?.has(name));
+        field.row.dataset.variantOverride = String(overridden);
+        let reset = field.row.querySelector('.variant-override-reset');
+        if (!reset && overridden && state) {
+          reset = document.createElement('button');
+          reset.className = 'variant-override-reset'; reset.type = 'button';
+          reset.addEventListener('click', () => {
+            const current = getContext();
+            if (!current.variantId || !node || !canEdit(current.documentRole)) return;
+            begin('remove-screen-variant-override', {
+              screenId: current.screen, variantId: current.variantId,
+              nodeId: node.id, property: name, expectedRevision: current.revision
+            }, inspector);
+          });
+          field.row.append(reset);
+        }
+        if (reset) {
+          reset.textContent = 'Reset Override';
+          reset.hidden = !overridden || !state;
+        }
+      }
       fields.set(name, field);
       rows.push(field.row);
     }
@@ -219,7 +241,8 @@ export function createVisualNodeEditor({
   function updateControls() {
     if (!context) return;
     const op = operations.get(scopeKey(context));
-    const adding = op?.command === 'add-node', editing = op?.command === 'set-node-properties' && !op.canvas;
+    const adding = op?.command === 'add-node',
+      editing = ['set-node-properties', 'set-screen-variant-properties', 'remove-screen-variant-override'].includes(op?.command) && !op.canvas;
     const canvas = canvasDrafts.get(scopeKey(context));
     const editable = canEdit(context.documentRole);
     // An old inspector snapshot is visible while synchronizing, but it must not submit stale edits.
@@ -366,7 +389,11 @@ export function createVisualNodeEditor({
     const properties = readProperties(inspectorFields, names);
     if (!properties) return;
     const expectedParentId = Object.hasOwn(properties, 'x') || Object.hasOwn(properties, 'y') ? inspector.coordinateParentId : undefined;
-    begin('set-node-properties', { nodeId: node.id, properties, expectedParentId }, inspector);
+    const current = getContext();
+    if (current.variantId)
+      begin('set-screen-variant-properties', { screenId: current.screen, variantId: current.variantId,
+        nodeId: node.id, expectedRevision: current.revision, properties }, inspector);
+    else begin('set-node-properties', { nodeId: node.id, properties, expectedParentId }, inspector);
   });
   element('visual-properties-reset').addEventListener('click', () => {
     if (!inspector || operations.has(scopeKey(getContext())) || !canEdit(getContext().documentRole)) return;
@@ -455,7 +482,9 @@ export function createVisualNodeEditor({
     if (!key || !canEdit(current.documentRole) || current.revision !== body.expectedRevision ||
       current.selection?.id !== body.nodeId || operations.has(key)) return false;
     if (!canvasDrafts.has(key)) canvasDrafts.set(key, draft());
-    return begin('set-node-properties', body, canvasDrafts.get(key), settlePreview);
+    return begin(current.variantId ? 'set-screen-variant-properties' : 'set-node-properties',
+      current.variantId ? { ...body, screenId: current.screen, variantId: current.variantId } : body,
+      canvasDrafts.get(key), settlePreview);
   }
 
   return {
