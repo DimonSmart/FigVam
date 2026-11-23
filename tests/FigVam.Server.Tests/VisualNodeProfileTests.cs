@@ -190,8 +190,9 @@ public sealed class VisualNodeProfileTests : IDisposable
         Assert.IsType<PortableUiProfileUpgraded>(Assert.Single((await journal.ReadEventsAsync(documentId, upgrade.ExpectedRevision)).Events!).Payload);
         var diff = await new DocumentRevisionDiff(journal, journal).CompareAsync(documentId, upgrade.ExpectedRevision, accepted.Revision!.Value, 0, 10, owner);
         Assert.Equal("profile", Assert.Single(Assert.Single(diff.Response!.Items).ChangedProperties));
-        Assert.Equal("PROFILE_UPGRADE_NOT_APPLICABLE", (await handler.HandleAsync(
-            upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = accepted.Revision.Value }, owner)).Code);
+        // The next explicit upgrade is now v2 -> v3; a stale v1 revision must still conflict.
+        Assert.Equal("REVISION_CONFLICT", (await handler.HandleAsync(
+            upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = upgrade.ExpectedRevision }, owner)).Code);
 
         Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
         Assert.Equal(PortableUiProfileReference.Version1, (await journal.ReadAsync(documentId))!.Document.Profile);
