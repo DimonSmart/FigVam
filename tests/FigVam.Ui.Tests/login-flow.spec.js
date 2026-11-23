@@ -14,8 +14,9 @@ async function createScreen(page, name) {
   await page.getByRole('button', { name: 'Создать экран', exact: true }).click();
   const created = await posted;
   expect(created.ok(), await created.text()).toBeTruthy();
-  await expect(page.locator('#open-preview')).toBeEnabled();
   const screenId = (await created.json()).screenId;
+  await expect(page.locator(`#screens .screen-select[data-screen-id="${screenId}"]`))
+    .toHaveAttribute('aria-pressed', 'true');
   await page.locator('#screens .screen-select[aria-pressed="true"]')
     .locator('..').locator('.screen-rename-action').click();
   await page.locator('#screen-name-input').fill(name);
