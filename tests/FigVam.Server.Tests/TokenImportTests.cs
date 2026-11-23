@@ -42,8 +42,8 @@ public sealed class TokenImportTests
                 var j = Journal(); var export = await new DocumentTokenExporter(j, j).ExportAsync(id, 1, theme, owner);
                 Assert.Empty(export.Response!.Diagnostics);
                 Assert.Equal("{space}", export.Response.Tokens!["alias"]!["$value"]!.GetValue<string>());
-                Assert.Equal(theme == TokenTheme.Light ? 8 : 12, export.Response.Tokens!["space"]!["$value"]!["value"]!.GetValue<double>());
-                Assert.Equal(target: state.Document.Tokens.Single(t => t.Name == "space").Id.ToString("D"),
+                Assert.Equal(theme == TokenTheme.Light ? 8d : 12d, export.Response.Tokens!["space"]!["$value"]!["value"]!.GetValue<double>());
+                Assert.Equal(expected: state.Document.Tokens.Single(t => t.Name == "space").Id.ToString("D"),
                     actual: export.Response.Tokens!["space"]!["$extensions"]!["org.figvam"]!["id"]!.GetValue<string>());
             }
             Assert.True((await Handler().HandleAsync(new UndoDocumentCommand(id, Guid.NewGuid()), owner)).Accepted);
