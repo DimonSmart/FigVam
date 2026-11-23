@@ -60,7 +60,7 @@ async function saveProperties(page, values = {}, toggles = {}, enums = {}) {
 }
 
 async function addVariant(page, name) {
-  await show(page, 'layers');
+  await show(page, 'assets');
   await page.getByLabel('Имя нового варианта').fill(name);
   const posted = page.waitForResponse(response => response.url().endsWith('/commands/add-screen-variant'));
   await page.getByRole('button', { name: 'Создать пустой вариант' }).click();
@@ -72,7 +72,7 @@ async function addVariant(page, name) {
 }
 
 async function useVariant(page, variantId) {
-  await show(page, 'layers');
+  await show(page, 'assets');
   await page.locator(`#screen-variants-list [data-variant-id="${variantId ?? ''}"]`).click();
   await expect(page.locator(`#screen-variants-list [data-variant-id="${variantId ?? ''}"]`)).toHaveAttribute('aria-pressed', 'true');
 }
