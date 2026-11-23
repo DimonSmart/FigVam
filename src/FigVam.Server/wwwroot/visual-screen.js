@@ -58,7 +58,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   function refresh(nodeEdit = false) {
     const next = getContext();
     const key = next.screen && Number.isSafeInteger(next.revision) ?
-      `${next.documentId}:${next.screen.id}:${next.revision}` : null;
+      `${next.documentId}:${next.screen.id}:${next.revision}:${next.variantId ?? "base"}` : null;
     openButton.disabled = !key;
     if (contextKey === key) return;
     const sameScreen = next.documentId === context?.documentId && next.screen?.id === context?.screen.id;
@@ -154,8 +154,24 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   }
 
   async function readDesignModel() {
-    const [shared, structure] = await Promise.all([readResources(), readNodes(context.screen.id)]);
-    return { ...shared, nodes: new Map(structure.items.map(node => [node.id, node])) };
+    const current = context;
+    const variant = current.variantId;
+    const [shared, structure, variants] = await Promise.all([
+      readResources(), readNodes(current.screen.id),
+      variant ? readPath(`screens/${current.screen.id}/variants`,
+        { variantId: variant, offset: 0, limit: 1 }, controller.signal) : null
+    ]);
+    const overrides = new Map();
+    for (const item of variants?.items?.[0]?.overrides ?? []) {
+      if (!overrides.has(item.nodeId)) overrides.set(item.nodeId, {});
+      overrides.get(item.nodeId)[item.property] = item.value;
+    }
+    return {
+      ...shared, overridden: new Map([...overrides].map(([id, values]) => [id, new Set(Object.keys(values))])),
+      nodes: new Map(structure.items.map(node => [node.id, {
+        ...node, properties: { ...node.properties, ...overrides.get(node.id) }
+      }]))
+    };
   }
 
   async function readScreen(screen, parameters, signal) {
@@ -168,9 +184,13 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     ]);
     return {
       ...shared, screen, revision: context.revision, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
-      orderedNodes: structure.items, nodes: new Map(structure.items.map(node => [node.id, node])),
+      orderedNodes: structure.items,
+      nodes: new Map(structure.items.map(node => [node.id, {
+        ...node, properties: { ...node.properties,
+          ...(layout.overrides ?? []).find(item => item.nodeId === node.id)?.properties }
+      }])),
       boxes: new Map(layout.items.map(box => [box.objectId, box])),
-      overrides: new Map(layout.overrides.map(item => [item.nodeId, item.properties]))
+      overrides: new Map((layout.overrides ?? []).map(item => [item.nodeId, item.properties]))
     };
   }
 
@@ -211,8 +231,8 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       const selection = playback?.selection;
       const parameters = { previewWidth: size.width, previewHeight: size.height, theme: themeSelect.value };
       if (selection?.datasetId) parameters.datasetId = selection.datasetId;
-      loadView(preview, [selection?.screenId ?? context.screen.id, ...(playback?.overlays ?? [])], parameters, selection?.variantId);
-    } else loadView(design, [context.screen.id], null, null);
+      loadView(preview, [selection?.screenId ?? context.screen.id, ...(playback?.overlays ?? [])], parameters, selection ? selection.variantId : context.variantId);
+    } else loadView(design, [context.screen.id], null, context.variantId);
   }
 
   async function loadView(view, screens, parameters, variantId) {
@@ -234,7 +254,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       const models = await Promise.all(screens.map((screen, index) => {
         const variant = index === 0 ? variantId : null;
         const key = `${screen}:${variant ?? ''}`;
-        if (!reads.has(key)) reads.set(key, readScreen(screen, variant ? { ...parameters, variantId: variant } : parameters, signal));
+        if (!reads.has(key)) reads.set(key, readScreen(screen, variant ? { ...(parameters ?? {}), variantId: variant } : parameters, signal));
         return reads.get(key);
       }));
       if (!current()) return;
@@ -321,7 +341,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     try {
       const body = {
         revision, triggers: next, selection: {
-          screenId: screen.id, variantId: null, datasetId: null, theme: themeSelect.selectedIndex,
+          screenId: screen.id, variantId: context.variantId, datasetId: null, theme: themeSelect.selectedIndex,
           viewport: { width: Math.max(1, size.width), height: Math.max(1, size.height) }
         }
       };
@@ -371,7 +391,8 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     themeSelect.value = 'Light';
     backButton.disabled = true;
     showMode(true);
-    renderActive();
+    if (context.variantId) replay([], null);
+    else renderActive();
     closeButton.focus();
   });
   closeButton.addEventListener('click', () => {
