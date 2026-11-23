@@ -417,6 +417,26 @@
                 </form>
               </div>
               <h4>Прямые использования</h4><ul id="token-usages" aria-label="Прямые использования токена"></ul></div>
+            <div id="styles-panel">
+              <h3>Стили оформления</h3>
+              <p id="styles-total" role="status"></p>
+              <p id="styles-error" role="alert"></p>
+              <p id="styles-status" role="status" aria-live="polite"></p>
+              <label for="styles-list">TextStyle и BorderStyle</label>
+              <select id="styles-list" aria-label="Выбрать стиль или создать новый"></select>
+              <form id="styles-form" hidden>
+                <label for="styles-name">Имя стиля</label>
+                <input id="styles-name" maxlength="256" required>
+                <label for="styles-type">Тип</label>
+                <select id="styles-type"><option value="TextStyle">TextStyle</option><option value="BorderStyle">BorderStyle</option></select>
+                <label for="styles-based-on">Основан на (BasedOn)</label>
+                <select id="styles-based-on"></select>
+                <div id="styles-fields"></div>
+                <button id="styles-save" type="submit">Сохранить стиль</button>
+              </form>
+              <button id="styles-delete" type="button" hidden>Удалить неиспользуемый стиль</button>
+              <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"></pre>
+            </div>
           </section></aside>
       </div>
       </div>
