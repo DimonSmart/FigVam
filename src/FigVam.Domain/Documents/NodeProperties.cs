@@ -136,6 +136,10 @@ public static class NodePropertyValidator
         if (CheckTokenReference(tokens, definition, reference) is { } error)
             return (error.Code, reference.TokenId, error.Reason);
         if (definition is null) return ("type-mismatch", reference.TokenId, "Token is not allowed for this property.");
+        // Standalone TokenReference contracts may be backed by placeholder catalog entries.
+        // Their type/category is validated above; the token definition is validated by the
+        // complete document validator once its themed values are available.
+        if (definition.Type == NodePropertyType.TokenReference) return null;
         foreach (var applicable in theme is { } selected ? [selected] : Enum.GetValues<TokenTheme>())
         {
             // A TokenReference parameter has no literal property representation: validate
