@@ -137,8 +137,18 @@ public static class NodePropertyValidator
             return (error.Code, reference.TokenId, error.Reason);
         if (definition is null) return ("type-mismatch", reference.TokenId, "Token is not allowed for this property.");
         foreach (var applicable in theme is { } selected ? [selected] : Enum.GetValues<TokenTheme>())
-            if (ResolveValueToken(tokens, definition, property, reference, applicable).Error is { } invalid)
+        {
+            // A TokenReference parameter has no literal property representation: validate
+            // its referenced contract and resolve the chain, without converting to a scalar.
+            if (definition.Type == NodePropertyType.TokenReference)
+            {
+                var result = tokens.Resolve(reference.TokenId, applicable);
+                if (result.Diagnostics.FirstOrDefault() is { } diagnostic)
+                    return (diagnostic.Code, reference.TokenId, $"{applicable}: {diagnostic.Message}");
+            }
+            else if (ResolveValueToken(tokens, definition, property, reference, applicable).Error is { } invalid)
                 return (invalid.Code, reference.TokenId, invalid.Reason);
+        }
         return null;
     }
 
