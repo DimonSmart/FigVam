@@ -17,6 +17,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     public IReadOnlyList<EntityChange<DocumentDataset>> Datasets { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<EntityChange<DesignToken>> Tokens { get; init; } = [];
+    public IReadOnlyList<EntityChange<DesignStyle>> Styles { get; init; } = [];
 
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<EntityChange<ComponentDefinition>> ComponentDefinitions { get; init; } = [];
@@ -43,6 +44,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
         Scenarios = Diff(before.Scenarios, after.Scenarios, s => s.Id),
         Datasets = Diff(before.Datasets, after.Datasets, d => d.Id),
         Tokens = Diff(before.Tokens, after.Tokens, t => t.Id),
+        Styles = Diff(before.Styles, after.Styles, s => s.Id),
         ComponentInstances = Diff(before.ComponentInstances, after.ComponentInstances, i => i.NodeId),
         ComponentDefinitions = Diff(before.ComponentDefinitions, after.ComponentDefinitions, d => d.Id)
     };
@@ -67,6 +69,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
         Scenarios = Reverse(Scenarios),
         Datasets = Reverse(Datasets),
         Tokens = Reverse(Tokens),
+        Styles = Reverse(Styles),
         ComponentInstances = Reverse(ComponentInstances),
         ComponentDefinitions = Reverse(ComponentDefinitions)
     };
@@ -83,9 +86,10 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
         var scenarios = Apply(current.Scenarios, Scenarios, s => s.Id);
         var datasets = Apply(current.Datasets, Datasets, d => d.Id);
         var tokens = Apply(current.Tokens, Tokens, t => t.Id);
+        var styles = Apply(current.Styles, Styles, s => s.Id);
         var instances = Apply(current.ComponentInstances, ComponentInstances, i => i.NodeId);
         var components = Apply(current.ComponentDefinitions, ComponentDefinitions, d => d.Id);
-        return assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || pages is null || screens is null || nodes is null ? null : current with
+        return assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || styles is null || pages is null || screens is null || nodes is null ? null : current with
         {
             Name = Name?.After ?? current.Name,
             Assets = assets,
@@ -95,6 +99,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
             Screens = screens,
             Nodes = nodes,
             Tokens = tokens,
+            Styles = styles,
             ComponentDefinitions = components,
             ComponentInstances = instances
         };
