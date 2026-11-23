@@ -169,7 +169,7 @@ public sealed partial class SqliteDocumentJournal
             "UPGRADE_PORTABLE_UI_PROFILE" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is PortableUiProfileUpgraded upgraded
                     ? upgraded : throw new InvalidDataException("Invalid profile upgrade event."),
-            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
+            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "SET_SCREEN_VARIANT_PROPERTIES" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
             "SET_NODE_PROPERTIES" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is NodePropertiesSet properties &&
@@ -235,8 +235,10 @@ public sealed partial class SqliteDocumentJournal
                 var (eventType, subjectId, screenId, nodeId, kind) = change.Event switch
                 {
                     DocumentDeleted => ("DELETE_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
-                    PortableUiProfileUpgraded upgraded when previous.Document.Profile == PortableUiProfileReference.Version1 &&
-                        upgraded.Profile == PortableUiProfileReference.Version2 && next.Document == (previous.Document with { Profile = upgraded.Profile })
+                    PortableUiProfileUpgraded upgraded when
+                        (previous.Document.Profile == PortableUiProfileReference.Version1 && upgraded.Profile == PortableUiProfileReference.Version2 ||
+                         previous.Document.Profile == PortableUiProfileReference.Version2 && upgraded.Profile == PortableUiProfileReference.Version3) &&
+                        next.Document == (previous.Document with { Profile = upgraded.Profile })
                         => ("UPGRADE_PORTABLE_UI_PROFILE", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     HistoryCompensated compensation when change.Version is null
                         => (compensation.IsRedo ? "REDO" : "UNDO", compensation.TargetCommandId, (Guid?)null, (Guid?)null, (string?)null),
@@ -592,7 +594,8 @@ public sealed partial class SqliteDocumentJournal
                 switch (ReadEvent(reader))
                 {
                     case PortableUiProfileUpgraded upgraded:
-                        if (document.Profile != PortableUiProfileReference.Version1 || upgraded.Profile != PortableUiProfileReference.Version2)
+                        if (!(document.Profile == PortableUiProfileReference.Version1 && upgraded.Profile == PortableUiProfileReference.Version2 ||
+                              document.Profile == PortableUiProfileReference.Version2 && upgraded.Profile == PortableUiProfileReference.Version3))
                             throw new InvalidDataException("Invalid profile upgrade transition.");
                         Validate(document);
                         document = document with { Profile = upgraded.Profile };
