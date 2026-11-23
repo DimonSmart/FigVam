@@ -103,8 +103,8 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   const demo = createDemo(page, 19);
   await page.setViewportSize({ width: 1700, height: 1100 });
   await page.goto(server.url);
-  await demo.step('Создаём документ и экран', 'Начинаем отдельный прототип Login Prototype.');
   await signIn(page);
+  await demo.step('Создаём документ и экран', 'Начинаем отдельный прототип Login Prototype.');
   await page.getByLabel('Имя нового документа').fill('Login Prototype');
   await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
@@ -252,8 +252,8 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   try {
     await reopened.goto(server.url);
     await signIn(reopened);
-    await demo.step('Проверяем восстановление', 'Все экраны, варианты и сценарии должны сохраниться после перезапуска.', reopened);
     await reopened.getByRole('link', { name: 'Login Prototype' }).click();
+    await demo.step('Проверяем восстановление', 'Все экраны, варианты и сценарии должны сохраниться после перезапуска.', reopened);
     await expect(reopened.locator('#screens .screen-select')).toHaveCount(3);
     await reopened.locator('#screens .screen-select').filter({ hasText: 'Login' }).first().click();
     await expect(reopened.locator('#screen-variants-list')).toContainText('InvalidPassword');
