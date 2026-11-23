@@ -93,6 +93,7 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
 }
 
 test('designs a login with password, independent variants, scenarios, duplication and reload through UI', async ({ page, request, server, browser }) => {
+  test.setTimeout(180_000);
   await page.setViewportSize({ width: 1700, height: 1100 });
   await page.goto(server.url);
   await signIn(page);

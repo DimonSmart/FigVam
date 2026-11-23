@@ -494,9 +494,9 @@ function renderScreens() {
         trigger.setAttribute('aria-label', `Действия с экраном «${name}»`);
         trigger.title = 'Действия с экраном';
         trigger.textContent = '⋯';
-        const duplicate = document.createElement('button');
+        const duplicate = document.createElement('input');
         duplicate.type = 'button';
-        duplicate.textContent = 'Duplicate';
+        duplicate.value = 'Duplicate';
         duplicate.setAttribute('aria-label', `Дублировать экран «${name}»`);
         duplicate.addEventListener('click', () => {
           menu.open = false;
