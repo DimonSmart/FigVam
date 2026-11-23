@@ -193,15 +193,15 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     choose(parent, selected?.basedOnStyleId);
     buildFields(selected, type);
     renderPreview(selected);
-    const list = el('styles-usages');
-    list.replaceChildren();
+    const usageList = el('styles-usages');
+    usageList.replaceChildren();
     for (const indirect of [false, true]) {
       const uses = styleUsages.filter(item => Boolean(item.indirect) === indirect);
       if (!uses.length) continue;
       const group = document.createElement('li');
       group.className = 'resource-usage-group';
       group.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + uses.length;
-      list.append(group);
+      usageList.append(group);
       for (const usage of uses) {
         const li = document.createElement('li');
         li.textContent = [usage.label ?? usage.kind, usage.property, usage.theme == null ? null : 'тема ' + usage.theme]
@@ -217,13 +217,13 @@ export function createStyles({ element, request, getContext, getTokens, startReq
           li.append(' ', target);
         }
         li.title = (usage.chain ?? []).map(id => items.find(item => item.id === id)?.name ?? id).join(' → ');
-        list.append(li);
+        usageList.append(li);
       }
     }
     if (!styleUsages.length) {
       const empty = document.createElement('li');
       empty.textContent = 'Использований нет.';
-      list.append(empty);
+      usageList.append(empty);
     }
   }
 
