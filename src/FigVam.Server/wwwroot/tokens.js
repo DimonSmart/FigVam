@@ -131,7 +131,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     for (const theme of ['light', 'dark']) {
       const mode = el('new-token-' + theme + '-mode').value;
       const field = el('new-token-' + theme), picker = el('new-token-' + theme + '-picker');
+      const preset = el('new-token-' + theme + '-weight-preset');
       const alias = el('new-token-' + theme + '-alias');
+      preset.hidden = mode === 'alias' || type !== 'FontWeight';
       field.hidden = mode === 'alias'; field.required = mode !== 'alias';
       alias.hidden = mode !== 'alias'; alias.required = mode === 'alias';
       picker.hidden = mode === 'alias' || type !== 'Color';
@@ -191,6 +193,18 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const preview = document.createElement('small');
       preview.setAttribute('aria-hidden', 'true');
       preview.textContent = ' · ' + (resolved.error ?? tokenValueText(resolved.value));
+      if (type === 'Color' && !resolved.error && resolved.value?.type === 'color') {
+        const swatch = document.createElement('span');
+        swatch.setAttribute('aria-hidden', 'true');
+        swatch.title = 'Образец цвета';
+        Object.assign(swatch.style, {
+          display: 'inline-block', width: '0.9em', height: '0.9em',
+          border: '1px solid currentColor', borderRadius: '2px', verticalAlign: 'middle',
+          backgroundColor: 'rgba(' + [resolved.value.red, resolved.value.green,
+            resolved.value.blue, resolved.value.alpha / 255].join(', ') + ')'
+        });
+        button.append(' ', swatch);
+      }
       button.append(preview);
       button.setAttribute('aria-pressed', String(item.id === selectedToken));
       button.addEventListener('click', () => selectToken(item.id));
@@ -263,6 +277,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('new-token-category').addEventListener('change', updateCreateMode);
   for (const theme of ['light', 'dark']) {
     el('new-token-' + theme + '-mode').addEventListener('change', updateCreateMode);
+    el('new-token-' + theme + '-weight-preset').addEventListener('change', () => {
+      const selectedWeight = el('new-token-' + theme + '-weight-preset').value;
+      if (selectedWeight) el('new-token-' + theme).value = selectedWeight;
+    });
     el('new-token-' + theme + '-picker').addEventListener('input', () => {
       const input = el('new-token-' + theme), rgb = el('new-token-' + theme + '-picker').value;
       input.value = rgb + (/^#[0-9a-f]{8}$/i.test(input.value) ? input.value.slice(7) : 'FF');
