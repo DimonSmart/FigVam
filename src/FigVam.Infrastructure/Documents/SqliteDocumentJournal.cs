@@ -278,6 +278,7 @@ public sealed partial class SqliteDocumentJournal
                     ComponentDefinitionAdded component => ("ADD_COMPONENT_DEFINITION", component.Definition.Id, (Guid?)null, (Guid?)null, (string?)null),
                     TokensImported => ("IMPORT_DESIGN_TOKENS", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     TokenAdded token => ("ADD_TOKEN", token.Token.Id, (Guid?)null, (Guid?)null, (string?)null),
+                    TokenDeleted token => ("DELETE_TOKEN", token.TokenId, (Guid?)null, (Guid?)null, (string?)null),
                     StyleUpserted style => ("UPSERT_STYLE", style.Style.Id, (Guid?)null, (Guid?)null, (string?)null),
                     StyleDeleted style => ("DELETE_STYLE", style.StyleId, (Guid?)null, (Guid?)null, (string?)null),
                     NodePropertiesRemoved removed => ("REMOVE_NODE_PROPERTIES", removed.NodeId, (Guid?)null, (Guid?)null, (string?)null),
@@ -350,7 +351,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded added
@@ -690,6 +691,12 @@ public sealed partial class SqliteDocumentJournal
                         break;
                     case TokenAdded token:
                         document = document with { Tokens = document.Tokens.Append(token.Token).ToArray() };
+                        break;
+                    case TokenDeleted token:
+                        if (!document.Tokens.Any(t => t.Id == token.TokenId))
+                            throw new InvalidDataException("Token delete event refers to a missing token.");
+                        document = document with { Tokens = document.Tokens.Where(t => t.Id != token.TokenId).ToArray() };
+                        Validate(document);
                         break;
                     case StyleUpserted style:
                         document = document with { Styles = document.Styles.Any(item => item.Id == style.Style.Id)
