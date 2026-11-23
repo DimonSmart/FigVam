@@ -12,6 +12,7 @@ internal static class ComponentPropertyBindings
         ComponentBool boolean => new NodeBooleanValue(boolean.Value),
         ComponentAsset asset => new NodeAssetValue(asset.AssetId),
         ComponentToken token => new NodeTokenValue(token.TokenId),
+        ComponentStyle style => new NodeStyleValue(style.StyleId),
         ComponentEnum item => new NodeEnumValue(item.Value),
         _ => null
     };
@@ -54,6 +55,8 @@ internal static class ComponentPropertyBindings
                     (ComponentParameterType.Number, NodePropertyType.Number) => true,
                     (ComponentParameterType.Bool, NodePropertyType.Boolean) => true,
                     (ComponentParameterType.Asset, NodePropertyType.Asset) => true,
+                    (ComponentParameterType.StyleReference, NodePropertyType.StyleReference) =>
+                        parameter.StyleType is not null && parameter.StyleType == property.StyleType,
                     (ComponentParameterType.TokenReference, NodePropertyType.TokenReference or NodePropertyType.Color or NodePropertyType.Number or NodePropertyType.String or NodePropertyType.Enum) =>
                         parameter.TokenType is not null &&
                             (parameter.TokenType == property.TokenType && parameter.TokenCategory == property.TokenCategory ||
@@ -72,6 +75,9 @@ internal static class ComponentPropertyBindings
                     var converted = Convert(value);
                     if (NodePropertyValidator.Validate(profile, node.Kind, binding.Property, converted) is { } error)
                         Error(error.Code, error.Reason);
+                    else if (converted is NodeStyleValue style &&
+                        NodePropertyValidator.ValidateReference(model.Structure, tokens, property, binding.Property, style) is { } styleError)
+                        Error(styleError.Code, styleError.Reason);
                     else if (converted is NodeTokenValue token && tokens.Find(token.TokenId) is not null &&
                         NodePropertyValidator.ValidateTokenReference(tokens, property, binding.Property, token) is { } reference)
                         Error(reference.Code, reference.Reason);

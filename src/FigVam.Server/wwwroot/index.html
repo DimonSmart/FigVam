@@ -363,7 +363,7 @@
             <form id="token-create" hidden><h3>Новый токен</h3>
               <label for="new-token-name">Имя токена</label><input id="new-token-name" required maxlength="256">
               <label for="new-token-type">Тип токена</label><select id="new-token-type">
-                <option value="Color">Color</option><option value="Dimension">Dimension</option>
+                <option value="Color">Color</option><option value="Typography">Typography</option><option value="Dimension">Dimension</option>
                 <option value="Number">Number</option><option value="FontFamily">FontFamily</option>
                 <option value="FontWeight">FontWeight</option>
                 <option value="Spacing">Spacing (legacy)</option><option value="Geometry">Geometry (legacy)</option>
@@ -374,6 +374,7 @@
                 <label for="new-token-light-mode">Источник значения</label>
                 <select id="new-token-light-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                 <input id="new-token-light" aria-label="Light" required>
+                <div id="new-token-light-typography" class="token-typography-fields" hidden></div>
                 <select id="new-token-light-weight-preset" aria-label="Пресет толщины Light" hidden>
                   <option value="">Числовое значение</option>
                   <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
@@ -386,6 +387,7 @@
                 <label for="new-token-dark-mode">Источник значения</label>
                 <select id="new-token-dark-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                 <input id="new-token-dark" aria-label="Dark" required>
+                <div id="new-token-dark-typography" class="token-typography-fields" hidden></div>
                 <select id="new-token-dark-weight-preset" aria-label="Пресет толщины Dark" hidden>
                   <option value="">Числовое значение</option>
                   <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
@@ -404,6 +406,7 @@
                   <label for="token-theme">Тема</label><select id="token-theme"><option value="Light">Light</option><option value="Dark">Dark</option></select>
                   <label for="token-mode">Источник</label><select id="token-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                   <label for="token-value">Новое значение</label><input id="token-value">
+                   <div id="token-typography" class="token-typography-fields" hidden></div>
                   <input id="token-value-picker" type="color" aria-label="Выбрать цвет" hidden>
                   <select id="token-value-alias" aria-label="Ссылка на другой токен" hidden></select>
                   <select id="token-font-weight-preset" aria-label="Пресет толщины шрифта" hidden>
@@ -414,6 +417,26 @@
                 </form>
               </div>
               <h4>Прямые использования</h4><ul id="token-usages" aria-label="Прямые использования токена"></ul></div>
+            <div id="styles-panel">
+              <h3>Стили оформления</h3>
+              <p id="styles-total" role="status"></p>
+              <p id="styles-error" role="alert"></p>
+              <p id="styles-status" role="status" aria-live="polite"></p>
+              <label for="styles-list">TextStyle и BorderStyle</label>
+              <select id="styles-list" aria-label="Выбрать стиль или создать новый"></select>
+              <form id="styles-form" hidden>
+                <label for="styles-name">Имя стиля</label>
+                <input id="styles-name" maxlength="256" required>
+                <label for="styles-type">Тип</label>
+                <select id="styles-type"><option value="TextStyle">TextStyle</option><option value="BorderStyle">BorderStyle</option></select>
+                <label for="styles-based-on">Основан на (BasedOn)</label>
+                <select id="styles-based-on"></select>
+                <div id="styles-fields"></div>
+                <button id="styles-save" type="submit">Сохранить стиль</button>
+              </form>
+              <button id="styles-delete" type="button" hidden>Удалить неиспользуемый стиль</button>
+              <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"></pre>
+            </div>
           </section></aside>
       </div>
       </div>

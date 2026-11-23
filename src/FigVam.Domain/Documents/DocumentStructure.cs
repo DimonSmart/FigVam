@@ -33,6 +33,8 @@ public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pag
     public IReadOnlyList<DocumentDataset> Datasets { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<DesignToken> Tokens { get; init; } = [];
+    // Optional for documents created before reusable styles were introduced.
+    public IReadOnlyList<DesignStyle> Styles { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<ComponentDefinition> ComponentDefinitions { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
@@ -327,8 +329,13 @@ public static class DocumentStructureValidator
         errors.AddRange(DocumentScenarioValidator.Validate(document, profile));
         foreach (var dataset in document.Datasets) Register(dataset.Id, "dataset");
         foreach (var token in document.Tokens) Register(token.Id, "token");
+        if (document.Styles is null) return [new("invalid-styles", document.Id, null, "Design styles are required.")];
+        foreach (var style in document.Styles)
+            if (style is not null) Register(style.Id, "design style");
         var tokens = new DesignTokenResolver(document.Tokens);
-        errors.AddRange(DesignTokenValidator.Validate(document.Tokens).Select(e => new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message)));
+        errors.AddRange(DesignTokenValidator.Validate(document.Tokens).Select(e =>
+            new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message, e.Field)));
+        errors.AddRange(DesignStyleValidator.Validate(document, profile));
         Register(document.Id, "document");
         foreach (var page in document.Pages) Register(page.Id, "page");
         foreach (var screen in document.Screens) Register(screen.Id, "screen");

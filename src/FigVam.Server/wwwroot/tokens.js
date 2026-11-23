@@ -23,7 +23,7 @@ function literalExpression(type, category, raw) {
       throw new Error('Введите корректное непустое имя семейства шрифта (до 128 символов).');
     return { expression: 'literal', value: { type: 'fontFamily', value: raw } };
   }
-  if (valueType === 'Typography') throw new Error('Составная типографика будет доступна на следующем этапе.');
+  if (valueType === 'Typography') throw new Error('Используйте поля составной типографики.');
   if (!raw.trim() || !Number.isFinite(Number(raw))) throw new Error('Введите конечное число.');
   const value = Number(raw), c = normalizedTokenCategory(category);
   if (valueType === 'FontWeight' && (!Number.isInteger(value) || value < 1 || value > 1000))
@@ -54,6 +54,87 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   const typeOf = token => normalizedTokenType(token?.type);
   const categoryOf = token => normalizedTokenCategory(token?.category);
   const nameOf = id => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
+  const typographyFields = [
+    { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
+    { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
+    { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
+    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' }
+  ];
+  const typographyPrefixes = ['new-token-light', 'new-token-dark', 'token'];
+  function makeTypographyFields(prefix) {
+    const root = el(prefix + '-typography');
+    for (const field of typographyFields) {
+      const row = document.createElement('div');
+      row.className = 'token-typography-row';
+      const label = document.createElement('label');
+      label.htmlFor = prefix + '-' + field.name + '-source';
+      label.textContent = field.label;
+      const source = document.createElement('select');
+      source.id = label.htmlFor;
+      source.add(new Option('Прямое', 'literal'));
+      source.add(new Option('Токен', 'alias'));
+      const direct = document.createElement('input');
+      direct.id = prefix + '-' + field.name + '-value';
+      direct.placeholder = field.initial;
+      direct.value = field.initial;
+      const alias = document.createElement('select');
+      alias.id = prefix + '-' + field.name + '-alias';
+      alias.setAttribute('aria-label', field.label + ': ссылка на токен');
+      source.addEventListener('change', () => updateTypographyField(prefix, field));
+      row.append(label, source, direct, alias);
+      root.append(row);
+    }
+  }
+  typographyPrefixes.forEach(makeTypographyFields);
+
+  function updateTypographyField(prefix, field) {
+    const source = el(prefix + '-' + field.name + '-source');
+    const input = el(prefix + '-' + field.name + '-value');
+    const select = el(prefix + '-' + field.name + '-alias');
+    const candidates = allowedAliases(field.type, field.category);
+    const previous = select.value;
+    select.replaceChildren(new Option(candidates.length ? 'Выберите токен' : 'Нет подходящих токенов', ''));
+    for (const token of candidates) select.add(new Option(token.name, token.id));
+    select.value = candidates.some(item => item.id === previous) ? previous : '';
+    const enabled = !el(prefix + '-typography').hidden;
+    input.hidden = source.value === 'alias';
+    select.hidden = source.value !== 'alias';
+    input.required = enabled && source.value !== 'alias';
+    select.required = enabled && source.value === 'alias';
+  }
+  function refreshTypographyFields(prefix, visible) {
+    el(prefix + '-typography').hidden = !visible;
+    for (const field of typographyFields) updateTypographyField(prefix, field);
+  }
+  function loadTypographyFields(prefix, expression) {
+    const value = expression?.value;
+    for (const field of typographyFields) {
+      const part = value?.type === 'typographyFields' ? value[field.name] :
+        value?.type === 'typography' ? { expression: 'literal', value:
+          field.type === 'FontFamily' ? { type: 'fontFamily', value: value.fontFamily } :
+          { type: { Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[field.type],
+            value: value[field.name] } } : null;
+      el(prefix + '-' + field.name + '-source').value = part?.expression === 'alias' ? 'alias' : 'literal';
+      el(prefix + '-' + field.name + '-value').value = part?.expression === 'literal'
+        ? String(part.value.value) : field.initial;
+      updateTypographyField(prefix, field);
+      if (part?.expression === 'alias') el(prefix + '-' + field.name + '-alias').value = part.tokenId;
+    }
+  }
+  function saveTypographyFields(prefix) {
+    const value = { type: 'typographyFields' };
+    for (const field of typographyFields) {
+      const mode = el(prefix + '-' + field.name + '-source').value;
+      if (mode === 'alias') {
+        const id = el(prefix + '-' + field.name + '-alias').value;
+        if (!allowedAliases(field.type, field.category).some(token => token.id === id))
+          throw new Error('Выберите токен для поля ' + field.label + '.');
+        value[field.name] = { expression: 'alias', tokenId: id };
+      } else value[field.name] = literalExpression(field.type, field.category,
+        el(prefix + '-' + field.name + '-value').value.trim());
+    }
+    return { expression: 'literal', value };
+  }
 
   function resetTokens() {
     tokenLoad++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
@@ -62,6 +143,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-detail').hidden = true; el('token-create').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
     el('token-create').reset(); el('token-rename').reset(); el('token-set').reset();
+    for (const prefix of typographyPrefixes) loadTypographyFields(prefix, null);
     updateCategoryOptions(); updateCreateMode();
   }
   async function readAllTokenPages(path, revision, signal, isCurrent) {
@@ -95,6 +177,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   function applyTokens(snapshot) {
     const before = JSON.stringify([tokenItems, tokenUsages, selectedToken]);
     tokenItems = snapshot.items;
+    for (const prefix of typographyPrefixes)
+      for (const field of typographyFields) updateTypographyField(prefix, field);
     if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
     if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
     tokenUsages = snapshot.usages;
@@ -131,8 +215,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const field = el('new-token-' + theme), picker = el('new-token-' + theme + '-picker');
       const preset = el('new-token-' + theme + '-weight-preset');
       const alias = el('new-token-' + theme + '-alias');
+      const composite = type === 'Typography' && mode !== 'alias';
+      refreshTypographyFields('new-token-' + theme, composite);
       preset.hidden = mode === 'alias' || type !== 'FontWeight';
-      field.hidden = mode === 'alias'; field.required = mode !== 'alias';
+      field.hidden = mode === 'alias' || composite; field.required = mode !== 'alias' && !composite;
       alias.hidden = mode !== 'alias'; alias.required = mode === 'alias';
       picker.hidden = mode === 'alias' || type !== 'Color';
       aliasSelect(alias.id, type, category, null);
@@ -154,8 +240,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const mode = el('token-mode').value, type = typeOf(item), category = categoryOf(item);
     const literal = el('token-value'), picker = el('token-value-picker'), alias = el('token-value-alias');
     const preset = el('token-font-weight-preset');
+    const composite = type === 'Typography' && mode !== 'alias';
+    refreshTypographyFields('token', composite);
     alias.hidden = mode !== 'alias'; alias.required = mode === 'alias';
-    literal.hidden = mode === 'alias'; literal.required = mode !== 'alias';
+    literal.hidden = mode === 'alias' || composite; literal.required = mode !== 'alias' && !composite;
     picker.hidden = mode === 'alias' || type !== 'Color';
     preset.hidden = mode === 'alias' || type !== 'FontWeight';
     aliasSelect(alias.id, type, category, item.id);
@@ -172,6 +260,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const alias = el('token-value-alias');
     alias.value = expression?.tokenId ?? '';
     refreshSetMode();
+    if (typeOf(item) === 'Typography') loadTypographyFields('token', expression);
     if (expression?.expression === 'alias') alias.value = expression.tokenId;
     el('token-font-weight-preset').value = typeOf(item) === 'FontWeight'
       ? (['400', '500', '600', '700'].includes(el('token-value').value) ? el('token-value').value : '') : '';
@@ -219,7 +308,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const pair = `Light: ${describe(item.values.Light)}; Dark: ${describe(item.values.Dark)}`;
     el('token-values').textContent = categoryOf(item) ? `${typeOf(item)}.${categoryOf(item)} · ${pair}` : pair;
     el('token-edit').hidden = !editable();
-    el('token-set').hidden = typeOf(item) === 'Typography';
+    el('token-set').hidden = false;
     el('token-name').value = item.name;
     setEditorFromTheme();
     const usages = el('token-usages'); usages.replaceChildren();
@@ -300,8 +389,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const id = crypto.randomUUID(), values = {};
       for (const theme of ['Light', 'Dark']) {
         const prefix = 'new-token-' + theme.toLowerCase();
-        values[theme] = expressionFor(type, category, el(prefix + '-mode').value,
-          el(prefix).value.trim(), el(prefix + '-alias').value);
+        values[theme] = type === 'Typography' && el(prefix + '-mode').value === 'literal'
+          ? saveTypographyFields(prefix)
+          : expressionFor(type, category, el(prefix + '-mode').value,
+            el(prefix).value.trim(), el(prefix + '-alias').value);
       }
       tokenCommand('add-token', { tokenId: id, name: el('new-token-name').value, type: typeIndex(type),
         category: categoryIndex(category), values }, id);
@@ -322,11 +413,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         if (!allowedAliases(type, category, item.id).some(t => t.id === targetId))
           throw new Error('Выберите совместимый токен для алиаса.');
         return { expression: 'alias', tokenId: targetId };
-      })() : literalExpression(type, category, el('token-value').value.trim());
+      })() : type === 'Typography' ? saveTypographyFields('token')
+        : literalExpression(type, category, el('token-value').value.trim());
       tokenCommand('set-token-value', { tokenId: item.id,
         theme: el('token-theme').value === 'Light' ? 0 : 1, value });
     } catch (error) { el('tokens-error').textContent = error.message; }
   });
+  for (const prefix of typographyPrefixes) loadTypographyFields(prefix, null);
   updateCategoryOptions();
   return { reset: resetTokens, read: readTokens, apply: applyTokens,
     readSelectedUsages, applySelectedUsages, get items() { return tokenItems; } };

@@ -29,6 +29,7 @@ public static class DocumentScreenLayout
                 Children(screen.Id, screen.ChildIds)) { Overflow = LayoutOverflow.Clip };
             var nodes = document.Nodes.ToLookup(node => node.Id);
             var tokens = new DesignTokenResolver(document.Tokens);
+            var styles = new DesignStyleResolver(document, profile!);
             var layoutNodes = new List<LayoutNode> { root };
             var visited = new HashSet<Guid> { screen.Id };
             var pending = new Stack<(Guid ParentId, Guid ChildId, int Depth)>();
@@ -46,7 +47,9 @@ public static class DocumentScreenLayout
                 // Keep every edge for the engine to diagnose repeated children or cycles.
                 if (!visited.Add(childId)) continue;
                 var source = matches[0];
-                var node = ProjectNode(source, profile!, tokens, theme);
+                var effective = styles.EffectiveNode(source, theme);
+                var projectedSource = source with { Properties = source.Properties.SetItems(effective) };
+                var node = ProjectNode(projectedSource, profile!, tokens, theme);
                 if (DocumentStructureValidator.ValidateNodeProperties(document, source, profile!, tokens, theme).FirstOrDefault() is { } error)
                     throw Invalid(error.Code, error.ObjectId, error.Property ?? "properties", error.Message);
                 layoutNodes.Add(node);
@@ -72,6 +75,10 @@ public static class DocumentScreenLayout
         catch (InvalidLayout error)
         {
             return new([], [error.Diagnostic]);
+        }
+        catch (DesignStyleException error)
+        {
+            return new([], [new(error.Code, error.StyleId, error.Field, error.Message)]);
         }
     }
 

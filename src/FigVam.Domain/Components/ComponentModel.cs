@@ -3,7 +3,7 @@ using FigVam.Domain.Tokens;
 
 namespace FigVam.Domain.Components;
 
-public enum ComponentParameterType { Text, Asset, Bool, Number, TokenReference, Enum }
+public enum ComponentParameterType { Text, Asset, Bool, Number, TokenReference, Enum, StyleReference }
 public enum ComponentVariantKind { Default, Hover, Disabled, Selected, Custom }
 
 [System.Text.Json.Serialization.JsonPolymorphic(TypeDiscriminatorPropertyName = "valueType")]
@@ -12,6 +12,7 @@ public enum ComponentVariantKind { Default, Hover, Disabled, Selected, Custom }
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentBool), "bool")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentNumber), "number")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentToken), "token")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentStyle), "style")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(ComponentEnum), "enum")]
 public abstract record ComponentValue;
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
@@ -25,12 +26,16 @@ public sealed record ComponentNumber([property: System.Text.Json.Serialization.J
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ComponentToken([property: System.Text.Json.Serialization.JsonRequired] Guid TokenId) : ComponentValue;
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public sealed record ComponentStyle([property: System.Text.Json.Serialization.JsonRequired] Guid StyleId) : ComponentValue;
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed record ComponentEnum([property: System.Text.Json.Serialization.JsonRequired] string Value) : ComponentValue;
 
 public sealed record ComponentParameter(Guid Id, string Name, ComponentParameterType Type,
     ComponentValue DefaultValue, TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    TokenCategory? TokenCategory = null);
+    TokenCategory? TokenCategory = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    DesignStyleType? StyleType = null);
 public sealed record ComponentParameterBinding(Guid ParameterId, Guid NodeId, string Property);
 public sealed record ComponentSlot(Guid Id, string Name, Guid ContainerNodeId);
 public sealed record ComponentVariant(Guid Id, string Name, ComponentVariantKind Kind,
@@ -91,6 +96,7 @@ public static class ComponentValidator
         }
         foreach (var n in model.Structure.Nodes) Register(n.Id, "node");
         foreach (var t in model.Tokens) Register(t.Id, "token");
+        foreach (var style in model.Structure.Styles) Register(style.Id, "design style");
         foreach (var a in model.AssetIds) Register(a, "asset");
         foreach (var d in model.Definitions)
         {
@@ -111,6 +117,7 @@ public static class ComponentValidator
         var nodes = model.Structure.Nodes.DistinctBy(n => n.Id).ToDictionary(n => n.Id);
         var definitions = model.Definitions.DistinctBy(d => d.Id).ToDictionary(d => d.Id);
         var tokens = model.Tokens.DistinctBy(t => t.Id).ToDictionary(t => t.Id);
+        var styles = model.Structure.Styles.DistinctBy(s => s.Id).ToDictionary(s => s.Id);
         var subtrees = definitions.Values.ToDictionary(d => d.Id, d => Descendants(nodes, d.RootNodeId));
         void Value(Guid owner, ComponentParameter parameter, ComponentValue value)
         {
@@ -121,11 +128,15 @@ public static class ComponentValidator
                 (ComponentParameterType.Bool, ComponentBool) => true,
                 (ComponentParameterType.Number, ComponentNumber number) => double.IsFinite(number.Value),
                 (ComponentParameterType.TokenReference, ComponentToken) => true,
+                (ComponentParameterType.StyleReference, ComponentStyle) => true,
                 (ComponentParameterType.Enum, ComponentEnum item) => parameter.EnumValues?.Contains(item.Value) == true,
                 _ => false
             };
             if (!matches) errors.Add(new("incompatible-value", owner, parameter.Id, "Value is incompatible with the parameter contract."));
             if (value is ComponentAsset asset) Reference(owner, asset.AssetId, "asset");
+            if (value is ComponentStyle style && Reference(owner, style.StyleId, "design style") &&
+                styles[style.StyleId].Type != parameter.StyleType)
+                errors.Add(new("style-type-mismatch", owner, style.StyleId, "Style has an incompatible type."));
             if (value is ComponentToken token && Reference(owner, token.TokenId, "token") &&
                 (tokens[token.TokenId].Type != parameter.TokenType ||
                  tokens[token.TokenId].Category != parameter.TokenCategory))
@@ -155,6 +166,8 @@ public static class ComponentValidator
                     (p.Type == ComponentParameterType.TokenReference ? p.TokenType is null || !Enum.IsDefined(p.TokenType.Value) ||
                         !DesignTokenValidator.ValidCategory(p.TokenType.Value, p.TokenCategory) :
                         p.TokenType is not null || p.TokenCategory is not null) ||
+                    (p.Type == ComponentParameterType.StyleReference
+                       ? p.StyleType is null || !Enum.IsDefined(p.StyleType.Value) : p.StyleType is not null) ||
                     (p.Type == ComponentParameterType.Enum ? p.EnumValues is null || p.EnumValues.Count == 0 ||
                         p.EnumValues.Any(string.IsNullOrWhiteSpace) || p.EnumValues.Distinct().Count() != p.EnumValues.Count : p.EnumValues is not null))
                     errors.Add(new("invalid-parameter", p.Id, null, "Parameter type metadata is inconsistent."));
@@ -420,7 +433,7 @@ public static class ComponentOperations
                 var before = source.Parameters.Single(p => p.Id == sourceId);
                 var after = target.Parameters.Single(p => p.Id == targetId);
                 if (before.Type != after.Type || before.TokenType != after.TokenType ||
-                    before.TokenCategory != after.TokenCategory ||
+                    before.TokenCategory != after.TokenCategory || before.StyleType != after.StyleType ||
                     (before.Type == ComponentParameterType.Enum && before.EnumValues!.Except(after.EnumValues!).Any()))
                     throw new InvalidOperationException("Mapped parameters must have compatible types and allowed values.");
             }

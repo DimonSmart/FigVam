@@ -9,7 +9,8 @@ const labels = {
   fontSize: 'Размер шрифта', fontFamily: 'Семейство шрифта', fontFallback: 'Запасное семейство шрифта',
   fontWeight: 'Толщина шрифта', fontStyle: 'Начертание', lineHeight: 'Межстрочный интервал', wrap: 'Перенос строк',
   enabled: 'Доступность', placeholder: 'Подсказка', value: 'Демонстрационное значение', multiline: 'Многострочный режим',
-  inputType: 'Тип ввода',
+  inputType: 'Тип ввода', textStyle: 'Стиль текста', borderStyle: 'Стиль рамки',
+  typography: 'Типографика',
   backgroundColor: 'Цвет фона', borderColor: 'Цвет рамки', borderWidth: 'Толщина рамки', cornerRadius: 'Радиус углов',
   asset: 'Ассет', altText: 'Альтернативное описание', fit: 'Режим отображения'
 };
@@ -158,12 +159,16 @@ function scalarControl(name, definition, model, initial, compactGeometry = false
   const choices = {
     Asset: () => assets.map(asset => [asset.id, `PNG ${asset.width} × ${asset.height} · ${asset.id}`]),
     TokenReference: () => tokenChoices(model.tokens, definition.tokenType),
+    StyleReference: () => [...(model.styles?.values() ?? [])]
+      .filter(style => style.type === definition.styleType)
+      .map(style => [style.id, style.name]),
     Enum: () => definition.enumValues.map(option => [option, option])
   }[type]?.();
-  const referenceKey = { Asset: 'assetId', TokenReference: 'tokenId' }[type];
+  const referenceKey = { Asset: 'assetId', TokenReference: 'tokenId', StyleReference: 'styleId' }[type];
   const placeholder = {
     Asset: assets.length ? 'Выберите ассет' : 'В документе нет ассетов',
-    TokenReference: choices?.length ? 'Выберите токен' : 'Нет доступных токенов'
+    TokenReference: choices?.length ? 'Выберите токен' : 'Нет доступных токенов',
+    StyleReference: choices?.length ? 'Выберите стиль' : 'Нет стилей данного типа'
   }[type];
   let input;
   if (choices) input = selectChoices(choices, placeholder);
@@ -204,7 +209,7 @@ function scalarControl(name, definition, model, initial, compactGeometry = false
     if (input.validity.valueMissing) return invalid('Заполните поле.');
     const value = type === 'Number' ?
       (compactGeometry ? Number(input.valueAsNumber.toFixed(2)) : input.valueAsNumber) : raw;
-    return { value: { type: type === 'TokenReference' ? 'token' : type.toLowerCase(), [referenceKey ?? 'value']: value } };
+    return { value: { type: type === 'TokenReference' ? 'token' : type === 'StyleReference' ? 'style' : type.toLowerCase(), [referenceKey ?? 'value']: value } };
   }
   return {
     content: [labeled(propertyLabel(name), input)],

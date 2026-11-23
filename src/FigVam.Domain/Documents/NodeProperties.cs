@@ -10,6 +10,8 @@ namespace FigVam.Domain.Documents;
 [JsonDerivedType(typeof(NodeBooleanValue), "boolean")]
 [JsonDerivedType(typeof(NodeAssetValue), "asset")]
 [JsonDerivedType(typeof(NodeTokenValue), "token")]
+[JsonDerivedType(typeof(NodeStyleValue), "style")]
+[JsonDerivedType(typeof(NodeTypographyValue), "typography")]
 [JsonDerivedType(typeof(NodeEnumValue), "enum")]
 [JsonDerivedType(typeof(NodeColorValue), "color")]
 public abstract record NodePropertyValue;
@@ -18,11 +20,13 @@ public sealed record NodeNumberValue(double Value) : NodePropertyValue;
 public sealed record NodeBooleanValue(bool Value) : NodePropertyValue;
 public sealed record NodeAssetValue(Guid AssetId) : NodePropertyValue;
 public sealed record NodeTokenValue(Guid TokenId) : NodePropertyValue;
+public sealed record NodeStyleValue(Guid StyleId) : NodePropertyValue;
+public sealed record NodeTypographyValue(TokenValue Value) : NodePropertyValue;
 public sealed record NodeEnumValue(string Value) : NodePropertyValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record NodeColorValue([property: JsonRequired] byte Red, [property: JsonRequired] byte Green,
     [property: JsonRequired] byte Blue, byte Alpha = 255) : NodePropertyValue;
-public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color }
+public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color, StyleReference }
 
 // The profile supplies target-specific restrictions and their diagnostic reasons.
 public sealed record NodePropertyDefinition(
@@ -31,7 +35,8 @@ public sealed record NodePropertyDefinition(
     TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenCategory? TokenCategory = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenType? LegacyTokenType = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NumericFontWeight = false)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NumericFontWeight = false,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] DesignStyleType? StyleType = null)
 {
     public NodePropertyValue? DefaultValue { get; init; }
     public bool Required { get; init; }
@@ -60,6 +65,7 @@ public static class NodePropertyValidator
             (NodePropertyType.Boolean, NodeBooleanValue) => true,
             (NodePropertyType.Asset, NodeAssetValue) => true,
             (NodePropertyType.TokenReference, NodeTokenValue) => true,
+            (NodePropertyType.StyleReference, NodeStyleValue) => true,
             (NodePropertyType.Enum, NodeEnumValue) => true,
             (NodePropertyType.Color, NodeColorValue) => true,
             (NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum, NodeTokenValue)
@@ -91,7 +97,8 @@ public static class NodePropertyValidator
                 return new("INVALID_PROPERTY_VALUE", $"Property '{property}' must match the declared format.");
         }
         if (value is NodeAssetValue { AssetId: var asset } && asset == Guid.Empty ||
-            value is NodeTokenValue { TokenId: var token } && token == Guid.Empty)
+            value is NodeTokenValue { TokenId: var token } && token == Guid.Empty ||
+            value is NodeStyleValue { StyleId: var style } && style == Guid.Empty)
             return new("INVALID_PROPERTY_VALUE", "Reference IDs must be nonempty.");
         // Custom literal validators operate on the resolved value, not on its token ID.
         if (value is NodeTokenValue && definition.Type != NodePropertyType.TokenReference)
@@ -171,6 +178,13 @@ public static class NodePropertyValidator
     {
         if (value is NodeTokenValue reference)
             return ValidateTokenReference(tokens, definition, property, reference, theme);
+        if (value is NodeStyleValue style)
+        {
+            var target = document.Styles?.FirstOrDefault(s => s.Id == style.StyleId);
+            if (target is null) return ("missing-reference", style.StyleId, "Referenced design style does not exist.");
+            if (definition?.Type != NodePropertyType.StyleReference || definition.StyleType != target.Type)
+                return ("type-mismatch", style.StyleId, "Design style type does not match the property.");
+        }
         if (value is NodeAssetValue asset && !document.Assets.Any(a => a.Id == asset.AssetId))
             return ("missing-reference", asset.AssetId, "Referenced asset does not exist in this document snapshot.");
         return null;

@@ -66,4 +66,55 @@ public class DesignTokenTests
         Assert.DoesNotContain(errors, e => e.Code == "alias-cycle" && e.Theme == TokenTheme.Dark);
         Assert.Contains(DesignTokenValidator.Validate([tokens[0], tokens[0]]), e => e.Code == "duplicate-id");
     }
+
+    [Fact]
+    public void CompositeTypographyResolvesFieldReferencesForEachTheme()
+    {
+        var familyId = Guid.NewGuid(); var sizeId = Guid.NewGuid();
+        var weightId = Guid.NewGuid(); var lineId = Guid.NewGuid();
+        var textId = Guid.NewGuid(); var aliasId = Guid.NewGuid();
+        var composite = new TypographyFieldsValue(
+            new TokenAlias(familyId), new TokenAlias(sizeId), new TokenAlias(weightId), new TokenAlias(lineId));
+        DesignToken[] tokens =
+        [
+            new(familyId, "font.base", TokenType.FontFamily,
+                Both(Literal(new FontFamilyValue("Arial")), Literal(new FontFamilyValue("Verdana")))),
+            new(sizeId, "size.heading", TokenType.Dimension,
+                Both(Literal(new DimensionValue(24)), Literal(new DimensionValue(28))), TokenCategory.FontSize),
+            new(weightId, "weight.strong", TokenType.FontWeight,
+                Both(Literal(new FontWeightValue(700)), Literal(new FontWeightValue(600)))),
+            new(lineId, "leading", TokenType.Number,
+                Both(Literal(new NumberValue(1.5)), Literal(new NumberValue(1.25))), TokenCategory.LineHeight),
+            new(textId, "typography.heading", TokenType.Typography, Both(Literal(composite), Literal(composite))),
+            new(aliasId, "typography.alias", TokenType.Typography, Both(new TokenAlias(textId), new TokenAlias(textId)))
+        ];
+        Assert.Empty(DesignTokenValidator.Validate(tokens));
+        Assert.Equal(new TypographyValue("Arial", 24, 700, 1.5),
+            DesignTokenValidator.Resolve(tokens, aliasId, TokenTheme.Light).Value);
+        Assert.Equal(new TypographyValue("Verdana", 28, 600, 1.25),
+            DesignTokenValidator.Resolve(tokens, textId, TokenTheme.Dark).Value);
+    }
+
+    [Fact]
+    public void CompositeTypographyRejectsWrongCategoryMissingAndInvalidFieldValue()
+    {
+        var sizeId = Guid.NewGuid(); var textId = Guid.NewGuid();
+        var missing = Guid.NewGuid();
+        var fields = new TypographyFieldsValue(
+            new LiteralTokenValue(new FontFamilyValue("Arial")),
+            new TokenAlias(sizeId),
+            new LiteralTokenValue(new FontWeightValue(1200)),
+            new TokenAlias(missing));
+        DesignToken[] tokens =
+        [
+            new(sizeId, "size.wrong", TokenType.Dimension,
+                Both(Literal(new DimensionValue(18)), Literal(new DimensionValue(18))), TokenCategory.Radius),
+            new(textId, "composite", TokenType.Typography, Both(Literal(fields), Literal(fields)))
+        ];
+        var errors = DesignTokenValidator.Validate(tokens);
+        Assert.Contains(errors, d => d.Code == "type-mismatch" && d.TokenId == textId && d.Field == "fontSize");
+        Assert.Contains(errors, d => d.Code == "type-mismatch" && d.TokenId == textId && d.Field == "fontWeight");
+        Assert.Contains(errors, d => d.Code == "missing-reference" && d.TokenId == textId && d.Field == "lineHeight" && d.ReferenceId == missing);
+        Assert.False(DesignTokenValidator.Resolve(tokens, textId, TokenTheme.Light).IsSuccess);
+    }
 }

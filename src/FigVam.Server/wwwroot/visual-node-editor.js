@@ -13,6 +13,9 @@ export function createVisualNodeEditor({
   const paletteProperties = element('visual-required-properties');
   const paletteOptional = element('visual-optional-properties'), paletteDetails = element('visual-optional-details');
   const inspectorProperties = element('visual-properties');
+  const textStyledFields = new Set(['textColor', 'fontFamily', 'fontSize', 'fontWeight',
+    'lineHeight', 'fontStyle', 'fontFallback']);
+  const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius']);
   const operations = new Map(), paletteDrafts = new Map(), inspectorDrafts = new Map(), canvasDrafts = new Map();
   let context, model, modelKey, resolvedModelKey, modelScope, loadedKey, loadError = '', queued = false;
   let palette, inspector, node, paletteFields = new Map(), paletteOptionalFields = new Map(), inspectorFields = new Map();
@@ -189,6 +192,28 @@ export function createVisualNodeEditor({
       if (prefix === 'visual-property') {
         const overridden = Boolean(context.variantId && model?.overridden?.get(node?.id)?.has(name));
         field.row.dataset.variantOverride = String(overridden);
+        const hasStyle = textStyledFields.has(name) ? node?.properties.textStyle?.type === 'style'
+          || node?.properties.typography?.type === 'token' && name !== 'textColor'
+          : borderStyledFields.has(name) && node?.properties.borderStyle?.type === 'style';
+        const localOverride = !context.variantId && hasStyle && node?.properties[name] !== undefined;
+        field.row.dataset.styleOverride = String(Boolean(localOverride));
+        let styleReset = field.row.querySelector('.style-override-reset');
+        if (!styleReset && localOverride && state) {
+          styleReset = document.createElement('button');
+          styleReset.className = 'style-override-reset';
+          styleReset.type = 'button';
+          styleReset.textContent = 'Сбросить к стилю';
+          styleReset.setAttribute('aria-label', 'Сбросить к стилю: ' + propertyLabel(name));
+          styleReset.addEventListener('click', () => {
+            const current = getContext();
+            if (current.variantId || !node || !canEdit(current.documentRole)) return;
+            begin('remove-node-properties', {
+              nodeId: node.id, properties: [name], expectedRevision: current.revision
+            }, inspector);
+          });
+          field.row.append(styleReset);
+        }
+        if (styleReset) styleReset.hidden = !localOverride || !state;
         let reset = field.row.querySelector('.variant-override-reset');
         if (!reset && overridden && state) {
           reset = document.createElement('button');
@@ -255,7 +280,7 @@ export function createVisualNodeEditor({
     if (!context) return;
     const op = operations.get(scopeKey(context));
     const adding = op?.command === 'add-node',
-      editing = ['set-node-properties', 'set-screen-variant-properties', 'remove-screen-variant-override'].includes(op?.command) && !op.canvas;
+      editing = ['set-node-properties', 'set-screen-variant-properties', 'remove-screen-variant-override', 'remove-node-properties'].includes(op?.command) && !op.canvas;
     const canvas = canvasDrafts.get(scopeKey(context));
     const editable = canEdit(context.documentRole);
     // An old inspector snapshot is visible while synchronizing, but it must not submit stale edits.

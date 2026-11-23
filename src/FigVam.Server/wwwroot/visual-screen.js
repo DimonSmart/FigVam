@@ -123,10 +123,11 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     if (resources) return resources;
     const signal = controller.signal;
     const tokens = new Map(context.tokens.map(token => [token.id, token]));
+    const styles = new Map((context.styles ?? []).map(style => [style.id, style]));
     const loading = Promise.all([readPath('profile', {}, signal), readPath('assets', {}, signal)])
       .then(([profile, manifest]) => {
         const result = { kinds: new Map(profile.kinds.map(kind => [kind.kind, kind])),
-          assets: new Map(manifest.assets.map(asset => [asset.id, asset])), tokens };
+          assets: new Map(manifest.assets.map(asset => [asset.id, asset])), tokens, styles };
         if (resources === loading) loadedResources = result;
         return result;
       }).catch(error => {

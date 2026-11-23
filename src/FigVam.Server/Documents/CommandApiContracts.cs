@@ -74,6 +74,29 @@ public sealed class AddComponentDefinitionRequest
     [StringLength(4096)] public required string Description { get; init; }
 }
 
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class UpsertStyleRequest
+{
+    public required Guid CommandId { get; init; }
+    [Required] public required FigVam.Domain.Documents.DesignStyle Style { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class DeleteStyleRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid StyleId { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+}
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class RemoveNodePropertiesRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid NodeId { get; init; }
+    [Required] public required IReadOnlyList<string> Properties { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+}
+
 public sealed class AddTokenRequest
 {
     public required Guid CommandId { get; init; }
@@ -125,6 +148,7 @@ public sealed class AddComponentParameterRequest
     [Required] public required FigVam.Domain.Components.ComponentValue DefaultValue { get; init; }
     public FigVam.Domain.Tokens.TokenType? TokenType { get; init; }
     public FigVam.Domain.Tokens.TokenCategory? TokenCategory { get; init; }
+    public FigVam.Domain.Documents.DesignStyleType? StyleType { get; init; }
     public IReadOnlyList<string>? EnumValues { get; init; }
     public required Guid NodeId { get; init; }
     [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; }

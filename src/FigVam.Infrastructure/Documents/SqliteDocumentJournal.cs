@@ -166,7 +166,7 @@ public sealed partial class SqliteDocumentJournal
         var subjectId = Guid.Parse(reader.GetString(2));
         return reader.GetString(1) switch
         {
-            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "DUPLICATE_SCREEN" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "SET_SCREEN_VARIANT_PROPERTIES" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
+            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "DUPLICATE_SCREEN" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "SET_SCREEN_VARIANT_PROPERTIES" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "UPSERT_STYLE" or "DELETE_STYLE" or "REMOVE_NODE_PROPERTIES" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
             "SET_NODE_PROPERTIES" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is NodePropertiesSet properties &&
@@ -278,6 +278,9 @@ public sealed partial class SqliteDocumentJournal
                     ComponentDefinitionAdded component => ("ADD_COMPONENT_DEFINITION", component.Definition.Id, (Guid?)null, (Guid?)null, (string?)null),
                     TokensImported => ("IMPORT_DESIGN_TOKENS", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     TokenAdded token => ("ADD_TOKEN", token.Token.Id, (Guid?)null, (Guid?)null, (string?)null),
+                    StyleUpserted style => ("UPSERT_STYLE", style.Style.Id, (Guid?)null, (Guid?)null, (string?)null),
+                    StyleDeleted style => ("DELETE_STYLE", style.StyleId, (Guid?)null, (Guid?)null, (string?)null),
+                    NodePropertiesRemoved removed => ("REMOVE_NODE_PROPERTIES", removed.NodeId, (Guid?)null, (Guid?)null, (string?)null),
                     DocumentRenamed => ("RENAME_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     PageRenamed page when change.Result.PageId == page.PageId
                         => ("RENAME_PAGE", page.PageId, (Guid?)null, (Guid?)null, (string?)null),
@@ -347,7 +350,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded added
@@ -687,6 +690,27 @@ public sealed partial class SqliteDocumentJournal
                         break;
                     case TokenAdded token:
                         document = document with { Tokens = document.Tokens.Append(token.Token).ToArray() };
+                        break;
+                    case StyleUpserted style:
+                        document = document with { Styles = document.Styles.Any(item => item.Id == style.Style.Id)
+                            ? document.Styles.Select(item => item.Id == style.Style.Id ? style.Style : item).ToArray()
+                            : [.. document.Styles, style.Style] };
+                        Validate(document);
+                        break;
+                    case StyleDeleted style:
+                        if (!document.Styles.Any(item => item.Id == style.StyleId))
+                            throw new InvalidDataException("Style event references a missing design style.");
+                        document = document with { Styles = document.Styles.Where(item => item.Id != style.StyleId).ToArray() };
+                        Validate(document);
+                        break;
+                    case NodePropertiesRemoved removed:
+                        var resetTarget = document.Nodes.FirstOrDefault(n => n.Id == removed.NodeId);
+                        if (resetTarget is null || removed.Properties is not { Count: > 0 } ||
+                            removed.Properties.Any(property => !resetTarget.Properties.ContainsKey(property)))
+                            throw new InvalidDataException("Style reset event has invalid node or properties.");
+                        document = document with { Nodes = document.Nodes.Select(n => n.Id == removed.NodeId
+                            ? n with { Properties = n.Properties.RemoveRange(removed.Properties) } : n).ToArray() };
+                        Validate(document);
                         break;
                     case DocumentRenamed renamed:
                         if (!DocumentNameValidator.IsValid(renamed.Name)) throw new InvalidDataException("Invalid document rename event.");
