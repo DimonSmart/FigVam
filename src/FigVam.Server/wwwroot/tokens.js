@@ -310,6 +310,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-values').textContent = categoryOf(item) ? `${typeOf(item)}.${categoryOf(item)} · ${pair}` : pair;
     el('token-edit').hidden = !editable();
     el('token-set').hidden = false;
+    el('token-delete').disabled = tokenUsages.length > 0;
+    el('token-delete').title = tokenUsages.length ? 'У токена есть зависимости: ' + tokenUsages.length : 'Удалить токен';
     el('token-name').value = item.name;
     setEditorFromTheme();
     const usages = el('token-usages'); usages.replaceChildren();
@@ -417,6 +419,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       tokenCommand('add-token', { tokenId: id, name: el('new-token-name').value, type: typeIndex(type),
         category: categoryIndex(category), values }, id);
     } catch (error) { el('tokens-error').textContent = error.message; }
+  });
+  el('token-delete').addEventListener('click', () => {
+    if (!selectedToken || tokenUsages.length) return;
+    tokenCommand('delete-token', { tokenId: selectedToken, expectedRevision: getContext().revision });
   });
   el('token-rename').addEventListener('submit', event => {
     event.preventDefault();
