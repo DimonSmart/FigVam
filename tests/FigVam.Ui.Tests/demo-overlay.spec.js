@@ -46,6 +46,14 @@ test('demo panel stays visible in the real FigVam editor after navigating into a
 
   const banner = page.locator('#' + HOST_ID);
   await expect(banner).toBeInViewport();
+  // A real FigVam response enforces style-src 'self'. The panel must still
+  // have a rendered translucent background (not just unstyled text).
+  const panel = banner.locator('.panel');
+  await expect(panel).toHaveCSS('background-color', 'rgba(12, 18, 30, 0.92)');
+  await expect(panel).toHaveCSS('color', 'rgb(255, 255, 255)');
+  await expect(panel).toHaveCSS('border-top-style', 'solid');
+  await expect(panel).toHaveCSS('border-top-width', '1px');
+  await expect(panel).toHaveCSS('padding-top', '9px');
   await page.getByLabel('Имя нового документа').fill('Demo banner smoke');
   await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
