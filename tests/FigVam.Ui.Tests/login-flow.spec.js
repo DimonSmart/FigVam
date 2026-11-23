@@ -1,5 +1,6 @@
 const { test, expect, bearer } = require('./fixtures');
 const { show } = require('./ui-panels');
+const { createDemo } = require('./demo-overlay');
 
 async function signIn(page) {
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
@@ -98,9 +99,11 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
 }
 
 test('designs a login with password, independent variants, scenarios, duplication and reload through UI', async ({ page, request, server, browser }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(process.env.PWDEBUG ? 0 : (process.env.FIGVAM_DEMO === '1' ? 15 * 60_000 : 180_000));
+  const demo = createDemo(page, 19);
   await page.setViewportSize({ width: 1700, height: 1100 });
   await page.goto(server.url);
+  await demo.step('Создаём документ и экран', 'Начинаем отдельный прототип Login Prototype.');
   await signIn(page);
   await page.getByLabel('Имя нового документа').fill('Login Prototype');
   await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
@@ -116,25 +119,33 @@ test('designs a login with password, independent variants, scenarios, duplicatio
 
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   const loginScreen = await createScreen(page, 'Login');
+  await demo.step('Добавляем контейнер формы', 'Frame задаёт область диалога и размещение дочерних элементов.');
   const frame = await addLayer(page, 'Frame');
   await saveProperties(page, { X: 50, Y: 40, 'Ширина': 450, 'Высота': 370 });
+  await demo.step('Добавляем заголовок', 'Создаём текст Sign in внутри контейнера.');
   const title = await addLayer(page, 'Text', frame);
   await saveProperties(page, { X: 20, Y: 20, 'Текст': 'Sign in' });
+  await demo.step('Добавляем поле имени пользователя', 'Создаём TextInput с подсказкой Username.');
   const username = await addLayer(page, 'TextInput', frame);
   await saveProperties(page, { X: 20, Y: 85, 'Подсказка': 'Username' });
+  await demo.step('Добавляем поле пароля', 'Переключаем TextInput в режим Password с маскировкой ввода.');
   const password = await addLayer(page, 'TextInput', frame);
   await saveProperties(page, { X: 20, Y: 145, 'Подсказка': 'Password' }, {}, { 'Тип ввода': 'Password' });
+  await demo.step('Добавляем кнопку входа', 'Создаём кнопку Login и настраиваем её положение.');
   const loginButton = await addLayer(page, 'Button', frame);
   await saveProperties(page, { X: 20, Y: 205, 'Текст': 'Login' });
+  await demo.step('Готовим сообщения для разных состояний', 'Добавляем тексты Invalid password и Account locked. По умолчанию оба скрыты.');
   const error = await addLayer(page, 'Text', frame);
   await saveProperties(page, { X: 20, Y: 260, 'Текст': 'Invalid password' }, { 'Видимость': false });
   const locked = await addLayer(page, 'Text', frame);
   await saveProperties(page, { X: 20, Y: 295, 'Текст': 'Account locked' }, { 'Видимость': false });
+  await demo.step('Добавляем демонстрационные кнопки', 'Они позволят вручную показать блокировку и успешный вход в Preview.');
   const lockedButton = await addLayer(page, 'Button', frame);
   await saveProperties(page, { X: 200, Y: 205, 'Текст': 'Lock account' });
   const successButton = await addLayer(page, 'Button', frame);
   await saveProperties(page, { X: 200, Y: 260, 'Текст': 'Continue' });
 
+  await demo.step('Создаём вариант InvalidPassword', 'Вариант показывает ошибку и меняет геометрию, не затрагивая Base.');
   const invalidVariant = await addVariant(page, 'InvalidPassword');
   await selectLayer(page, error);
   await saveProperties(page, {}, { 'Видимость': true });
@@ -155,10 +166,12 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await useVariant(page, invalidVariant);
   await selectLayer(page, error);
   await expect(page.locator('#visual-inspector').getByRole('spinbutton', { name: 'X', exact: true })).not.toHaveValue('20');
+  await demo.step('Создаём вариант AccountLocked', 'Показываем сообщение о блокировке и отключаем кнопку Login.');
   const lockedVariant = await addVariant(page, 'AccountLocked');
   await selectLayer(page, locked);
   await saveProperties(page, {}, { 'Видимость': true });
   await selectLayer(page, loginButton);
+  await demo.step('Проверяем независимость состояний', 'Убеждаемся, что изменения вариантов не повредили базовый экран.');
   await saveProperties(page, {}, { 'Доступность': false });
   await useVariant(page, invalidVariant);
   await selectLayer(page, error);
@@ -168,6 +181,7 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await expect(page.locator('#visual-inspector').getByRole('checkbox', { name: 'Видимость' })).not.toBeChecked();
   const baseBefore = await read();
 
+  await demo.step('Создаём экран успешного входа', 'Добавляем отдельный экран Success с сообщением Welcome!');
   const successScreen = await createScreen(page, 'Success');
   const successText = await addLayer(page, 'Text');
   await saveProperties(page, { 'Текст': 'Welcome!' });
@@ -181,11 +195,13 @@ test('designs a login with password, independent variants, scenarios, duplicatio
     await frameRow.locator(':scope > .layer-label').click();
   await expect(page.locator(`#layers [data-id="${loginButton}"]`)).toBeVisible();
 
+  await demo.step('Настраиваем переходы между состояниями', 'Связываем Click и Submit с ShowVariant и Navigate.');
   await scenario(page, loginButton, 0, 'showVariant', invalidVariant);
   await scenario(page, password, 4, 'showVariant', invalidVariant);
   await scenario(page, lockedButton, 0, 'showVariant', lockedVariant);
   await scenario(page, successButton, 0, 'navigate', undefined, successScreen);
 
+  await demo.step('Проверяем неверный пароль', 'В Preview вводим демонстрационный пароль и нажимаем Enter.');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const loginRoot = page.locator(`#preview-viewport [data-preview-screen="${loginScreen}"]`);
   const secret = loginRoot.locator(`[data-visual-node="${password}"] input`);
@@ -193,9 +209,11 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await secret.fill('example-only');
   await secret.press('Enter');
   await expect(loginRoot.locator(`[data-visual-node="${error}"]`)).toBeVisible();
+  await demo.step('Проверяем состояние блокировки', 'Сбрасываем Preview и демонстрируем вариант AccountLocked.');
   await page.getByRole('button', { name: 'Сбросить Preview' }).click();
   await loginRoot.getByRole('button', { name: 'Lock account' }).click();
   await expect(loginRoot.locator(`[data-visual-node="${locked}"]`)).toBeVisible();
+  await demo.step('Проверяем успешный вход', 'Переходим на экран Success и возвращаемся назад по истории Preview.');
   await page.getByRole('button', { name: 'Сбросить Preview' }).click();
   await loginRoot.getByRole('button', { name: 'Continue' }).click();
   await expect(page.locator('#preview-viewport')).toContainText('Welcome!');
@@ -204,6 +222,7 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   expect((await read()).screens.map(s => s.id)).toEqual(baseBefore.screens.map(s => s.id).concat(successScreen));
 
+  await demo.step('Дублируем экран логина', 'Копия получает собственные ID узлов и вариантов.');
   await show(page, 'layers');
   await page.locator('#screens .screen-select').filter({ hasText: 'Login' }).click();
   await page.locator('#screens .screen-row').first().locator('.screen-context-menu summary').click();
@@ -220,6 +239,7 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   expect(copied.variants[0].id).not.toBe(invalidVariant);
   expect(snapshot.scenarios).toHaveLength(4);
 
+  await demo.step('Сохраняем документ', 'Создаём версию Multi-state login и перезапускаем тестовый сервер.');
   await show(page, 'document');
   await page.getByLabel('Имя версии (необязательно)').fill('Multi-state login');
   const saving = page.waitForResponse(response => response.url().endsWith('/commands/save'));
@@ -232,6 +252,7 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   try {
     await reopened.goto(server.url);
     await signIn(reopened);
+    await demo.step('Проверяем восстановление', 'Все экраны, варианты и сценарии должны сохраниться после перезапуска.', reopened);
     await reopened.getByRole('link', { name: 'Login Prototype' }).click();
     await expect(reopened.locator('#screens .screen-select')).toHaveCount(3);
     await reopened.locator('#screens .screen-select').filter({ hasText: 'Login' }).first().click();

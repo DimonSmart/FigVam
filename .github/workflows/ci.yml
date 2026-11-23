@@ -60,6 +60,8 @@ jobs:
       - name: Install Chromium
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright install chromium
+      - name: UI test launcher catalog smoke
+        run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
       - name: Home dashboard smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test home.spec.js --trace retain-on-failure
