@@ -313,14 +313,33 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-name').value = item.name;
     setEditorFromTheme();
     const usages = el('token-usages'); usages.replaceChildren();
-    for (const usage of tokenUsages) {
-      const li = document.createElement('li');
-      li.textContent = [usage.kind, usage.ownerId, usage.property, usage.theme == null ? null : `тема ${usage.theme}`,
-        usage.parameterId].filter(x => x != null).join(' · ');
-      usages.append(li);
+    for (const indirect of [false, true]) {
+      const group = tokenUsages.filter(usage => Boolean(usage.indirect) === indirect);
+      if (!group.length) continue;
+      const heading = document.createElement('li');
+      heading.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + group.length;
+      heading.className = 'resource-usage-group';
+      usages.append(heading);
+      for (const usage of group) {
+        const li = document.createElement('li');
+        li.textContent = [usage.label ?? usage.kind, usage.property,
+          usage.theme == null ? null : 'тема ' + usage.theme].filter(x => x != null).join(' · ');
+        li.title = (usage.chain ?? []).map(id => tokenItems.find(t => t.id === id)?.name ?? id).join(' → ');
+        if (usage.kind === 'nodeProperty') {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = 'К слою';
+          button.addEventListener('click', () => {
+            const layer = [...document.querySelectorAll('#layers [role="treeitem"]')].find(row => row.dataset.id === usage.ownerId);
+            if (layer) layer.querySelector('.layer-label')?.click();
+          });
+          li.append(' ', button);
+        }
+        usages.append(li);
+      }
     }
     if (!tokenUsages.length) {
-      const li = document.createElement('li'); li.textContent = 'Прямых использований нет.'; usages.append(li);
+      const li = document.createElement('li'); li.textContent = 'Использований нет.'; usages.append(li);
     }
   }
   async function selectToken(id) {
