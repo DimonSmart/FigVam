@@ -206,6 +206,10 @@ internal static class DtcgTokenImporter
                                 figType = internalType;
                             }
                         }
+                        // Existing explicit legacy mappings remain valid for old files without org.figvam metadata.
+                        if (figType == TokenType.Dimension && command.DimensionTypes.TryGetValue(name, out var legacy) &&
+                            legacy is TokenType.Spacing or TokenType.Geometry)
+                            figType = legacy;
                         if (figType == TokenType.Dimension)
                         {
                             if (command.DimensionTypes.TryGetValue(name, out var mapped) && mapped != TokenType.Dimension)
@@ -226,8 +230,7 @@ internal static class DtcgTokenImporter
                         }
                         else if (category is not null)
                         { Error("invalid-category", theme + "." + name, "This token type cannot have a semantic category."); continue; }
-                        if (effective == "dimension" && figType == TokenType.Dimension && !DesignTokenValidator.ValidCategory(figType, category) ||
-                            !DesignTokenValidator.ValidCategory(figType, category))
+                        if (!DesignTokenValidator.ValidCategory(figType, category))
                         { Error("invalid-category", theme + "." + name, "Semantic category is incompatible with token type."); continue; }
                         entries.Add(name, new(figType, category, id, value.Clone()));
                     }
