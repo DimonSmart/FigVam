@@ -128,6 +128,12 @@ public sealed class DocumentFileReader(INodeProfile profile) : IDocumentFileRead
             var json = ParseJson(bytes);
             if (json is null) return Failure("INVALID_JSON", "document.json", "JSON is malformed, contains duplicate properties or exceeds limits.");
             if (json["schemaVersion"]?.ToJsonString() != "1") return Failure("UNSUPPORTED_SCHEMA_VERSION", "/schemaVersion", "Only schema version 1 is supported.");
+            // Return a precise profile diagnostic even when the fixed-version JSON schema would reject it.
+            if (json["document"]?["profile"] is System.Text.Json.Nodes.JsonObject reference &&
+                reference["id"] is JsonValue rawId && reference["version"] is JsonValue rawVersion &&
+                rawId.TryGetValue<string>(out var profileId) && rawVersion.TryGetValue<int>(out var version) &&
+                PortableUiProfileResolver.Validate(new(profileId, version), profile) is { } unsupported)
+                return Failure(unsupported.Code, "/document/profile", unsupported.Message);
             if (!DocumentSchema.Evaluate(JsonSerializer.SerializeToElement(json)).IsValid) return Failure("INVALID_SCHEMA", "document.json", "Document does not match the published schema.");
             if (json["document"]!["tokens"]!.AsArray().Any(token => token!["values"]!.AsObject().Any(value => value.Key is not "Light" and not "Dark")))
                 return Failure("INVALID_SCHEMA", "/document/tokens", "Token themes must use the declared theme names.");

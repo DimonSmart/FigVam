@@ -522,7 +522,7 @@ JSON body (`application/json`, maximum 16 MiB). `POST
 /api/v1/documents/import/container.figvam` accepts raw ZIP bytes (`application/zip`,
 maximum 80 MiB + 256 KiB). No multipart or base64 envelope is used. Published format
 schemas and reader limits above apply. Imported node kinds and properties must
-be valid for the document's profile version.
+be valid for the single supported Portable UI Profile.
 
 Success is HTTP 201 `DocumentImportResponse` with `code`, `documentId` and `revision:0`.
 The validated document and all technical IDs are preserved. One transaction creates

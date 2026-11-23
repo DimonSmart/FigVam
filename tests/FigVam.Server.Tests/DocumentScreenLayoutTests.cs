@@ -178,16 +178,6 @@ public sealed class DocumentScreenLayoutTests
         Assert.Equal(screen.Id, missingChild.ObjectId);
     }
 
-    [Fact]
-    public void InstalledLegacyProfileDoesNotSilentlyUseVersionTwoNodeDefaults()
-    {
-        var node = Node("Text");
-        var document = Document([node.Id], node) with { Profile = PortableUiProfileReference.Current };
-        var result = Calculate(document);
-        Assert.Empty(result.Boxes);
-        Assert.Equal("unknown-node-kind", Assert.Single(result.Diagnostics).Code);
-    }
-
     private static NodeStructure Node(string kind, Guid[]? children = null, params (string Name, NodePropertyValue Value)[] properties) =>
         new(Guid.NewGuid(), kind, children ?? [])
         {
