@@ -28,7 +28,8 @@ public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, E
 public sealed record NodePropertyDefinition(
     [property: JsonConverter(typeof(JsonStringEnumConverter<NodePropertyType>))] NodePropertyType Type,
     [property: JsonIgnore] Func<NodePropertyValue, string?>? ValidateValue = null,
-    TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null)
+    TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null,
+    TokenCategory? TokenCategory = null, TokenType? LegacyTokenType = null, bool NumericFontWeight = false)
 {
     public NodePropertyValue? DefaultValue { get; init; }
     public bool Required { get; init; }
@@ -59,8 +60,9 @@ public static class NodePropertyValidator
             (NodePropertyType.TokenReference, NodeTokenValue) => true,
             (NodePropertyType.Enum, NodeEnumValue) => true,
             (NodePropertyType.Color, NodeColorValue) => true,
-            (NodePropertyType.Number, NodeTokenValue) => definition.TokenType == TokenType.Spacing,
-            (NodePropertyType.Color, NodeTokenValue) => definition.TokenType == TokenType.Color,
+            (NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum, NodeTokenValue)
+                => definition.TokenType is not null,
+            (NodePropertyType.Enum, NodeNumberValue) => definition.NumericFontWeight,
             _ => false
         };
         if (!matches)
@@ -71,6 +73,9 @@ public static class NodePropertyValidator
         }
         if (value is NodeEnumValue item && definition.EnumValues?.Contains(item.Value) != true)
             return new("INVALID_PROPERTY_VALUE", $"Property '{property}' requires a declared enum value.");
+        if (value is NodeNumberValue { Value: var weight } && definition.NumericFontWeight &&
+            (weight != Math.Truncate(weight) || weight < 1 || weight > 1000))
+            return new("INVALID_PROPERTY_VALUE", "Numeric font weight must be an integer from 1 to 1000.");
         if (value is NodeNumberValue number && !double.IsFinite(number.Value) || value is NodeStringValue { Value: null })
             return new("INVALID_PROPERTY_VALUE", "Property values must contain a non-null string or a finite number.");
         if (value is NodeNumberValue numeric && (numeric.Value < definition.Minimum || numeric.Value > definition.Maximum))
@@ -89,7 +94,8 @@ public static class NodePropertyValidator
         return definition.ValidateValue?.Invoke(value!) is { } reason ? new("INVALID_PROPERTY_VALUE", reason) : null;
     }
 
-    internal static (NodeNumberValue? Value, NodePropertyError? Error) ResolveNumberToken(
+    // Shared conversion for layout, variants, and component-bound properties.
+    internal static (NodePropertyValue? Value, NodePropertyError? Error) ResolveValueToken(
         DesignTokenResolver tokens, NodePropertyDefinition definition, string property, NodeTokenValue reference, TokenTheme theme)
     {
         if (CheckTokenReference(tokens, definition, reference) is { } referenceError)
@@ -97,27 +103,46 @@ public static class NodePropertyValidator
         var result = tokens.Resolve(reference.TokenId, theme);
         if (result.Diagnostics.FirstOrDefault() is { } diagnostic)
             return (null, new(diagnostic.Code, $"{theme}: {diagnostic.Message}"));
-        if (result.Value is not SpacingValue spacing)
-            return (null, new("type-mismatch", "Token type does not match the property."));
-        var value = new NodeNumberValue(spacing.Value);
+        NodePropertyValue? value = result.Value switch
+        {
+            SpacingValue spacing => new NodeNumberValue(spacing.Value),
+            GeometryValue geometry => new NodeNumberValue(geometry.Radius),
+            DimensionValue dimension => new NodeNumberValue(dimension.Value),
+            NumberValue number => new NodeNumberValue(number.Value),
+            FontWeightValue weight => new NodeNumberValue(weight.Value),
+            FontFamilyValue family => new NodeStringValue(family.Value),
+            ColorValue color => new NodeColorValue(color.Red, color.Green, color.Blue, color.Alpha),
+            _ => null
+        };
+        if (value is null) return (null, new("type-mismatch", "Token value is not compatible with the property."));
         return Validate(definition, property, value) is { } error
             ? (null, error with { Reason = $"{theme}: {error.Reason}" }) : (value, null);
+    }
+
+    internal static (NodeNumberValue? Value, NodePropertyError? Error) ResolveNumberToken(
+        DesignTokenResolver tokens, NodePropertyDefinition definition, string property, NodeTokenValue reference, TokenTheme theme)
+    {
+        var (value, error) = ResolveValueToken(tokens, definition, property, reference, theme);
+        return (value as NodeNumberValue, error ?? (value is NodeNumberValue ? null :
+            new NodePropertyError("type-mismatch", "Token does not resolve to a number.")));
     }
 
     internal static (string Code, Guid Id, string Reason)? ValidateTokenReference(
         DesignTokenResolver tokens, NodePropertyDefinition? definition, string property, NodeTokenValue reference,
         TokenTheme? theme = null)
     {
-        if (definition?.Type == NodePropertyType.Number)
-        {
-            foreach (var applicable in theme is { } selected ? [selected] : Enum.GetValues<TokenTheme>())
-                if (ResolveNumberToken(tokens, definition, property, reference, applicable).Error is { } invalid)
-                    return (invalid.Code, reference.TokenId, invalid.Reason);
-            return null;
-        }
-        return CheckTokenReference(tokens, definition, reference) is { } error
-            ? (error.Code, reference.TokenId, error.Reason) : null;
+        if (CheckTokenReference(tokens, definition, reference) is { } error)
+            return (error.Code, reference.TokenId, error.Reason);
+        if (definition is null) return ("type-mismatch", reference.TokenId, "Token is not allowed for this property.");
+        foreach (var applicable in theme is { } selected ? [selected] : Enum.GetValues<TokenTheme>())
+            if (ResolveValueToken(tokens, definition, property, reference, applicable).Error is { } invalid)
+                return (invalid.Code, reference.TokenId, invalid.Reason);
+        return null;
     }
+
+    internal static bool AcceptsToken(NodePropertyDefinition definition, DesignToken token) =>
+        definition.TokenType == token.Type && definition.TokenCategory == token.Category ||
+        definition.LegacyTokenType == token.Type && token.Category is null;
 
     private static NodePropertyError? CheckTokenReference(
         DesignTokenResolver tokens, NodePropertyDefinition? definition, NodeTokenValue reference)
@@ -126,8 +151,8 @@ public static class NodePropertyValidator
             return new("INVALID_PROPERTY_VALUE", "Reference IDs must be nonempty.");
         var token = tokens.Find(reference.TokenId);
         if (token is null) return new("missing-reference", "Referenced token does not exist.");
-        if (definition?.TokenType is { } expected && token.Type != expected)
-            return new("type-mismatch", "Token type does not match the property.");
+        if (definition is null || !AcceptsToken(definition, token))
+            return new("type-mismatch", "Token type or semantic category does not match the property.");
         return null;
     }
 
