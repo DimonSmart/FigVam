@@ -16,10 +16,10 @@ async function createScreen(page, name) {
   expect(created.ok(), await created.text()).toBeTruthy();
   await expect(page.locator('#open-preview')).toBeEnabled();
   const screenId = (await created.json()).screenId;
-  const rename = page.locator('#screens .screen-row').filter({ has: page.locator(`button.screen-select[aria-pressed="true"]`) });
-  await rename.locator('.screen-rename-action').click();
-  await rename.locator('.screen-rename-form input').fill(name);
-  await rename.locator('.screen-rename-form button[type="submit"]').click();
+  await page.locator('#screens .screen-select[aria-pressed="true"]')
+    .locator('..').locator('.screen-rename-action').click();
+  await page.locator('#screen-name-input').fill(name);
+  await page.locator('#screens .screen-rename-confirm').click();
   await expect(page.locator('#screens .screen-select[aria-pressed="true"]')).toContainText(name);
   return screenId;
 }
@@ -83,7 +83,7 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
   await page.locator('#scenario-event').selectOption(String(eventId));
   if (variantId !== undefined) await page.locator('#scenario-variant').selectOption(variantId ?? '');
   if (targetScreen) await page.locator('#scenario-target').selectOption(targetScreen);
-  await expect(page.locator('#scenario-action')).toContainText(action);
+  await expect(page.locator(`#scenario-action option[value="${action}"]`)).toHaveCount(1);
   await page.locator('#scenario-action').selectOption(action);
   await expect(page.locator('#scenario-create-submit')).toBeEnabled();
   const posted = page.waitForResponse(response => response.url().endsWith('/commands/create-scenario'));
