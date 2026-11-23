@@ -103,7 +103,7 @@ export function renderScreen(model, options) {
       if (options.preview && kind.previewEvents.includes(0)) surface.addEventListener('click', () => options.trigger(id, 0));
     } else if (role === 'TextInput') {
       surface = document.createElement(value('multiline') ? 'textarea' : 'input');
-      if (surface.tagName === 'INPUT') surface.type = 'text';
+      if (surface.tagName === 'INPUT') surface.type = value('inputType') === 'Password' ? 'password' : 'text';
       surface.placeholder = value('placeholder') ?? '';
       surface.value = options.getInput?.(id, value('value') ?? '') ?? value('value') ?? '';
       if (Number.isInteger(kind.properties.value?.maxLength)) surface.maxLength = kind.properties.value.maxLength;
@@ -111,6 +111,13 @@ export function renderScreen(model, options) {
       if (options.preview) {
         surface.addEventListener('input', () => options.setInput(id, surface.value));
         if (kind.previewEvents.includes(1)) surface.addEventListener('change', () => options.trigger(id, 1));
+        if (surface.tagName === 'INPUT' && kind.previewEvents.includes(4))
+          surface.addEventListener('keydown', event => {
+            if (event.key === 'Enter' && !event.isComposing) {
+              event.preventDefault();
+              options.trigger(id, 4);
+            }
+          });
       } else surface.readOnly = true;
     } else if (role === 'Image') {
       const assetId = property('asset')?.assetId;

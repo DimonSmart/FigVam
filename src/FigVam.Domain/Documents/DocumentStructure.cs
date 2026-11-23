@@ -449,6 +449,8 @@ public static class DocumentStructureValidator
             else if (NodePropertyValidator.ValidateReference(document, tokens, profile.GetProperty(node.Kind, property), property, value, theme) is { } reference)
                 yield return new(reference.Code, node.Id, reference.Id, reference.Reason, property);
         }
+        if (VisualNodeProfile.ValidateTextInputCombination(profile, node) is { } combination)
+            yield return new(combination.Code, node.Id, null, combination.Reason, "inputType");
     }
 }
 

@@ -25,7 +25,8 @@ public sealed class VisualNodeProfileTests : IDisposable
         var definition = Assert.Single(profile.Kinds, item => item.Kind == kind);
         Assert.Equal(role, definition.SemanticRole);
         Assert.Equal(children, profile.CanContainChildren(kind));
-        Assert.Equal(previewEvent is { } enabled ? [enabled] : Array.Empty<PreviewEvent>(), definition.PreviewEvents);
+        Assert.Equal(kind == "TextInput" ? [PreviewEvent.Change, PreviewEvent.Submit] :
+            previewEvent is { } enabled ? [enabled] : Array.Empty<PreviewEvent>(), definition.PreviewEvents);
         Assert.Equal(kind == "TextInput", profile.SupportsDemoValue(kind));
         foreach (var (property, metadata) in definition.Properties)
         {
@@ -55,6 +56,10 @@ public sealed class VisualNodeProfileTests : IDisposable
         Valid("Text", "fontFamily", new NodeStringValue("IBM Plex Sans"));
         Valid("Button", "enabled", new NodeBooleanValue(false));
         Valid("TextInput", "multiline", new NodeBooleanValue(true));
+        Valid("TextInput", "inputType", new NodeEnumValue("Password"));
+        Invalid("INVALID_PROPERTY_VALUE", "TextInput", "inputType", new NodeEnumValue("Email"));
+        Assert.Null(profile.GetInstalledVersion(2)!.GetProperty("TextInput", "inputType"));
+        Assert.False(profile.GetInstalledVersion(2)!.SupportsPreviewEvent("TextInput", PreviewEvent.Submit));
         Valid("Image", "fit", new NodeEnumValue("Cover"));
         Invalid("INVALID_PROPERTY_VALUE", "Frame", "width", new NodeNumberValue(-1));
         Invalid("INVALID_PROPERTY_VALUE", "Frame", "gap", new NodeNumberValue(double.NaN));

@@ -8,6 +8,7 @@ const labels = {
   fontSize: 'Размер шрифта', fontFamily: 'Семейство шрифта', fontFallback: 'Запасное семейство шрифта',
   fontWeight: 'Толщина шрифта', fontStyle: 'Начертание', lineHeight: 'Межстрочный интервал', wrap: 'Перенос строк',
   enabled: 'Доступность', placeholder: 'Подсказка', value: 'Демонстрационное значение', multiline: 'Многострочный режим',
+  inputType: 'Тип ввода',
   backgroundColor: 'Цвет фона', borderColor: 'Цвет рамки', borderWidth: 'Толщина рамки', cornerRadius: 'Радиус углов',
   asset: 'Ассет', altText: 'Альтернативное описание', fit: 'Режим отображения'
 };

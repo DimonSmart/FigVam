@@ -131,7 +131,7 @@ public sealed class PortableUiProfileTests : IDisposable
     }
 
     [Fact]
-    public async Task HttpReadsReportUnavailableProfileAndNewDocumentsUseVersion2()
+    public async Task HttpReadsReportUnavailableProfileAndNewDocumentsUseVersion3()
     {
         var id = Guid.NewGuid();
         var sourceProfile = new TestProfile(PortableUiProfileReference.Version1 with { Version = 7 });
@@ -155,7 +155,7 @@ public sealed class PortableUiProfileTests : IDisposable
         var created = Guid.NewGuid();
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = created })).StatusCode);
         var export = await client.GetFromJsonAsync<DocumentJsonExport>($"/api/v1/documents/{created}/document.json", DocumentJsonFormat.CreateOptions());
-        Assert.Equal(PortableUiProfileReference.Version2, export!.Document.Profile);
+        Assert.Equal(PortableUiProfileReference.Version3, export!.Document.Profile);
         Assert.Empty(export.Document.Nodes);
 
         var legacyId = Guid.NewGuid();

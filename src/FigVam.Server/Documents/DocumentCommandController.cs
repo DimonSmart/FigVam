@@ -13,12 +13,12 @@ namespace FigVam.Server.Documents;
 [ProducesResponseType<ApiError>(415), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
 public sealed class DocumentCommandController(IDocumentCommandHandler handler) : ControllerBase
 {
-    [HttpPost("upgrade-portable-ui-profile"), EndpointSummary("Upgrade a version 1 document to Portable UI Profile version 2 at the expected revision")]
+    [HttpPost("upgrade-portable-ui-profile"), EndpointSummary("Explicitly upgrade Portable UI Profile v1 to v2 or v2 to v3 at the expected revision")]
     public async Task<IActionResult> UpgradePortableUiProfile(Guid documentId, UpgradePortableUiProfileRequest request, CancellationToken ct) =>
         Result(await handler.HandleAsync(new UpgradePortableUiProfileCommand(documentId, request.CommandId, request.ExpectedRevision), User.GetDocumentActor(), ct));
 
     [HttpPost("create-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Create a saved prototype event and ordered actions")]
-    [EndpointDescription("Scenario requires a globally unique ID, screenId, nodeId, numeric event (Click=0, Change=1, Hover=2, Leave=3), and 1-32 typed actions. Profile must explicitly support the event, actions and demo value targets.")]
+    [EndpointDescription("Scenario requires a globally unique ID, screenId, nodeId, numeric event (Click=0, Change=1, Hover=2, Leave=3, Submit=4), and 1-32 typed actions. Profile must explicitly support the event, actions and demo value targets.")]
     public async Task<IActionResult> CreateScenario(Guid documentId, CreateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new CreateScenarioCommand(documentId, request.CommandId, request.Scenario), User.GetDocumentActor(), ct));
     [HttpPost("update-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Replace one saved scenario with an exact revision precondition")]
     public async Task<IActionResult> UpdateScenario(Guid documentId, UpdateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new UpdateScenarioCommand(documentId, request.CommandId, request.Scenario, request.ExpectedRevision), User.GetDocumentActor(), ct));

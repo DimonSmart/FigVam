@@ -24,11 +24,15 @@ public sealed partial class DocumentCommandHandler
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             if (state.Revision != command.ExpectedRevision) return new(Result("REVISION_CONFLICT"), null);
-            if (state.Document.Profile != PortableUiProfileReference.Version1)
-                return new(Result("PROFILE_UPGRADE_NOT_APPLICABLE", explanation: "This upgrade requires Portable UI Profile version 1."), null);
-            if (PortableUiProfileResolver.Validate(PortableUiProfileReference.Version2, profile) is { } unavailable)
+            var target = state.Document.Profile == PortableUiProfileReference.Version1
+                ? PortableUiProfileReference.Version2
+                : state.Document.Profile == PortableUiProfileReference.Version2
+                    ? PortableUiProfileReference.Version3 : null;
+            if (target is null)
+                return new(Result("PROFILE_UPGRADE_NOT_APPLICABLE", explanation: "Only Portable UI Profile v1 and v2 can be upgraded."), null);
+            if (PortableUiProfileResolver.Validate(target, profile) is { } unavailable)
                 return new(Result(unavailable.Code, explanation: unavailable.Message), null);
-            var document = state.Document with { Profile = PortableUiProfileReference.Version2 };
+            var document = state.Document with { Profile = target };
             if (DocumentStructureValidator.Validate(document, profile).FirstOrDefault() is { } invalid)
                 return new(Result("INVALID_PROFILE_UPGRADE", explanation: invalid.Message), null);
             var next = new DocumentState(document, checked(state.Revision + 1));

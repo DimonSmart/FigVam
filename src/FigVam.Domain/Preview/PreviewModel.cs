@@ -2,7 +2,7 @@ using FigVam.Domain.Tokens;
 
 namespace FigVam.Domain.Preview;
 
-public enum PreviewEvent { Click, Change, Hover, Leave }
+public enum PreviewEvent { Click, Change, Hover, Leave, Submit }
 public sealed record PreviewVariant(Guid Id, Guid ScreenId);
 public sealed record PreviewScreen(Guid Id, IReadOnlyList<Guid> NodeIds);
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]

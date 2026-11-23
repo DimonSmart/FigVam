@@ -7,7 +7,7 @@ export function createScenarios({
   const scenarioKey = (doc, screen) => `${doc}/${screen}`;
   let scenariosController = null, scenariosGeneration = 0, scenariosOffset = 0, scenariosTotal = 0, scenariosKey = null;
   let scenarioCapabilities = null, capabilityGeneration = 0, scenarioDatasetsReady = false;
-  const scenarioEvents = ['Click', 'Change', 'Hover', 'Leave'];
+  const scenarioEvents = ['Click', 'Change', 'Hover', 'Leave', 'Submit'];
   const scenarioActionLabels = { setDemoValue: 'SetDemoValue', selectDataset: 'SelectDataset', showVariant: 'ShowVariant', navigate: 'Navigate', openOverlay: 'OpenOverlay', closeOverlay: 'CloseOverlay', resetPreview: 'ResetPreview' };
   const isScenarioNodeId = id => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 

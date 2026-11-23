@@ -48,6 +48,10 @@ public static class ScreenVariantValidator
                 else if (NodePropertyValidator.ValidateReference(document, tokens, profile.GetProperty(node.Kind, item.Property), item.Property, item.Value) is { } reference)
                     errors.Add(new(reference.Code, variant.Id, reference.Id, reference.Reason, item.Property));
             }
+            foreach (var id in reachable)
+                if (nodes.TryGetValue(id, out var node) &&
+                    VisualNodeProfile.ValidateTextInputCombination(profile, node, variant.Overrides) is { } invalid)
+                    errors.Add(new(invalid.Code, variant.Id, id, invalid.Reason, "inputType"));
         }
         return errors;
     }

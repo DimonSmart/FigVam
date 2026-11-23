@@ -79,14 +79,31 @@ public sealed class VisualNodeProfile : INodeProfile
             ("altText", String(""))
         ])
     });
-    private static readonly FrozenDictionary<string, NodeKindDefinition> Registry =
+    // V2 definitions are frozen: the v3 registry derives from them without changing old documents.
+    private static readonly IReadOnlyList<NodeKindDefinition> NodeKindsV3 = Array.AsReadOnly(NodeKinds
+        .Select(kind => kind.Kind != "TextInput" ? kind : kind with
+        {
+            Properties = kind.Properties.Append(new KeyValuePair<string, NodePropertyDefinition>(
+                "inputType", Options("Text", "Password")))
+                .ToFrozenDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
+            PreviewEvents = Array.AsReadOnly<PreviewEvent>([.. kind.PreviewEvents, PreviewEvent.Submit])
+        }).ToArray());
+    private static readonly FrozenDictionary<string, NodeKindDefinition> RegistryV2 =
         NodeKinds.ToFrozenDictionary(kind => kind.Kind, StringComparer.Ordinal);
+    private static readonly FrozenDictionary<string, NodeKindDefinition> RegistryV3 =
+        NodeKindsV3.ToFrozenDictionary(kind => kind.Kind, StringComparer.Ordinal);
     private static readonly UnverifiedNodeProfile Version1 = new();
+    private static readonly VisualNodeProfile Version2Profile = new(2);
+    private readonly int version;
 
-    public PortableUiProfileReference Identity => PortableUiProfileReference.Version2;
-    public INodeProfile? GetInstalledVersion(int version) =>
-        version == Identity.Version ? this : version == Version1.Identity.Version ? Version1 : null;
-    public IReadOnlyList<NodeKindDefinition> Kinds => NodeKinds;
+    public VisualNodeProfile() : this(3) { }
+    private VisualNodeProfile(int version) => this.version = version;
+    public PortableUiProfileReference Identity => version == 2 ? PortableUiProfileReference.Version2 : PortableUiProfileReference.Version3;
+    public INodeProfile? GetInstalledVersion(int requestedVersion) =>
+        requestedVersion == 3 ? (version == 3 ? this : null) :
+        requestedVersion == 2 ? Version2Profile :
+        requestedVersion == 1 ? Version1 : null;
+    public IReadOnlyList<NodeKindDefinition> Kinds => version == 2 ? NodeKinds : NodeKindsV3;
     public IReadOnlyList<string> PreviewActions => ActionNames;
     public bool IsKnownKind(string kind) => Find(kind) is not null;
     public bool CanContainChildren(string kind) => Find(kind)?.CanContainChildren == true;
@@ -95,7 +112,20 @@ public sealed class VisualNodeProfile : INodeProfile
     public bool SupportsDemoValue(string kind) => Find(kind)?.SupportsDemoValue == true;
     public bool SupportsPreviewAction(PreviewAction action) => Actions.ContainsKey(action.GetType());
 
-    private static NodeKindDefinition? Find(string? kind) => kind is null ? null : Registry.GetValueOrDefault(kind);
+    private NodeKindDefinition? Find(string? kind) => kind is null ? null :
+        (version == 2 ? RegistryV2 : RegistryV3).GetValueOrDefault(kind);
+
+    public static NodePropertyError? ValidateTextInputCombination(INodeProfile profile, NodeStructure node,
+        IReadOnlyList<ScreenPropertyOverride>? overrides = null)
+    {
+        if (profile.Identity.Version < 3 || node.Kind != "TextInput") return null;
+        NodePropertyValue? Effective(string name) =>
+            overrides?.LastOrDefault(item => item.NodeId == node.Id && item.Property == name)?.Value
+            ?? node.Properties.GetValueOrDefault(name) ?? profile.GetProperty(node.Kind, name)?.DefaultValue;
+        return Effective("inputType") is NodeEnumValue { Value: "Password" }
+            && Effective("multiline") is NodeBooleanValue { Value: true }
+            ? new("INVALID_PROPERTY_VALUE", "Password input cannot be multiline.") : null;
+    }
 
     private static NodeKindDefinition Kind(string name, NodeSemanticRole role, double width, double height,
         (string Name, NodePropertyDefinition Definition)[] properties,
