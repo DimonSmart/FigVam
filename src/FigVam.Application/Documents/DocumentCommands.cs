@@ -23,6 +23,9 @@ public sealed record SaveDocumentCommand(Guid DocumentId, Guid CommandId, string
 public sealed record SetTokenValueCommand(Guid DocumentId, Guid CommandId, Guid TokenId, TokenTheme Theme, TokenExpression Value);
 public sealed record RenameTokenCommand(Guid DocumentId, Guid CommandId, Guid TokenId, string Name);
 public sealed record AddTokenCommand(Guid DocumentId, Guid CommandId, DesignToken Token);
+public sealed record UpsertStyleCommand(Guid DocumentId, Guid CommandId, DesignStyle Style, long ExpectedRevision);
+public sealed record DeleteStyleCommand(Guid DocumentId, Guid CommandId, Guid StyleId, long ExpectedRevision);
+public sealed record RemoveNodePropertiesCommand(Guid DocumentId, Guid CommandId, Guid NodeId, IReadOnlyList<string> Properties, long ExpectedRevision);
 public sealed record AddComponentSlotCommand(Guid DocumentId, Guid CommandId, Guid DefinitionId, ComponentSlot Slot);
 public sealed record SetComponentSlotContentCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid SlotId, IReadOnlyList<Guid> ContentNodeIds);
 public sealed record AddComponentVariantCommand(Guid DocumentId, Guid CommandId, Guid DefinitionId, ComponentVariant Variant);
@@ -101,6 +104,8 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DatasetFixtureReplaced), "DATASET_FIXTURE_REPLACED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokensImported), "TOKENS_IMPORTED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenAdded), "TOKEN_ADDED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(StyleUpserted), "STYLE_UPSERTED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(StyleDeleted), "STYLE_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenValueSet), "TOKEN_VALUE_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenRenamed), "TOKEN_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(AssetAdded), "ASSET_ADDED")]
@@ -148,6 +153,8 @@ public sealed record DatasetAdded(DocumentDataset Dataset) : DocumentEvent;
 public sealed record DatasetFixtureReplaced(Guid DatasetId, string FixtureJson) : DocumentEvent;
 public sealed record TokensImported(IReadOnlyList<DesignToken> Tokens) : DocumentEvent;
 public sealed record TokenAdded(DesignToken Token) : DocumentEvent;
+public sealed record StyleUpserted(DesignStyle Style) : DocumentEvent;
+public sealed record StyleDeleted(Guid StyleId) : DocumentEvent;
 public sealed record PageDeleted(Guid PageId) : DocumentEvent;
 public sealed record PageAdded(Guid PageId) : DocumentEvent;
 public sealed record DocumentDeleted : DocumentEvent;
@@ -217,6 +224,9 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(SetTokenValueCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenameTokenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddTokenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(UpsertStyleCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(DeleteStyleCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(RemoveNodePropertiesCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodeNameCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodeSemanticKeyCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodePropertyCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
@@ -1134,6 +1144,6 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
 
     private static Guid[] ChangedIds(DocumentPatch patch) => patch.Pages.Select(x => x.Id).Concat(patch.Assets.Select(x => x.Id))
         .Concat(patch.Scenarios.Select(x => x.Id)).Concat(patch.ComponentDefinitions.Select(x => x.Id)).Concat(patch.ComponentInstances.Select(x => x.Id))
-        .Concat(patch.Datasets.Select(x => x.Id)).Concat(patch.Tokens.Select(x => x.Id)).Concat(patch.Screens.Select(x => x.Id)).Concat(patch.Nodes.Select(x => x.Id)).Distinct().ToArray();
+        .Concat(patch.Datasets.Select(x => x.Id)).Concat(patch.Tokens.Select(x => x.Id)).Concat(patch.Styles.Select(x => x.Id)).Concat(patch.Screens.Select(x => x.Id)).Concat(patch.Nodes.Select(x => x.Id)).Distinct().ToArray();
 
 }
