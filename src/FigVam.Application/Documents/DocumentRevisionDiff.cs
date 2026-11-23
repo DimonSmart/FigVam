@@ -38,7 +38,7 @@ public sealed class DocumentRevisionDiff(IDocumentAuthorization authorization, I
     private static Dictionary<(string Type, Guid Id), Dictionary<string, object?>> Flatten(DocumentStructure doc)
     {
         var result = new Dictionary<(string, Guid), Dictionary<string, object?>>();
-        result[("document", doc.Id)] = new() { ["name"] = doc.Name, ["profile"] = doc.Profile };
+        result[("document", doc.Id)] = new() { ["name"] = doc.Name };
         for (var i = 0; i < doc.Pages.Count; i++)
         {
             var page = doc.Pages[i];
