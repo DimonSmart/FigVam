@@ -691,6 +691,27 @@ public sealed partial class SqliteDocumentJournal
                     case TokenAdded token:
                         document = document with { Tokens = document.Tokens.Append(token.Token).ToArray() };
                         break;
+                    case StyleUpserted style:
+                        document = document with { Styles = document.Styles.Any(item => item.Id == style.Style.Id)
+                            ? document.Styles.Select(item => item.Id == style.Style.Id ? style.Style : item).ToArray()
+                            : [.. document.Styles, style.Style] };
+                        Validate(document);
+                        break;
+                    case StyleDeleted style:
+                        if (!document.Styles.Any(item => item.Id == style.StyleId))
+                            throw new InvalidDataException("Style event references a missing design style.");
+                        document = document with { Styles = document.Styles.Where(item => item.Id != style.StyleId).ToArray() };
+                        Validate(document);
+                        break;
+                    case NodePropertiesRemoved removed:
+                        var resetTarget = document.Nodes.FirstOrDefault(n => n.Id == removed.NodeId);
+                        if (resetTarget is null || removed.Properties is not { Count: > 0 } ||
+                            removed.Properties.Any(property => !resetTarget.Properties.ContainsKey(property)))
+                            throw new InvalidDataException("Style reset event has invalid node or properties.");
+                        document = document with { Nodes = document.Nodes.Select(n => n.Id == removed.NodeId
+                            ? n with { Properties = n.Properties.RemoveRange(removed.Properties) } : n).ToArray() };
+                        Validate(document);
+                        break;
                     case DocumentRenamed renamed:
                         if (!DocumentNameValidator.IsValid(renamed.Name)) throw new InvalidDataException("Invalid document rename event.");
                         document = document with { Name = renamed.Name };
