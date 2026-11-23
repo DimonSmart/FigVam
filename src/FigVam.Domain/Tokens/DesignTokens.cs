@@ -45,7 +45,8 @@ public sealed record LiteralTokenValue([property: JsonRequired] TokenValue Value
 public sealed record TokenAlias([property: JsonRequired] Guid TokenId) : TokenExpression;
 
 public sealed record DesignToken(Guid Id, string Name, TokenType Type,
-    IReadOnlyDictionary<TokenTheme, TokenExpression> Values, TokenCategory? Category = null);
+    IReadOnlyDictionary<TokenTheme, TokenExpression> Values,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenCategory? Category = null);
 public sealed record TokenDiagnostic(string Code, Guid TokenId, TokenTheme? Theme, Guid? ReferenceId, string Message);
 public sealed record TokenResolution(TokenValue? Value, IReadOnlyList<TokenDiagnostic> Diagnostics)
 {
