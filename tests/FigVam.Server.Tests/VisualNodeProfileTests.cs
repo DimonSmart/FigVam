@@ -33,8 +33,10 @@ public sealed class VisualNodeProfileTests : IDisposable
             Assert.Same(metadata, profile.GetProperty(kind, property));
             if (metadata.Required)
                 Assert.Null(metadata.DefaultValue);
-            else
-                Assert.Null(NodePropertyValidator.Validate(profile, kind, property, metadata.DefaultValue));
+            else if (metadata.DefaultValue is { } value)
+                Assert.Null(NodePropertyValidator.Validate(profile, kind, property, value));
+            // Optional references deliberately have no default: an unassigned style must not
+            // silently resolve to a fabricated global style.
         }
         Assert.True(profile.SupportsPreviewAction(new Navigate(Guid.NewGuid())));
         Assert.Contains("navigate", profile.PreviewActions);
