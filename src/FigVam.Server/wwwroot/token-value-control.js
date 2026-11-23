@@ -1,4 +1,4 @@
-import { normalizedTokenType, resolveTokenValue, tokenValueText, tokenColorHex } from './token-resolution.js';
+import { compatibleToken, resolvePropertyToken, tokenValueText, tokenColorHex } from './token-resolution.js';
 
 const el = (tag, cls, text) => {
   const node = document.createElement(tag);
@@ -13,7 +13,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
   const literalType = definition.type.toLowerCase();
   const theme = 'Light'; // Design and inspector always display the Light theme.
   const compatible = [...model.tokens.values()].filter(
-    token => normalizedTokenType(token.type) === normalizedTokenType(definition.tokenType));
+    token => compatibleToken(token, definition));
   const root = el('div', 'token-value-layout');
   const caption = el('span', 'token-value-label', label);
   const editor = el('div', 'token-value-editor');
@@ -52,7 +52,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
   root.append(caption, editor, popover);
 
   let source = literalType, tokenId = '', readOnly = false;
-  const resolved = () => resolveTokenValue({ type: 'token', tokenId }, model.tokens, theme, definition.tokenType);
+  const resolved = () => resolvePropertyToken({ type: 'token', tokenId }, model.tokens, theme, definition);
 
   function updateView() {
     const linked = source === 'token';
@@ -106,7 +106,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
     for (const token of options) {
       const option = el('button', 'token-value-option');
       option.type = 'button';
-      const state = resolveTokenValue({ type: 'token', tokenId: token.id }, model.tokens, theme, definition.tokenType);
+      const state = resolvePropertyToken({ type: 'token', tokenId: token.id }, model.tokens, theme, definition);
       const text = el('span', 'token-value-option-name', token.name);
       const preview = el('small', 'token-value-option-preview', state.error ?? tokenValueText(state.value));
       option.append(text, preview);
@@ -152,10 +152,17 @@ export function createTokenValueControl(name, definition, model, initial, direct
     if (readOnly || source !== 'token') return;
     const result = resolved();
     if (result.error) {
-      // Do not silently turn an unresolved reference into the default literal.
-      direct.write(definition.type === 'Number' ? '' : ['', '255']);
-    } else if (definition.type === 'Color') {
+      // Keep the original reference rather than inventing a literal.
+      resolvedText.textContent = result.error;
+      updateView();
+      return;
+    }
+    if (definition.type === 'Color') {
       direct.write([tokenColorHex(result.value), String(result.value.alpha)]);
+    } else if (definition.numericFontWeight) {
+      direct.write(['Custom', String(result.value.value)]);
+    } else if (definition.type === 'String') {
+      direct.write(result.value.value);
     } else {
       direct.write(String(result.value.type === 'geometry' ? result.value.radius : result.value.value));
     }
