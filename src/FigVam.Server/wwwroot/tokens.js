@@ -185,7 +185,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       button.type = 'button';
       const resolved = resolveTokenValue({ type: 'token', tokenId: item.id },
         new Map(tokenItems.map(token => [token.id, token])), theme, item.type, item.category);
-      button.textContent = `${item.name} · ${type}${category ? '.' + category : ''} · ${resolved.error ?? tokenValueText(resolved.value)}`;
+      const oldLabel = { Color: 'Цвет', Spacing: 'Отступ', Geometry: 'Геометрия', Typography: 'Типографика' }[type];
+      button.textContent = oldLabel ? `${item.name} (${oldLabel})` :
+        `${item.name} (${type}.${category ?? ''})`;
+      const preview = document.createElement('small');
+      preview.setAttribute('aria-hidden', 'true');
+      preview.textContent = ' · ' + (resolved.error ?? tokenValueText(resolved.value));
+      button.append(preview);
       button.setAttribute('aria-pressed', String(item.id === selectedToken));
       button.addEventListener('click', () => selectToken(item.id));
       li.append(button); list.append(li);
@@ -198,8 +204,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (!item) return;
     el('token-detail-title').textContent = item.name;
     const expression = item.values[theme];
-    el('token-values').textContent = `${typeOf(item)}${categoryOf(item) ? '.' + categoryOf(item) : ''} · ${theme}: ${expression?.expression === 'alias' ?
-      '↳ ' + nameOf(expression.tokenId) : directText(expression)}`;
+    const describe = expression => expression?.expression === 'alias'
+      ? '↳ ' + nameOf(expression.tokenId) : directText(expression);
+    const pair = `Light: ${describe(item.values.Light)}; Dark: ${describe(item.values.Dark)}`;
+    el('token-values').textContent = categoryOf(item) ? `${typeOf(item)}.${categoryOf(item)} · ${pair}` : pair;
     el('token-edit').hidden = !editable();
     el('token-set').hidden = typeOf(item) === 'Typography';
     el('token-name').value = item.name;
