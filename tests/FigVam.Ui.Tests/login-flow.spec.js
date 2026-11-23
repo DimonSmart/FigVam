@@ -153,8 +153,12 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await show(page, 'layers');
   await page.locator(`#screens .screen-select`).filter({ hasText: 'Login' }).click();
   await expect(page.locator('#screen-variants-list')).toContainText('AccountLocked');
-  // Switching screens collapses the layer tree; expand the container through the UI.
-  await page.locator(`#layers [data-id="${frame}"] > .layer-label`).click();
+  // A screen switch may preserve tree expansion; open the container only if needed.
+  const frameRow = page.locator(`#layers [data-id="${frame}"]`);
+  await expect(frameRow).toBeVisible();
+  if (await frameRow.getAttribute('aria-expanded') === 'false')
+    await frameRow.locator(':scope > .layer-label').click();
+  await expect(page.locator(`#layers [data-id="${loginButton}"]`)).toBeVisible();
 
   await scenario(page, loginButton, 0, 'showVariant', invalidVariant);
   await scenario(page, password, 4, 'showVariant', invalidVariant);
