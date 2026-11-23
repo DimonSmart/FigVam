@@ -171,7 +171,8 @@ public sealed class PortableUiV4TokenTests
         var folder = Path.Combine(Path.GetTempPath(), "figvam-v4-tokens-" + Guid.NewGuid());
         try
         {
-            var actor = new DocumentActor("owner"), id = Guid.NewGuid();
+            var actor = new DocumentActor("owner");
+            var id = Guid.NewGuid();
             var journal = new SqliteDocumentJournal(folder, Installed);
             var handler = new DocumentCommandHandler(journal, journal, Installed);
             Assert.True((await journal.CreateAsync(new(id), actor)).Accepted);
