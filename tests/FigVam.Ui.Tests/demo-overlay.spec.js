@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect, bearer } = require('./fixtures');
 const { createDemo, HOST_ID } = require('./demo-overlay');
 
 test('demo banner shows progress and does not block editor controls', async ({ page }) => {
@@ -11,9 +11,11 @@ test('demo banner shows progress and does not block editor controls', async ({ p
   await expect(host.locator('.description')).toHaveText('Создаём TextInput с подсказкой Username.');
   await expect(host.locator('.counter')).toHaveText('Шаг 1 из 2');
   await expect(host).toHaveCSS('bottom', '12px');
-  await expect(host).toHaveCSS('top', 'auto');
+  await expect(host).toHaveCSS('position', 'fixed');
+  await expect(host).toBeInViewport();
   const banner = await host.boundingBox();
-  expect(banner.y).toBeGreaterThan(500);
+  expect(banner.y + banner.height).toBeLessThanOrEqual(page.viewportSize().height);
+  expect(banner.y).toBeGreaterThan(page.viewportSize().height / 2);
   expect(banner.height).toBeLessThan(110);
   await expect(host.locator('.progress')).toHaveAttribute('style', 'width: 50%;');
   await page.getByRole('button', { name: 'Editor control' }).click();
@@ -29,4 +31,30 @@ test('demo overlay is absent in normal test mode', async ({ page }) => {
   const demo = createDemo(page, 1, { enabled: false, stepDelayMs: 0 });
   await demo.step('This step must not appear');
   await expect(page.locator('#' + HOST_ID)).toHaveCount(0);
+});
+
+test('demo panel stays visible in the real FigVam editor after navigating into a document', async ({ page }) => {
+  await page.goto('/');
+  await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
+  await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+
+  const demo = createDemo(page, 2, { enabled: true, stepDelayMs: 0 });
+  await demo.step('Создаём документ', 'Демонстрационная панель должна быть видна.');
+
+  const banner = page.locator('#' + HOST_ID);
+  await expect(banner).toBeInViewport();
+  await page.getByLabel('Имя нового документа').fill('Demo banner smoke');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+
+  await demo.step('Добавляем элементы', 'После навигации панель остаётся на экране.');
+  await expect(banner.locator('.title')).toHaveText('Добавляем элементы');
+  await expect(banner.locator('.description')).toHaveText('После навигации панель остаётся на экране.');
+  await expect(banner).toBeInViewport();
+  const coords = await banner.boundingBox();
+  const viewport = page.viewportSize();
+  expect(coords.y + coords.height).toBeLessThanOrEqual(viewport.height);
+  expect(coords.x).toBeGreaterThanOrEqual(0);
+  expect(coords.x + coords.width).toBeLessThanOrEqual(viewport.width);
+  await page.screenshot({ path: test.info().outputPath('demo-panel.png') });
 });

@@ -95,6 +95,12 @@ try {
   $env:FIGVAM_DEMO = if ($Demo) { '1' } else { '0' }
   $env:FIGVAM_SLOWMO_MS = [string]$SlowMo
   $env:FIGVAM_STEP_DELAY_MS = [string]$StepDelay
+  if ($Headed -and -not $Demo) {
+    Write-Host 'Captions are disabled. Add -Demo to display narrated steps in the browser.'
+  }
+  if ($Demo) {
+    Write-Host 'Demo captions enabled: compact banner at bottom of browser window.'
+  }
 
   $options = @('--workers=1')
   if ($Demo -or $Headed) { $options += '--headed' }

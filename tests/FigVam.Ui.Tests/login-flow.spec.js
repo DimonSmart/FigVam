@@ -101,6 +101,7 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
 test('designs a login with password, independent variants, scenarios, duplication and reload through UI', async ({ page, request, server, browser }) => {
   test.setTimeout(process.env.PWDEBUG ? 0 : (process.env.FIGVAM_DEMO === '1' ? 15 * 60_000 : 180_000));
   const demo = createDemo(page, 19);
+  if (process.env.FIGVAM_DEMO === '1') console.log('FigVam narrated demo enabled: 19 steps');
   await page.setViewportSize({ width: 1700, height: 1100 });
   await page.goto(server.url);
   await signIn(page);

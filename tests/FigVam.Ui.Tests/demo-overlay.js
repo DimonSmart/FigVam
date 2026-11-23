@@ -22,7 +22,8 @@ function createDemo(page, totalSteps, options = {}) {
           host.id = hostId;
           host.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);' +
             'width:min(480px,calc(100vw - 24px));z-index:2147483647;pointer-events:none;';
-          document.documentElement.appendChild(host);
+          // Mount last in body so the panel remains above the editor without modifying its layout.
+          (document.body ?? document.documentElement).appendChild(host);
           host.attachShadow({ mode: 'open' }).innerHTML = [
             '<style>',
             '.panel,.panel *{box-sizing:border-box;margin:0;}',
