@@ -29,7 +29,9 @@ public sealed record NodePropertyDefinition(
     [property: JsonConverter(typeof(JsonStringEnumConverter<NodePropertyType>))] NodePropertyType Type,
     [property: JsonIgnore] Func<NodePropertyValue, string?>? ValidateValue = null,
     TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null,
-    TokenCategory? TokenCategory = null, TokenType? LegacyTokenType = null, bool NumericFontWeight = false)
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenCategory? TokenCategory = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenType? LegacyTokenType = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)] bool NumericFontWeight = false)
 {
     public NodePropertyValue? DefaultValue { get; init; }
     public bool Required { get; init; }
