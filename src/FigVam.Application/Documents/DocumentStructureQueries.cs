@@ -69,7 +69,6 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         var diagnostics = new List<LayoutDiagnostic>();
         var overrides = new Dictionary<Guid, Dictionary<string, NodePropertyValue>>();
         // Resolve styles for base and variants; do not mutate the persisted document.
-        if (true)
         {
             if (document.Screens.FirstOrDefault(screen => screen.Id == query.ScreenId) is not { } screen)
                 return new("SCREEN_NOT_FOUND");
