@@ -19,6 +19,7 @@ import { createScreenDiagnostics } from './screen-diagnostics.js';
 import { createScreenResize } from './screen-resize.js';
 import { createScreenVariants } from './screen-variants.js';
 import { createTokens } from './tokens.js';
+import { createStyles } from './styles.js';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from './session.js';
 
 const element = id => document.getElementById(id);
@@ -109,6 +110,11 @@ const tokens = createTokens({
   getContext: () => ({ documentId, documentRole, revision, generation }),
   startRequest, stopLive, startLive, readPages
 });
+const styles = createStyles({
+  element, request: (...args) => request(...args), getTokens: () => tokens.items,
+  getContext: () => ({ documentId, documentRole, revision, generation }),
+  startRequest, stopLive, startLive, readPages
+});
 const components = createComponents({
   element, request: (...args) => request(...args), pageSize,
   getContext: () => ({ documentId, revision, catalogRevision })
@@ -184,7 +190,7 @@ function clearSession() {
   selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingScreenName = null;
   screenList.replaceChildren();
   layers.reset();
-  tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset();
+  tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
   renderCanvas();
   element('screen-create').reset();
   element('page-edit').inert = false;
@@ -557,7 +563,7 @@ const canvasViewport = createCanvasViewport({
 const visualScreens = createVisualScreens({
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
   getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
-    selection: layers.selection, tokens: tokens.items, variantId: screenVariants.selectedVariantId })
+    selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor = createVisualNodeEditor({
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
@@ -672,7 +678,9 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
     base, screen, revision: nextRevision, signal, isCurrent: valid, reveal,
     shouldReportFailure: () => signal === pending?.signal
   });
-  const tokenSnapshot = await tokens.read(base, nextRevision, signal, valid);
+  const [tokenSnapshot, styleSnapshot] = await Promise.all([
+    tokens.read(base, nextRevision, signal, valid), styles.read(base, nextRevision, signal, valid)
+  ]);
   const header = await request(`${base}?fields=name&revision=${nextRevision}`, {}, signal, valid);
   if (!valid()) return;
   if (!layers.isExpansionCurrent(layerSnapshot))
@@ -687,6 +695,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
   revision = catalogRevision = nextRevision;
   tokens.apply(tokenSnapshot);
+  styles.apply(styleSnapshot);
   if (pagesChanged) renderPages();
   if (screensChanged || pagesChanged) renderScreens();
   else renderCanvas();
