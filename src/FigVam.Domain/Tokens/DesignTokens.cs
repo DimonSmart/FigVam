@@ -12,6 +12,7 @@ public enum TokenTheme { Light, Dark }
 [JsonDerivedType(typeof(ColorValue), "color")]
 [JsonDerivedType(typeof(SpacingValue), "spacing")]
 [JsonDerivedType(typeof(TypographyValue), "typography")]
+[JsonDerivedType(typeof(TypographyFieldsValue), "typographyFields")]
 [JsonDerivedType(typeof(GeometryValue), "geometry")]
 [JsonDerivedType(typeof(DimensionValue), "dimension")]
 [JsonDerivedType(typeof(NumberValue), "number")]
@@ -24,6 +25,13 @@ public sealed record ColorValue([property: JsonRequired] byte Red, [property: Js
 public sealed record SpacingValue([property: JsonRequired] double Value) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TypographyValue([property: JsonRequired] string FontFamily, [property: JsonRequired] double FontSize, [property: JsonRequired] int FontWeight, [property: JsonRequired] double LineHeight) : TokenValue;
+// Each field reuses the atomic token expression contract. Legacy flat TypographyValue remains supported.
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record TypographyFieldsValue(
+    [property: JsonRequired] TokenExpression FontFamily,
+    [property: JsonRequired] TokenExpression FontSize,
+    [property: JsonRequired] TokenExpression FontWeight,
+    [property: JsonRequired] TokenExpression LineHeight) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GeometryValue([property: JsonRequired] double Radius) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -47,7 +55,7 @@ public sealed record TokenAlias([property: JsonRequired] Guid TokenId) : TokenEx
 public sealed record DesignToken(Guid Id, string Name, TokenType Type,
     IReadOnlyDictionary<TokenTheme, TokenExpression> Values,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenCategory? Category = null);
-public sealed record TokenDiagnostic(string Code, Guid TokenId, TokenTheme? Theme, Guid? ReferenceId, string Message);
+public sealed record TokenDiagnostic(string Code, Guid TokenId, TokenTheme? Theme, Guid? ReferenceId, string Message, string? Field = null);
 public sealed record TokenResolution(TokenValue? Value, IReadOnlyList<TokenDiagnostic> Diagnostics)
 {
     public bool IsSuccess => Diagnostics.Count == 0;
@@ -83,8 +91,13 @@ public static class DesignTokenValidator
         {
             if (token.Values is null || !token.Values.TryGetValue(theme, out var expression) || expression is null)
                 errors.Add(new("incomplete-theme", token.Id, theme, null, "Token has no value for this theme."));
-            else if (expression is LiteralTokenValue literal && !Matches(token, literal.Value))
-                errors.Add(new("type-mismatch", token.Id, theme, null, "Literal value does not match token type."));
+            else if (expression is LiteralTokenValue literal)
+            {
+                if (literal.Value is TypographyFieldsValue fields && token.Type == TokenType.Typography)
+                    ValidateTypographyFields(token, theme, fields, byId, errors);
+                else if (!Matches(token, literal.Value))
+                    errors.Add(new("type-mismatch", token.Id, theme, null, "Literal value does not match token type."));
+            }
             else if (expression is TokenAlias alias)
             {
                 if (!byId.TryGetValue(alias.TokenId, out var target))
@@ -117,6 +130,32 @@ public static class DesignTokenValidator
             }
         }
         return errors;
+    }
+
+    private static void ValidateTypographyFields(DesignToken owner, TokenTheme theme, TypographyFieldsValue value,
+        IReadOnlyDictionary<Guid, DesignToken> byId, List<TokenDiagnostic> diagnostics)
+    {
+        void Check(string field, TokenExpression expression, TokenType type, TokenCategory? category)
+        {
+            void Error(string code, Guid? reference, string reason) =>
+                diagnostics.Add(new(code, owner.Id, theme, reference, $"{owner.Name}.{field}: {reason}", field));
+            if (expression is LiteralTokenValue literal)
+            {
+                var contract = new DesignToken(owner.Id, owner.Name, type, new Dictionary<TokenTheme, TokenExpression>(), category);
+                if (!Matches(contract, literal.Value)) Error("type-mismatch", null, "Literal violates the atomic field contract.");
+            }
+            else if (expression is TokenAlias alias)
+            {
+                if (!byId.TryGetValue(alias.TokenId, out var target)) Error("missing-reference", alias.TokenId, "Referenced atomic token does not exist.");
+                else if (target.Type != type || target.Category != category)
+                    Error("type-mismatch", alias.TokenId, "Referenced token has an incompatible type or semantic category.");
+            }
+            else Error("invalid-expression", null, "Field requires a literal or token reference.");
+        }
+        Check("fontFamily", value.FontFamily, TokenType.FontFamily, null);
+        Check("fontSize", value.FontSize, TokenType.Dimension, TokenCategory.FontSize);
+        Check("fontWeight", value.FontWeight, TokenType.FontWeight, null);
+        Check("lineHeight", value.LineHeight, TokenType.Number, TokenCategory.LineHeight);
     }
 
     public static TokenResolution Resolve(IReadOnlyList<DesignToken> tokens, Guid tokenId, TokenTheme theme)
@@ -189,8 +228,15 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
             if (token.Values is null || !token.Values.TryGetValue(theme, out var expression) || expression is null)
                 return Error("incomplete-theme", token.Id, "Token has no value for this theme.");
             if (expression is LiteralTokenValue literal)
+            {
+                if (literal.Value is TypographyFieldsValue fields && token.Type == TokenType.Typography)
+                {
+                    var composite = ResolveTypography(token, fields, theme);
+                    return composite.IsSuccess ? Complete(composite) : Complete(composite);
+                }
                 return DesignTokenValidator.Matches(token, literal.Value)
                     ? Complete(new(literal.Value, [])) : Error("type-mismatch", token.Id, "Literal value does not match token type.");
+            }
             if (expression is not TokenAlias alias)
                 return Error("invalid-expression", token.Id, "Unknown token expression.");
             if (Find(alias.TokenId) is not { } target)
@@ -210,5 +256,42 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
 
         TokenResolution Error(string code, Guid? reference, string message) =>
             resolved[(id, theme)] = new(null, [new(code, id, theme, reference, message)]);
+    }
+
+    private TokenResolution ResolveTypography(DesignToken owner, TypographyFieldsValue fields, TokenTheme theme)
+    {
+        TokenResolution Field(string path, TokenExpression expression, TokenType expected, TokenCategory? category)
+        {
+            TokenResolution Error(string code, Guid? reference, string message) =>
+                new(null, [new(code, owner.Id, theme, reference, $"{owner.Name}.{path}: {message}", path)]);
+            if (expression is LiteralTokenValue literal)
+            {
+                var contract = new DesignToken(owner.Id, owner.Name, expected,
+                    new Dictionary<TokenTheme, TokenExpression>(), category);
+                return DesignTokenValidator.Matches(contract, literal.Value)
+                    ? new(literal.Value, []) : Error("type-mismatch", null, "Invalid literal field value.");
+            }
+            if (expression is not TokenAlias alias)
+                return Error("invalid-expression", null, "Expected a field literal or token reference.");
+            if (Find(alias.TokenId) is not { } token)
+                return Error("missing-reference", alias.TokenId, "Referenced atomic token does not exist.");
+            if (token.Type != expected || token.Category != category)
+                return Error("type-mismatch", alias.TokenId, "Referenced token is incompatible.");
+            var result = Resolve(alias.TokenId, theme);
+            return result.IsSuccess ? result : Error(result.Diagnostics[0].Code, alias.TokenId, result.Diagnostics[0].Message);
+        }
+
+        var family = Field("fontFamily", fields.FontFamily, TokenType.FontFamily, null);
+        if (!family.IsSuccess) return family;
+        var size = Field("fontSize", fields.FontSize, TokenType.Dimension, TokenCategory.FontSize);
+        if (!size.IsSuccess) return size;
+        var weight = Field("fontWeight", fields.FontWeight, TokenType.FontWeight, null);
+        if (!weight.IsSuccess) return weight;
+        var line = Field("lineHeight", fields.LineHeight, TokenType.Number, TokenCategory.LineHeight);
+        if (!line.IsSuccess) return line;
+        var flat = new TypographyValue(((FontFamilyValue)family.Value!).Value, ((DimensionValue)size.Value!).Value,
+            ((FontWeightValue)weight.Value!).Value, ((NumberValue)line.Value!).Value);
+        return DesignTokenValidator.Matches(TokenType.Typography, flat)
+            ? new(flat, []) : new(null, [new("type-mismatch", owner.Id, theme, null, "Resolved typography fields are invalid.")]);
     }
 }
