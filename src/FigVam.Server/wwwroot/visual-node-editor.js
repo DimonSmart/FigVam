@@ -139,7 +139,8 @@ export function createVisualNodeEditor({
     paletteFields = renderFields(paletteProperties, required, null, palette, 'visual-required', paletteFields);
     const optional = Object.fromEntries(Object.entries(properties)
       .filter(([, definition]) => !definition.required && definition.tokenType != null &&
-        (definition.type === 'Color' || definition.type === 'Number')));
+        (definition.type === 'Color' || definition.type === 'Number' ||
+          definition.type === 'String' || definition.type === 'Enum')));
     paletteDetails.hidden = !Object.keys(optional).length;
     paletteOptionalFields = renderFields(paletteOptional, optional, null, palette,
       'visual-optional', paletteOptionalFields);
