@@ -123,7 +123,7 @@ public sealed class DesignStyleResolver
         if (visiting.Count >= 32 || !visiting.Add(id))
             throw Invalid("style-cycle", style.Id, "basedOnStyleId", id, "Style inheritance has a cycle or exceeds 32 levels.");
         var result = style.BasedOnStyleId is { } parent
-            ? new Dictionary<string, NodePropertyValue>(Resolve(parent, theme, visiting), StringComparer.Ordinal)
+            ? Resolve(parent, theme, visiting).ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal)
             : new Dictionary<string, NodePropertyValue>(StringComparer.Ordinal);
         foreach (var (name, value) in style.Fields)
         {
