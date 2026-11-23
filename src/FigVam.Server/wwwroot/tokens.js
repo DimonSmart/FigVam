@@ -114,7 +114,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         value?.type === 'typography' ? { expression: 'literal', value:
           field.type === 'FontFamily' ? { type: 'fontFamily', value: value.fontFamily } :
           { type: { Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[field.type],
-            value: value[field.name] } } : null;
+            value: value[field.name] ?? (field.name === 'letterSpacing' ? 0 : undefined) } } : null;
       el(prefix + '-' + field.name + '-source').value = part?.expression === 'alias' ? 'alias' : 'literal';
       el(prefix + '-' + field.name + '-value').value = part?.expression === 'literal'
         ? String(part.value.value) : field.initial;
