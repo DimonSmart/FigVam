@@ -87,7 +87,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран', exact: true }).click();
   const frame = await addLayer(page, 'Frame');
-  await editLayer(page, { ...position(40, 60, 520, 380), 'Цвет фона': '#eef4f8', 'Цвет фона — альфа': 255 });
+  await editLayer(page, { ...position(40, 60, 520, 380), 'Цвет фона': '#eef4f8' });
   const text = await addLayer(page, 'Text', frame);
   await editLayer(page, { ...position(24, 24, 300, 38), 'Текст': title, 'Цвет текста': '#224466' });
   const input = await addLayer(page, 'TextInput', frame);

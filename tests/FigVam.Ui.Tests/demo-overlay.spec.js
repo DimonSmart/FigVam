@@ -20,7 +20,7 @@ test('demo banner shows progress and does not block editor controls', async ({ p
   expect(banner.y + banner.height).toBeLessThanOrEqual(page.viewportSize().height);
   expect(banner.y).toBeGreaterThan(page.viewportSize().height / 2);
   expect(banner.height).toBeLessThan(110);
-  await expect(host.locator('.progress')).toHaveAttribute('style', 'width: 50%;');
+  await expect(host.locator('.progress')).toHaveAttribute('style', /width:\s*50%;?/);
   await page.getByRole('button', { name: 'Editor control' }).click();
 
   await demo.step('Проверяем результат');
