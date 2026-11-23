@@ -182,7 +182,7 @@ public sealed class DocumentScreenLayoutTests
     public void InstalledLegacyProfileDoesNotSilentlyUseVersionTwoNodeDefaults()
     {
         var node = Node("Text");
-        var document = Document([node.Id], node) with { Profile = PortableUiProfileReference.Version1 };
+        var document = Document([node.Id], node) with { Profile = PortableUiProfileReference.Current };
         var result = Calculate(document);
         Assert.Empty(result.Boxes);
         Assert.Equal("unknown-node-kind", Assert.Single(result.Diagnostics).Code);

@@ -17,8 +17,8 @@ public sealed class ScreenDimensionTests : IDisposable
         public ValueTask<bool> CanReadAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(actor.Id != "outsider");
         public ValueTask<bool> CanEditAsync(DocumentActor actor, Guid id, CancellationToken ct) => ValueTask.FromResult(actor.Id is "alice" or "bob");
     }
-    private SqliteDocumentJournal Journal() => new(directory, new UnverifiedNodeProfile());
-    private DocumentCommandHandler Handler() => new(new Access(), Journal(), new UnverifiedNodeProfile());
+    private SqliteDocumentJournal Journal() => new(directory, new EmptyNodeProfile());
+    private DocumentCommandHandler Handler() => new(new Access(), Journal(), new EmptyNodeProfile());
     private async Task Seed()
     {
         await Journal().InitializeAsync(new(doc, [], [], []));
@@ -58,7 +58,7 @@ public sealed class ScreenDimensionTests : IDisposable
         Assert.Equal(resize.Dimensions, await Current());
         Assert.Equal(3, (await Journal().ReadAsync(doc))!.Revision);
         var invalid = (await Journal().ReadAsync(doc))!.Document with { Screens = [new(screen, [], new(-1, 0))] };
-        Assert.Contains(DocumentStructureValidator.Validate(invalid, new UnverifiedNodeProfile()), e => e.Code == "INVALID_SCREEN_DIMENSIONS");
+        Assert.Contains(DocumentStructureValidator.Validate(invalid, new EmptyNodeProfile()), e => e.Code == "INVALID_SCREEN_DIMENSIONS");
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ScreenStructure>($"{{\"Id\":\"{screen}\",\"ChildIds\":[],\"Variants\":[]}}"));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<ScreenDimensions>("{\"Width\":0}"));
     }
@@ -69,7 +69,7 @@ public sealed class ScreenDimensionTests : IDisposable
         await Seed(); await Create();
         var resize = new ResizeScreenCommand(doc, Guid.NewGuid(), screen, new(1024, 768));
         Assert.True((await Handler().HandleAsync(resize, alice)).Accepted);
-        var queries = new DocumentStructureQueries(new Access(), Journal(), new UnverifiedNodeProfile());
+        var queries = new DocumentStructureQueries(new Access(), Journal(), new EmptyNodeProfile());
         Assert.Equal(new(320, 480), Assert.Single((await queries.QueryAsync(doc, new("screen", screen, Revision: 2), new("viewer"))).Response!.Items).Dimensions);
         Assert.Equal(resize.Dimensions, Assert.Single((await queries.QueryAsync(doc, new("screens", Fields: "dimensions"), alice)).Response!.Items).Dimensions);
         Assert.Null(Assert.Single((await queries.QueryAsync(doc, new("screens", Fields: "childCount"), alice)).Response!.Items).Dimensions);
