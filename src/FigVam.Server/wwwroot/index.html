@@ -375,6 +375,11 @@
                 <label for="new-token-light-mode">Источник значения</label>
                 <select id="new-token-light-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                 <input id="new-token-light" aria-label="Light" required>
+                <select id="new-token-light-weight-preset" aria-label="Пресет толщины Light" hidden>
+                  <option value="">Числовое значение</option>
+                  <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
+                  <option value="600">Semibold (600)</option><option value="700">Bold (700)</option>
+                </select>
                 <input id="new-token-light-picker" aria-label="Выбрать цвет Light" type="color" hidden>
                 <select id="new-token-light-alias" aria-label="Токен Light" hidden></select>
               </fieldset>
@@ -382,6 +387,11 @@
                 <label for="new-token-dark-mode">Источник значения</label>
                 <select id="new-token-dark-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                 <input id="new-token-dark" aria-label="Dark" required>
+                <select id="new-token-dark-weight-preset" aria-label="Пресет толщины Dark" hidden>
+                  <option value="">Числовое значение</option>
+                  <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
+                  <option value="600">Semibold (600)</option><option value="700">Bold (700)</option>
+                </select>
                 <input id="new-token-dark-picker" aria-label="Выбрать цвет Dark" type="color" hidden>
                 <select id="new-token-dark-alias" aria-label="Токен Dark" hidden></select>
               </fieldset>
