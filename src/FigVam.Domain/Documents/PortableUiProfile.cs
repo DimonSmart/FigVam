@@ -7,6 +7,7 @@ public sealed record PortableUiProfileReference(
     public static PortableUiProfileReference Version1 { get; } = new("figvam.portable-ui", 1);
     public static PortableUiProfileReference Version2 { get; } = new("figvam.portable-ui", 2);
     public static PortableUiProfileReference Version3 { get; } = new("figvam.portable-ui", 3);
+    public static PortableUiProfileReference Version4 { get; } = new("figvam.portable-ui", 4);
 }
 
 public sealed record ProfileResolutionDiagnostic(string Code, string Message);

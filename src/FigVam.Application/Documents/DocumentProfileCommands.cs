@@ -27,9 +27,11 @@ public sealed partial class DocumentCommandHandler
             var target = state.Document.Profile == PortableUiProfileReference.Version1
                 ? PortableUiProfileReference.Version2
                 : state.Document.Profile == PortableUiProfileReference.Version2
-                    ? PortableUiProfileReference.Version3 : null;
+                    ? PortableUiProfileReference.Version3
+                : state.Document.Profile == PortableUiProfileReference.Version3
+                    ? PortableUiProfileReference.Version4 : null;
             if (target is null)
-                return new(Result("PROFILE_UPGRADE_NOT_APPLICABLE", explanation: "Only Portable UI Profile v1 and v2 can be upgraded."), null);
+                return new(Result("PROFILE_UPGRADE_NOT_APPLICABLE", explanation: "Only Portable UI Profile v1, v2 and v3 can be upgraded."), null);
             if (PortableUiProfileResolver.Validate(target, profile) is { } unavailable)
                 return new(Result(unavailable.Code, explanation: unavailable.Message), null);
             var document = state.Document with { Profile = target };

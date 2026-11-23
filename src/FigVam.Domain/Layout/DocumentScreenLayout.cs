@@ -115,7 +115,7 @@ public static class DocumentScreenLayout
         double Number(string property)
         {
             if (EffectiveValue(property) is not NodeTokenValue reference ||
-                profile.GetProperty(node.Kind, property) is not { Type: NodePropertyType.Number, TokenType: TokenType.Spacing } definition)
+                profile.GetProperty(node.Kind, property) is not { Type: NodePropertyType.Number, TokenType: not null } definition)
                 return Read<NodeNumberValue>(property).Value;
             var (value, error) = NodePropertyValidator.ResolveNumberToken(tokens, definition, property, reference, theme);
             if (error is not null)

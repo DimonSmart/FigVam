@@ -34,6 +34,8 @@ public sealed class DocumentTokenExporter(IDocumentAuthorization authorization, 
                 diagnostics.Add(new("unsupported-name", token.Id, "DTCG names cannot start with $ or contain braces or periods."));
             if (token.Type == TokenType.Typography)
                 diagnostics.Add(new("unsupported-typography", token.Id, "DTCG typography requires letter spacing, which the document does not provide, and the document does not define whether line height is a multiplier or a length."));
+            else if (token.Type is TokenType.Dimension or TokenType.Number or TokenType.FontFamily or TokenType.FontWeight)
+                diagnostics.Add(new("unsupported-token-type", token.Id, $"DTCG export does not yet support {token.Type} tokens."));
         }
         foreach (var group in tokens.GroupBy(t => t.Name, StringComparer.Ordinal).Where(g => g.Count() > 1))
             foreach (var token in group) diagnostics.Add(new("duplicate-name", token.Id, "DTCG token names must be unique within the exported group."));

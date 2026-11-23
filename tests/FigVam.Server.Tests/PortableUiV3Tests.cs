@@ -32,18 +32,21 @@ public sealed class PortableUiV3Tests : IDisposable
         {
             CommandId = Guid.NewGuid(), ExpectedRevision = v2State.Revision + 2
         }, owner)).Code);
+        var upgradeToV4 = upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = v2State.Revision + 1 };
+        Assert.True((await handler.HandleAsync(upgradeToV4, owner)).Accepted);
+        Assert.Equal(PortableUiProfileReference.Version4, (await journal.ReadAsync(id))!.Document.Profile);
         Assert.Equal("PROFILE_UPGRADE_NOT_APPLICABLE", (await handler.HandleAsync(upgrade with
         {
-            CommandId = Guid.NewGuid(), ExpectedRevision = v2State.Revision + 1
+            CommandId = Guid.NewGuid(), ExpectedRevision = v2State.Revision + 2
         }, owner)).Code);
         Assert.Equal(new NodeEnumValue("Text"), profile.GetProperty("TextInput", "inputType")!.DefaultValue);
         Assert.True(profile.SupportsPreviewEvent("TextInput", PreviewEvent.Submit));
 
         Assert.True((await handler.HandleAsync(new UndoDocumentCommand(id, Guid.NewGuid()), owner)).Accepted);
-        Assert.Equal(PortableUiProfileReference.Version2, (await journal.ReadAsync(id))!.Document.Profile);
+        Assert.Equal(PortableUiProfileReference.Version3, (await journal.ReadAsync(id))!.Document.Profile);
         Assert.True((await handler.HandleAsync(new RedoDocumentCommand(id, Guid.NewGuid()), owner)).Accepted);
         var reopened = new SqliteDocumentJournal(directory, new VisualNodeProfile());
-        Assert.Equal(PortableUiProfileReference.Version3, (await reopened.ReadAsync(id))!.Document.Profile);
+        Assert.Equal(PortableUiProfileReference.Version4, (await reopened.ReadAsync(id))!.Document.Profile);
         Assert.Equal(PortableUiProfileReference.Version2, (await reopened.ReadAsync(id, v2State.Revision)).State!.Document.Profile);
     }
 

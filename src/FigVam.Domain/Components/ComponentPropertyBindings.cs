@@ -54,8 +54,10 @@ internal static class ComponentPropertyBindings
                     (ComponentParameterType.Number, NodePropertyType.Number) => true,
                     (ComponentParameterType.Bool, NodePropertyType.Boolean) => true,
                     (ComponentParameterType.Asset, NodePropertyType.Asset) => true,
-                    (ComponentParameterType.TokenReference, NodePropertyType.TokenReference or NodePropertyType.Color or NodePropertyType.Number) =>
-                        parameter.TokenType is not null && parameter.TokenType == property.TokenType,
+                    (ComponentParameterType.TokenReference, NodePropertyType.TokenReference or NodePropertyType.Color or NodePropertyType.Number or NodePropertyType.String or NodePropertyType.Enum) =>
+                        parameter.TokenType is not null &&
+                            (parameter.TokenType == property.TokenType && parameter.TokenCategory == property.TokenCategory ||
+                             parameter.TokenType == property.LegacyTokenType && parameter.TokenCategory is null),
                     (ComponentParameterType.Enum, NodePropertyType.Enum) => parameter.EnumValues is not null &&
                         property.EnumValues is not null && parameter.EnumValues.All(property.EnumValues.Contains),
                     _ => false
@@ -70,7 +72,7 @@ internal static class ComponentPropertyBindings
                     var converted = Convert(value);
                     if (NodePropertyValidator.Validate(profile, node.Kind, binding.Property, converted) is { } error)
                         Error(error.Code, error.Reason);
-                    else if (property.Type == NodePropertyType.Number && converted is NodeTokenValue token &&
+                    else if (converted is NodeTokenValue token && tokens.Find(token.TokenId) is not null &&
                         NodePropertyValidator.ValidateTokenReference(tokens, property, binding.Property, token) is { } reference)
                         Error(reference.Code, reference.Reason);
                 }
@@ -87,7 +89,7 @@ internal static class ComponentPropertyBindings
                     {
                         if (tokens.Find(token.TokenId) is not { } target)
                             errors.Add(new("missing-reference", node.Id, token.TokenId, "Referenced token does not exist.", name));
-                        else if (profile.GetProperty(node.Kind, name)?.TokenType != target.Type)
+                        else if (profile.GetProperty(node.Kind, name) is not { } definition || !NodePropertyValidator.AcceptsToken(definition, target))
                             errors.Add(new("token-type-mismatch", node.Id, token.TokenId, "Token has an incompatible type.", name));
                     }
                 }
