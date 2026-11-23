@@ -43,6 +43,45 @@ public sealed class ScreenVariantTests : IDisposable
     private SetScreenVariantOverrideCommand Set(Guid? id = null) => new(doc, Guid.NewGuid(), screen, id ?? variant, node, "text", new NodeStringValue("difference"));
 
     [Fact]
+    public async Task BatchInspectorOverridesUseOneRevisionAndPreserveBaseOnConflict()
+    {
+        await Seed();
+        var handler = Handler();
+        Assert.True((await handler.HandleAsync(Add(), actor)).Accepted);
+        var before = (await Journal().ReadAsync(doc))!;
+        var command = new SetScreenVariantPropertiesCommand(doc, Guid.NewGuid(), screen, variant, node,
+            new Dictionary<string, NodePropertyValue>
+            {
+                ["text"] = new NodeStringValue("invalid password"),
+                ["number"] = new NodeNumberValue(5)
+            }, before.Revision);
+        var accepted = await handler.HandleAsync(command, actor);
+        Assert.True(accepted.Accepted, accepted.Code);
+        Assert.Equal(before.Revision + 1, accepted.Revision);
+        Assert.Equal(accepted, await handler.HandleAsync(command, actor));
+        var after = (await Journal().ReadAsync(doc))!;
+        Assert.Equal(new NodeStringValue("base"), after.Document.Nodes.Single(n => n.Id == node).Properties["text"]);
+        var changed = Assert.Single(after.Document.Screens.Single(s => s.Id == screen).Variants);
+        Assert.Equal(2, changed.Overrides.Count);
+        Assert.Equal("REVISION_CONFLICT", (await handler.HandleAsync(command with { CommandId = Guid.NewGuid() }, actor)).Code);
+        var invalid = command with
+        {
+            CommandId = Guid.NewGuid(), ExpectedRevision = after.Revision,
+            Properties = new Dictionary<string, NodePropertyValue> { ["number"] = new NodeNumberValue(-1) }
+        };
+        Assert.Equal("INVALID_PROPERTY_VALUE", (await handler.HandleAsync(invalid, actor)).Code);
+        Assert.Equal(after.Revision, (await Journal().ReadAsync(doc))!.Revision);
+        Assert.Equal("FORBIDDEN", (await handler.HandleAsync(command with
+        {
+            CommandId = Guid.NewGuid(), ExpectedRevision = after.Revision
+        }, new("viewer"))).Code);
+        Assert.True((await handler.HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), actor)).Accepted);
+        Assert.Empty(Assert.Single((await Journal().ReadAsync(doc))!.Document.Screens.First().Variants).Overrides);
+        Assert.True((await handler.HandleAsync(new RedoDocumentCommand(doc, Guid.NewGuid()), actor)).Accepted);
+        Assert.Equal(2, Assert.Single((await Journal().ReadAsync(doc))!.Document.Screens.First().Variants).Overrides.Count);
+    }
+
+    [Fact]
     public async Task ComparisonUsesEffectiveValuesRevisionOwnershipAndPagination()
     {
         await Seed(); var second = Guid.NewGuid();
