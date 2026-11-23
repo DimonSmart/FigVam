@@ -137,7 +137,7 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await page.locator(`#layers [data-id="${stack}"] > .layer-label`).click();
   const inspector = page.locator('#visual-inspector');
   const gap = inspector.locator('.node-property--token').filter({
-    has: inspector.locator('.token-value-label', { hasText: 'Промежуток' })
+    has: page.locator('.token-value-label', { hasText: 'Промежуток' })
   });
   await expect(gap.getByRole('spinbutton', { name: 'Промежуток' })).toHaveValue('8');
   await expect(gap.getByText('Источник')).toHaveCount(0);

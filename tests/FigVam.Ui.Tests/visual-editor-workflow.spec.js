@@ -33,6 +33,13 @@ async function addLayer(page, kind, parent, assetId) {
 async function editLayer(page, fields) {
   const inspector = page.locator('#visual-inspector');
   for (const [label, value] of Object.entries(fields)) {
+    if (label.endsWith(' — альфа')) {
+      const property = label.slice(0, -' — альфа'.length);
+      const row = inspector.locator('.node-property--token').filter({
+        has: page.locator('.token-value-label', { hasText: property })
+      });
+      await row.getByRole('button', { name: 'Изменить Alpha' }).click();
+    }
     await inspector.getByLabel(label, { exact: true }).fill(String(value));
   }
   await inspector.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
@@ -87,7 +94,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран', exact: true }).click();
   const frame = await addLayer(page, 'Frame');
-  await editLayer(page, { ...position(40, 60, 520, 380), 'Цвет фона': '#eef4f8' });
+  await editLayer(page, { ...position(40, 60, 520, 380), 'Цвет фона': '#eef4f8', 'Цвет фона — альфа': 255 });
   const text = await addLayer(page, 'Text', frame);
   await editLayer(page, { ...position(24, 24, 300, 38), 'Текст': title, 'Цвет текста': '#224466' });
   const input = await addLayer(page, 'TextInput', frame);

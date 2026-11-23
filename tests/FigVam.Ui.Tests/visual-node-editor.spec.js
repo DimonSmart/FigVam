@@ -503,7 +503,7 @@ test('the creation palette accepts an optional token reference without saving un
   await expect(details).toBeVisible();
   await details.locator('summary').click();
   const row = palette.locator('#visual-optional-properties .node-property--token').filter({
-    has: palette.locator('.token-value-label', { hasText: 'Цвет фона' })
+    has: page.locator('.token-value-label', { hasText: 'Цвет фона' })
   });
   await row.getByRole('button', { name: 'Привязать токен' }).click();
   await row.getByRole('dialog', { name: 'Цвет фона — дизайн-токены' })
