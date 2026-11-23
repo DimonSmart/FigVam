@@ -152,9 +152,15 @@ export function createTokenValueControl(name, definition, model, initial, direct
     if (readOnly || source !== 'token') return;
     const result = resolved();
     if (result.error) {
-      // Keep the original reference rather than inventing a literal.
-      resolvedText.textContent = result.error;
-      updateView();
+      // Unresolved references cannot supply a literal. Switch to an empty, invalid
+      // draft so the user explicitly enters a value before saving the property.
+      if (definition.type === 'Color') direct.write(['', '255']);
+      else if (definition.numericFontWeight) direct.write(['Custom', '']);
+      else direct.write('');
+      source = literalType;
+      tokenId = '';
+      close(true);
+      fireChange();
       return;
     }
     if (definition.type === 'Color') {
