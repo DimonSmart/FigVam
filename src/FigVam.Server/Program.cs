@@ -88,6 +88,10 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
         }
     return Task.CompletedTask;
 }));
+// Allow local development UI tests to raise the read budget without changing production defaults.
+var readPermitLimit = builder.Environment.IsDevelopment()
+    ? Math.Clamp(builder.Configuration.GetValue("RateLimiting:ReadPermitLimit", 300), 300, 10_000)
+    : 300;
 builder.Services.AddRateLimiter(options =>
 {
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (string Identity, bool Authenticated, bool Read)>(context =>
@@ -96,7 +100,7 @@ builder.Services.AddRateLimiter(options =>
         var read = actor is not null && (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method));
         var identity = actor ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return RateLimitPartition.GetFixedWindowLimiter((Identity: identity, Authenticated: actor is not null, Read: read),
-            key => new FixedWindowRateLimiterOptions { PermitLimit = key.Read ? 300 : 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
+            key => new FixedWindowRateLimiterOptions { PermitLimit = key.Read ? readPermitLimit : 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
     });
     options.RejectionStatusCode = 429;
 });

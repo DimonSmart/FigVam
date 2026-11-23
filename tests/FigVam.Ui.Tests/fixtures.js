@@ -19,7 +19,9 @@ async function startServer(testInfo, logName) {
       Authentication__Mode: 'Local',
       Authentication__LocalDevelopment__Enabled: 'true',
       Authentication__LocalDevelopment__Token: bearer,
-      Storage__Directory: testInfo.outputPath('storage')
+      Storage__Directory: testInfo.outputPath('storage'),
+      // An end-to-end editing session can exceed 300 validated GETs/minute.
+      RateLimiting__ReadPermitLimit: '3000'
     },
     stdio: ['ignore', 'pipe', 'pipe']
   });
