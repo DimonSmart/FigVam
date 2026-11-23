@@ -93,6 +93,9 @@ public static class NodePropertyValidator
         if (value is NodeAssetValue { AssetId: var asset } && asset == Guid.Empty ||
             value is NodeTokenValue { TokenId: var token } && token == Guid.Empty)
             return new("INVALID_PROPERTY_VALUE", "Reference IDs must be nonempty.");
+        // Custom literal validators operate on the resolved value, not on its token ID.
+        if (value is NodeTokenValue && definition.Type != NodePropertyType.TokenReference)
+            return null;
         return definition.ValidateValue?.Invoke(value!) is { } reason ? new("INVALID_PROPERTY_VALUE", reason) : null;
     }
 
@@ -141,18 +144,8 @@ public static class NodePropertyValidator
         // complete document validator once its themed values are available.
         if (definition.Type == NodePropertyType.TokenReference) return null;
         foreach (var applicable in theme is { } selected ? [selected] : Enum.GetValues<TokenTheme>())
-        {
-            // A TokenReference parameter has no literal property representation: validate
-            // its referenced contract and resolve the chain, without converting to a scalar.
-            if (definition.Type == NodePropertyType.TokenReference)
-            {
-                var result = tokens.Resolve(reference.TokenId, applicable);
-                if (result.Diagnostics.FirstOrDefault() is { } diagnostic)
-                    return (diagnostic.Code, reference.TokenId, $"{applicable}: {diagnostic.Message}");
-            }
-            else if (ResolveValueToken(tokens, definition, property, reference, applicable).Error is { } invalid)
+            if (ResolveValueToken(tokens, definition, property, reference, applicable).Error is { } invalid)
                 return (invalid.Code, reference.TokenId, invalid.Reason);
-        }
         return null;
     }
 
