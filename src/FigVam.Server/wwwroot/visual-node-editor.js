@@ -483,7 +483,10 @@ export function createVisualNodeEditor({
       current.selection?.id !== body.nodeId || operations.has(key)) return false;
     if (!canvasDrafts.has(key)) canvasDrafts.set(key, draft());
     return begin(current.variantId ? 'set-screen-variant-properties' : 'set-node-properties',
-      current.variantId ? { ...body, screenId: current.screen, variantId: current.variantId } : body,
+      current.variantId ? {
+        screenId: current.screen, variantId: current.variantId,
+        nodeId: body.nodeId, properties: body.properties, expectedRevision: body.expectedRevision
+      } : body,
       canvasDrafts.get(key), settlePreview);
   }
 

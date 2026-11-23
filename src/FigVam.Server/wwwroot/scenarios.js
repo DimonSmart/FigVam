@@ -160,7 +160,7 @@ export function createScenarios({
     op.state = 'pending'; if (active()) renderScenarioCommand();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/delete-scenario`, { method: 'POST', body: JSON.stringify(op.body) });
-      if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       if (scenarioOperations.get(key) !== op) return;
       if (!active()) { op.state = 'uncertain'; return; }
       scenarioOperations.delete(key);
@@ -582,7 +582,7 @@ export function createScenarios({
     renderScenarioCommand();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/update-scenario`, { method: 'POST', body: JSON.stringify(op.body) }, view.controller.signal);
-      if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase())
+      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase())
         throw new TypeError('Некорректное подтверждение');
       if (scenarioOperations.get(key) !== op) return;
       if (!current()) { op.state = 'uncertain'; return; }
@@ -744,7 +744,7 @@ export function createScenarios({
     op.state = 'pending'; if (active()) renderScenarioCommand();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/create-scenario`, { method: 'POST', body: JSON.stringify(op.body) });
-      if (result.code !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.revision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.revision <= op.revision || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       if (scenarioOperations.get(key) !== op) return;
       if (!active()) { op.state = 'uncertain'; return; }
       scenarioOperations.delete(key);

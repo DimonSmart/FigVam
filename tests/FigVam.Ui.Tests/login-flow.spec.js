@@ -136,6 +136,23 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   const invalidVariant = await addVariant(page, 'InvalidPassword');
   await selectLayer(page, error);
   await saveProperties(page, {}, { 'Видимость': true });
+  // Geometry edits on a variant must save an override, not modify the Base node.
+  await page.getByRole('button', { name: '100%', exact: true }).click();
+  const errorVisual = page.locator(`#screen-boundary [data-visual-node="${error}"]`);
+  await expect(errorVisual).toBeVisible();
+  const bounds = await errorVisual.boundingBox();
+  const x = bounds.x + bounds.width / 2, y = bounds.y + bounds.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + 24, y, { steps: 5 });
+  await page.mouse.up();
+  await expect(page.locator('#canvas-edit-status')).toHaveText('Геометрия сохранена.');
+  await useVariant(page, null);
+  await selectLayer(page, error);
+  await expect(page.locator('#visual-inspector').getByRole('spinbutton', { name: 'X', exact: true })).toHaveValue('20');
+  await useVariant(page, invalidVariant);
+  await selectLayer(page, error);
+  await expect(page.locator('#visual-inspector').getByRole('spinbutton', { name: 'X', exact: true })).not.toHaveValue('20');
   const lockedVariant = await addVariant(page, 'AccountLocked');
   await selectLayer(page, locked);
   await saveProperties(page, {}, { 'Видимость': true });

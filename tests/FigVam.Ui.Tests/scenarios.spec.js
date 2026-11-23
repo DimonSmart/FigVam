@@ -88,7 +88,7 @@ test('confirms by scenario ID, cancellation sends nothing, then updates confirme
   await page.route('**/commands/delete-scenario', async route => {
     calls++; const body = route.request().postDataJSON(); expect(body.expectedRevision).toBe(3); expect(body.scenarioId).toBe('one'); expect(body.commandId).toBeTruthy();
     const result = await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } }); expect(result.ok()).toBeTruthy();
-    deleted = true; await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } });
+    deleted = true; await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } });
   });
   await open(page, id); await page.locator('#screens button').first().click();
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('one'); await dialog.dismiss(); }); await deleteButton(page).click(); expect(calls).toBe(0);
@@ -116,7 +116,7 @@ test('uncertain result retries identical command body', async ({ page, request }
 for (const exit of ['screen', 'navigation', 'logout']) test(`ignores pending deletion after ${exit}`, async ({ page, request }) => {
   const { id, screens } = await setup(request); await mockCatalog(page, screens); let release, entered;
   const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
-  await page.route('**/commands/delete-scenario', async route => { const body = route.request().postDataJSON(); entered(); await gate; await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {}); });
+  await page.route('**/commands/delete-scenario', async route => { const body = route.request().postDataJSON(); entered(); await gate; await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {}); });
   await open(page, id); await page.locator('#screens button').first().click(); page.once('dialog', dialog => dialog.accept()); await deleteButton(page).click(); await held;
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
   if (exit === 'navigation') await page.getByRole('link', { name: '← Документы' }).click();
@@ -126,7 +126,7 @@ for (const exit of ['screen', 'navigation', 'logout']) test(`ignores pending del
 test('confirmed deletion returns from an empty last page', async ({ page, request }) => {
   const { id, screens, headers } = await setup(request); let deleted = false;
   await page.route('**/scenarios?*', route => { const offset = Number(new URL(route.request().url()).searchParams.get('offset')); return response(route, Array.from({ length: offset ? (deleted ? 0 : 1) : 20 }, (_, i) => scenario(screens[0], `scenario-${offset + i}`)), deleted ? 20 : 21); });
-  await page.route('**/commands/delete-scenario', async route => { const body = route.request().postDataJSON(); await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } }); deleted = true; await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }); });
+  await page.route('**/commands/delete-scenario', async route => { const body = route.request().postDataJSON(); await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } }); deleted = true; await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }); });
   await open(page, id); await page.locator('#screens button').first().click(); await page.getByRole('button', { name: 'Следующие сценарии' }).click(); await expect(page.locator('#scenarios-number')).toHaveText('21–21 из 21');
   page.once('dialog', dialog => dialog.accept()); await deleteButton(page).click(); await expect(page.locator('#scenarios-number')).toHaveText('1–20 из 20');
 });
@@ -157,7 +157,7 @@ test('creates a Navigate scenario with generated IDs and refreshes the catalog',
     calls++; body = route.request().postDataJSON();
     expect(route.request().headers().authorization).toBe(`Bearer ${bearer}`);
     await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } });
-    await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } });
+    await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } });
   });
   const node = await prepareCreation(page, id, screens);
   await page.getByRole('button', { name: 'Создать сценарий' }).click();
@@ -223,7 +223,7 @@ for (const status of [400, 403, 503]) test(`creation handles ${status} and prese
 for (const [exit, action] of [['screen', 'openOverlay'], ['navigation', 'closeOverlay'], ['logout', 'resetPreview']]) test(`ignores pending ${action} creation after ${exit}`, async ({ page, request }) => {
   const { id, screens } = await setup(request); let release, entered;
   const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
-  await page.route('**/commands/create-scenario', async route => { const body = route.request().postDataJSON(); entered(); await gate; await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {}); });
+  await page.route('**/commands/create-scenario', async route => { const body = route.request().postDataJSON(); entered(); await gate; await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {}); });
   await prepareCreation(page, id, screens); await page.locator('#scenario-action').selectOption(action); await page.getByRole('button', { name: 'Создать сценарий' }).click(); await held;
   await expect(page.getByRole('button', { name: 'Создать сценарий' })).toBeDisabled();
   if (exit === 'screen') await page.locator('#screens button').nth(1).click();
@@ -491,7 +491,7 @@ test('Owner updates the source, event and ordered scenario actions through the t
     expect(route.request().headers().authorization).toBe('Bearer ' + bearer);
     expect((await request.post('/api/v1/documents/' + id + '/commands/add-page', { headers, data: { commandId: randomUUID(), pageId: randomUUID() } })).ok()).toBeTruthy();
     editor.changed(body.scenario);
-    await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } });
+    await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } });
   });
 
   await open(page, id);
@@ -692,7 +692,7 @@ for (const exit of ['screen', 'document', 'logout']) test('discards a stale upda
   await page.route('**/commands/update-scenario', async route => {
     const body = route.request().postDataJSON(); calls.push(body);
     entered(); await gate;
-    await route.fulfill({ json: { code: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {});
+    await route.fulfill({ json: { status: 'ACCEPTED', documentId: id, commandId: body.commandId, revision: 4 } }).catch(() => {});
     completed();
   });
   await open(page, id); await page.locator('#screens button').first().click();
