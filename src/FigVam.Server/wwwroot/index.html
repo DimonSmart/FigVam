@@ -363,7 +363,7 @@
             <form id="token-create" hidden><h3>Новый токен</h3>
               <label for="new-token-name">Имя токена</label><input id="new-token-name" required maxlength="256">
               <label for="new-token-type">Тип токена</label><select id="new-token-type">
-                <option value="Color">Color</option><option value="Dimension">Dimension</option>
+                <option value="Color">Color</option><option value="Typography">Typography</option><option value="Dimension">Dimension</option>
                 <option value="Number">Number</option><option value="FontFamily">FontFamily</option>
                 <option value="FontWeight">FontWeight</option>
                 <option value="Spacing">Spacing (legacy)</option><option value="Geometry">Geometry (legacy)</option>
@@ -374,6 +374,7 @@
                 <label for="new-token-light-mode">Источник значения</label>
                 <select id="new-token-light-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                 <input id="new-token-light" aria-label="Light" required>
+                <div id="new-token-light-typography" class="token-typography-fields" hidden></div>
                 <select id="new-token-light-weight-preset" aria-label="Пресет толщины Light" hidden>
                   <option value="">Числовое значение</option>
                   <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
@@ -386,6 +387,7 @@
                 <label for="new-token-dark-mode">Источник значения</label>
                 <select id="new-token-dark-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                 <input id="new-token-dark" aria-label="Dark" required>
+                <div id="new-token-dark-typography" class="token-typography-fields" hidden></div>
                 <select id="new-token-dark-weight-preset" aria-label="Пресет толщины Dark" hidden>
                   <option value="">Числовое значение</option>
                   <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
@@ -404,6 +406,7 @@
                   <label for="token-theme">Тема</label><select id="token-theme"><option value="Light">Light</option><option value="Dark">Dark</option></select>
                   <label for="token-mode">Источник</label><select id="token-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
                   <label for="token-value">Новое значение</label><input id="token-value">
+                   <div id="token-typography" class="token-typography-fields" hidden></div>
                   <input id="token-value-picker" type="color" aria-label="Выбрать цвет" hidden>
                   <select id="token-value-alias" aria-label="Ссылка на другой токен" hidden></select>
                   <select id="token-font-weight-preset" aria-label="Пресет толщины шрифта" hidden>
