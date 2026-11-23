@@ -71,6 +71,30 @@ export function resolveTokenValue(reference, tokens, theme = 'Light', expectedTy
     const expression = token.values?.[theme];
     if (!expression) return { value: null, error: 'Нет значения токена для темы ' + theme + '.', token };
     if (expression.expression === 'alias') { id = expression.tokenId; continue; }
+    if (type === 'Typography' && expression.expression === 'literal' && expression.value?.type === 'typographyFields') {
+      const spec = [
+        ['fontFamily', 'FontFamily', null], ['fontSize', 'Dimension', 'FontSize'],
+        ['fontWeight', 'FontWeight', null], ['lineHeight', 'Number', 'LineHeight']
+      ];
+      const values = {};
+      for (const [field, expectedType, expectedCategory] of spec) {
+        const part = expression.value[field];
+        let resolved;
+        if (part?.expression === 'literal') {
+          resolved = isValidValue(part.value, expectedType, expectedCategory)
+            ? { value: part.value } : { error: 'Недопустимое прямое значение.' };
+        } else if (part?.expression === 'alias') {
+          resolved = resolveTokenValue({ type: 'token', tokenId: part.tokenId }, tokens, theme,
+            expectedType, expectedCategory);
+        } else resolved = { error: 'Не задано поле типографики.' };
+        if (resolved.error) return { value: null, error: field + ': ' + resolved.error, token };
+        values[field] = resolved.value.value;
+      }
+      const flattened = { type: 'typography', ...values };
+      return isValidValue(flattened, 'Typography', null)
+        ? { value: flattened, error: null, token }
+        : { value: null, error: 'Некорректные значения полей типографики.', token };
+    }
     if (expression.expression !== 'literal' || !isValidValue(expression.value, type, category))
       return { value: null, error: 'Некорректное значение дизайн-токена.', token };
     return { value: expression.value, error: null, token };
@@ -105,6 +129,8 @@ export function tokenValueText(value) {
     return String(value?.type === 'geometry' ? value.radius : value.value) + ' px';
   if (['number', 'fontWeight'].includes(value?.type)) return String(value.value);
   if (value?.type === 'fontFamily') return value.value;
+  if (value?.type === 'typography') return [value.fontFamily, value.fontSize + ' px',
+    value.fontWeight, value.lineHeight].join(' · ');
   if (value?.type === 'color') return '#' + [value.red, value.green, value.blue, value.alpha]
     .map(channel => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
   return '—';
