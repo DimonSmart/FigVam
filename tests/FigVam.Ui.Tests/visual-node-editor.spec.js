@@ -63,6 +63,9 @@ test('palette uploads an image, rejects invalid content, and creates all five ki
   await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
+  // Wait until the asynchronous screen creation has selected the new screen.
+  // Otherwise the upload form correctly refuses submission without a screen.
+  await expect(page.locator('#open-preview')).toBeEnabled();
   await show(page, 'assets');
   const upload = page.getByLabel('Изображение PNG');
   await upload.setInputFiles({ name: 'invalid.png', mimeType: 'image/png', buffer: Buffer.from('invalid') });
