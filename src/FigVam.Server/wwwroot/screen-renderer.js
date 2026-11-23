@@ -1,4 +1,4 @@
-import { resolveTokenValue } from './token-resolution.js';
+import { resolveTokenValue, resolvePropertyToken } from './token-resolution.js';
 const enumStyles = {
   fontFallback: { SansSerif: 'sans-serif', Serif: 'serif', Monospace: 'monospace' },
   fontWeight: { Normal: '400', Medium: '500', Semibold: '600', Bold: '700' },
@@ -27,7 +27,15 @@ function color(property, tokens, theme) {
   return 'rgba(' + [value.red, value.green, value.blue, value.alpha / 255].join(', ') + ')';
 }
 
-function appearance(surface, property, tokens, theme, bounds, report) {
+function appearance(surface, property, tokens, theme, bounds, report, definitions) {
+  function resolved(name) {
+    const value = property(name);
+    if (!value) return null;
+    if (value.type !== 'token') return value;
+    const result = resolvePropertyToken(value, tokens, theme, definitions[name]);
+    if (result.error) report(name, result.error);
+    return result.error ? null : result.value;
+  }
   const style = surface.style;
   for (const [name, key] of Object.entries({ backgroundColor: 'backgroundColor', textColor: 'color', borderColor: 'borderColor' })) {
     const value = property(name);
@@ -37,20 +45,21 @@ function appearance(surface, property, tokens, theme, bounds, report) {
     else report(name, 'Не удалось разрешить цветовой токен.');
   }
   for (const [name, key] of Object.entries({ borderWidth: 'borderWidth', cornerRadius: 'borderRadius', fontSize: 'fontSize' })) {
-    const propertyValue = property(name);
-    const resolved = resolveTokenValue(propertyValue, tokens, theme);
-    const value = resolved.value?.type === 'geometry' ? resolved.value.radius : resolved.value?.value;
+    const propertyValue = resolved(name);
+    const value = propertyValue?.type === 'geometry' ? propertyValue.radius : propertyValue?.value;
     if (Number.isFinite(value)) style[key] = px(name === 'borderWidth' ? Math.min(value, bounds.width / 2, bounds.height / 2) : value);
-    else if (propertyValue?.type === 'token') report(name, resolved.error ?? 'Числовой токен не разрешён.');
   }
-  for (const name of ['fontWeight', 'fontStyle', 'textAlignment']) {
+  for (const name of ['fontStyle', 'textAlignment']) {
     const value = enumStyles[name][property(name)?.value];
     if (value) style[name === 'textAlignment' ? 'textAlign' : name] = value;
   }
-  const family = property('fontFamily')?.value;
+  const weight = resolved('fontWeight')?.value;
+  const weightValue = enumStyles.fontWeight[weight] ?? (Number.isInteger(weight) && weight >= 1 && weight <= 1000 ? String(weight) : null);
+  if (weightValue) style.fontWeight = weightValue;
+  const family = resolved('fontFamily')?.value;
   const fallback = enumStyles.fontFallback[property('fontFallback')?.value];
   if (fallback) style.fontFamily = family && /^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$/u.test(family) ? `"${family}", ${fallback}` : fallback;
-  const lineHeight = property('lineHeight')?.value;
+  const lineHeight = resolved('lineHeight')?.value;
   if (Number.isFinite(lineHeight)) style.lineHeight = String(lineHeight);
   if (property('wrap')?.value === false) style.whiteSpace = 'pre';
 }
@@ -86,7 +95,11 @@ export function renderScreen(model, options) {
     place(wrapper, options.preview ? box : { bounds: box.bounds }, boxes.get(node.parentId).bounds);
     if (!options.preview && value('overflow') === 'Clip') wrapper.style.overflow = 'clip';
     if (value('visible') === false) wrapper.style.visibility = 'hidden';
-    if (Number.isFinite(value('opacity'))) wrapper.style.opacity = String(value('opacity'));
+    const opacityValue = property('opacity');
+    const resolvedOpacity = opacityValue?.type === 'token'
+      ? resolvePropertyToken(opacityValue, tokens, theme, kind.properties.opacity) : { value: opacityValue };
+    if (resolvedOpacity.error) report('opacity', resolvedOpacity.error);
+    if (Number.isFinite(resolvedOpacity.value?.value)) wrapper.style.opacity = String(resolvedOpacity.value.value);
     // Descendants must paint together with their parent, below later siblings in tree order.
     wrapper.style.isolation = 'isolate';
 
@@ -141,7 +154,7 @@ export function renderScreen(model, options) {
       else surface.dataset.disabled = 'true';
     }
     if (!options.preview && surface.matches('input, textarea, button')) surface.tabIndex = -1;
-    appearance(surface, property, tokens, theme, box.bounds, report);
+    appearance(surface, property, tokens, theme, box.bounds, report, kind.properties);
     wrapper.append(surface);
     parent.append(wrapper);
     elements.set(id, wrapper);
