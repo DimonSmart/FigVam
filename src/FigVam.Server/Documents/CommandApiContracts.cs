@@ -148,6 +148,7 @@ public sealed class AddComponentParameterRequest
     [Required] public required FigVam.Domain.Components.ComponentValue DefaultValue { get; init; }
     public FigVam.Domain.Tokens.TokenType? TokenType { get; init; }
     public FigVam.Domain.Tokens.TokenCategory? TokenCategory { get; init; }
+    public FigVam.Domain.Documents.DesignStyleType? StyleType { get; init; }
     public IReadOnlyList<string>? EnumValues { get; init; }
     public required Guid NodeId { get; init; }
     [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; }
