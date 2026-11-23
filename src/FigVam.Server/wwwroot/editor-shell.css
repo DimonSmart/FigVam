@@ -445,3 +445,20 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   .app-shell .viewport-controls { right: 5px; bottom: 8px; max-width: calc(100% - 10px); gap: 0; }
   .app-shell .viewport-controls button { font-size: 11px; padding: 4px; }
 }
+
+.app-shell #screens .screen-context-menu { position: relative; flex: 0 0 26px; z-index: 6; }
+.app-shell #screens .screen-context-menu summary {
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  list-style: none; width: 26px; height: 26px; color: var(--ui-muted); border-radius: 4px;
+}
+.app-shell #screens .screen-context-menu summary::-webkit-details-marker { display: none; }
+.app-shell #screens .screen-context-menu[open] summary { color: var(--ui-accent); background: var(--ui-selected); }
+.app-shell #screens .screen-context-menu button {
+  position: absolute; inset-inline-end: 0; inset-block-start: 27px;
+  width: max-content; min-width: 108px; padding: 6px 12px;
+  background: var(--ui-surface, white); border: 1px solid var(--ui-border, #ccd0db);
+  box-shadow: 0 4px 14px #0002; z-index: 10; text-align: start;
+}
+.app-shell #screen-variants-list button[aria-pressed="true"] { font-weight: 650; color: var(--ui-accent); }
+.app-shell #visual-properties [data-variant-override="true"] { border-inline-start: 2px solid var(--ui-accent); padding-inline-start: 5px; }
+.app-shell #visual-properties .variant-override-reset { font-size: 11px; padding: 2px 5px; margin-inline-start: 5px; }

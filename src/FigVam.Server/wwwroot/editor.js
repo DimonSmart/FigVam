@@ -488,6 +488,30 @@ function renderScreens() {
         rename.setAttribute('aria-label', `Переименовать экран «${name}»`);
         rename.addEventListener('click', () => startScreenNameEdit(item.id, name));
         row.append(rename);
+        const menu = document.createElement('details');
+        menu.className = 'screen-context-menu';
+        const trigger = document.createElement('summary');
+        trigger.setAttribute('aria-label', `Действия с экраном «${name}»`);
+        trigger.title = 'Действия с экраном';
+        trigger.textContent = '⋯';
+        const duplicate = document.createElement('button');
+        duplicate.type = 'button';
+        duplicate.textContent = 'Duplicate';
+        duplicate.setAttribute('aria-label', `Дублировать экран «${name}»`);
+        duplicate.addEventListener('click', () => {
+          menu.open = false;
+          const newScreenId = crypto.randomUUID();
+          pageCommand('duplicate-screen', { screenId: item.id, newScreenId, expectedRevision: revision },
+            undefined, newScreenId);
+        });
+        menu.append(trigger, duplicate);
+        row.addEventListener('contextmenu', event => {
+          if (event.target.closest('input, button, summary')) return;
+          event.preventDefault();
+          menu.open = true;
+          duplicate.focus({ preventScroll: true });
+        });
+        row.append(menu);
       }
     }
     list.append(row);
