@@ -46,6 +46,7 @@ $catalog = [ordered]@{
   '29' = 'visual-node-editor.spec.js'
   '30' = 'visual-screen.spec.js'
   '31' = 'demo-overlay.spec.js'
+  '32' = 'layer-labels.spec.js'
 }
 
 if ($List -or (-not $Test -and -not $Setup)) {

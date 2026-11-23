@@ -1,3 +1,32 @@
+// Derived layer captions are for display only and never change the saved node name.
+function layerDisplayName(item) {
+  const explicit = item.name?.trim();
+  if (explicit) return { text: explicit, source: 'explicit', origin: 'Имя слоя' };
+
+  const props = item.properties ?? {};
+  function excerpt(key) {
+    const value = props[key];
+    if (value?.type !== 'string' || typeof value.value !== 'string') return null;
+    const line = value.value.split(/\r\n|\r|\n/, 1)[0].replace(/\s+/g, ' ').trim();
+    if (!line) return null;
+    return line.length > 48 ? line.slice(0, 47).trimEnd() + '…' : line;
+  }
+  const keys = {
+    Text: [['text', 'Текст элемента']],
+    Button: [['text', 'Текст кнопки']],
+    TextInput: [
+      ['placeholder', 'Подсказка поля'],
+      ...(props.inputType?.value === 'Password' ? [] : [['value', 'Значение поля']])
+    ],
+    Image: [['altText', 'Альтернативный текст']]
+  };
+  for (const [key, origin] of keys[item.kind] ?? []) {
+    const text = excerpt(key);
+    if (text) return { text, source: 'inferred', origin };
+  }
+  return { text: 'Без имени', source: 'missing', origin: 'Имя слоя не задано' };
+}
+
 export function createLayers({
   element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
   closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected
@@ -435,9 +464,9 @@ export function createLayers({
           if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
         } else row.removeAttribute('aria-expanded');
         const label = row.querySelector(':scope > .layer-label');
-        const name = item.name?.trim() || 'Без имени';
+        const { text: name, source, origin } = layerDisplayName(item);
         const expansion = item.childCount ? (layerExpanded.has(item.id) ? '▾' : '▸') : '';
-        const caption = `${expansion}:${name}:${item.kind}`;
+        const caption = `${expansion}:${name}:${item.kind}:${source}:${origin}`;
         if (label.dataset.caption !== caption) {
           const disclosure = document.createElement('span');
           disclosure.className = 'layer-disclosure';
@@ -451,10 +480,11 @@ export function createLayers({
             TextInput: '▤', Image: '▧' })[item.kind] ?? '◇';
           const title = document.createElement('span');
           title.className = 'layer-name';
+          title.dataset.labelSource = source;
           title.textContent = name;
           label.replaceChildren(disclosure, icon, title);
           label.dataset.caption = caption;
-          label.title = `${name} · ${item.kind}`;
+          label.title = `${name} · ${item.kind} · ${origin}`;
           row.setAttribute('aria-label', `${name}, ${item.kind}`);
         }
         let group = row.querySelector(':scope > [role=group]');
@@ -495,7 +525,7 @@ export function createLayers({
   async function readLayerChildren(base, parentId, signal, revision, isCurrent) {
     const items = []; let total;
     do {
-      const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields: 'name,kind,childCount', revision: String(revision) });
+      const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields: 'name,kind,childCount,properties', revision: String(revision) });
       const result = await request(`${base}/children/${encodeURIComponent(parentId)}?${query}`, {}, signal, isCurrent);
       total = result.total;
       if (!result.items.length && items.length < total) throw new Error('Не удалось загрузить все слои. Обновите страницы.');

@@ -10,6 +10,11 @@ test('demo banner shows progress and does not block editor controls', async ({ p
   await expect(host.locator('.title')).toHaveText('Добавляем поле ввода имени пользователя');
   await expect(host.locator('.description')).toHaveText('Создаём TextInput с подсказкой Username.');
   await expect(host.locator('.counter')).toHaveText('Шаг 1 из 2');
+  await expect(host).toHaveCSS('bottom', '12px');
+  await expect(host).toHaveCSS('top', 'auto');
+  const banner = await host.boundingBox();
+  expect(banner.y).toBeGreaterThan(500);
+  expect(banner.height).toBeLessThan(110);
   await expect(host.locator('.progress')).toHaveAttribute('style', 'width: 50%;');
   await page.getByRole('button', { name: 'Editor control' }).click();
 

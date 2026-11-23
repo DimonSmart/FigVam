@@ -20,20 +20,22 @@ function createDemo(page, totalSteps, options = {}) {
         if (!host) {
           host = document.createElement('div');
           host.id = hostId;
-          host.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);' +
-            'width:min(620px,calc(100vw - 32px));z-index:2147483647;pointer-events:none;';
+          host.style.cssText = 'position:fixed;bottom:12px;left:50%;transform:translateX(-50%);' +
+            'width:min(480px,calc(100vw - 24px));z-index:2147483647;pointer-events:none;';
           document.documentElement.appendChild(host);
           host.attachShadow({ mode: 'open' }).innerHTML = [
             '<style>',
-            '.panel{box-sizing:border-box;padding:16px 20px 14px;border-radius:12px;',
-            'background:rgba(16,23,37,.94);color:#fff;box-shadow:0 12px 40px #0005;',
+            '.panel,.panel *{box-sizing:border-box;margin:0;}',
+            '.panel{padding:9px 13px 8px;border-radius:9px;',
+            'background:rgba(16,23,37,.78);color:#fff;box-shadow:0 5px 20px #0003;',
             'font-family:system-ui,-apple-system,"Segoe UI",sans-serif;',
-            'border:1px solid #ffffff30;text-align:left;}',
+            'border:1px solid #ffffff24;text-align:left;line-height:1.2;',
+            'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}',
             '.top{display:flex;justify-content:space-between;align-items:center;',
-            'font-size:12px;color:#b7c7de;margin-bottom:7px;}',
-            '.title{font-size:19px;font-weight:650;line-height:1.35;}',
-            '.description{font-size:13px;line-height:1.45;color:#d0dbea;margin-top:5px;}',
-            '.track{height:4px;border-radius:6px;background:#ffffff25;margin-top:13px;',
+            'font-size:10px;line-height:1.1;color:#d4dceb;margin-bottom:4px;}',
+            '.title{font-size:15px;font-weight:600;line-height:1.2;}',
+            '.description{font-size:12px;line-height:1.25;color:#e1e8f2;margin-top:3px;}',
+            '.track{height:3px;border-radius:4px;background:#ffffff25;margin-top:7px;',
             'overflow:hidden}.progress{height:100%;background:#70a8ff;}',
             '</style>',
             '<section class="panel" role="status" aria-live="polite">',
