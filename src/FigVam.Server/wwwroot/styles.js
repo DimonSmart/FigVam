@@ -53,6 +53,7 @@ function literalText(field, value) {
 export function createStyles({ element, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }) {
   const el = element;
   let items = [], selectedId = null, busy = false, tokenSignature = '';
+  let styleUsages = [], styleUsageRequest = 0;
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
@@ -192,6 +193,38 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     choose(parent, selected?.basedOnStyleId);
     buildFields(selected, type);
     renderPreview(selected);
+    const list = el('styles-usages');
+    list.replaceChildren();
+    for (const indirect of [false, true]) {
+      const uses = styleUsages.filter(item => Boolean(item.indirect) === indirect);
+      if (!uses.length) continue;
+      const group = document.createElement('li');
+      group.className = 'resource-usage-group';
+      group.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + uses.length;
+      list.append(group);
+      for (const usage of uses) {
+        const li = document.createElement('li');
+        li.textContent = [usage.label ?? usage.kind, usage.property, usage.theme == null ? null : 'тема ' + usage.theme]
+          .filter(x => x != null).join(' · ');
+        if (usage.kind === 'nodeProperty') {
+          const target = document.createElement('button');
+          target.type = 'button';
+          target.textContent = 'К слою';
+          target.addEventListener('click', () => {
+            const node = [...document.querySelectorAll('#layers [role="treeitem"]')].find(row => row.dataset.id === usage.ownerId);
+            node?.querySelector('.layer-label')?.click();
+          });
+          li.append(' ', target);
+        }
+        li.title = (usage.chain ?? []).map(id => items.find(item => item.id === id)?.name ?? id).join(' → ');
+        list.append(li);
+      }
+    }
+    if (!styleUsages.length) {
+      const empty = document.createElement('li');
+      empty.textContent = 'Использований нет.';
+      list.append(empty);
+    }
   }
 
   function resolvePreview(style, theme, seen = new Set()) {
@@ -223,6 +256,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
 
   function reset() {
     items = []; selectedId = null; busy = false; tokenSignature = '';
+    styleUsages = []; styleUsageRequest++;
     el('styles-error').textContent = ''; el('styles-status').textContent = '';
     render();
   }
@@ -251,6 +285,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     items = next;
     if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
     if (changed || el('styles-form').hidden === editable()) render();
+    if (changed && selectedId) loadUsages();
   }
 
   async function write(endpoint, payload, id = selectedId) {
@@ -277,7 +312,35 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     }
   }
 
-  el('styles-list').addEventListener('change', () => { selectedId = el('styles-list').value || null; render(); });
+  async function loadUsages() {
+    const id = selectedId, doc = getContext().documentId, revision = getContext().revision;
+    const generation = ++styleUsageRequest;
+    styleUsages = []; render();
+    if (!id || !Number.isSafeInteger(revision)) return;
+    try {
+      const found = []; let total;
+      do {
+        const response = await request('/api/v1/documents/' + encodeURIComponent(doc) +
+          '/styles/' + encodeURIComponent(id) + '/usages?revision=' + revision +
+          '&offset=' + found.length + '&limit=100');
+        if (response.revision !== revision || response.offset !== found.length ||
+            !Array.isArray(response.items)) throw new Error('Некорректный ответ использований стиля.');
+        found.push(...response.items); total = response.total;
+        if (found.length < total && response.items.length === 0) throw new Error('Неполный список использований.');
+      } while (found.length < total);
+      if (generation === styleUsageRequest && id === selectedId &&
+          revision === getContext().revision && doc === getContext().documentId) {
+        styleUsages = found;
+        render();
+      }
+    } catch (error) {
+      if (generation === styleUsageRequest) el('styles-error').textContent = error.message;
+    }
+  }
+  el('styles-list').addEventListener('change', () => {
+    selectedId = el('styles-list').value || null;
+    loadUsages();
+  });
   el('styles-type').addEventListener('change', () => {
     const type = el('styles-type').value;
     choices(el('styles-based-on'), items.filter(style => styleType(style) === type && style.id !== selectedId), 'Без родителя');
