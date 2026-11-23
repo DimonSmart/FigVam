@@ -153,6 +153,8 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await show(page, 'layers');
   await page.locator(`#screens .screen-select`).filter({ hasText: 'Login' }).click();
   await expect(page.locator('#screen-variants-list')).toContainText('AccountLocked');
+  // Switching screens collapses the layer tree; expand the container through the UI.
+  await page.locator(`#layers [data-id="${frame}"] > .layer-label`).click();
 
   await scenario(page, loginButton, 0, 'showVariant', invalidVariant);
   await scenario(page, password, 4, 'showVariant', invalidVariant);
@@ -165,10 +167,10 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   await expect(secret).toHaveAttribute('type', 'password');
   await secret.fill('example-only');
   await secret.press('Enter');
-  await expect(loginRoot).toContainText('Invalid password');
+  await expect(loginRoot.locator(`[data-visual-node="${error}"]`)).toBeVisible();
   await page.getByRole('button', { name: 'Сбросить Preview' }).click();
   await loginRoot.getByRole('button', { name: 'Lock account' }).click();
-  await expect(loginRoot).toContainText('Account locked');
+  await expect(loginRoot.locator(`[data-visual-node="${locked}"]`)).toBeVisible();
   await page.getByRole('button', { name: 'Сбросить Preview' }).click();
   await loginRoot.getByRole('button', { name: 'Continue' }).click();
   await expect(page.locator('#preview-viewport')).toContainText('Welcome!');

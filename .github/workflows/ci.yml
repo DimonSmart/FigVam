@@ -82,6 +82,9 @@ jobs:
           path: tests/FigVam.Ui.Tests/test-results/**/editor-shell-*.png
           if-no-files-found: ignore
           retention-days: 7
+      - name: Login prototype E2E
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test login-flow.spec.js --workers=1 --trace retain-on-failure
       - name: Playwright tests
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test --max-failures=5 --trace retain-on-failure
