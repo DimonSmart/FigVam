@@ -51,7 +51,7 @@ function literalText(field, value) {
 
 export function createStyles({ element, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }) {
   const el = element;
-  let items = [], selectedId = null, busy = false;
+  let items = [], selectedId = null, busy = false, tokenSignature = '';
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
@@ -219,7 +219,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   }
 
   function reset() {
-    items = []; selectedId = null; busy = false;
+    items = []; selectedId = null; busy = false; tokenSignature = '';
     el('styles-error').textContent = ''; el('styles-status').textContent = '';
     render();
   }
@@ -240,7 +240,11 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   }
 
   function apply(next) {
-    const changed = JSON.stringify(items) !== JSON.stringify(next);
+    const nextTokenSignature = JSON.stringify(tokens().map(token =>
+      [token.id, token.name, token.type, token.category]));
+    const changed = JSON.stringify(items) !== JSON.stringify(next) ||
+      tokenSignature !== nextTokenSignature;
+    tokenSignature = nextTokenSignature;
     items = next;
     if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
     if (changed || el('styles-form').hidden === editable()) render();
