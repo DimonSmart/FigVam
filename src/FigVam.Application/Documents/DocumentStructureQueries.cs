@@ -68,7 +68,8 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         var document = state.Document;
         var diagnostics = new List<LayoutDiagnostic>();
         var overrides = new Dictionary<Guid, Dictionary<string, NodePropertyValue>>();
-        if (query.Viewport is not null || query.VariantId is not null)
+        // Resolve styles for base and variants; do not mutate the persisted document.
+        if (true)
         {
             if (document.Screens.FirstOrDefault(screen => screen.Id == query.ScreenId) is not { } screen)
                 return new("SCREEN_NOT_FOUND");
@@ -77,14 +78,14 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
             if (query.DatasetId is { } dataset && !document.Datasets.Any(item => item.Id == dataset)) return new("DATASET_NOT_FOUND");
             if (PortableUiProfileResolver.Resolve(document.Profile, profile, out var selected) is { } invalid)
                 return new(invalid.Code);
-            document = ScreenLayoutPreview.Project(document, screen, variant, query.DatasetId, selected!, overrides, diagnostics);
+            document = ScreenLayoutPreview.Project(document, screen, variant, query.DatasetId, selected!, overrides, diagnostics, query.Theme);
         }
         var layout = DocumentScreenLayout.Calculate(document, query.ScreenId, profile, query.Viewport, query.Theme);
         if (layout.Diagnostics is [{ Code: "SCREEN_NOT_FOUND" }]) return new("SCREEN_NOT_FOUND");
         var boxes = layout.Boxes.Skip(query.Offset).Take(query.Limit).ToArray();
         return new("OK", new(documentId, state.Revision, query.ScreenId, boxes,
             [.. layout.Diagnostics, .. diagnostics], query.Offset, query.Limit, layout.Boxes.Count,
-            query.Viewport is null && query.VariantId is null ? null : boxes.Where(box => overrides.ContainsKey(box.ObjectId))
+            boxes.Where(box => overrides.ContainsKey(box.ObjectId))
                 .Select(box => new ScreenLayoutOverride(box.ObjectId, overrides[box.ObjectId])).ToArray()));
     }
 
