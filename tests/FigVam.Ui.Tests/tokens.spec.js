@@ -51,3 +51,30 @@ test('creates and updates color values including alpha', async ({ page }) => {
   await page.getByLabel('Новое значение').fill('#01020304'); await page.getByRole('button', { name: 'Сохранить значение' }).click();
   await expect(page.locator('#token-values')).toHaveText('Light: #01020304; Dark: #ABCDEF80');
 });
+
+test('v4 creates categorized font-size tokens and multi-level theme aliases', async ({ page }) => {
+  await open(page);
+  await page.locator('#token-upgrade').click();
+  await expect(page.locator('#token-upgrade')).toBeHidden();
+  await page.getByLabel('Имя токена', { exact: true }).fill('Body Size');
+  await page.locator('#new-token-type').selectOption('Dimension');
+  await page.locator('#new-token-category').selectOption('FontSize');
+  await page.getByLabel('Light', { exact: true }).fill('16');
+  await page.getByLabel('Dark', { exact: true }).fill('18');
+  await page.getByRole('button', { name: 'Создать токен' }).click();
+  await expect(page.locator('#token-detail-title')).toHaveText('Body Size');
+  await expect(page.locator('#token-values')).toContainText('Light: 16; Dark: 18');
+  await page.getByLabel('Имя токена', { exact: true }).fill('Semantic Size');
+  await page.locator('#new-token-light-mode').selectOption('alias');
+  await page.locator('#new-token-dark-mode').selectOption('alias');
+  await page.locator('#new-token-light-alias').selectOption({ label: 'Body Size' });
+  await page.locator('#new-token-dark-alias').selectOption({ label: 'Body Size' });
+  await page.getByRole('button', { name: 'Создать токен' }).click();
+  await expect(page.locator('#token-values')).toContainText('↳ Body Size');
+  await expect(page.locator('#tokens-list')).toContainText('Dimension.FontSize');
+  await page.locator('#token-theme').selectOption('Dark');
+  await page.locator('#token-mode').selectOption('literal');
+  await page.getByLabel('Новое значение').fill('20');
+  await page.getByRole('button', { name: 'Сохранить значение' }).click();
+  await expect(page.locator('#token-values')).toContainText('Dark: 20');
+});
