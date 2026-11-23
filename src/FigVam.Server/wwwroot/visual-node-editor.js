@@ -10,10 +10,12 @@ export function createVisualNodeEditor({
   element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive
 }) {
   const kindSelect = element('visual-kind'), parentSelect = element('visual-parent');
-  const paletteProperties = element('visual-required-properties'), inspectorProperties = element('visual-properties');
+  const paletteProperties = element('visual-required-properties');
+  const paletteOptional = element('visual-optional-properties'), paletteDetails = element('visual-optional-details');
+  const inspectorProperties = element('visual-properties');
   const operations = new Map(), paletteDrafts = new Map(), inspectorDrafts = new Map(), canvasDrafts = new Map();
   let context, model, modelKey, resolvedModelKey, modelScope, loadedKey, loadError = '', queued = false;
-  let palette, inspector, node, paletteFields = new Map(), inspectorFields = new Map();
+  let palette, inspector, node, paletteFields = new Map(), paletteOptionalFields = new Map(), inspectorFields = new Map();
   let paletteControlKey = null, inspectorControlKey = null;
   let loadingFocus, uploadDocument;
   const uploads = new Map();
@@ -48,7 +50,7 @@ export function createVisualNodeEditor({
       modelScope = scope;
       model = null;
       resolvedModelKey = null;
-      paletteFields = new Map(); inspectorFields = new Map();
+      paletteFields = new Map(); paletteOptionalFields = new Map(); inspectorFields = new Map();
       paletteControlKey = inspectorControlKey = null;
     }
     if (!key) return;
@@ -128,11 +130,21 @@ export function createVisualNodeEditor({
     const key = `${scopeKey(context)}:${palette.kind}`;
     if (paletteControlKey !== key) {
       paletteFields = new Map();
+      paletteOptionalFields = new Map();
+      paletteDetails.open = false;
       paletteControlKey = key;
     }
     const properties = model?.kinds.get(palette.kind)?.properties ?? {};
     const required = Object.fromEntries(Object.entries(properties).filter(([, definition]) => definition.required));
     paletteFields = renderFields(paletteProperties, required, null, palette, 'visual-required', paletteFields);
+    const optional = Object.fromEntries(Object.entries(properties)
+      .filter(([, definition]) => !definition.required && definition.tokenType != null &&
+        (definition.type === 'Color' || definition.type === 'Number')));
+    paletteDetails.hidden = !Object.keys(optional).length;
+    paletteOptionalFields = renderFields(paletteOptional, optional, null, palette,
+      'visual-optional', paletteOptionalFields);
+    if ([...paletteOptionalFields.keys()].some(name => palette.values.has(name)))
+      paletteDetails.open = true;
   }
 
   function renderFields(container, definitions, values, state, prefix, existing = new Map()) {
@@ -257,10 +269,13 @@ export function createVisualNodeEditor({
     element('asset-upload-error').textContent = palette?.uploadError || '';
     kindSelect.disabled = parentSelect.disabled = blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
+    for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
     for (const field of inspectorFields.values()) field.setDisabled(!editable || Boolean(op && !op.canvas));
     const validParent = model?.kinds.size && eligibleParent();
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
-    element('visual-add').disabled = blocked || !validParent || !requiredReady;
+    const optionalReady = [...paletteOptionalFields].every(([name, field]) =>
+      !palette?.values.has(name) || field.validate(false).value !== undefined);
+    element('visual-add').disabled = blocked || !validParent || !requiredReady || !optionalReady;
     const save = element('visual-save');
     save.hidden = !editable;
     save.disabled = blocked || !inspector?.values.size;
@@ -379,7 +394,13 @@ export function createVisualNodeEditor({
     if (!kind || !eligibleParent() || !canEdit(getContext().documentRole)) return;
     const properties = readProperties(paletteFields, paletteFields.keys());
     if (!properties) return;
-    begin('add-node', { nodeId: crypto.randomUUID(), parentId: parentSelect.value, kind: kind.kind, properties }, palette);
+    const optionalNames = [...palette.values.keys()].filter(name => paletteOptionalFields.has(name));
+    const selected = readProperties(paletteOptionalFields, optionalNames);
+    if (!selected) return;
+    begin('add-node', {
+      nodeId: crypto.randomUUID(), parentId: parentSelect.value, kind: kind.kind,
+      properties: { ...properties, ...selected }
+    }, palette);
   });
   element('visual-properties-form').addEventListener('submit', event => {
     event.preventDefault();

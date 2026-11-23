@@ -489,3 +489,35 @@ test('an unresolvable token never silently becomes a default literal on unlink',
   expect(result.modeAfter).toBe('number');
   expect(result.valueAfter).toBe('');
 });
+
+
+test('the creation palette accepts an optional token reference without saving unrelated defaults', async ({ page, request }) => {
+  const { documentId, screenId, tokenId, base } = await seedText(request);
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await show(page, 'palette');
+  const palette = page.locator('#visual-palette');
+  await palette.getByLabel('Вид элемента').selectOption('Button');
+  const details = palette.locator('#visual-optional-details');
+  await expect(details).toBeVisible();
+  await details.locator('summary').click();
+  const row = palette.locator('#visual-optional-properties .node-property--token').filter({
+    has: palette.locator('.token-value-label', { hasText: 'Цвет фона' })
+  });
+  await row.getByRole('button', { name: 'Привязать токен' }).click();
+  await row.getByRole('dialog', { name: 'Цвет фона — дизайн-токены' })
+    .getByRole('button', { name: /Ink/ }).click();
+  await expect(row.locator('.token-value-name')).toHaveText('Ink');
+  const responsePromise = page.waitForResponse(response =>
+    response.url().endsWith('/commands/add-node') && response.request().method() === 'POST');
+  await palette.locator('#visual-add').click();
+  const response = await responsePromise;
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const body = response.request().postDataJSON();
+  expect(body.properties).toEqual({ backgroundColor: { type: 'token', tokenId } });
+  const { nodeId } = await response.json();
+  await expect.poll(async () =>
+    (await readNodes(request, base, screenId)).find(node => node.id === nodeId)?.properties.backgroundColor
+  ).toEqual({ type: 'token', tokenId });
+});

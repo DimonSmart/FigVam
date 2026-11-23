@@ -136,13 +136,17 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await page.locator(`#layers [data-id="${frame}"] > .layer-label`).click();
   await page.locator(`#layers [data-id="${stack}"] > .layer-label`).click();
   const inspector = page.locator('#visual-inspector');
-  const source = inspector.getByLabel('Промежуток — источник', { exact: true });
-  const token = inspector.getByLabel('Промежуток — токен', { exact: true });
-  await expect(source).toHaveValue('number');
-  await expect(inspector.getByLabel('Промежуток', { exact: true })).toHaveValue('8');
-  await source.selectOption('token');
-  await expect(token.locator('option').filter({ hasText: 'Panel' })).toHaveCount(0);
-  await token.selectOption(aliasId);
+  const gap = inspector.locator('.node-property--token').filter({
+    has: inspector.locator('.token-value-label', { hasText: 'Промежуток' })
+  });
+  await expect(gap.getByRole('spinbutton', { name: 'Промежуток' })).toHaveValue('8');
+  await expect(gap.getByText('Источник')).toHaveCount(0);
+  await gap.getByRole('button', { name: 'Привязать токен' }).click();
+  const menu = gap.getByRole('dialog', { name: 'Промежуток — дизайн-токены' });
+  await expect(menu.getByRole('button', { name: /Panel/ })).toHaveCount(0);
+  await menu.getByRole('button', { name: /Field spacing/ }).click();
+  await expect(gap.locator('.token-value-name')).toHaveText('Field spacing');
+  await expect(gap.locator('.token-value-resolved')).toContainText('14 px · Light');
   await inspector.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
   await expect(inspector.getByRole('status')).toHaveText('Свойства сохранены.');
   await expect(design.locator(visual(input))).toHaveCSS('top', '39px');
@@ -174,8 +178,9 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await openScreen(page, documentId);
   await expect(design.locator(visual(input))).toHaveCSS('top', '39px');
   await design.locator(`${visual(stack)} > .visual-surface`).click({ position: { x: 174, y: 113 } });
-  await expect(source).toHaveValue('token');
-  await expect(token).toHaveValue(aliasId);
+  await expect(gap.getByRole('button', { name: 'Изменить привязку токена' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(gap.locator('.token-value-name')).toHaveText('Field spacing');
+  await expect(gap.locator('.token-value-resolved')).toContainText('14 px · Light');
 });
 
 test('Design and Preview use the server bounds, clipping, typed styling and local controls', async ({ page, request }) => {

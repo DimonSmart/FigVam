@@ -143,7 +143,11 @@ export function createTokenValueControl(name, definition, model, initial, direct
   }
 
   link.addEventListener('click', open);
-  search.addEventListener('input', renderChoices);
+  search.addEventListener('input', event => {
+    event.stopPropagation(); // Searching must not change the property's draft.
+    renderChoices();
+  });
+  search.addEventListener('change', event => event.stopPropagation());
   unlink.addEventListener('click', () => {
     if (readOnly || source !== 'token') return;
     const result = resolved();
@@ -174,12 +178,18 @@ export function createTokenValueControl(name, definition, model, initial, direct
       updateView();
     },
     setDisabled(disabled) {
+      const wasDisabled = readOnly;
       readOnly = disabled;
       for (const input of direct.inputs) input.disabled = disabled;
       // Viewer may inspect the token without changing it.
       link.disabled = false;
       updateView();
-      if (!popover.hidden) renderChoices();
+      // Keep the option nodes stable across search blur and focus changes:
+      // replacing them on pointerdown prevents their click handlers from firing.
+      if (wasDisabled !== readOnly && !popover.hidden) {
+        for (const option of choices.querySelectorAll('button')) option.disabled = readOnly;
+        unlink.hidden = source !== 'token' || readOnly;
+      }
     },
     validate() {
       if (source !== 'token') return direct.validate();
