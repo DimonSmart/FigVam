@@ -222,7 +222,7 @@ internal static class DtcgTokenImporter
                             { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with extension type."); continue; }
                             if (command.DimensionCategories?.TryGetValue(name, out var mappedCategory) == true)
                             {
-                                if (category is { } declared && declared != mappedCategory)
+                                if (category is { } declaredCategory && declaredCategory != mappedCategory)
                                 { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with the declared category."); continue; }
                                 category = mappedCategory;
                             }
@@ -238,7 +238,7 @@ internal static class DtcgTokenImporter
                         {
                             if (command.NumberCategories?.TryGetValue(name, out var mappedCategory) == true)
                             {
-                                if (category is { } declared && declared != mappedCategory)
+                                if (category is { } declaredCategory && declaredCategory != mappedCategory)
                                 { Error("invalid-number-mapping", name, "Number mapping conflicts with the declared category."); continue; }
                                 category = mappedCategory;
                             }
