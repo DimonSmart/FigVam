@@ -23,7 +23,7 @@ const palette = {
   fontStyle: ['Normal', 'Italic'],
   fontFallback: ['SansSerif', 'Serif', 'Monospace']
 };
-const styleType = style => style?.type === 0 || style?.type === 'TextStyle' ? 'TextStyle' : 'BorderStyle';
+const styleType = style => !style || style.type === 0 || style.type === 'TextStyle' ? 'TextStyle' : 'BorderStyle';
 
 function literalOf(field, text) {
   if (field === 'textColor' || field === 'borderColor') {
