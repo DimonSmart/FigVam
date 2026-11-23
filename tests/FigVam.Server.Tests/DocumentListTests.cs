@@ -19,13 +19,13 @@ public sealed class DocumentListTests
         var directory = Path.Combine(Path.GetTempPath(), "figvam-list-" + Guid.NewGuid());
         try
         {
-            var store = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
+            var store = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
             var owner = new DocumentActor("owner"); var viewer = new DocumentActor("viewer");
             var ids = new[] { Guid.Parse("00000000-0000-0000-0000-000000000001"), Guid.Parse("00000000-0000-0000-0000-000000000002"), Guid.Parse("00000000-0000-0000-0000-000000000003") };
             foreach (var id in ids) Assert.True((await store.CreateAsync(new(id, "Initial"), owner)).Accepted);
             await store.SetMemberAsync(ids[0], viewer.Id, DocumentRole.Viewer, owner);
             await store.SetMemberAsync(ids[2], viewer.Id, DocumentRole.Editor, owner);
-            var handler = new DocumentCommandHandler(store, store, new UnverifiedNodeProfile());
+            var handler = new DocumentCommandHandler(store, store, new EmptyNodeProfile());
             Assert.True((await handler.HandleAsync(new RenameDocumentCommand(ids[0], Guid.NewGuid(), "Current"), owner)).Accepted);
             var first = await store.ListAsync(viewer, 1);
             Assert.Equal(new DocumentListItem(ids[0], "Current", "Viewer"), Assert.Single(first.Items));

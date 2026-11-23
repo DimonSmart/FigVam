@@ -21,7 +21,7 @@ public sealed class ScreenVariantTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -271,7 +271,7 @@ public sealed class ScreenVariantTests : IDisposable
         Assert.True((await Handler().HandleAsync(Set() with { Property = "token", Value = new NodeTokenValue(spacing) }, actor)).Accepted);
         Assert.True((await Handler().HandleAsync(Set() with { Property = "choice", Value = new NodeEnumValue("second") }, actor)).Accepted);
         Assert.Equal(2, (await Journal().ReadAsync(doc))!.Document.Screens.Single(s => s.Id == screen).Variants.Single().Overrides.Count);
-        var diagnostics = new DocumentDiagnostics(new Authorization(), Journal(), new UnverifiedNodeProfile());
+        var diagnostics = new DocumentDiagnostics(new Authorization(), Journal(), new EmptyNodeProfile());
         var response = (await diagnostics.ReadAsync(doc, screen, null, 0, 100, actor)).Response!;
         Assert.Contains(response.Items, d => d.Code == "UNSUPPORTED_PROPERTY" && d.Path.Contains("/variants/" + variant));
     }

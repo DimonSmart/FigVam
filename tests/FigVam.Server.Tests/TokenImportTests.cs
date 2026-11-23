@@ -26,8 +26,8 @@ public sealed class TokenImportTests
         try
         {
             var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var editor = new DocumentActor("editor");
-            SqliteDocumentJournal Journal() => new(directory, new UnverifiedNodeProfile());
-            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new UnverifiedNodeProfile()); }
+            SqliteDocumentJournal Journal() => new(directory, new EmptyNodeProfile());
+            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new EmptyNodeProfile()); }
             await Journal().CreateAsync(new(id), owner); await Journal().SetMemberAsync(id, editor.Id, DocumentRole.Editor, owner);
             var command = Command(id); var result = await Handler().HandleAsync(command, owner);
             Assert.True(result.Accepted); Assert.Equal(1, result.Revision); Assert.Equal(4, result.AffectedIds!.Count);
@@ -64,7 +64,7 @@ public sealed class TokenImportTests
         var directory = Path.Combine(Path.GetTempPath(), "figvam-import-invalid-" + Guid.NewGuid());
         try
         {
-            var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var j = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile()); var h = new DocumentCommandHandler(j, j, new UnverifiedNodeProfile());
+            var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var j = new SqliteDocumentJournal(directory, new EmptyNodeProfile()); var h = new DocumentCommandHandler(j, j, new EmptyNodeProfile());
             await j.CreateAsync(new(id), owner); await j.SetMemberAsync(id, "viewer", DocumentRole.Viewer, owner);
             var command = Command(id);
             var cases = new (ImportDesignTokensCommand Command, string Code)[]

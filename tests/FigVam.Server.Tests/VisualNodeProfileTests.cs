@@ -58,8 +58,6 @@ public sealed class VisualNodeProfileTests : IDisposable
         Valid("TextInput", "multiline", new NodeBooleanValue(true));
         Valid("TextInput", "inputType", new NodeEnumValue("Password"));
         Invalid("INVALID_PROPERTY_VALUE", "TextInput", "inputType", new NodeEnumValue("Email"));
-        Assert.Null(profile.GetInstalledVersion(2)!.GetProperty("TextInput", "inputType"));
-        Assert.False(profile.GetInstalledVersion(2)!.SupportsPreviewEvent("TextInput", PreviewEvent.Submit));
         Valid("Image", "fit", new NodeEnumValue("Cover"));
         Invalid("INVALID_PROPERTY_VALUE", "Frame", "width", new NodeNumberValue(-1));
         Invalid("INVALID_PROPERTY_VALUE", "Frame", "gap", new NodeNumberValue(double.NaN));
@@ -85,7 +83,7 @@ public sealed class VisualNodeProfileTests : IDisposable
         var screen = new ScreenStructure(Guid.NewGuid(), [frame.Id], new(800, 600));
         var document = new DocumentStructure(Guid.NewGuid(), [new(Guid.NewGuid(), [screen.Id])], [screen], [frame, text, image])
         {
-            Profile = PortableUiProfileReference.Version2,
+            Profile = PortableUiProfileReference.Current,
             Assets = [asset],
             Tokens = [colorToken, spacingToken]
         };
@@ -109,21 +107,25 @@ public sealed class VisualNodeProfileTests : IDisposable
     }
 
     [Fact]
-    public void OnlyFrameSpacingPropertiesAllowNumbersAndSpacingTokens()
+    public void FrameSpacingPropertiesUseCategorizedDimensionTokens()
     {
-        var spacing = Assert.Single(profile.Kinds, kind => kind.Kind == "Frame").Properties;
+        var properties = Assert.Single(profile.Kinds, kind => kind.Kind == "Frame").Properties;
+        var spacing = properties.Where(item => item.Value.TokenType == TokenType.Dimension &&
+            item.Value.TokenCategory == TokenCategory.Spacing).ToArray();
         Assert.Equal(new[] { "gap", "paddingBottom", "paddingLeft", "paddingRight", "paddingTop" },
-            spacing.Where(item => item.Value.TokenType == TokenType.Spacing).Select(item => item.Key).Order());
+            spacing.Select(item => item.Key).Order());
         var token = new NodeTokenValue(Guid.NewGuid());
-        foreach (var (name, definition) in spacing.Where(item => item.Value.TokenType == TokenType.Spacing))
+        foreach (var (name, definition) in spacing)
         {
             Assert.Equal(NodePropertyType.Number, definition.Type);
+            Assert.Equal(TokenType.Spacing, definition.LegacyTokenType);
             Assert.Null(NodePropertyValidator.Validate(profile, "Frame", name, new NodeNumberValue(0)));
             Assert.Null(NodePropertyValidator.Validate(profile, "Frame", name, token));
             Assert.Equal("INVALID_PROPERTY_VALUE", NodePropertyValidator.Validate(profile, "Frame", name, new NodeTokenValue(Guid.Empty))!.Code);
         }
-        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "width", token)!.Code);
-        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "cornerRadius", token)!.Code);
+        Assert.Null(NodePropertyValidator.Validate(profile, "Frame", "width", token));
+        Assert.Null(NodePropertyValidator.Validate(profile, "Frame", "cornerRadius", token));
+        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "x", token)!.Code);
     }
 
     [Fact]
@@ -155,79 +157,6 @@ public sealed class VisualNodeProfileTests : IDisposable
         Assert.Equal(new NodeAssetValue(asset.Id), snapshot.Document.Nodes[^1].Properties["asset"]);
         Assert.Equal(content, (await new DocumentAssets(reopened, reopened, reopened, reopened)
             .ReadAsync(document.Id, asset.Id, owner, versionId: saved.VersionId)).Content!.Content);
-    }
-
-    [Fact]
-    public async Task ExplicitUpgradeIsAuthorizedRevisionCheckedReversibleAndPreservesOldSnapshots()
-    {
-        var legacyProfile = new UnverifiedNodeProfile();
-        var legacyJournal = new SqliteDocumentJournal(directory, legacyProfile);
-        var legacyHandler = new DocumentCommandHandler(legacyJournal, legacyJournal, legacyProfile);
-        var documentId = Guid.NewGuid();
-        var page = Guid.NewGuid();
-        var screen = Guid.NewGuid();
-        var frame = Guid.NewGuid();
-        var viewer = new DocumentActor("viewer");
-        Assert.True((await legacyJournal.CreateAsync(new(documentId), owner)).Accepted);
-        Assert.True((await legacyHandler.HandleAsync(new AddPageCommand(documentId, Guid.NewGuid(), page), owner)).Accepted);
-        Assert.True((await legacyHandler.HandleAsync(new AddScreenCommand(documentId, Guid.NewGuid(), page, screen, new(800, 600)), owner)).Accepted);
-        var oldVersion = await legacyHandler.HandleAsync(new SaveDocumentCommand(documentId, Guid.NewGuid(), "Before upgrade"), owner);
-        await legacyJournal.SetMemberAsync(documentId, viewer.Id, DocumentRole.Viewer, owner);
-
-        var journal = new SqliteDocumentJournal(directory, profile);
-        var handler = new DocumentCommandHandler(journal, journal, profile);
-        Assert.Equal(PortableUiProfileReference.Version1, (await journal.ReadAsync(documentId))!.Document.Profile);
-        Assert.Empty(PortableUiProfileResolver.Require(PortableUiProfileReference.Version1, profile).Kinds);
-        Assert.Equal("UNSUPPORTED_NODE_KIND", (await handler.HandleAsync(new AddNodeCommand(documentId, Guid.NewGuid(), screen, frame, "Frame"), owner)).Code);
-
-        var upgrade = new UpgradePortableUiProfileCommand(documentId, Guid.NewGuid(), oldVersion.Revision!.Value);
-        Assert.Equal("FORBIDDEN", (await handler.HandleAsync(upgrade, viewer)).Code);
-        Assert.Equal("REVISION_CONFLICT", (await handler.HandleAsync(upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = 0 }, owner)).Code);
-        var accepted = await handler.HandleAsync(upgrade, owner);
-        Assert.True(accepted.Accepted);
-        Assert.Equal(accepted, await handler.HandleAsync(upgrade, owner));
-        Assert.Equal(upgrade.ExpectedRevision + 1, accepted.Revision);
-        Assert.IsType<PortableUiProfileUpgraded>(Assert.Single((await journal.ReadEventsAsync(documentId, upgrade.ExpectedRevision)).Events!).Payload);
-        var diff = await new DocumentRevisionDiff(journal, journal).CompareAsync(documentId, upgrade.ExpectedRevision, accepted.Revision!.Value, 0, 10, owner);
-        Assert.Equal("profile", Assert.Single(Assert.Single(diff.Response!.Items).ChangedProperties));
-        // The next explicit upgrade is now v2 -> v3; a stale v1 revision must still conflict.
-        Assert.Equal("REVISION_CONFLICT", (await handler.HandleAsync(
-            upgrade with { CommandId = Guid.NewGuid(), ExpectedRevision = upgrade.ExpectedRevision }, owner)).Code);
-
-        Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
-        Assert.Equal(PortableUiProfileReference.Version1, (await journal.ReadAsync(documentId))!.Document.Profile);
-        Assert.True((await handler.HandleAsync(new RedoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
-        Assert.True((await handler.HandleAsync(new AddNodeCommand(documentId, Guid.NewGuid(), screen, frame, "Frame"), owner)).Accepted);
-        var color = new NodeColorValue(1, 2, 3);
-        Assert.True((await handler.HandleAsync(new SetNodePropertyCommand(documentId, Guid.NewGuid(), frame, "backgroundColor", color), owner)).Accepted);
-        var token = Token(TokenType.Color, new ColorValue(100, 120, 140));
-        Assert.True((await handler.HandleAsync(new AddTokenCommand(documentId, Guid.NewGuid(), token), owner)).Accepted);
-        Assert.True((await handler.HandleAsync(new SetNodePropertyCommand(documentId, Guid.NewGuid(), frame, "borderColor", new NodeTokenValue(token.Id)), owner)).Accepted);
-        var newVersion = await handler.HandleAsync(new SaveDocumentCommand(documentId, Guid.NewGuid(), "After upgrade"), owner);
-        Assert.True(newVersion.Accepted);
-
-        var reopened = new SqliteDocumentJournal(directory, new VisualNodeProfile());
-        var state = (await reopened.ReadAsync(documentId))!;
-        Assert.Equal(PortableUiProfileReference.Version2, state.Document.Profile);
-        Assert.Equal(screen, Assert.Single(state.Document.Screens).Id);
-        var restoredNode = Assert.Single(state.Document.Nodes);
-        Assert.Equal(frame, restoredNode.Id);
-        Assert.Equal(color, restoredNode.Properties["backgroundColor"]);
-        Assert.Equal(new NodeTokenValue(token.Id), restoredNode.Properties["borderColor"]);
-        Assert.Equal(PortableUiProfileReference.Version1, (await reopened.ReadAsync(documentId, upgrade.ExpectedRevision)).State!.Document.Profile);
-        Assert.Equal(PortableUiProfileReference.Version1, (await reopened.ReadVersionAsync(documentId, oldVersion.VersionId!.Value)).Version!.Snapshot.Document.Profile);
-        Assert.Equal(PortableUiProfileReference.Version2, (await reopened.ReadVersionAsync(documentId, newVersion.VersionId!.Value)).Version!.Snapshot.Document.Profile);
-
-        var exported = await new DocumentJsonExporter(reopened, reopened, reopened, profile).ExportAsync(documentId, null, null, owner);
-        Assert.Equal("OK", exported.Code);
-        var decoded = await new DocumentFileReader(profile).ReadJsonAsync(new MemoryStream(exported.Content!));
-        Assert.Empty(decoded.Diagnostics);
-        Assert.Equal(color, Assert.Single(decoded.Document!.Document.Nodes).Properties["backgroundColor"]);
-
-        Assert.True((await handler.HandleAsync(new RestoreDocumentVersionCommand(documentId, Guid.NewGuid(), oldVersion.VersionId.Value), owner)).Accepted);
-        Assert.Equal(PortableUiProfileReference.Version1, (await reopened.ReadAsync(documentId))!.Document.Profile);
-        Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
-        Assert.Equal(PortableUiProfileReference.Version2, (await reopened.ReadAsync(documentId))!.Document.Profile);
     }
 
     private static DesignToken Token(TokenType type, TokenValue value)

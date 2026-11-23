@@ -13,7 +13,7 @@ public sealed class DocumentFileReaderTests
 {
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool IsKnownKind(string kind) => kind == "frame";
         public bool CanContainChildren(string kind) => kind == "frame";
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -96,6 +96,7 @@ public sealed class DocumentFileReaderTests
     [InlineData("{\"schemaVersion\":1,\"schemaVersion\":1}", "INVALID_JSON")]
     [InlineData("{\"schemaVersion\":2}", "UNSUPPORTED_SCHEMA_VERSION")]
     [InlineData("{\"schemaVersion\":1}", "INVALID_SCHEMA")]
+    [InlineData("{\"schemaVersion\":1,\"document\":\"invalid\"}", "INVALID_SCHEMA")]
     public async Task MalformedOrUnsupportedJsonIsDiagnosed(string json, string code)
         => Error(await Json(Encoding.UTF8.GetBytes(json)), code);
 

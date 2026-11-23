@@ -14,8 +14,8 @@ public sealed class CsvDatasetTests
         var path = Path.Combine(Path.GetTempPath(), "figvam-csv-" + Guid.NewGuid());
         try
         {
-            var journal = new SqliteDocumentJournal(path, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(path, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             var doc = Guid.NewGuid(); var id = Guid.NewGuid(); var owner = new DocumentActor("owner");
             await journal.CreateAsync(new(doc), owner);
             var command = new AddCsvDatasetCommand(doc, Guid.NewGuid(), id, "data", "name,note,empty\r\nAlice,\"a,\"\"b\"\"\nline\",\r\n");
@@ -32,7 +32,7 @@ public sealed class CsvDatasetTests
             Assert.True((await handler.HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), owner)).Accepted);
             Assert.Equal(fixture, (await journal.ReadAsync(doc))!.Document.Datasets.Single().FixtureJson);
             Assert.True((await handler.HandleAsync(new RestoreDocumentVersionCommand(doc, Guid.NewGuid(), save.VersionId!.Value), owner)).Accepted);
-            var recovered = await new SqliteDocumentJournal(path, new UnverifiedNodeProfile()).ReadAsync(doc);
+            var recovered = await new SqliteDocumentJournal(path, new EmptyNodeProfile()).ReadAsync(doc);
             Assert.Equal(fixture, recovered!.Document.Datasets.Single().FixtureJson);
         }
         finally { Directory.Delete(path, true); }
@@ -44,8 +44,8 @@ public sealed class CsvDatasetTests
         var path = Path.Combine(Path.GetTempPath(), "figvam-csv-" + Guid.NewGuid());
         try
         {
-            var journal = new SqliteDocumentJournal(path, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(path, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             var doc = Guid.NewGuid(); var id = Guid.NewGuid(); var owner = new DocumentActor("owner");
             await journal.CreateAsync(new(doc), owner);
             var csv = "a\n" + new string('x', 65526);
@@ -63,8 +63,8 @@ public sealed class CsvDatasetTests
         var path = Path.Combine(Path.GetTempPath(), "figvam-csv-" + Guid.NewGuid());
         try
         {
-            var journal = new SqliteDocumentJournal(path, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(path, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             var doc = Guid.NewGuid(); var id = Guid.NewGuid(); var owner = new DocumentActor("owner");
             await journal.CreateAsync(new(doc), owner); await journal.SetMemberAsync(doc, "viewer", DocumentRole.Viewer, owner);
             Assert.True((await handler.HandleAsync(new AddCsvDatasetCommand(doc, Guid.NewGuid(), id, "data", "a,b"), owner)).Accepted);

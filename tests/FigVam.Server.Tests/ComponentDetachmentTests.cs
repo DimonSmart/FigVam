@@ -10,7 +10,7 @@ public sealed class ComponentDetachmentTests
 {
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -160,7 +160,7 @@ public sealed class ComponentDetachmentTests
         var document = model.Structure with { ComponentDefinitions = model.Definitions, ComponentInstances = model.Instances };
         var journal = new SeedJournal(document);
         var command = new DetachComponentInstanceCommand(document.Id, Guid.NewGuid(), model.Instances[0].NodeId, 10);
-        var rejected = await new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile()).HandleAsync(command, new("owner"));
+        var rejected = await new DocumentCommandHandler(journal, journal, new EmptyNodeProfile()).HandleAsync(command, new("owner"));
         Assert.Equal("INVALID_COMPONENT", rejected.Code);
         Assert.Equal(10, journal.State.Revision);
         Assert.Null(journal.Event);

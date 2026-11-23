@@ -19,10 +19,10 @@ public sealed class DocumentContainerExportTests
         try
         {
             var id = Guid.NewGuid(); var owner = new DocumentActor("owner");
-            var profile = new UnverifiedNodeProfile(); var journal = new SqliteDocumentJournal(directory, profile);
+            var profile = new EmptyNodeProfile(); var journal = new SqliteDocumentJournal(directory, profile);
             Assert.True((await journal.CreateAsync(new(id), owner)).Accepted);
             var handler = new DocumentCommandHandler(journal, journal, profile);
-            var json = new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile());
+            var json = new DocumentJsonExporter(journal, journal, journal, new EmptyNodeProfile());
             var exporter = new DocumentContainerExporter(json, journal);
             var first = await exporter.ExportAsync(id, 0, null, owner);
             Assert.Equal("OK", first.Code);

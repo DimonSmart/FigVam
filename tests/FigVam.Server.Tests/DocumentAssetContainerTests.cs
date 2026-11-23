@@ -18,10 +18,10 @@ public sealed class DocumentAssetContainerTests : IDisposable
     private readonly Profile profile = new();
     private SqliteDocumentJournal Journal(string sub) => new(Path.Combine(directory, sub), profile);
     private DocumentFileReader Reader() => new(profile);
-    private DocumentContainerExporter Exporter(SqliteDocumentJournal journal) => new(new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile()), journal);
+    private DocumentContainerExporter Exporter(SqliteDocumentJournal journal) => new(new DocumentJsonExporter(journal, journal, journal, new EmptyNodeProfile()), journal);
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool IsKnownKind(string kind) => kind == "image";
         public bool CanContainChildren(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => property == "source" ? new(NodePropertyType.Asset) : null;
@@ -77,7 +77,7 @@ public sealed class DocumentAssetContainerTests : IDisposable
         Assert.Equal("OK", exported.Code);
         Assert.Equal(exported.Content, (await Exporter(Journal("target")).ExportAsync(document.Id, 0, null, importer)).Content);
         Assert.Empty((await Reader().ReadContainerAsync(new MemoryStream(exported.Content!))).Diagnostics);
-        var json = await new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile()).ExportAsync(document.Id, null, null, importer);
+        var json = await new DocumentJsonExporter(journal, journal, journal, new EmptyNodeProfile()).ExportAsync(document.Id, null, null, importer);
         Assert.Equal("OK", json.Code);
         Assert.Contains((await Reader().ReadJsonAsync(new MemoryStream(json.Content!))).Diagnostics, d => d.Code == "MISSING_DEPENDENCY");
         Assert.Equal("DOCUMENT_EXISTS", (await new DocumentFileImporter(Reader(), journal).ImportAsync(new(DocumentFileFormat.FigVam, new MemoryStream(bytes)), owner)).Code);

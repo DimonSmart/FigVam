@@ -15,8 +15,8 @@ public sealed class TokenExportTests
         try
         {
             var id = Guid.NewGuid(); var owner = new DocumentActor("owner");
-            var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             await journal.CreateAsync(new(id), owner);
             await journal.SetMemberAsync(id, "viewer", DocumentRole.Viewer, owner);
             var exporter = new DocumentTokenExporter(journal, journal);

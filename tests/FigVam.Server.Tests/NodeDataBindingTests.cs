@@ -20,7 +20,7 @@ public sealed class NodeDataBindingTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -127,7 +127,7 @@ public sealed class NodeDataBindingTests : IDisposable
     [Fact]
     public async Task Version1ProfileDoesNotGainNewBindingCapabilities()
     {
-        await Seed(); var profile = new UnverifiedNodeProfile();
+        await Seed(); var profile = new EmptyNodeProfile();
         var handler = new DocumentCommandHandler(new Authorization(), Journal(), profile);
         Assert.Equal("UNSUPPORTED_PROPERTY", (await handler.HandleAsync(Bind(), actor)).Code);
         Assert.Equal(0, (await Journal().ReadAsync(doc))!.Revision);

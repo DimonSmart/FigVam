@@ -145,7 +145,7 @@ public sealed class DocumentAssetTests : IDisposable
     }
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool IsKnownKind(string kind) => kind == "image";
         public bool CanContainChildren(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => property == "source" ? new(NodePropertyType.Asset) : null;

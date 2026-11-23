@@ -8,7 +8,6 @@ namespace FigVam.Domain.Documents;
 public interface INodeProfile
 {
     PortableUiProfileReference Identity { get; }
-    INodeProfile? GetInstalledVersion(int version) => version == Identity.Version ? this : null;
     IReadOnlyList<NodeKindDefinition> Kinds => [];
     IReadOnlyList<string> PreviewActions => [];
     bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event);
@@ -25,7 +24,7 @@ public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pag
     [System.Text.Json.Serialization.JsonRequired]
     public string Name { get; init; } = "Document";
     [System.Text.Json.Serialization.JsonRequired]
-    public PortableUiProfileReference Profile { get; init; } = PortableUiProfileReference.Version1;
+    public PortableUiProfileReference Profile { get; init; } = PortableUiProfileReference.Current;
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<DocumentAsset> Assets { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]

@@ -21,7 +21,7 @@ public sealed class DocumentJsonExportTests
     {
         var document = RichDocument() with { Profile = new(id, version) };
         var reader = new Reader(document);
-        var exporter = new DocumentJsonExporter(new Authorization(), reader, reader, new UnverifiedNodeProfile());
+        var exporter = new DocumentJsonExporter(new Authorization(), reader, reader, new EmptyNodeProfile());
         var result = await exporter.ExportAsync(document.Id, 7, null, new("owner"));
         Assert.Equal(code, result.Code);
         Assert.Null(result.Content);
@@ -48,7 +48,7 @@ public sealed class DocumentJsonExportTests
     public async Task CompleteDurableModelIsSchemaValidAndRetainsAllFieldsAndOrderedLists()
     {
         var doc = RichDocument(); var reader = new Reader(doc);
-        var result = await new DocumentJsonExporter(new Authorization(), reader, reader, new UnverifiedNodeProfile()).ExportAsync(doc.Id, 7, null, new("editor"));
+        var result = await new DocumentJsonExporter(new Authorization(), reader, reader, new EmptyNodeProfile()).ExportAsync(doc.Id, 7, null, new("editor"));
         Assert.Equal("OK", result.Code);
         var node = JsonNode.Parse(result.Content!)!;
         Assert.True(JsonSchema.Build(JsonSerializer.SerializeToElement(DocumentSchemas.CreateDocumentFormat()), new BuildOptions { SchemaRegistry = new SchemaRegistry() }).EvaluateNode(node).IsValid);
@@ -87,7 +87,7 @@ public sealed class DocumentJsonExportTests
     [Fact]
     public async Task PermissionAndInvalidSelectorsDoNotReadDataAndFailuresNeverReturnPartialFiles()
     {
-        var doc = RichDocument(); var reader = new Reader(doc); var exporter = new DocumentJsonExporter(new Authorization(), reader, reader, new UnverifiedNodeProfile());
+        var doc = RichDocument(); var reader = new Reader(doc); var exporter = new DocumentJsonExporter(new Authorization(), reader, reader, new EmptyNodeProfile());
         foreach (var actor in new[] { "viewer", "outsider", "" })
             Assert.Equal("FORBIDDEN", (await exporter.ExportAsync(doc.Id, null, null, new(actor))).Code);
         Assert.Equal("INVALID_QUERY", (await exporter.ExportAsync(doc.Id, 7, Guid.NewGuid(), new("owner"))).Code);
@@ -97,18 +97,18 @@ public sealed class DocumentJsonExportTests
         foreach (var code in new[] { "REVISION_UNAVAILABLE", "DOCUMENT_NOT_FOUND" })
         {
             var failed = new Reader(doc, code);
-            var failure = await new DocumentJsonExporter(new Authorization(), failed, failed, new UnverifiedNodeProfile()).ExportAsync(doc.Id, 7, null, new("owner"));
+            var failure = await new DocumentJsonExporter(new Authorization(), failed, failed, new EmptyNodeProfile()).ExportAsync(doc.Id, 7, null, new("owner"));
             Assert.Equal(code, failure.Code); Assert.Null(failure.Content);
         }
         var unavailable = doc with { Nodes = [doc.Nodes[0] with { Properties = doc.Nodes[0].Properties.Add("image", new NodeAssetValue(Guid.NewGuid())) }] };
         var missing = new Reader(unavailable);
-        var result = await new DocumentJsonExporter(new Authorization(), missing, missing, new UnverifiedNodeProfile()).ExportAsync(doc.Id, null, null, new("owner"));
+        var result = await new DocumentJsonExporter(new Authorization(), missing, missing, new EmptyNodeProfile()).ExportAsync(doc.Id, null, null, new("owner"));
         Assert.Equal("EXPORT_DEPENDENCY_UNAVAILABLE", result.Code); Assert.Null(result.Content);
         var unsupported = new Reader(doc with { Nodes = [doc.Nodes[0] with { Properties = doc.Nodes[0].Properties.Add("new", new UnknownValue()) }] });
-        result = await new DocumentJsonExporter(new Authorization(), unsupported, unsupported, new UnverifiedNodeProfile()).ExportAsync(doc.Id, null, null, new("owner"));
+        result = await new DocumentJsonExporter(new Authorization(), unsupported, unsupported, new EmptyNodeProfile()).ExportAsync(doc.Id, null, null, new("owner"));
         Assert.Equal("EXPORT_UNSUPPORTED_DATA", result.Code); Assert.Null(result.Content);
         var oversized = new Reader(doc with { Pages = [new(Guid.NewGuid(), []) { Name = new string('x', DocumentJsonFormat.MaxBytes) }] });
-        result = await new DocumentJsonExporter(new Authorization(), oversized, oversized, new UnverifiedNodeProfile()).ExportAsync(doc.Id, null, null, new("owner"));
+        result = await new DocumentJsonExporter(new Authorization(), oversized, oversized, new EmptyNodeProfile()).ExportAsync(doc.Id, null, null, new("owner"));
         Assert.Equal("EXPORT_TOO_LARGE", result.Code); Assert.Null(result.Content);
     }
     private sealed record UnknownValue : NodePropertyValue;
@@ -119,12 +119,12 @@ public sealed class DocumentJsonExportTests
         var directory = Path.Combine(Path.GetTempPath(), "figvam-json-export-" + Guid.NewGuid());
         try
         {
-            var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var profile = new UnverifiedNodeProfile();
+            var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var profile = new EmptyNodeProfile();
             var journal = new SqliteDocumentJournal(directory, profile);
             Assert.True((await journal.CreateAsync(new(id), owner)).Accepted);
             var handler = new DocumentCommandHandler(journal, journal, profile);
             Assert.True((await handler.HandleAsync(new AddPageCommand(id, Guid.NewGuid(), Guid.NewGuid()), owner)).Accepted);
-            var exporter = new DocumentJsonExporter(journal, journal, journal, new UnverifiedNodeProfile());
+            var exporter = new DocumentJsonExporter(journal, journal, journal, new EmptyNodeProfile());
             var before = await exporter.ExportAsync(id, 1, null, owner);
             var save = await handler.HandleAsync(new SaveDocumentCommand(id, Guid.NewGuid(), "Review"), owner);
             Assert.True(save.Accepted);

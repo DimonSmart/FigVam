@@ -30,7 +30,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class Limited : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => kind == "test" && e == PreviewEvent.Change;
         public bool SupportsPreviewAction(PreviewAction action) => action is Navigate or ResetPreview;
         public bool SupportsDemoValue(string kind) => false;
@@ -44,8 +44,8 @@ public sealed class ScenarioCapabilitiesTests
         var doc = Guid.NewGuid(); var node = Guid.NewGuid(); var screen = Guid.NewGuid();
         var state = new DocumentState(new(doc, [], [new(screen, [node], new(100, 100))], [new(node, "test", [])]), 4);
         var access = new Access(); var reader = new Reader(state); var actor = new DocumentActor("owner");
-        var empty = await new ScenarioCapabilitiesQuery(access, reader, new UnverifiedNodeProfile()).ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
-        Assert.Empty(empty.Response!.Events); Assert.Empty(empty.Response.Actions); Assert.Equal(PortableUiProfileReference.Version1, empty.Response.Profile);
+        var empty = await new ScenarioCapabilitiesQuery(access, reader, new EmptyNodeProfile()).ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
+        Assert.Empty(empty.Response!.Events); Assert.Empty(empty.Response.Actions); Assert.Equal(PortableUiProfileReference.Current, empty.Response.Profile);
         var query = new ScenarioCapabilitiesQuery(access, reader, new Limited());
         var limited = await query.ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
         Assert.Equal([PreviewEvent.Change], limited.Response!.Events); Assert.Equal(["navigate", "resetPreview"], limited.Response.Actions);
@@ -67,7 +67,7 @@ public sealed class ScenarioCapabilitiesTests
         Assert.Equal("SCREEN_VARIANT_NOT_FOUND", (await query.ReadAsync(doc, 4, node, null, screen, foreign, null, null, null, actor)).Code);
         Assert.Equal("INVALID_QUERY", (await query.ReadAsync(doc, 4, node, null, null, allowed, null, null, null, actor)).Code);
         Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, null, screen, allowed, null, null, null, actor)).Code);
-        var production = new ScenarioCapabilitiesQuery(access, reader, new UnverifiedNodeProfile());
+        var production = new ScenarioCapabilitiesQuery(access, reader, new EmptyNodeProfile());
         Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, null, null, null, actor)).Response!.Actions);
         Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, allowed, null, null, null, actor)).Response!.Actions);
     }
@@ -86,7 +86,7 @@ public sealed class ScenarioCapabilitiesTests
         Assert.Equal("INVALID_QUERY", (await query.ReadAsync(doc, 4, node, null, screen, null, Guid.Empty, null, null, actor)).Code);
         Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, null, screen, null, allowed, null, null, actor)).Code);
         Assert.Equal("FORBIDDEN", (await query.ReadAsync(doc, 4, node, null, screen, null, allowed, null, null, new("outsider"))).Code);
-        var production = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new UnverifiedNodeProfile());
+        var production = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new EmptyNodeProfile());
         Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, null, null, null, actor)).Response!.Actions);
         Assert.Empty((await production.ReadAsync(doc, 4, node, null, screen, null, allowed, null, null, actor)).Response!.Actions);
     }
@@ -106,12 +106,12 @@ public sealed class ScenarioCapabilitiesTests
         Assert.DoesNotContain("setDemoValue", (await Read(source, "allowed")).Response!.Actions);
         Assert.DoesNotContain("setDemoValue", (await Read(other, null)).Response!.Actions);
         Assert.Equal("INVALID_QUERY", (await Read(target, new string('x', 4097))).Code);
-        var production = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new UnverifiedNodeProfile());
+        var production = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new EmptyNodeProfile());
         Assert.Empty((await production.ReadAsync(doc, 4, source, null, screen, null, null, target, null, actor)).Response!.Actions);
     }
     private sealed class DemoProfile(Guid target) : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
         public bool SupportsPreviewAction(PreviewAction action) => action is SetDemoValue a && a.NodeId == target && (a.Value is null || a.Value == "allowed" || a.Value == new string('\u044f', 4096));
         public bool SupportsDemoValue(string kind) => kind == "test";
@@ -121,7 +121,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class DatasetProfile(Guid allowed) : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
         public bool SupportsPreviewAction(PreviewAction action) => action is SelectDataset d && (d.DatasetId is null || d.DatasetId == allowed);
         public bool SupportsDemoValue(string kind) => false;
@@ -131,7 +131,7 @@ public sealed class ScenarioCapabilitiesTests
     }
     private sealed class VariantProfile(Guid allowed) : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => false;
         public bool SupportsPreviewAction(PreviewAction action) => action is ShowVariant v && (v.VariantId is null || v.VariantId == allowed);
         public bool SupportsDemoValue(string kind) => false;
@@ -152,7 +152,7 @@ public sealed class ScenarioCapabilitiesTests
         builder.AddDocumentAuthentication();
         builder.Services.AddSingleton<IDocumentAuthorization>(new Access());
         builder.Services.AddSingleton<IDocumentStateReader>(new Reader(state));
-        builder.Services.AddSingleton<INodeProfile>(new UnverifiedNodeProfile());
+        builder.Services.AddSingleton<INodeProfile>(new EmptyNodeProfile());
         builder.Services.AddSingleton<IScenarioCapabilitiesQuery, ScenarioCapabilitiesQuery>();
         builder.Services.AddControllers().AddApplicationPart(typeof(ScenarioCapabilitiesController).Assembly);
         await using var app = builder.Build();
@@ -171,7 +171,7 @@ public sealed class ScenarioCapabilitiesTests
         Assert.NotNull(result);
         Assert.Equal(doc, result.DocumentId); Assert.Equal(4, result.Revision);
         Assert.Equal(node, result.NodeId); Assert.Equal(screen, result.TargetId);
-        Assert.Equal(PortableUiProfileReference.Version1, result.Profile);
+        Assert.Equal(PortableUiProfileReference.Current, result.Profile);
         Assert.Empty(result.Events); Assert.Empty(result.Actions);
         using var selected = await client.PostAsJsonAsync(url + $"&screenId={screen}", new { demoValue = (string?)null });
         Assert.Equal(HttpStatusCode.OK, selected.StatusCode);

@@ -8,10 +8,10 @@ using FigVam.Infrastructure.Documents;
 
 namespace FigVam.Server.Tests;
 
-public sealed class PortableUiV4TokenTests
+public sealed class PortableUiTokenTests
 {
     private static readonly VisualNodeProfile Installed = new();
-    private static readonly INodeProfile Profile = Installed.GetInstalledVersion(4)!;
+    private static readonly INodeProfile Profile = Installed;
 
     private static IReadOnlyDictionary<TokenTheme, TokenExpression> Values(TokenExpression light, TokenExpression dark) =>
         new Dictionary<TokenTheme, TokenExpression> { [TokenTheme.Light] = light, [TokenTheme.Dark] = dark };
@@ -30,16 +30,14 @@ public sealed class PortableUiV4TokenTests
         return new(Guid.NewGuid(), [new PageStructure(Guid.NewGuid(), [screenId])],
             [new ScreenStructure(screenId, [node.Id], new(800, 600))], [node])
         {
-            Profile = PortableUiProfileReference.Version4, Tokens = tokens
+            Profile = PortableUiProfileReference.Current, Tokens = tokens
         };
     }
 
     [Fact]
-    public void V4KeepsAllOlderPropertyContractsAndEnumDiscriminators()
+    public void CurrentProfileExposesTokenContractsAndStableEnumDiscriminators()
     {
         Assert.Equal(4, Profile.Identity.Version);
-        Assert.Equal(3, Installed.Identity.Version);
-        Assert.Null(Installed.GetProperty("Text", "fontSize")!.TokenType);
         Assert.Equal(TokenType.Dimension, Profile.GetProperty("Text", "fontSize")!.TokenType);
         Assert.Equal(TokenCategory.FontSize, Profile.GetProperty("Text", "fontSize")!.TokenCategory);
         Assert.Equal(TokenType.FontFamily, Profile.GetProperty("Button", "fontFamily")!.TokenType);
@@ -177,9 +175,7 @@ public sealed class PortableUiV4TokenTests
             var handler = new DocumentCommandHandler(journal, journal, Installed);
             Assert.True((await journal.CreateAsync(new(id), actor)).Accepted);
             var initial = (await journal.ReadAsync(id))!;
-            Assert.Equal(PortableUiProfileReference.Version3, initial.Document.Profile);
-            Assert.True((await handler.HandleAsync(new UpgradePortableUiProfileCommand(
-                id, Guid.NewGuid(), initial.Revision), actor)).Accepted);
+            Assert.Equal(PortableUiProfileReference.Current, initial.Document.Profile);
             var size = Dimension(TokenCategory.FontSize, 16, 20);
             Assert.True((await handler.HandleAsync(new AddTokenCommand(id, Guid.NewGuid(), size), actor)).Accepted);
             var pageId = Guid.NewGuid(); var screenId = Guid.NewGuid(); var nodeId = Guid.NewGuid();

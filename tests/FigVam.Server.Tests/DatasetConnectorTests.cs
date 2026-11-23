@@ -28,8 +28,8 @@ public sealed class DatasetConnectorTests
         try
         {
             var doc = Guid.NewGuid(); var dataset = Guid.NewGuid(); var actor = new DocumentActor("owner");
-            SqliteDocumentJournal Journal() => new(directory, new UnverifiedNodeProfile());
-            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new UnverifiedNodeProfile(), new Catalog()); }
+            SqliteDocumentJournal Journal() => new(directory, new EmptyNodeProfile());
+            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new EmptyNodeProfile(), new Catalog()); }
             await Journal().CreateAsync(new(doc), actor);
             Assert.True((await Handler().HandleAsync(new AddDatasetCommand(doc, Guid.NewGuid(), dataset, "offline", "[1]"), actor)).Accepted);
             var set = new SetDatasetConnectorCommand(doc, Guid.NewGuid(), dataset, 1, "customers");
@@ -72,8 +72,8 @@ public sealed class DatasetConnectorTests
         try
         {
             var doc = Guid.NewGuid(); var id = Guid.NewGuid(); var owner = new DocumentActor("owner");
-            var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile(), new Catalog());
+            var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile(), new Catalog());
             await journal.CreateAsync(new(doc), owner);
             await journal.SetMemberAsync(doc, "viewer", DocumentRole.Viewer, owner);
             await journal.SetMemberAsync(doc, "editor", DocumentRole.Editor, owner);

@@ -52,10 +52,8 @@ test('creates and updates color values including alpha', async ({ page }) => {
   await expect(page.locator('#token-values')).toHaveText('Light: #01020304; Dark: #ABCDEF80');
 });
 
-test('v4 creates categorized font-size tokens and multi-level theme aliases', async ({ page }) => {
+test('creates categorized font-size tokens and multi-level theme aliases with the current profile', async ({ page }) => {
   await open(page);
-  await page.locator('#token-upgrade').click();
-  await expect(page.locator('#token-upgrade')).toBeHidden();
   await page.getByLabel('Имя токена', { exact: true }).fill('Body Size');
   await page.locator('#new-token-type').selectOption('Dimension');
   await page.locator('#new-token-category').selectOption('FontSize');

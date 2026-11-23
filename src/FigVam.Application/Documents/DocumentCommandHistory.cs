@@ -34,16 +34,11 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     [System.Text.Json.Serialization.JsonRequired]
     public NameChange? Name { get; init; }
 
-    public sealed record ProfileChange(PortableUiProfileReference Before, PortableUiProfileReference After);
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public ProfileChange? Profile { get; init; }
-
     public static DocumentPatch Between(DocumentStructure before, DocumentStructure after) => new(
         Diff(before.Pages, after.Pages, p => p.Id), Diff(before.Screens, after.Screens, s => s.Id),
         Diff(before.Nodes, after.Nodes, n => n.Id))
     {
         Name = before.Name == after.Name ? null : new(before.Name, after.Name),
-        Profile = before.Profile == after.Profile ? null : new(before.Profile, after.Profile),
         Assets = Diff(before.Assets, after.Assets, a => a.Id),
         Scenarios = Diff(before.Scenarios, after.Scenarios, s => s.Id),
         Datasets = Diff(before.Datasets, after.Datasets, d => d.Id),
@@ -68,7 +63,6 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     public DocumentPatch Reverse() => new(Reverse(Pages), Reverse(Screens), Reverse(Nodes))
     {
         Name = Name is null ? null : new(Name.After, Name.Before),
-        Profile = Profile is null ? null : new(Profile.After, Profile.Before),
         Assets = Reverse(Assets),
         Scenarios = Reverse(Scenarios),
         Datasets = Reverse(Datasets),
@@ -82,7 +76,6 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     public DocumentStructure? Apply(DocumentStructure current)
     {
         if (Name is not null && current.Name != Name.Before) return null;
-        if (Profile is not null && current.Profile != Profile.Before) return null;
         var assets = Apply(current.Assets, Assets, a => a.Id);
         var pages = Apply(current.Pages, Pages, p => p.Id);
         var screens = Apply(current.Screens, Screens, s => s.Id);
@@ -95,7 +88,6 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
         return assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || pages is null || screens is null || nodes is null ? null : current with
         {
             Name = Name?.After ?? current.Name,
-            Profile = Profile?.After ?? current.Profile,
             Assets = assets,
             Scenarios = scenarios,
             Datasets = datasets,

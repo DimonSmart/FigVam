@@ -19,7 +19,7 @@ public sealed partial class NodeRepeaterTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -107,7 +107,7 @@ public sealed partial class NodeRepeaterTests : IDisposable
         Assert.Equal("FORBIDDEN", (await Queries(false).EvaluateAsync(doc, owner, 0, 0, 1, actor)).Code);
         Assert.Equal("REVISION_CONFLICT", (await Handler().HandleAsync(Command(9), actor)).Code);
         Assert.Equal(0, (await Journal().ReadAsync(doc))!.Revision);
-        var unverified = new DocumentCommandHandler(new Authorization(), Journal(), new UnverifiedNodeProfile());
+        var unverified = new DocumentCommandHandler(new Authorization(), Journal(), new EmptyNodeProfile());
         Assert.False((await unverified.HandleAsync(Command(), actor)).Accepted);
     }
 

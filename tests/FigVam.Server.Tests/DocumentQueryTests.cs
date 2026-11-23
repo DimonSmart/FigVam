@@ -36,7 +36,7 @@ public sealed class DocumentQueryTests
             new(a, "Text", []) { Name = "Button", SemanticKey = "submit" },
             new(b, "Text", []) { Name = "Button", SemanticKey = "submit" },
             new(c, "Text", []) { Name = "button", SemanticKey = "other" }]);
-        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 4)), new UnverifiedNodeProfile());
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 4)), new EmptyNodeProfile());
         var actor = new DocumentActor("reader");
         var query = new StructureQuery("children", screen, Limit: 1, Fields: "name,semanticKey", SemanticKey: "submit", NamePrefix: "But");
         var result = (await service.QueryAsync(doc, query, actor)).Response!;
@@ -56,7 +56,7 @@ public sealed class DocumentQueryTests
         var doc = Guid.NewGuid(); var page = Guid.NewGuid();
         var ids = Enumerable.Range(0, 101).Select(_ => Guid.NewGuid()).ToArray();
         var structure = new DocumentStructure(doc, [new(page, ids)], ids.Select(id => new ScreenStructure(id, [], new(800, 600))).ToArray(), []);
-        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 7)), new UnverifiedNodeProfile());
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 7)), new EmptyNodeProfile());
         var first = (await service.QueryAsync(doc, new("page-screens", page, Limit: 100, Fields: "dimensions"), new("reader"))).Response!;
         Assert.Equal(101, first.Total); Assert.Equal(ids.Take(100), first.Items.Select(i => i.Id));
         var last = (await service.QueryAsync(doc, new("page-screens", page, Offset: 100), new("reader"))).Response!;
@@ -70,7 +70,7 @@ public sealed class DocumentQueryTests
     {
         var doc = Guid.NewGuid(); var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var a = Guid.NewGuid(); var b = Guid.NewGuid(); var c = Guid.NewGuid();
         var structure = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [b, a], new(800, 600))], [new(a, "Text", []), new(b, "Frame", [c]), new(c, "Text", [])]);
-        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 9)), new UnverifiedNodeProfile());
+        var service = new DocumentStructureQueries(new Access(), new Reader(new(structure, 9)), new EmptyNodeProfile());
         var actor = new DocumentActor("reader");
         var children = (await service.QueryAsync(doc, new("children", screen, 0, 1), actor)).Response!;
         Assert.Equal(9, children.Revision); Assert.Equal(2, children.Total); Assert.Equal(b, Assert.Single(children.Items).Id);
@@ -179,7 +179,7 @@ public sealed class DocumentQueryTests
         node = node with { Properties = node.Properties.Add("widthMode", new NodeEnumValue("Content")) };
         var document = new DocumentStructure(doc, [], [new(screen, [node.Id], new(800, 600))], [node])
         {
-            Profile = PortableUiProfileReference.Version2
+            Profile = PortableUiProfileReference.Current
         };
         var service = new DocumentStructureQueries(new Access(), new Reader(new(document, 7)), new VisualNodeProfile());
         var query = new ScreenLayoutQuery(screen, Revision: 7);

@@ -96,7 +96,7 @@ public sealed partial class ComponentParameterCommandTests
             assign with { ContentNodeIds = [Guid.NewGuid()] }, assign with { ContentNodeIds = [content, content] }, assign with { NodeId = f.Root } })
             Assert.False((await f.Handler.HandleAsync(bad with { CommandId = Guid.NewGuid() }, new("owner"))).Accepted);
         Assert.Equal("FORBIDDEN", (await f.Handler.HandleAsync(assign, new("viewer"))).Code);
-        var restricted = new DocumentCommandHandler(new Authorization(), f.Journal, new UnverifiedNodeProfile());
+        var restricted = new DocumentCommandHandler(new Authorization(), f.Journal, new EmptyNodeProfile());
         Assert.False((await restricted.HandleAsync(assign with { CommandId = Guid.NewGuid() }, new("owner"))).Accepted);
         Assert.Equal(before, JsonSerializer.Serialize(await f.Journal.ReadAsync(f.Id)));
         Assert.True((await f.Handler.HandleAsync(assign, new("owner"))).Accepted);
