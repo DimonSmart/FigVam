@@ -179,6 +179,7 @@ internal static class DtcgTokenImporter
                         if (!Enum.IsDefined(figType)) { Error("unsupported-type", theme + "." + name, "Unsupported or absent DTCG type."); continue; }
                         Guid? id = null;
                         TokenCategory? category = null;
+                        var extensionTypeSpecified = false;
                         if (property.Value.TryGetProperty("$extensions", out var extensions))
                         {
                             if (!Fields(extensions, ["org.figvam"]) || !extensions.TryGetProperty("org.figvam", out var meta) ||
@@ -204,17 +205,27 @@ internal static class DtcgTokenImporter
                                     (figType == TokenType.Dimension ? internalType is not (TokenType.Dimension or TokenType.Spacing or TokenType.Geometry) : internalType != figType))
                                 { Error("type-mismatch", theme + "." + name, "Extension type is incompatible with DTCG type."); continue; }
                                 figType = internalType;
+                                extensionTypeSpecified = true;
                             }
                         }
                         // Existing explicit legacy mappings remain valid for old files without org.figvam metadata.
                         if (figType == TokenType.Dimension && command.DimensionTypes.TryGetValue(name, out var legacy) &&
                             legacy is TokenType.Spacing or TokenType.Geometry)
+                        {
+                            if (extensionTypeSpecified)
+                            { Error("invalid-dimension-mapping", name, "Mapping conflicts with an explicitly declared FigVam type."); continue; }
                             figType = legacy;
+                        }
                         if (figType == TokenType.Dimension)
                         {
                             if (command.DimensionTypes.TryGetValue(name, out var mapped) && mapped != TokenType.Dimension)
                             { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with extension type."); continue; }
-                            category ??= command.DimensionCategories?.GetValueOrDefault(name);
+                            if (command.DimensionCategories?.TryGetValue(name, out var mappedCategory) == true)
+                            {
+                                if (category is { } declared && declared != mappedCategory)
+                                { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with the declared category."); continue; }
+                                category = mappedCategory;
+                            }
                             if (category is null) { Error("dimension-type-required", theme + "." + name, "Dimension category must be supplied in org.figvam or dimensionCategories."); continue; }
                         }
                         else if (figType is TokenType.Spacing or TokenType.Geometry)
@@ -225,7 +236,12 @@ internal static class DtcgTokenImporter
                         }
                         else if (figType == TokenType.Number)
                         {
-                            category ??= command.NumberCategories?.GetValueOrDefault(name);
+                            if (command.NumberCategories?.TryGetValue(name, out var mappedCategory) == true)
+                            {
+                                if (category is { } declared && declared != mappedCategory)
+                                { Error("invalid-number-mapping", name, "Number mapping conflicts with the declared category."); continue; }
+                                category = mappedCategory;
+                            }
                             if (category is null) { Error("number-category-required", theme + "." + name, "Number category must be supplied in org.figvam or numberCategories."); continue; }
                         }
                         else if (category is not null)
