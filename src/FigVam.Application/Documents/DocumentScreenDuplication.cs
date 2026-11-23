@@ -112,7 +112,7 @@ internal static class ScreenDuplication
                 {
                     ScreenIds = InsertAfter(page.ScreenIds, source.Id, screenId)
                 } : page).ToArray(),
-                Screens = InsertAfter(document.Screens, source.Id, screen),
+                Screens = InsertAfterScreens(document.Screens, source.Id, screen),
                 Nodes = [.. document.Nodes, .. nodes],
                 ComponentInstances = [.. document.ComponentInstances, .. instances]
             };
@@ -125,8 +125,7 @@ internal static class ScreenDuplication
         }
     }
 
-    private static T[] InsertAfter<T>(IReadOnlyList<T> items, Guid anchor, T item)
-        where T : ScreenStructure
+    private static ScreenStructure[] InsertAfterScreens(IReadOnlyList<ScreenStructure> items, Guid anchor, ScreenStructure item)
     {
         var index = items.ToList().FindIndex(existing => existing.Id == anchor);
         var output = items.ToList();

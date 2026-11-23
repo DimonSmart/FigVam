@@ -57,7 +57,7 @@ export function createScreenVariants({ element, request, refreshPages, onSelecti
         button.addEventListener('click', () => selectVariant(id));
         li.append(button); element('screen-variants-list').append(li);
       };
-      addChoice(null, 'Base · базовое состояние');
+      addChoice(null, 'Базовое состояние (Base)');
       for (const item of result.items) addChoice(item.id, item.name);
       element('screen-variants-status').textContent = `Сохранённых вариантов: ${result.total} · ревизия ${atRevision}`; renderScreenVariants();
     } catch (error) {
