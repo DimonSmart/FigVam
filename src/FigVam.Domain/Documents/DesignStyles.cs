@@ -185,7 +185,8 @@ public sealed class DesignStyleResolver
             ["fontFamily"] = new NodeStringValue(result.FontFamily),
             ["fontSize"] = new NodeNumberValue(result.FontSize),
             ["fontWeight"] = new NodeNumberValue(result.FontWeight),
-            ["lineHeight"] = new NodeNumberValue(result.LineHeight)
+            ["lineHeight"] = new NodeNumberValue(result.LineHeight),
+            ["letterSpacing"] = new NodeNumberValue(result.LetterSpacing)
         };
     }
 
