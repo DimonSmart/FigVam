@@ -119,7 +119,40 @@ function labeled(name, control, accessibleName) {
   return label;
 }
 
+function fontWeightControl(name, initial) {
+  const select = document.createElement('select');
+  for (const option of ['Normal', 'Medium', 'Semibold', 'Bold', 'Custom'])
+    select.add(new Option(option === 'Custom' ? 'Числовое значение' : option, option));
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '1'; input.max = '1000'; input.step = '1'; input.required = true;
+  const presets = { Normal: 400, Medium: 500, Semibold: 600, Bold: 700 };
+  select.setAttribute('aria-label', propertyLabel(name) + ' — пресет');
+  input.setAttribute('aria-label', propertyLabel(name) + ' — числовое значение');
+  const read = () => [select.value, input.value];
+  const initialMode = initial?.type === 'number' ? 'Custom' : initial?.value ?? 'Normal';
+  const initialValue = initial?.type === 'number' ? String(initial.value) : String(presets[initialMode] ?? 400);
+  function sync() {
+    input.hidden = select.value !== 'Custom';
+    if (select.value !== 'Custom') input.value = String(presets[select.value]);
+  }
+  select.addEventListener('change', sync);
+  return {
+    content: [labeled(propertyLabel(name), select), input],
+    inputs: [select, input], initial: [initialMode, initialValue], read,
+    write([mode, value]) { select.value = mode; input.value = value; sync(); if (mode === 'Custom') input.value = value; },
+    validate() {
+      if (select.value !== 'Custom') return { value: { type: 'enum', value: select.value } };
+      if (!input.validity.valid || !Number.isInteger(input.valueAsNumber) ||
+          input.valueAsNumber < 1 || input.valueAsNumber > 1000)
+        return { input, error: 'Введите целую толщину шрифта от 1 до 1000.' };
+      return { value: { type: 'number', value: input.valueAsNumber } };
+    }
+  };
+}
+
 function scalarControl(name, definition, model, initial, compactGeometry = false) {
+  if (definition.numericFontWeight) return fontWeightControl(name, initial);
   const type = definition.type;
   const assets = [...model.assets.values()];
   const choices = {
