@@ -28,7 +28,8 @@ public sealed record ComponentToken([property: System.Text.Json.Serialization.Js
 public sealed record ComponentEnum([property: System.Text.Json.Serialization.JsonRequired] string Value) : ComponentValue;
 
 public sealed record ComponentParameter(Guid Id, string Name, ComponentParameterType Type,
-    ComponentValue DefaultValue, TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null);
+    ComponentValue DefaultValue, TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null,
+    TokenCategory? TokenCategory = null);
 public sealed record ComponentParameterBinding(Guid ParameterId, Guid NodeId, string Property);
 public sealed record ComponentSlot(Guid Id, string Name, Guid ContainerNodeId);
 public sealed record ComponentVariant(Guid Id, string Name, ComponentVariantKind Kind,
@@ -125,7 +126,8 @@ public static class ComponentValidator
             if (!matches) errors.Add(new("incompatible-value", owner, parameter.Id, "Value is incompatible with the parameter contract."));
             if (value is ComponentAsset asset) Reference(owner, asset.AssetId, "asset");
             if (value is ComponentToken token && Reference(owner, token.TokenId, "token") &&
-                tokens[token.TokenId].Type != parameter.TokenType)
+                (tokens[token.TokenId].Type != parameter.TokenType ||
+                 tokens[token.TokenId].Category != parameter.TokenCategory))
                 errors.Add(new("token-type-mismatch", owner, token.TokenId, "Token has an incompatible type."));
         }
         void Changes(Guid owner, ComponentDefinition definition, IReadOnlyDictionary<Guid, ComponentValue> changes)
@@ -149,7 +151,9 @@ public static class ComponentValidator
                 if (string.IsNullOrWhiteSpace(p.Name) || !NodeMetadataValidator.IsValidName(p.Name))
                     errors.Add(new("invalid-parameter", p.Id, null, "Parameter name must be nonblank and at most 256 characters without control characters."));
                 if (!Enum.IsDefined(p.Type) ||
-                    (p.Type == ComponentParameterType.TokenReference ? p.TokenType is null || !Enum.IsDefined(p.TokenType.Value) : p.TokenType is not null) ||
+                    (p.Type == ComponentParameterType.TokenReference ? p.TokenType is null || !Enum.IsDefined(p.TokenType.Value) ||
+                        !DesignTokenValidator.ValidCategory(p.TokenType.Value, p.TokenCategory) :
+                        p.TokenType is not null || p.TokenCategory is not null) ||
                     (p.Type == ComponentParameterType.Enum ? p.EnumValues is null || p.EnumValues.Count == 0 ||
                         p.EnumValues.Any(string.IsNullOrWhiteSpace) || p.EnumValues.Distinct().Count() != p.EnumValues.Count : p.EnumValues is not null))
                     errors.Add(new("invalid-parameter", p.Id, null, "Parameter type metadata is inconsistent."));
