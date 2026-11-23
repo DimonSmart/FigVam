@@ -85,7 +85,7 @@ public sealed class TokenImportTests
                 (command with { LightJson = Light.Replace("\"px\"", "\"rem\"") }, "unsupported-value"),
                 (command with { LightJson = Light.Replace("[1,0,0]", "[0.5,0,0]") }, "unsupported-color"),
                 (command with { LightJson = """{"group":{"$extends":"{other}","token":{"$type":"number","$value":1}}}""" }, "unsupported-construct"),
-                (command with { LightJson = """{"type":{"$type":"typography","$value":{}}}""" }, "unsupported-value"),
+                (command with { LightJson = """{"type":{"$type":"typography","$value":{}}}""", DarkJson = """{"type":{"$type":"typography","$value":{}}}""" }, "unsupported-value"),
                 (command with { LightJson = """{"x":{"$type":"dimension","$value":1,"$value":2}}""" }, "unsupported-construct"),
                 (command with { LightJson = """{"x":{"$type":"color","$value":{}},"x":{"$type":"color","$value":{}}}""" }, "duplicate-name"),
                 (command with { LightJson = new string(' ', 1048577) }, "import-limit"),
