@@ -232,7 +232,7 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
                 if (literal.Value is TypographyFieldsValue fields && token.Type == TokenType.Typography)
                 {
                     var composite = ResolveTypography(token, fields, theme);
-                    return composite.IsSuccess ? Complete(composite) : Complete(composite);
+                    return Complete(composite);
                 }
                 return DesignTokenValidator.Matches(token, literal.Value)
                     ? Complete(new(literal.Value, [])) : Error("type-mismatch", token.Id, "Literal value does not match token type.");
@@ -257,6 +257,11 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
         TokenResolution Error(string code, Guid? reference, string message) =>
             resolved[(id, theme)] = new(null, [new(code, id, theme, reference, message)]);
     }
+
+    // Inline Typography values in TextStyle use the same field resolver and constraints as tokens.
+    internal TokenResolution ResolveInlineTypography(TypographyFieldsValue fields, TokenTheme theme, Guid ownerId, string name) =>
+        ResolveTypography(new DesignToken(ownerId, name, TokenType.Typography,
+            new Dictionary<TokenTheme, TokenExpression>()), fields, theme);
 
     private TokenResolution ResolveTypography(DesignToken owner, TypographyFieldsValue fields, TokenTheme theme)
     {
