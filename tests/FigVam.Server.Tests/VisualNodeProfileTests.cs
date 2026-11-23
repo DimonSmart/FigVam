@@ -107,21 +107,25 @@ public sealed class VisualNodeProfileTests : IDisposable
     }
 
     [Fact]
-    public void OnlyFrameSpacingPropertiesAllowNumbersAndSpacingTokens()
+    public void FrameSpacingPropertiesUseCategorizedDimensionTokens()
     {
-        var spacing = Assert.Single(profile.Kinds, kind => kind.Kind == "Frame").Properties;
+        var properties = Assert.Single(profile.Kinds, kind => kind.Kind == "Frame").Properties;
+        var spacing = properties.Where(item => item.Value.TokenType == TokenType.Dimension &&
+            item.Value.TokenCategory == TokenCategory.Spacing).ToArray();
         Assert.Equal(new[] { "gap", "paddingBottom", "paddingLeft", "paddingRight", "paddingTop" },
-            spacing.Where(item => item.Value.TokenType == TokenType.Spacing).Select(item => item.Key).Order());
+            spacing.Select(item => item.Key).Order());
         var token = new NodeTokenValue(Guid.NewGuid());
-        foreach (var (name, definition) in spacing.Where(item => item.Value.TokenType == TokenType.Spacing))
+        foreach (var (name, definition) in spacing)
         {
             Assert.Equal(NodePropertyType.Number, definition.Type);
+            Assert.Equal(TokenType.Spacing, definition.LegacyTokenType);
             Assert.Null(NodePropertyValidator.Validate(profile, "Frame", name, new NodeNumberValue(0)));
             Assert.Null(NodePropertyValidator.Validate(profile, "Frame", name, token));
             Assert.Equal("INVALID_PROPERTY_VALUE", NodePropertyValidator.Validate(profile, "Frame", name, new NodeTokenValue(Guid.Empty))!.Code);
         }
-        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "width", token)!.Code);
-        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "cornerRadius", token)!.Code);
+        Assert.Null(NodePropertyValidator.Validate(profile, "Frame", "width", token));
+        Assert.Null(NodePropertyValidator.Validate(profile, "Frame", "cornerRadius", token));
+        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, "Frame", "x", token)!.Code);
     }
 
     [Fact]

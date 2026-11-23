@@ -116,7 +116,8 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   const panel = page.locator('#visual-inspector');
   const width = panel.getByLabel('Ширина', { exact: true });
   const text = panel.getByLabel('Текст', { exact: true });
-  const tokenLink = () => panel.getByRole('button', { name: /Привязать токен|Изменить привязку токена/ });
+  const tokenLink = () => panel.locator('.node-property--token').filter({ hasText: 'Цвет текста' })
+    .getByRole('button', { name: /Привязать токен|Изменить привязку токена/ });
   const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
   await expect(width).toHaveValue('160');
   await expect(panel.getByLabel('Семейство шрифта', { exact: true })).toBeVisible();
@@ -183,11 +184,11 @@ test('inspector displays geometry in two compact rows without rounding stored va
   const rows = panel.locator('#visual-properties > .node-geometry-row');
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(0).locator('input')).toHaveCount(2);
-  await expect(rows.nth(1).locator('input')).toHaveCount(2);
+  await expect(rows.nth(1).locator('input[type="number"]')).toHaveCount(2);
   await expect(rows.nth(0).locator('input').first()).toHaveAttribute('id', 'visual-property-x');
   await expect(rows.nth(0).locator('input').last()).toHaveAttribute('id', 'visual-property-y');
-  await expect(rows.nth(1).locator('input').first()).toHaveAttribute('id', 'visual-property-width');
-  await expect(rows.nth(1).locator('input').last()).toHaveAttribute('id', 'visual-property-height');
+  await expect(rows.nth(1).locator('input[type="number"]').first()).toHaveAttribute('id', 'visual-property-width');
+  await expect(rows.nth(1).locator('input[type="number"]').last()).toHaveAttribute('id', 'visual-property-height');
   const x = panel.getByLabel('X', { exact: true });
   await x.evaluate(input => { input.dataset.geometryInstance = 'retained'; });
   await rows.nth(0).evaluate(row => { row.dataset.geometryInstance = 'retained'; });
