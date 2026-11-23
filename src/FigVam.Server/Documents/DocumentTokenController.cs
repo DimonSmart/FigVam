@@ -24,8 +24,8 @@ public sealed class DocumentTokenController(IDocumentTokenQueries queries) : Con
         var result = await queries.ReadAsync(documentId, tokenId, revision, User.GetDocumentActor(), ct);
         return Result(result.Code, result.Response);
     }
-    [HttpGet("{tokenId}/usages"), EndpointSummary("List direct token usages in nodes, aliases and component parameters"), ProducesResponseType<TokenUsagesResponse>(200)]
-    [EndpointDescription("Each usage has a kind and ownerId. For nodeProperty the owner is a node and property identifies its property; for tokenAlias the owner is a token and theme identifies its value. For componentParameterDefault the owner is a component definition, for componentVariantParameterChange it is a variant, and for componentInstanceParameterOverride it is the instance node; parameterId identifies the parameter. Only direct references are listed.")]
+    [HttpGet("{tokenId}/usages"), EndpointSummary("List direct and indirect token usages with resource dependency chains"), ProducesResponseType<TokenUsagesResponse>(200)]
+    [EndpointDescription("Usages contain kind, ownerId, property, theme, indirect flag, owner label and a chain of IDs from the requested token to its consumer. Read against a specific revision for reproducible results.")]
     public async Task<IActionResult> Usages(Guid documentId, Guid tokenId, [FromQuery] long? revision, [FromQuery] int offset = 0, [FromQuery] int limit = 50, CancellationToken ct = default)
     {
         if (!ValidQuery("revision", "offset", "limit")) return BadRequest(ApiErrors.Create(400, "INVALID_QUERY"));
