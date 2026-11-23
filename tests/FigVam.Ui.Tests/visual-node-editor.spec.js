@@ -146,7 +146,8 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   await expect(panel.getByRole('alert')).toHaveText('Ширина · Тестовый отказ сервера');
   await expect(width).toHaveValue('224.5');
   await expect(text).toHaveValue('Первая строка\nВторая строка');
-  await expect(panel.locator('.node-property--token .token-value-name')).toHaveText('Ink');
+  await expect(panel.locator('.node-property--token').filter({ hasText: 'Цвет текста' })
+    .locator('.token-value-name')).toHaveText('Ink');
   expect((await readNodes(request, base, screenId))[0].properties).toEqual({});
   await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');

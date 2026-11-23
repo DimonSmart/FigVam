@@ -109,7 +109,10 @@ public sealed class TokenQueryTests
     public async Task HttpContractsCoverRevisionPaginationAndIsolation()
     {
         using var key = RSA.Create(2048); await using var server = new ServerProcess(Production(key)); await server.WaitUntilReadyAsync();
-        using var client = server.CreateClient(); var doc = Guid.NewGuid(); var tokenId = Guid.NewGuid(); var aliasId = Guid.NewGuid();
+        using var client = server.CreateClient();
+        // Windows CI can pause a cold test server briefly under parallel browser load.
+        client.Timeout = TimeSpan.FromSeconds(30);
+        var doc = Guid.NewGuid(); var tokenId = Guid.NewGuid(); var aliasId = Guid.NewGuid();
         var route = $"/api/v1/documents/{doc}/tokens";
         Assert.Equal(401, (int)(await client.GetAsync(route)).StatusCode);
         client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "owner"));
