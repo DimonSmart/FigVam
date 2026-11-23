@@ -84,6 +84,13 @@ public sealed class DesignStage3Tests
             Assert.Contains(uses, x => x.Kind == "tokenTypographyField" && x.Property == "typography.fontSize");
             Assert.Contains(uses, x => x.Kind == "styleField" && x.Indirect &&
                 x.Chain.SequenceEqual(new[] { font.Id, typography.Id, style.Id }));
+            var node = new NodeStructure(Guid.NewGuid(), "Text", []) {
+                Properties = ImmutableSortedDictionary<string, NodePropertyValue>.Empty
+                    .Add("textStyle", new NodeStyleValue(style.Id)) };
+            var nodeGraph = new DesignResourceDependencies((await journal.ReadAsync(id))!.Document
+                with { Nodes = [node] });
+            Assert.Contains(nodeGraph.Usages("token", font.Id), x => x.Kind == "nodeProperty" &&
+                x.Indirect && x.Chain.SequenceEqual(new[] { font.Id, typography.Id, style.Id, node.Id }));
             var result = await handler.HandleAsync(new DeleteTokenCommand(id, Guid.NewGuid(), font.Id, 3), actor);
             Assert.Equal("TOKEN_IN_USE", result.Code);
             Assert.Equal(3, (await journal.ReadAsync(id))!.Revision);
