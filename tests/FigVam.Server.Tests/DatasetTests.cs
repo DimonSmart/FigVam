@@ -65,8 +65,8 @@ public sealed class DatasetTests
         try
         {
             var doc = Guid.NewGuid(); var datasetId = Guid.NewGuid(); var owner = new DocumentActor("owner"); var editor = new DocumentActor("editor");
-            SqliteDocumentJournal Journal() => new(directory, new UnverifiedNodeProfile());
-            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new UnverifiedNodeProfile()); }
+            SqliteDocumentJournal Journal() => new(directory, new EmptyNodeProfile());
+            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new EmptyNodeProfile()); }
             await Journal().CreateAsync(new(doc), owner);
             await Journal().SetMemberAsync(doc, editor.Id, DocumentRole.Editor, owner);
             var add = new AddDatasetCommand(doc, Guid.NewGuid(), datasetId, "customers", "[{\"name\":\"one\"}]");
@@ -118,8 +118,8 @@ public sealed class DatasetTests
         try
         {
             var doc = Guid.NewGuid(); var dataset = Guid.NewGuid(); var owner = new DocumentActor("owner");
-            var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             await journal.CreateAsync(new(doc), owner); await journal.SetMemberAsync(doc, "viewer", DocumentRole.Viewer, owner);
             var add = new AddDatasetCommand(doc, Guid.NewGuid(), dataset, "data", "[]");
             Assert.True((await handler.HandleAsync(add, owner)).Accepted);
@@ -157,8 +157,8 @@ public sealed class DatasetTests
         try
         {
             var doc = Guid.NewGuid(); var dataset = Guid.NewGuid(); var owner = new DocumentActor("owner"); var editor = new DocumentActor("editor");
-            var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             await journal.CreateAsync(new(doc), owner); await journal.SetMemberAsync(doc, editor.Id, DocumentRole.Editor, owner);
             Assert.True((await handler.HandleAsync(new AddDatasetCommand(doc, Guid.NewGuid(), dataset, "data", "[]"), owner)).Accepted);
             Assert.True((await handler.HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), owner)).Accepted);
