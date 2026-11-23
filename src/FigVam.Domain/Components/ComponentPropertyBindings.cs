@@ -54,7 +54,7 @@ internal static class ComponentPropertyBindings
                     (ComponentParameterType.Number, NodePropertyType.Number) => true,
                     (ComponentParameterType.Bool, NodePropertyType.Boolean) => true,
                     (ComponentParameterType.Asset, NodePropertyType.Asset) => true,
-                    (ComponentParameterType.TokenReference, NodePropertyType.TokenReference or NodePropertyType.Color or NodePropertyType.Number) =>
+                    (ComponentParameterType.TokenReference, NodePropertyType.TokenReference or NodePropertyType.Color or NodePropertyType.Number or NodePropertyType.String or NodePropertyType.Enum) =>
                         parameter.TokenType is not null &&
                             (parameter.TokenType == property.TokenType && parameter.TokenCategory == property.TokenCategory ||
                              parameter.TokenType == property.LegacyTokenType && parameter.TokenCategory is null),
