@@ -1,3 +1,5 @@
+import { resolvePropertyToken } from './token-resolution.js';
+
 const arrows = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]
 };
@@ -42,6 +44,11 @@ export function createCanvasNodeEditor({
     }
     selectedWrapper.dataset.canvasEditable = '';
     if (resizeHandle.parentElement !== selectedWrapper) selectedWrapper.append(resizeHandle);
+    const tokenSized = ['width', 'height'].filter(name =>
+      selected.node.properties[name]?.type === 'token');
+    resizeHandle.title = tokenSized.length
+      ? 'Изменить размер (отвязать токен: ' + tokenSized.join(', ') + ')'
+      : 'Изменить размер';
   }
 
   function begin(id, wrapper, resize) {
@@ -51,8 +58,11 @@ export function createCanvasNodeEditor({
     const initial = {};
     for (const name of names) {
       const value = selected.node.properties[name] ?? selected.definitions[name]?.defaultValue;
-      if (value?.type !== 'number') return null;
-      initial[name] = value.value;
+      const resolved = value?.type === 'token'
+        ? resolvePropertyToken(value, selected.model.tokens, 'Light', selected.definitions[name])
+        : { value };
+      if (resolved.error || resolved.value?.type !== (value?.type === 'token' ? 'dimension' : 'number')) return null;
+      initial[name] = resolved.value.value;
     }
     return {
       ...selected, wrapper, names, initial, revision: getContext().revision, properties: {},
