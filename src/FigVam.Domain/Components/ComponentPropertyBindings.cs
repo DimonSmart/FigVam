@@ -72,7 +72,7 @@ internal static class ComponentPropertyBindings
                     var converted = Convert(value);
                     if (NodePropertyValidator.Validate(profile, node.Kind, binding.Property, converted) is { } error)
                         Error(error.Code, error.Reason);
-                    else if (converted is NodeTokenValue token &&
+                    else if (converted is NodeTokenValue token && tokens.Find(token.TokenId) is not null &&
                         NodePropertyValidator.ValidateTokenReference(tokens, property, binding.Property, token) is { } reference)
                         Error(reference.Code, reference.Reason);
                 }
