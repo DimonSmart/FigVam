@@ -154,9 +154,9 @@ export function createScenarios({
     scenarioOperations.set(key, op); sendScenarioDeletion(doc, screen, op);
   }
   async function sendScenarioDeletion(doc, screen, op) {
-    const key = scenarioKey(doc, screen), epoch = navigationEpoch, requestToken = token, context = scenariosGeneration;
+    const key = scenarioKey(doc, screen), epoch = navigationEpoch, requestToken = token;
     if (op.state === 'pending' || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
-    const active = () => doc === workspace.documentId && screen === workspace.selectedScreen && token === requestToken && epoch === navigationEpoch && context === scenariosGeneration && !element('editor-view').hidden;
+    const active = () => doc === workspace.documentId && screen === workspace.selectedScreen && token === requestToken && epoch === navigationEpoch && !element('editor-view').hidden;
     op.state = 'pending'; if (active()) renderScenarioCommand();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/delete-scenario`, { method: 'POST', body: JSON.stringify(op.body) });
@@ -738,9 +738,9 @@ export function createScenarios({
     scenarioOperations.set(key, op); sendScenarioCreation(doc, screen, op);
   });
   async function sendScenarioCreation(doc, screen, op) {
-    const key = scenarioKey(doc, screen), epoch = navigationEpoch, requestToken = token, context = scenariosGeneration;
+    const key = scenarioKey(doc, screen), epoch = navigationEpoch, requestToken = token;
     if (op.state === 'pending' || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
-    const active = () => doc === workspace.documentId && screen === workspace.selectedScreen && token === requestToken && epoch === navigationEpoch && context === scenariosGeneration && !element('editor-view').hidden;
+    const active = () => doc === workspace.documentId && screen === workspace.selectedScreen && token === requestToken && epoch === navigationEpoch && !element('editor-view').hidden;
     op.state = 'pending'; if (active()) renderScenarioCommand();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/create-scenario`, { method: 'POST', body: JSON.stringify(op.body) });

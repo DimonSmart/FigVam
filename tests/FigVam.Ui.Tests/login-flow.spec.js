@@ -91,6 +91,8 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
   await page.locator('#scenario-create-submit').click();
   const response = await posted;
   expect(response.ok(), await response.text()).toBeTruthy();
+  // Await the editor's revision reconciliation, not only the HTTP acknowledgement.
+  await expect(page.locator('#scenario-command-status')).toHaveText('Создание сценария подтверждено.');
 }
 
 test('designs a login with password, independent variants, scenarios, duplication and reload through UI', async ({ page, request, server, browser }) => {
