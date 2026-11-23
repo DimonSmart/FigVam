@@ -107,6 +107,7 @@ public sealed class VisualNodeProfile : INodeProfile
         "fontWeight" => old with { TokenType = TokenType.FontWeight, NumericFontWeight = true,
             Minimum = 1, Maximum = 1000 },
         "lineHeight" => old with { TokenType = TokenType.Number, TokenCategory = TokenCategory.LineHeight },
+        "letterSpacing" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.LetterSpacing },
         _ => old
     };
     private static readonly FrozenDictionary<string, NodeKindDefinition> Registry =
@@ -168,6 +169,7 @@ public sealed class VisualNodeProfile : INodeProfile
     private static (string, NodePropertyDefinition)[] Typography(double size, NodeColorValue color) =>
     [
         ("fontSize", Number(size, 1, 1024)),
+        ("letterSpacing", Number(0, -100, 100)),
         ("fontFamily", String("") with { MaxLength = 128, Pattern = @"^(?:[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*)?$" }),
         ("fontFallback", Options("SansSerif", "Serif", "Monospace")),
         ("fontWeight", Options("Normal", "Medium", "Semibold", "Bold")),
