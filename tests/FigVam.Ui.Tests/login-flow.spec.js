@@ -83,9 +83,11 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
   await expect(page.locator('#scenario-create')).toBeVisible();
   await page.locator('#scenario-event').selectOption(String(eventId));
   if (variantId !== undefined) await page.locator('#scenario-variant').selectOption(variantId ?? '');
-  if (targetScreen) await page.locator('#scenario-target').selectOption(targetScreen);
   await expect(page.locator(`#scenario-action option[value="${action}"]`)).toHaveCount(1);
   await page.locator('#scenario-action').selectOption(action);
+  // The target selector becomes visible only after choosing Navigate/OpenOverlay.
+  if (targetScreen) await page.locator('#scenario-target').selectOption(targetScreen);
+  await expect(page.locator('#scenario-action')).toHaveValue(action);
   await expect(page.locator('#scenario-create-submit')).toBeEnabled();
   const posted = page.waitForResponse(response => response.url().endsWith('/commands/create-scenario'));
   await page.locator('#scenario-create-submit').click();
