@@ -304,7 +304,17 @@ public sealed class AddScreenVariantRequest { public required Guid CommandId { g
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SetScreenVariantOverrideRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } public required Guid VariantId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } [Required] public required NodePropertyValue Value { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class RemoveScreenVariantOverrideRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } public required Guid VariantId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } }
+public sealed class RemoveScreenVariantOverrideRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } public required Guid VariantId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } public long? ExpectedRevision { get; init; } }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class SetScreenVariantPropertiesRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid ScreenId { get; init; }
+    public required Guid VariantId { get; init; }
+    public required Guid NodeId { get; init; }
+    [Required] public required IReadOnlyDictionary<string, NodePropertyValue> Properties { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+}
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed class CreateScenarioRequest { public required Guid CommandId { get; init; } [Required] public required FigVam.Domain.Preview.PreviewScenario Scenario { get; init; } }

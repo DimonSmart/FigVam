@@ -84,7 +84,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         var boxes = layout.Boxes.Skip(query.Offset).Take(query.Limit).ToArray();
         return new("OK", new(documentId, state.Revision, query.ScreenId, boxes,
             [.. layout.Diagnostics, .. diagnostics], query.Offset, query.Limit, layout.Boxes.Count,
-            query.Viewport is null ? null : boxes.Where(box => overrides.ContainsKey(box.ObjectId))
+            query.Viewport is null && query.VariantId is null ? null : boxes.Where(box => overrides.ContainsKey(box.ObjectId))
                 .Select(box => new ScreenLayoutOverride(box.ObjectId, overrides[box.ObjectId])).ToArray()));
     }
 

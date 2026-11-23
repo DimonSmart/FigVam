@@ -187,6 +187,7 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(DeleteScenarioCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddScreenVariantCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetScreenVariantOverrideCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(SetScreenVariantPropertiesCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RemoveScreenVariantOverrideCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(ImportDesignTokensCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodeRepeaterCommand command, DocumentActor actor, CancellationToken cancellationToken = default);

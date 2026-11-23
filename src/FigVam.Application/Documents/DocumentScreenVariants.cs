@@ -4,7 +4,9 @@ namespace FigVam.Application.Documents;
 
 public sealed record AddScreenVariantCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId, string Name);
 public sealed record SetScreenVariantOverrideCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId, Guid NodeId, string Property, NodePropertyValue Value);
-public sealed record RemoveScreenVariantOverrideCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId, Guid NodeId, string Property);
+public sealed record RemoveScreenVariantOverrideCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId, Guid NodeId, string Property, long? ExpectedRevision = null);
+public sealed record SetScreenVariantPropertiesCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId,
+    Guid NodeId, IReadOnlyDictionary<string, NodePropertyValue> Properties, long ExpectedRevision);
 public sealed record ScreenVariantChanged(Guid ScreenId, ScreenVariant Variant, string Operation) : DocumentEvent;
 
 public sealed partial class DocumentCommandHandler
@@ -14,10 +16,13 @@ public sealed partial class DocumentCommandHandler
     public Task<CommandResult> HandleAsync(SetScreenVariantOverrideCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
         => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, c.Property, c.Value, "SET_SCREEN_VARIANT_OVERRIDE", actor, cancellationToken);
     public Task<CommandResult> HandleAsync(RemoveScreenVariantOverrideCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
-        => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, c.Property, null, "REMOVE_SCREEN_VARIANT_OVERRIDE", actor, cancellationToken);
+        => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, c.Property, null, "REMOVE_SCREEN_VARIANT_OVERRIDE", actor, cancellationToken, c.ExpectedRevision);
+    public Task<CommandResult> HandleAsync(SetScreenVariantPropertiesCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
+        => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, null, null, "SET_SCREEN_VARIANT_PROPERTIES", actor, cancellationToken, c.ExpectedRevision, c.Properties);
 
     private async Task<CommandResult> ChangeScreenVariant(Guid documentId, Guid commandId, Guid screenId, Guid variantId,
-        string? name, Guid? nodeId, string? property, NodePropertyValue? value, string operation, DocumentActor actor, CancellationToken ct)
+        string? name, Guid? nodeId, string? property, NodePropertyValue? value, string operation, DocumentActor actor, CancellationToken ct,
+        long? expectedRevision = null, IReadOnlyDictionary<string, NodePropertyValue>? properties = null)
     {
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(documentId, commandId, code, revision,
             actor.Id, null, DateTimeOffset.UtcNow, ScreenId: screenId, NodeId: nodeId, Explanation: explanation, Property: property,
@@ -27,6 +32,8 @@ public sealed partial class DocumentCommandHandler
         return await journal.ExecuteAsync(documentId, commandId, (state, _, _) =>
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            if (expectedRevision is < 0) return new(Result("INVALID_REVISION"), null);
+            if (expectedRevision is not null && state.Revision != expectedRevision) return new(Result("REVISION_CONFLICT"), null);
             if (screenId == Guid.Empty || variantId == Guid.Empty || nodeId == Guid.Empty) return new(Result("INVALID_ID"), null);
             var screen = state.Document.Screens.FirstOrDefault(s => s.Id == screenId);
             if (screen is null) return new(Result("SCREEN_NOT_FOUND"), null);
@@ -40,12 +47,24 @@ public sealed partial class DocumentCommandHandler
             {
                 if (variant is null) return new(Result("SCREEN_VARIANT_NOT_FOUND"), null);
                 if (!state.Document.Nodes.Any(n => n.Id == nodeId)) return new(Result("NODE_NOT_FOUND"), null);
-                if (string.IsNullOrWhiteSpace(property)) return new(Result("UNSUPPORTED_PROPERTY"), null);
-                if (operation == "REMOVE_SCREEN_VARIANT_OVERRIDE" && !variant.Overrides.Any(o => o.NodeId == nodeId && o.Property == property)) return new(Result("VARIANT_OVERRIDE_NOT_FOUND"), null);
-                if (operation == "SET_SCREEN_VARIANT_OVERRIDE" && value is null) return new(Result("INVALID_PROPERTY_TYPE"), null);
-                var items = variant.Overrides.Where(o => o.NodeId != nodeId || o.Property != property).ToList();
-                if (value is not null) items.Add(new(nodeId!.Value, property, value));
-                variant = variant with { Overrides = items.OrderBy(o => o.NodeId).ThenBy(o => o.Property, StringComparer.Ordinal).ToArray() };
+                if (operation == "SET_SCREEN_VARIANT_PROPERTIES")
+                {
+                    if (properties is null || properties.Count is < 1 or > 100 ||
+                        properties.Any(entry => string.IsNullOrWhiteSpace(entry.Key) || entry.Value is null))
+                        return new(Result("INVALID_PROPERTY_VALUE"), null);
+                    var items = variant.Overrides.Where(o => o.NodeId != nodeId || !properties.ContainsKey(o.Property)).ToList();
+                    items.AddRange(properties.Select(entry => new ScreenPropertyOverride(nodeId!.Value, entry.Key, entry.Value)));
+                    variant = variant with { Overrides = items.OrderBy(o => o.NodeId).ThenBy(o => o.Property, StringComparer.Ordinal).ToArray() };
+                }
+                else
+                {
+                    if (string.IsNullOrWhiteSpace(property)) return new(Result("UNSUPPORTED_PROPERTY"), null);
+                    if (operation == "REMOVE_SCREEN_VARIANT_OVERRIDE" && !variant.Overrides.Any(o => o.NodeId == nodeId && o.Property == property)) return new(Result("VARIANT_OVERRIDE_NOT_FOUND"), null);
+                    if (operation == "SET_SCREEN_VARIANT_OVERRIDE" && value is null) return new(Result("INVALID_PROPERTY_TYPE"), null);
+                    var items = variant.Overrides.Where(o => o.NodeId != nodeId || o.Property != property).ToList();
+                    if (value is not null) items.Add(new(nodeId!.Value, property, value));
+                    variant = variant with { Overrides = items.OrderBy(o => o.NodeId).ThenBy(o => o.Property, StringComparer.Ordinal).ToArray() };
+                }
             }
             var changed = ScreenVariantEditor.Set(state.Document, screenId, variant);
             if (DocumentStructureValidator.Validate(changed, profile).FirstOrDefault() is { } invalid)
