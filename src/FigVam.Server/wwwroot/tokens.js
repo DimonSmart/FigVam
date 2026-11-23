@@ -1,9 +1,9 @@
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText, tokenColorHex } from './token-resolution.js';
 
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
-const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity'];
+const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
 const allowedCategories = {
-  Dimension: ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size'],
+  Dimension: ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LetterSpacing'],
   Number: ['LineHeight', 'Opacity']
 };
 const typeIndex = type => types.indexOf(normalizedTokenType(type));
@@ -28,8 +28,8 @@ function literalExpression(type, category, raw) {
   const value = Number(raw), c = normalizedTokenCategory(category);
   if (valueType === 'FontWeight' && (!Number.isInteger(value) || value < 1 || value > 1000))
     throw new Error('Толщина шрифта должна быть целым числом от 1 до 1000.');
-  if (valueType === 'Dimension' && (value < (c === 'FontSize' ? 1 : 0) ||
-      value > (c === 'FontSize' ? 1024 : 1000000)))
+  if (valueType === 'Dimension' && (value < (c === 'FontSize' ? 1 : c === 'LetterSpacing' ? -100 : 0) ||
+      value > (c === 'FontSize' ? 1024 : c === 'LetterSpacing' ? 100 : 1000000)))
     throw new Error('Размер выходит за пределы допустимого диапазона.');
   if (valueType === 'Number' && (value < (c === 'LineHeight' ? 0.1 : 0) ||
       value > (c === 'LineHeight' ? 10 : 1)))
@@ -58,7 +58,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
     { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
     { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
-    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' }
+    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
+    { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
   ];
   const typographyPrefixes = ['new-token-light', 'new-token-dark', 'token'];
   function makeTypographyFields(prefix) {
