@@ -29,6 +29,7 @@ public sealed record ComponentEnum([property: System.Text.Json.Serialization.Jso
 
 public sealed record ComponentParameter(Guid Id, string Name, ComponentParameterType Type,
     ComponentValue DefaultValue, TokenType? TokenType = null, IReadOnlyList<string>? EnumValues = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     TokenCategory? TokenCategory = null);
 public sealed record ComponentParameterBinding(Guid ParameterId, Guid NodeId, string Property);
 public sealed record ComponentSlot(Guid Id, string Name, Guid ContainerNodeId);
