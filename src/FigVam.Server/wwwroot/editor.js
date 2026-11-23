@@ -114,7 +114,8 @@ const components = createComponents({
   getContext: () => ({ documentId, revision, catalogRevision })
 });
 const screenVariants = createScreenVariants({
-  element, request: (...args) => request(...args), refreshPages: (...args) => refreshPages(...args), pageSize,
+  element, request: (...args) => request(...args), refreshPages: (...args) => refreshPages(...args),
+  onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
     get selectedScreen() { return selectedScreen; }, get revision() { return revision; },
@@ -532,11 +533,12 @@ const canvasViewport = createCanvasViewport({
 const visualScreens = createVisualScreens({
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
   getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
-    selection: layers.selection, tokens: tokens.items })
+    selection: layers.selection, tokens: tokens.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor = createVisualNodeEditor({
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
-  getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen, selection: layers.selection, navigationEpoch, token }),
+  getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen,
+    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {
