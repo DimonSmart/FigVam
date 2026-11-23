@@ -14,7 +14,7 @@ public sealed class ScenarioTests : IDisposable
     private readonly DocumentActor actor = new("owner");
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => true;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -82,7 +82,7 @@ public sealed class ScenarioTests : IDisposable
         Assert.Equal("FORBIDDEN", (await Read(user: new("outsider"))).Code);
         Assert.Single((await Read(user: new("viewer"))).Response!.Items);
         Assert.Equal(1, (await Journal().ReadAsync(doc))!.Revision);
-        Assert.Contains(DocumentStructureValidator.Validate((await Journal().ReadAsync(doc))!.Document, new UnverifiedNodeProfile()), e => e.Code == "INVALID_SCENARIO");
+        Assert.Contains(DocumentStructureValidator.Validate((await Journal().ReadAsync(doc))!.Document, new EmptyNodeProfile()), e => e.Code == "INVALID_SCENARIO");
     }
 
     [Fact]

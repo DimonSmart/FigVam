@@ -17,7 +17,7 @@ public sealed class TokenCommandTests
 {
     private sealed class TokenProfile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, FigVam.Domain.Preview.PreviewEvent @event) => false;
         public bool SupportsPreviewAction(FigVam.Domain.Preview.PreviewAction action) => false;
         public bool SupportsDemoValue(string kind) => false;
@@ -36,8 +36,8 @@ public sealed class TokenCommandTests
         try
         {
             var id = Guid.NewGuid(); var actor = new DocumentActor("owner"); var other = new DocumentActor("editor");
-            SqliteDocumentJournal Journal() => new(directory, new UnverifiedNodeProfile());
-            DocumentCommandHandler Handler() { var journal = Journal(); return new(journal, journal, new UnverifiedNodeProfile()); }
+            SqliteDocumentJournal Journal() => new(directory, new EmptyNodeProfile());
+            DocumentCommandHandler Handler() { var journal = Journal(); return new(journal, journal, new EmptyNodeProfile()); }
             await Journal().CreateAsync(new(id), actor);
             await Journal().SetMemberAsync(id, other.Id, DocumentRole.Editor, actor);
             var token = Token(); var command = new AddTokenCommand(id, Guid.NewGuid(), token);
@@ -72,8 +72,8 @@ public sealed class TokenCommandTests
         var directory = Path.Combine(Path.GetTempPath(), "figvam-token-" + Guid.NewGuid());
         try
         {
-            var id = Guid.NewGuid(); var actor = new DocumentActor("owner"); var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var id = Guid.NewGuid(); var actor = new DocumentActor("owner"); var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             await journal.CreateAsync(new(id), actor);
             await journal.SetMemberAsync(id, "viewer", DocumentRole.Viewer, actor);
             var token = Token(); var command = new AddTokenCommand(id, Guid.NewGuid(), token);
@@ -124,8 +124,8 @@ public sealed class TokenCommandTests
         try
         {
             var id = Guid.NewGuid(); var actor = new DocumentActor("owner");
-            var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             await journal.CreateAsync(new(id), actor);
             await journal.SetMemberAsync(id, "editor", DocumentRole.Editor, actor);
             var token = Token();
@@ -195,8 +195,8 @@ public sealed class TokenCommandTests
         try
         {
             var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var editor = new DocumentActor("editor");
-            SqliteDocumentJournal Journal() => new(directory, new UnverifiedNodeProfile());
-            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new UnverifiedNodeProfile()); }
+            SqliteDocumentJournal Journal() => new(directory, new EmptyNodeProfile());
+            DocumentCommandHandler Handler() { var j = Journal(); return new(j, j, new EmptyNodeProfile()); }
             await Journal().CreateAsync(new(id), owner);
             await Journal().SetMemberAsync(id, editor.Id, DocumentRole.Editor, owner);
             await Journal().SetMemberAsync(id, "viewer", DocumentRole.Viewer, owner);
@@ -236,8 +236,8 @@ public sealed class TokenCommandTests
         try
         {
             var id = Guid.NewGuid(); var owner = new DocumentActor("owner"); var editor = new DocumentActor("editor");
-            var journal = new SqliteDocumentJournal(directory, new UnverifiedNodeProfile());
-            var handler = new DocumentCommandHandler(journal, journal, new UnverifiedNodeProfile());
+            var journal = new SqliteDocumentJournal(directory, new EmptyNodeProfile());
+            var handler = new DocumentCommandHandler(journal, journal, new EmptyNodeProfile());
             await journal.CreateAsync(new(id), owner);
             await journal.SetMemberAsync(id, editor.Id, DocumentRole.Editor, owner);
             var first = Token(); var second = Token();
@@ -248,7 +248,7 @@ public sealed class TokenCommandTests
             Assert.True((await handler.HandleAsync(new SetTokenValueCommand(id, Guid.NewGuid(), second.Id, TokenTheme.Light, new TokenAlias(first.Id)), editor)).Accepted);
             var before = (await journal.ReadAsync(id))!;
             Assert.Equal("REDO_NOT_APPLICABLE", (await handler.HandleAsync(new RedoDocumentCommand(id, Guid.NewGuid()), owner)).Code);
-            var after = (await new SqliteDocumentJournal(directory, new UnverifiedNodeProfile()).ReadAsync(id))!;
+            var after = (await new SqliteDocumentJournal(directory, new EmptyNodeProfile()).ReadAsync(id))!;
             Assert.Equal(before.Revision, after.Revision);
             Assert.Equal(new SpacingValue(8), DesignTokenValidator.Resolve(after.Document.Tokens, second.Id, TokenTheme.Light).Value);
         }

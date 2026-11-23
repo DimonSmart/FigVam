@@ -13,7 +13,7 @@ public sealed class DocumentFileReaderTests
 {
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool IsKnownKind(string kind) => kind == "frame";
         public bool CanContainChildren(string kind) => kind == "frame";
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;

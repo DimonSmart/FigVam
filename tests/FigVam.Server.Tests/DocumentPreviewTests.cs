@@ -18,7 +18,7 @@ public sealed class DocumentPreviewTests
     }
     private sealed class Profile : INodeProfile
     {
-        public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
+        public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool IsKnownKind(string kind) => kind == "test";
         public bool CanContainChildren(string kind) => true;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -83,7 +83,7 @@ public sealed class DocumentPreviewTests
         Assert.Empty(start.Values);
         Assert.Equal(before, JsonSerializer.Serialize(document));
         Assert.Equal("REVISION_NOT_FOUND", (await factory.CreateAsync(document.Id, 6, f.Selection, new("viewer"))).Code);
-        Assert.Equal("INVALID_DOCUMENT", (await new DocumentPreviewFactory(new Authorization(), reader, new UnverifiedNodeProfile(), new NoRemoteReader()).CreateAsync(document.Id, 7, f.Selection, new("viewer"))).Code);
+        Assert.Equal("INVALID_DOCUMENT", (await new DocumentPreviewFactory(new Authorization(), reader, new EmptyNodeProfile(), new NoRemoteReader()).CreateAsync(document.Id, 7, f.Selection, new("viewer"))).Code);
     }
 
     [Fact]
