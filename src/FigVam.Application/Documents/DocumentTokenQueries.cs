@@ -6,7 +6,8 @@ namespace FigVam.Application.Documents;
 
 public sealed record TokenListResponse(Guid DocumentId, long Revision, IReadOnlyList<DesignToken> Items, int Offset, int Limit, int Total);
 public sealed record TokenResponse(Guid DocumentId, long Revision, DesignToken Token);
-public sealed record TokenUsage(string Kind, Guid OwnerId, string? Property, TokenTheme? Theme, Guid? ParameterId);
+public sealed record TokenUsage(string Kind, Guid OwnerId, string? Property, TokenTheme? Theme, Guid? ParameterId,
+    bool Indirect = false, IReadOnlyList<Guid>? Chain = null, string? Label = null);
 public sealed record TokenUsagesResponse(Guid DocumentId, long Revision, Guid TokenId, IReadOnlyList<TokenUsage> Items, int Offset, int Limit, int Total);
 public sealed record TokenQueryResult<T>(string Code, T? Response = default) where T : class;
 
@@ -46,23 +47,9 @@ public sealed class DocumentTokenQueries(IDocumentAuthorization authorization, I
         var read = await StateAsync(documentId, tokenId, revision, offset, limit, actor, ct);
         if (read.State is not { } state) return new(read.Code);
         if (!state.Document.Tokens.Any(t => t.Id == tokenId)) return new("TOKEN_NOT_FOUND");
-        var usages = state.Document.Nodes.SelectMany(n => n.Properties.Where(p => p.Value is NodeTokenValue reference && reference.TokenId == tokenId)
-                .Select(p => new TokenUsage("nodeProperty", n.Id, p.Key, null, null)))
-            .Concat(state.Document.Screens.SelectMany(s => s.Variants.SelectMany(v => v.Overrides
-                .Where(o => o.Value is NodeTokenValue reference && reference.TokenId == tokenId)
-                .Select(o => new TokenUsage("screenVariantOverride", v.Id, o.Property, null, null)))))
-            .Concat(state.Document.Tokens.SelectMany(t => t.Values.Where(v => v.Value is TokenAlias alias && alias.TokenId == tokenId)
-                .Select(v => new TokenUsage("tokenAlias", t.Id, null, v.Key, null))))
-            .Concat(state.Document.ComponentDefinitions.SelectMany(d => d.Parameters
-                .Where(p => p.DefaultValue is ComponentToken reference && reference.TokenId == tokenId)
-                .Select(p => new TokenUsage("componentParameterDefault", d.Id, null, null, p.Id))))
-            .Concat(state.Document.ComponentDefinitions.SelectMany(d => d.Variants.SelectMany(v => v.ParameterChanges
-                .Where(p => p.Value is ComponentToken reference && reference.TokenId == tokenId)
-                .Select(p => new TokenUsage("componentVariantParameterChange", v.Id, null, null, p.Key)))))
-            .Concat(state.Document.ComponentInstances.SelectMany(i => i.ParameterOverrides
-                .Where(p => p.Value is ComponentToken reference && reference.TokenId == tokenId)
-                .Select(p => new TokenUsage("componentInstanceParameterOverride", i.NodeId, null, null, p.Key))))
-            .OrderBy(u => u.Kind, StringComparer.Ordinal).ThenBy(u => u.OwnerId).ThenBy(u => u.Property, StringComparer.Ordinal).ThenBy(u => u.Theme).ThenBy(u => u.ParameterId).ToArray();
+        var usages = new DesignResourceDependencies(state.Document).Usages("token", tokenId)
+            .Select(x => new TokenUsage(x.Kind, x.OwnerId, x.Property, x.Theme, x.ParameterId,
+                x.Indirect, x.Chain, x.Label)).ToArray();
         return new("OK", new(documentId, state.Revision, tokenId, usages.Skip(offset).Take(limit).ToArray(), offset, limit, usages.Length));
     }
 }
