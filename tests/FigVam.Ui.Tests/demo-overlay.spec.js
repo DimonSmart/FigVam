@@ -58,3 +58,19 @@ test('demo panel stays visible in the real FigVam editor after navigating into a
   expect(coords.x + coords.width).toBeLessThanOrEqual(viewport.width);
   await page.screenshot({ path: test.info().outputPath('demo-panel.png') });
 });
+
+test('demo can use a browser-sized viewport instead of forcing a tall viewport', async ({ browser }) => {
+  const page = await browser.newPage({ viewport: null });
+  try {
+    await page.goto('about:blank');
+    const demo = createDemo(page, 1, { enabled: true, stepDelayMs: 0 });
+    await demo.step('Нижняя подпись', 'Не должна оказаться ниже видимой области.');
+    const host = page.locator('#' + HOST_ID);
+    await expect(host).toBeInViewport();
+    const rect = await host.boundingBox();
+    const viewportHeight = await page.evaluate(() => window.innerHeight);
+    expect(rect.y + rect.height).toBeLessThanOrEqual(viewportHeight);
+  } finally {
+    await page.close();
+  }
+});

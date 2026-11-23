@@ -102,7 +102,9 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   test.setTimeout(process.env.PWDEBUG ? 0 : (process.env.FIGVAM_DEMO === '1' ? 15 * 60_000 : 180_000));
   const demo = createDemo(page, 19);
   if (process.env.FIGVAM_DEMO === '1') console.log('FigVam narrated demo enabled: 19 steps');
-  await page.setViewportSize({ width: 1700, height: 1100 });
+  // In demo mode, use the maximized OS window rather than a potentially off-screen 1700×1100 viewport.
+  if (process.env.FIGVAM_DEMO !== '1')
+    await page.setViewportSize({ width: 1700, height: 1100 });
   await page.goto(server.url);
   await signIn(page);
   await demo.step('Создаём документ и экран', 'Начинаем отдельный прототип Login Prototype.');
@@ -249,7 +251,7 @@ test('designs a login with password, independent variants, scenarios, duplicatio
   snapshot = await read();
   await page.close();
   await server.restart();
-  const reopened = await browser.newPage({ viewport: { width: 1700, height: 1100 } });
+  const reopened = await browser.newPage({ viewport: process.env.FIGVAM_DEMO === '1' ? null : { width: 1700, height: 1100 } });
   try {
     await reopened.goto(server.url);
     await signIn(reopened);
