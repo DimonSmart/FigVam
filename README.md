@@ -50,7 +50,7 @@ dotnet test FigVam.sln --no-build --no-restore
 
 Все серверные экземпляры **обязаны использовать один и тот же абсолютный каталог на локальном диске одного хоста**. Разные каталоги для одного набора документов и файловые сетевые шары не поддерживаются. Несколько хостов потребуют общего транзакционного хранилища перед развёртыванием. `Storage:Directory` (`Storage__Directory` в окружении) задаёт durable каталог. Headless Production должен задавать абсолютный путь явно. Относительный путь разрешается относительно content root сервера; appsettings использует `data/documents`. Aspire передаёт абсолютный путь `src/FigVam.Server/data/documents`; переопределить его можно через `Storage:Directory` AppHost. Каталог не очищается при остановке сервера. `InitializeAsync` остаётся внутренней точкой начального импорта.
 
-Новые документы используют профиль `figvam.portable-ui` версии 2 с типами Frame, Text, Button, TextInput и Image. Документы версии 1 открываются со своим профилем. Для перехода к визуальному редактированию доступна команда `upgrade-portable-ui-profile`, которая проверяет ожидаемую ревизию и соответствие документа версии 2.
+Все новые документы сразу используют единственный Portable UI Profile `figvam.portable-ui/4` с типами Frame, Text, Button, TextInput и Image, включая актуальные свойства, события и атомарные дизайн-токены. Старые версии профиля, команды обновления профиля и миграции не поддерживаются: проект находится в разработке, сохранённых пользовательских данных нет.
 
 ## Локальный запуск
 
@@ -433,12 +433,13 @@ Format version 1 has four required fields: `schemaVersion` (integer 1), `revisio
 (nonnegative draft revision), `savedVersion` (null for a revision export, otherwise
 `id`, `name`, `timestamp`, `authorId`, and `revision`), and `document`. A saved ID is
 not a revision or format version. `document.profile` is required and contains `id`
-(`figvam.portable-ui`) and positive integer `version` (currently 1), independently
-of `schemaVersion`, draft revision and saved-version ID. Only the exact installed
-profile is accepted for import, persistence, recovery and export. Unknown IDs
-produce `PROFILE_UNAVAILABLE`; unavailable versions produce
-`UNSUPPORTED_PROFILE_VERSION`, without substituting another profile. This production
-profile remains empty: no node kinds or target platforms are declared supported.
+(`figvam.portable-ui`) and fixed integer `version` (4), independently
+of `schemaVersion`, draft revision and saved-version ID. There is exactly one
+supported production profile for import, persistence, recovery and export.
+Unknown IDs produce `PROFILE_UNAVAILABLE`; any other profile version produces
+`UNSUPPORTED_PROFILE_VERSION`. Profile upgrades and migrations are not implemented.
+The profile defines Frame, Text, Button, TextInput and Image with typed properties,
+preview events and atomic design tokens.
 `document` contains all durable fields currently
 represented by DocumentStructure: ID and profile; ordered pages with names and screen IDs;
 screens, dimensions and variants; nodes with names, semantic keys, ordered children,
