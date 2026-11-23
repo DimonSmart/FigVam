@@ -38,6 +38,7 @@ public sealed class VisualNodeProfile : INodeProfile
         Kind("Frame", NodeSemanticRole.Container, 240, 160, children: true, properties:
         [
             .. Decoration(Transparent, 0, Transparent, 0),
+            ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
             ("layout", Options(LayoutFlow.Free, LayoutFlow.Horizontal, LayoutFlow.Vertical)),
             ("paddingTop", Spacing()),
             ("paddingRight", Spacing()),
@@ -51,6 +52,8 @@ public sealed class VisualNodeProfile : INodeProfile
         Kind("Text", NodeSemanticRole.Text, 160, 36, properties:
         [
             ("text", String("Text")),
+            ("textStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.TextStyle)),
+            ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(16, Ink),
             ("textAlignment", Alignment),
             ("lineHeight", Number(1.25, 0.1, 10)),
@@ -60,6 +63,9 @@ public sealed class VisualNodeProfile : INodeProfile
         [
             ("text", String("Button")),
             ("enabled", Boolean(true)),
+            ("textStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.TextStyle)),
+            ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
+            ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(14, White),
             .. Decoration(new(47, 87, 191), 0, Transparent, 6)
         ]),
@@ -70,6 +76,9 @@ public sealed class VisualNodeProfile : INodeProfile
             ("multiline", Boolean(false)),
             ("inputType", Options("Text", "Password")),
             ("enabled", Boolean(true)),
+            ("textStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.TextStyle)),
+            ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
+            ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(14, Ink),
             .. Decoration(White, 1, Outline, 6)
         ]),
