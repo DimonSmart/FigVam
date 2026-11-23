@@ -60,7 +60,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         if (documentId == Guid.Empty || query.ScreenId == Guid.Empty) return new("INVALID_ID");
         if (query.Revision < 0) return new("INVALID_REVISION");
         if (query.Offset < 0 || query.Limit is < 1 or > 100 || !Enum.IsDefined(query.Theme) ||
-            (query.Viewport is null ? query.VariantId is not null || query.DatasetId is not null : !ScreenDimensions.IsValid(query.Viewport)))
+            (query.Viewport is null ? query.DatasetId is not null : !ScreenDimensions.IsValid(query.Viewport)))
             return new("INVALID_QUERY");
         var read = await reader.ReadAsync(documentId, query.Revision, cancellationToken);
         if (read.State is not { } state) return new(read.Code);
@@ -68,7 +68,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         var document = state.Document;
         var diagnostics = new List<LayoutDiagnostic>();
         var overrides = new Dictionary<Guid, Dictionary<string, NodePropertyValue>>();
-        if (query.Viewport is not null)
+        if (query.Viewport is not null || query.VariantId is not null)
         {
             if (document.Screens.FirstOrDefault(screen => screen.Id == query.ScreenId) is not { } screen)
                 return new("SCREEN_NOT_FOUND");
