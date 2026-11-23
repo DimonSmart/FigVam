@@ -126,7 +126,7 @@ public sealed class DesignStyleTests
         var resolver = new DesignStyleResolver(doc, Profile);
         Assert.Equal(new NodeNumberValue(8), resolver.EffectiveNode(frame, TokenTheme.Light)["cornerRadius"]);
         Assert.Equal(new NodeNumberValue(5), resolver.EffectiveNode(button, TokenTheme.Light)["borderWidth"]);
-        var changed = border with { Fields = new Dictionary<string, NodePropertyValue>(border.Fields)
+        var changed = border with { Fields = border.Fields.ToDictionary(pair => pair.Key, pair => pair.Value)
             { ["cornerRadius"] = new NodeNumberValue(12) } };
         resolver = new DesignStyleResolver(doc with { Styles = [changed] }, Profile);
         Assert.Equal(new NodeNumberValue(12), resolver.EffectiveNode(frame, TokenTheme.Light)["cornerRadius"]);
