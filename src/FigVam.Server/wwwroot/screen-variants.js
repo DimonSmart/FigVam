@@ -1,15 +1,26 @@
-export function createScreenVariants({ element, request, refreshPages, pageSize, workspace }) {
+export function createScreenVariants({ element, request, refreshPages, onSelectionChanged, pageSize, workspace }) {
   let variantGeneration = 0, variantOffset = 0, variantTotal = 0, variantScreen = null;
   const variantOperations = new Map();
+  let selectedVariantId = null, selectedScreenId = null;
+  function selectVariant(id) {
+    if (id === selectedVariantId) return;
+    selectedVariantId = id;
+    renderScreenVariants();
+    onSelectionChanged?.();
+  }
   function variantKey(doc, screen) { return `${doc}/${screen}`; }
   function resetScreenVariants() {
     variantGeneration++; variantOffset = variantTotal = 0; variantScreen = null;
+    selectedScreenId = null;
+    if (selectedVariantId !== null) selectVariant(null);
     element('screen-variants-list').replaceChildren(); element('screen-variants-status').textContent = 'Выберите экран.';
     element('screen-variants-error').textContent = ''; element('screen-variants-retry').hidden = true;
     element('screen-variant-create').reset(); renderScreenVariants();
   }
   function renderScreenVariants() {
     const op = variantOperations.get(variantKey(workspace.documentId, workspace.selectedScreen));
+    for (const button of element('screen-variants-list').querySelectorAll('[data-variant-id]'))
+      button.setAttribute('aria-pressed', String((button.dataset.variantId || null) === selectedVariantId));
     const editable = !!workspace.selectedScreen && ['Owner', 'Editor'].includes(workspace.documentRole);
     element('screen-variant-create').hidden = !editable;
     element('screen-variant-create').querySelector('button').disabled = !!op;
@@ -23,7 +34,10 @@ export function createScreenVariants({ element, request, refreshPages, pageSize,
   async function loadScreenVariants() {
     const screen = workspace.selectedScreen, doc = workspace.documentId, atRevision = workspace.revision,
       catalogRevision = workspace.catalogRevision, current = ++variantGeneration;
-    if (variantScreen !== screen) { variantOffset = variantTotal = 0; variantScreen = screen; }
+    if (variantScreen !== screen) {
+      variantOffset = variantTotal = 0; variantScreen = screen;
+      if (selectedScreenId !== screen) { selectedScreenId = screen; selectVariant(null); }
+    }
     element('screen-variants-list').replaceChildren(); element('screen-variants-error').textContent = '';
     element('screen-variants-retry').hidden = true; renderScreenVariants();
     if (!screen || !doc || !Number.isSafeInteger(atRevision)) { element('screen-variants-status').textContent = 'Выберите экран.'; return; }
@@ -35,8 +49,16 @@ export function createScreenVariants({ element, request, refreshPages, pageSize,
       if (result.revision !== atRevision || result.screenId.toLowerCase() !== screen.toLowerCase() || result.documentId.toLowerCase() !== doc.toLowerCase()) throw new TypeError('Некорректный ответ');
       if (variantOffset && !result.items.length) { variantOffset = Math.max(0, variantOffset - pageSize); return loadScreenVariants(); }
       variantTotal = result.total;
-      const base = document.createElement('li'); base.textContent = 'Базовое состояние'; element('screen-variants-list').append(base);
-      for (const item of result.items) { const li = document.createElement('li'); li.textContent = item.name; element('screen-variants-list').append(li); }
+      const addChoice = (id, label) => {
+        const li = document.createElement('li'), button = document.createElement('button');
+        button.type = 'button'; button.textContent = label;
+        button.dataset.variantId = id ?? '';
+        button.setAttribute('aria-pressed', String(selectedVariantId === id));
+        button.addEventListener('click', () => selectVariant(id));
+        li.append(button); element('screen-variants-list').append(li);
+      };
+      addChoice(null, 'Base · базовое состояние');
+      for (const item of result.items) addChoice(item.id, item.name);
       element('screen-variants-status').textContent = `Сохранённых вариантов: ${result.total} · ревизия ${atRevision}`; renderScreenVariants();
     } catch (error) {
       if (!valid() || error.name === 'AbortError') return;
@@ -53,7 +75,11 @@ export function createScreenVariants({ element, request, refreshPages, pageSize,
       await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/add-screen-variant`, { method: 'POST', body: JSON.stringify(op.body) });
       if (variantOperations.get(key) !== op) return;
       variantOperations.delete(key);
-      if (active()) { element('screen-variant-create').reset(); await refreshPages(); }
+      if (active()) {
+        element('screen-variant-create').reset();
+        selectVariant(op.body.variantId);
+        await refreshPages();
+      }
     } catch (error) {
       if (variantOperations.get(key) !== op) return;
       if (error instanceof TypeError || error.name === 'AbortError' || !error.status || error.status >= 500) op.state = 'uncertain';
@@ -70,5 +96,8 @@ export function createScreenVariants({ element, request, refreshPages, pageSize,
   element('screen-variants-previous').addEventListener('click', () => { variantOffset = Math.max(0, variantOffset - pageSize); loadScreenVariants(); });
   element('screen-variants-next').addEventListener('click', () => { variantOffset += pageSize; loadScreenVariants(); });
   element('screen-variants-retry').addEventListener('click', loadScreenVariants);
-  return { reset: resetScreenVariants, load: loadScreenVariants };
+  return {
+    reset: resetScreenVariants, load: loadScreenVariants,
+    get selectedVariantId() { return selectedVariantId; }
+  };
 }
