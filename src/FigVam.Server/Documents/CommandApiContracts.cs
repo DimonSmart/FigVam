@@ -81,6 +81,7 @@ public sealed class AddTokenRequest
     public required Guid TokenId { get; init; }
     [Required, StringLength(256, MinimumLength = 1)] public required string Name { get; init; }
     public required FigVam.Domain.Tokens.TokenType Type { get; init; }
+    public FigVam.Domain.Tokens.TokenCategory? Category { get; init; }
     [Required] public required IReadOnlyDictionary<FigVam.Domain.Tokens.TokenTheme, FigVam.Domain.Tokens.TokenExpression> Values { get; init; }
 }
 
@@ -124,6 +125,7 @@ public sealed class AddComponentParameterRequest
     public required FigVam.Domain.Components.ComponentParameterType Type { get; init; }
     [Required] public required FigVam.Domain.Components.ComponentValue DefaultValue { get; init; }
     public FigVam.Domain.Tokens.TokenType? TokenType { get; init; }
+    public FigVam.Domain.Tokens.TokenCategory? TokenCategory { get; init; }
     public IReadOnlyList<string>? EnumValues { get; init; }
     public required Guid NodeId { get; init; }
     [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; }
