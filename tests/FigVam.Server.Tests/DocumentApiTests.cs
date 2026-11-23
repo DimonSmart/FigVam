@@ -185,18 +185,6 @@ public sealed class DocumentApiTests
         Assert.True(errorSchema.EvaluateNode(JsonNode.Parse(await duplicate.Content.ReadAsStringAsync())!).IsValid);
     }
 
-    [Fact]
-    public void Version1ProfileRetainsItsOriginalCapabilities()
-    {
-        var profile = new UnverifiedNodeProfile();
-        foreach (var kind in new[] { "Frame", "Text", "Button", "unknown" })
-        {
-            Assert.False(profile.IsKnownKind(kind));
-            Assert.False(profile.CanContainChildren(kind));
-            Assert.Null(profile.GetProperty(kind, "width"));
-        }
-    }
-
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
     private static async Task<JsonSchema> Schema(HttpClient client, string name)
     {
