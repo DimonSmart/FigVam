@@ -4,10 +4,7 @@ public sealed record PortableUiProfileReference(
     [property: System.Text.Json.Serialization.JsonRequired] string Id,
     [property: System.Text.Json.Serialization.JsonRequired] int Version)
 {
-    public static PortableUiProfileReference Version1 { get; } = new("figvam.portable-ui", 1);
-    public static PortableUiProfileReference Version2 { get; } = new("figvam.portable-ui", 2);
-    public static PortableUiProfileReference Version3 { get; } = new("figvam.portable-ui", 3);
-    public static PortableUiProfileReference Version4 { get; } = new("figvam.portable-ui", 4);
+    public static PortableUiProfileReference Current { get; } = new("figvam.portable-ui", 4);
 }
 
 public sealed record ProfileResolutionDiagnostic(string Code, string Message);
@@ -33,9 +30,9 @@ public static class PortableUiProfileResolver
             return new("INVALID_PROFILE", "A Portable UI Profile ID and positive version are required.");
         if (!string.Equals(requested.Id, available.Identity.Id, StringComparison.Ordinal))
             return new("PROFILE_UNAVAILABLE", $"Portable UI Profile '{requested.Id}' is not installed.");
-        if (available.GetInstalledVersion(requested.Version) is not { } installed || installed.Identity != requested)
+        if (available.Identity != requested)
             return new("UNSUPPORTED_PROFILE_VERSION", $"Portable UI Profile '{requested.Id}' version {requested.Version} is unavailable.");
-        selected = installed;
+        selected = available;
         return null;
     }
 }

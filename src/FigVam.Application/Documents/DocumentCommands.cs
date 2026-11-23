@@ -9,7 +9,6 @@ namespace FigVam.Application.Documents;
 // Constructed by the server's authenticated transport, never deserialized from a command payload.
 public sealed record DocumentActor(string Id);
 public sealed record RestoreDocumentVersionCommand(Guid DocumentId, Guid CommandId, Guid VersionId);
-public sealed record UpgradePortableUiProfileCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision);
 public sealed record SetNodeRepeaterCommand(Guid DocumentId, Guid CommandId, Guid NodeId, long ExpectedRevision, NodeRepeater? Repeater);
 public sealed record BindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property, NodeDataBinding Binding);
 public sealed record UnbindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property);
@@ -123,7 +122,6 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodePropertiesSet), "NODE_PROPERTIES_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionSaved), "VERSION_SAVED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionRestored), "VERSION_RESTORED")]
-[System.Text.Json.Serialization.JsonDerivedType(typeof(PortableUiProfileUpgraded), "PORTABLE_UI_PROFILE_UPGRADED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(HistoryCompensated), "HISTORY_COMPENSATED")]
 public abstract record DocumentEvent;
 public sealed record ComponentSlotAdded(Guid DefinitionId, ComponentSlot Slot) : DocumentEvent;
@@ -139,7 +137,6 @@ public sealed record ComponentParameterOverrideSet(Guid NodeId, Guid ParameterId
 public sealed record ComponentParameterAdded(Guid DefinitionId, ComponentParameter Parameter, ComponentParameterBinding Binding) : DocumentEvent;
 public sealed record ComponentDefinitionAdded(ComponentDefinition Definition) : DocumentEvent;
 public sealed record VersionRestored(Guid VersionId, DocumentStructure Document) : DocumentEvent;
-public sealed record PortableUiProfileUpgraded(PortableUiProfileReference Profile) : DocumentEvent;
 public sealed record VersionSaved(Guid VersionId) : DocumentEvent;
 public sealed record TokenValueSet(Guid TokenId, TokenTheme Theme, TokenExpression Value) : DocumentEvent;
 public sealed record TokenRenamed(Guid TokenId, string Name) : DocumentEvent;
@@ -224,7 +221,6 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(SetNodeSemanticKeyCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodePropertyCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(SetNodePropertiesCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
-    Task<CommandResult> HandleAsync(UpgradePortableUiProfileCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(UndoDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RedoDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RestoreDocumentVersionCommand command, DocumentActor actor,

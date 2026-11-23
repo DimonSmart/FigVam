@@ -48,7 +48,7 @@ function directText(expression) {
 }
 
 export function createTokens({ element, request, getContext, startRequest, stopLive, startLive, readPages }) {
-  let tokenItems = [], selectedToken = null, tokenUsages = [], tokenLoad = 0, profileVersion = 3, rendered = false;
+  let tokenItems = [], selectedToken = null, tokenUsages = [], tokenLoad = 0, rendered = false;
   const el = element, editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   const selected = () => tokenItems.find(t => t.id === selectedToken);
   const typeOf = token => normalizedTokenType(token?.type);
@@ -56,11 +56,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   const nameOf = id => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
 
   function resetTokens() {
-    tokenLoad++; tokenItems = []; tokenUsages = []; selectedToken = null; profileVersion = 3; rendered = false;
+    tokenLoad++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
     el('token-create').inert = el('token-edit').inert = false;
     el('tokens-list').replaceChildren(); el('token-usages').replaceChildren();
     el('token-detail').hidden = true; el('token-create').hidden = true;
-    el('token-upgrade').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
     el('token-create').reset(); el('token-rename').reset(); el('token-set').reset();
     updateCategoryOptions(); updateCreateMode();
@@ -77,14 +76,11 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     return items;
   }
   async function readTokens(base, revision, signal, isCurrent) {
-    const [items, profile] = await Promise.all([
-      readAllTokenPages(`${base}/tokens`, revision, signal, isCurrent),
-      request(`${base}/profile?revision=${revision}`, {}, signal, isCurrent)
-    ]);
+    const items = await readAllTokenPages(`${base}/tokens`, revision, signal, isCurrent);
     const selection = selectedToken;
     const usages = selection && items.some(item => item.id === selection)
       ? await readAllTokenPages(`${base}/tokens/${encodeURIComponent(selection)}/usages`, revision, signal, isCurrent) : [];
-    return { items, selection, usages, profileVersion: profile.profile?.version ?? 3 };
+    return { items, selection, usages };
   }
   async function readSelectedUsages(base, revision, signal, isCurrent) {
     const selection = selectedToken;
@@ -97,13 +93,12 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (JSON.stringify(tokenUsages) !== JSON.stringify(usages)) { tokenUsages = usages; renderTokens(); }
   }
   function applyTokens(snapshot) {
-    const before = JSON.stringify([tokenItems, tokenUsages, selectedToken, profileVersion]);
+    const before = JSON.stringify([tokenItems, tokenUsages, selectedToken]);
     tokenItems = snapshot.items;
-    profileVersion = snapshot.profileVersion;
     if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
     if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
     tokenUsages = snapshot.usages;
-    if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken, profileVersion])) {
+    if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) {
       rendered = true;
       renderTokens();
     }
@@ -214,8 +209,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       li.append(button); list.append(li);
     }
     el('tokens-status').textContent = tokenItems.length ? `Токенов: ${tokenItems.length}` : 'Токенов пока нет.';
-    el('token-upgrade').hidden = !editable() || profileVersion >= 4;
-    if (!el('token-upgrade').hidden) el('token-upgrade').textContent = `Обновить профиль до v${profileVersion + 1}`;
     const item = selected();
     el('token-detail').hidden = !item;
     if (!item) return;
@@ -300,8 +293,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('token-view-theme').addEventListener('change', renderTokens);
   el('token-theme').addEventListener('change', setEditorFromTheme);
   el('token-mode').addEventListener('change', refreshSetMode);
-  el('token-upgrade').addEventListener('click', () => tokenCommand('upgrade-portable-ui-profile',
-    { expectedRevision: getContext().revision }));
   el('token-create').addEventListener('submit', event => {
     event.preventDefault();
     try {

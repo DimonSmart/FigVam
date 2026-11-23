@@ -51,7 +51,6 @@ public sealed class SetNodePropertiesRequest
     public Guid? ExpectedParentId { get; init; }
     public long? ExpectedRevision { get; init; }
 }
-public sealed class UpgradePortableUiProfileRequest { public required Guid CommandId { get; init; } public required long ExpectedRevision { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SaveDocumentRequest { public required Guid CommandId { get; init; } [StringLength(256)] public string? Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

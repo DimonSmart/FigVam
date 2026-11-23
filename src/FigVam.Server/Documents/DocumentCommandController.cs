@@ -13,10 +13,6 @@ namespace FigVam.Server.Documents;
 [ProducesResponseType<ApiError>(415), ProducesResponseType<ApiError>(429), ProducesResponseType<ApiError>(500)]
 public sealed class DocumentCommandController(IDocumentCommandHandler handler) : ControllerBase
 {
-    [HttpPost("upgrade-portable-ui-profile"), EndpointSummary("Explicitly upgrade Portable UI Profile v1 to v2, v2 to v3, or v3 to v4 at the expected revision")]
-    public async Task<IActionResult> UpgradePortableUiProfile(Guid documentId, UpgradePortableUiProfileRequest request, CancellationToken ct) =>
-        Result(await handler.HandleAsync(new UpgradePortableUiProfileCommand(documentId, request.CommandId, request.ExpectedRevision), User.GetDocumentActor(), ct));
-
     [HttpPost("create-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Create a saved prototype event and ordered actions")]
     [EndpointDescription("Scenario requires a globally unique ID, screenId, nodeId, numeric event (Click=0, Change=1, Hover=2, Leave=3, Submit=4), and 1-32 typed actions. Profile must explicitly support the event, actions and demo value targets.")]
     public async Task<IActionResult> CreateScenario(Guid documentId, CreateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new CreateScenarioCommand(documentId, request.CommandId, request.Scenario), User.GetDocumentActor(), ct));

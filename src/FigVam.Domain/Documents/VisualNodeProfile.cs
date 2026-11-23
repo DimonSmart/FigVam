@@ -63,11 +63,12 @@ public sealed class VisualNodeProfile : INodeProfile
             .. Typography(14, White),
             .. Decoration(new(47, 87, 191), 0, Transparent, 6)
         ]),
-        Kind("TextInput", NodeSemanticRole.TextInput, 220, 40, events: [PreviewEvent.Change], demoValue: true, properties:
+        Kind("TextInput", NodeSemanticRole.TextInput, 220, 40, events: [PreviewEvent.Change, PreviewEvent.Submit], demoValue: true, properties:
         [
             ("placeholder", String("")),
             ("value", String("")),
             ("multiline", Boolean(false)),
+            ("inputType", Options("Text", "Password")),
             ("enabled", Boolean(true)),
             .. Typography(14, Ink),
             .. Decoration(White, 1, Outline, 6)
@@ -78,22 +79,12 @@ public sealed class VisualNodeProfile : INodeProfile
             ("fit", Options("Contain", "Cover", "Stretch")),
             ("altText", String(""))
         ])
-    });
-    // V2 definitions are frozen: the v3 registry derives from them without changing old documents.
-    private static readonly IReadOnlyList<NodeKindDefinition> NodeKindsV3 = Array.AsReadOnly(NodeKinds
-        .Select(kind => kind.Kind != "TextInput" ? kind : kind with
-        {
-            Properties = kind.Properties.Append(new KeyValuePair<string, NodePropertyDefinition>(
-                "inputType", Options("Text", "Password")))
-                .ToFrozenDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal),
-            PreviewEvents = Array.AsReadOnly<PreviewEvent>([.. kind.PreviewEvents, PreviewEvent.Submit])
-        }).ToArray());
-    // v4 replaces only the property contracts that explicitly support atomic token values.
-    // v2/v3 registries remain immutable for existing documents.
-    private static readonly IReadOnlyList<NodeKindDefinition> NodeKindsV4 = Array.AsReadOnly(NodeKindsV3.Select(kind =>
-        kind with { Properties = kind.Properties.ToDictionary(entry => entry.Key, entry => V4Property(entry.Key, entry.Value))
-            .ToFrozenDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal) }).ToArray());
-    private static NodePropertyDefinition V4Property(string name, NodePropertyDefinition old) => name switch
+    }.Select(kind => kind with
+    {
+        Properties = kind.Properties.ToDictionary(entry => entry.Key, entry => TokenizedProperty(entry.Key, entry.Value))
+            .ToFrozenDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal)
+    }).ToArray());
+    private static NodePropertyDefinition TokenizedProperty(string name, NodePropertyDefinition old) => name switch
     {
         "width" or "height" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Size },
         "opacity" => old with { TokenType = TokenType.Number, TokenCategory = TokenCategory.Opacity },
@@ -109,32 +100,11 @@ public sealed class VisualNodeProfile : INodeProfile
         "lineHeight" => old with { TokenType = TokenType.Number, TokenCategory = TokenCategory.LineHeight },
         _ => old
     };
-    private static readonly FrozenDictionary<string, NodeKindDefinition> RegistryV4 =
-        NodeKindsV4.ToFrozenDictionary(kind => kind.Kind, StringComparer.Ordinal);
-    private static readonly FrozenDictionary<string, NodeKindDefinition> RegistryV2 =
+    private static readonly FrozenDictionary<string, NodeKindDefinition> Registry =
         NodeKinds.ToFrozenDictionary(kind => kind.Kind, StringComparer.Ordinal);
-    private static readonly FrozenDictionary<string, NodeKindDefinition> RegistryV3 =
-        NodeKindsV3.ToFrozenDictionary(kind => kind.Kind, StringComparer.Ordinal);
-    private static readonly UnverifiedNodeProfile Version1 = new();
-    private static readonly VisualNodeProfile Version2Profile = new(2);
-    private static readonly VisualNodeProfile Version3Profile = new(3);
-    private static readonly VisualNodeProfile Version4Profile = new(4);
-    private readonly int version;
 
-    public VisualNodeProfile() : this(3) { }
-    private VisualNodeProfile(int version) => this.version = version;
-    public PortableUiProfileReference Identity => version switch
-    {
-        2 => PortableUiProfileReference.Version2,
-        4 => PortableUiProfileReference.Version4,
-        _ => PortableUiProfileReference.Version3
-    };
-    public INodeProfile? GetInstalledVersion(int requestedVersion) =>
-        requestedVersion == 4 ? Version4Profile :
-        requestedVersion == 3 ? Version3Profile :
-        requestedVersion == 2 ? Version2Profile :
-        requestedVersion == 1 ? Version1 : null;
-    public IReadOnlyList<NodeKindDefinition> Kinds => version switch { 2 => NodeKinds, 4 => NodeKindsV4, _ => NodeKindsV3 };
+    public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
+    public IReadOnlyList<NodeKindDefinition> Kinds => NodeKinds;
     public IReadOnlyList<string> PreviewActions => ActionNames;
     public bool IsKnownKind(string kind) => Find(kind) is not null;
     public bool CanContainChildren(string kind) => Find(kind)?.CanContainChildren == true;
@@ -143,13 +113,12 @@ public sealed class VisualNodeProfile : INodeProfile
     public bool SupportsDemoValue(string kind) => Find(kind)?.SupportsDemoValue == true;
     public bool SupportsPreviewAction(PreviewAction action) => Actions.ContainsKey(action.GetType());
 
-    private NodeKindDefinition? Find(string? kind) => kind is null ? null :
-        (version switch { 2 => RegistryV2, 4 => RegistryV4, _ => RegistryV3 }).GetValueOrDefault(kind);
+    private static NodeKindDefinition? Find(string? kind) => kind is null ? null : Registry.GetValueOrDefault(kind);
 
     public static NodePropertyError? ValidateTextInputCombination(INodeProfile profile, NodeStructure node,
         IReadOnlyList<ScreenPropertyOverride>? overrides = null)
     {
-        if (profile.Identity.Version < 3 || node.Kind != "TextInput") return null;
+        if (node.Kind != "TextInput") return null;
         NodePropertyValue? Effective(string name) =>
             overrides?.LastOrDefault(item => item.NodeId == node.Id && item.Property == name)?.Value
             ?? node.Properties.GetValueOrDefault(name) ?? profile.GetProperty(node.Kind, name)?.DefaultValue;
@@ -212,13 +181,3 @@ public sealed class VisualNodeProfile : INodeProfile
         { DefaultValue = new NodeEnumValue(value) };
 }
 
-public sealed class UnverifiedNodeProfile : INodeProfile
-{
-    public PortableUiProfileReference Identity => PortableUiProfileReference.Version1;
-    public bool SupportsPreviewEvent(string kind, PreviewEvent @event) => false;
-    public bool SupportsPreviewAction(PreviewAction action) => false;
-    public bool SupportsDemoValue(string kind) => false;
-    public bool IsKnownKind(string kind) => false;
-    public bool CanContainChildren(string kind) => false;
-    public NodePropertyDefinition? GetProperty(string kind, string property) => null;
-}
