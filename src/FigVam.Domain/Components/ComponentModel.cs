@@ -420,6 +420,7 @@ public static class ComponentOperations
                 var before = source.Parameters.Single(p => p.Id == sourceId);
                 var after = target.Parameters.Single(p => p.Id == targetId);
                 if (before.Type != after.Type || before.TokenType != after.TokenType ||
+                    before.TokenCategory != after.TokenCategory ||
                     (before.Type == ComponentParameterType.Enum && before.EnumValues!.Except(after.EnumValues!).Any()))
                     throw new InvalidOperationException("Mapped parameters must have compatible types and allowed values.");
             }
