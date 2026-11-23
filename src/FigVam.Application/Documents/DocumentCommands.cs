@@ -106,6 +106,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenAdded), "TOKEN_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(StyleUpserted), "STYLE_UPSERTED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(StyleDeleted), "STYLE_DELETED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(NodePropertiesRemoved), "NODE_PROPERTIES_REMOVED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenValueSet), "TOKEN_VALUE_SET")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenRenamed), "TOKEN_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(AssetAdded), "ASSET_ADDED")]
