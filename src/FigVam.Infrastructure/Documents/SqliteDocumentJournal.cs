@@ -237,7 +237,8 @@ public sealed partial class SqliteDocumentJournal
                     DocumentDeleted => ("DELETE_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     PortableUiProfileUpgraded upgraded when
                         (previous.Document.Profile == PortableUiProfileReference.Version1 && upgraded.Profile == PortableUiProfileReference.Version2 ||
-                         previous.Document.Profile == PortableUiProfileReference.Version2 && upgraded.Profile == PortableUiProfileReference.Version3) &&
+                         previous.Document.Profile == PortableUiProfileReference.Version2 && upgraded.Profile == PortableUiProfileReference.Version3 ||
+                          previous.Document.Profile == PortableUiProfileReference.Version3 && upgraded.Profile == PortableUiProfileReference.Version4) &&
                         next.Document == (previous.Document with { Profile = upgraded.Profile })
                         => ("UPGRADE_PORTABLE_UI_PROFILE", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     HistoryCompensated compensation when change.Version is null
@@ -598,7 +599,8 @@ public sealed partial class SqliteDocumentJournal
                 {
                     case PortableUiProfileUpgraded upgraded:
                         if (!(document.Profile == PortableUiProfileReference.Version1 && upgraded.Profile == PortableUiProfileReference.Version2 ||
-                              document.Profile == PortableUiProfileReference.Version2 && upgraded.Profile == PortableUiProfileReference.Version3))
+                              document.Profile == PortableUiProfileReference.Version2 && upgraded.Profile == PortableUiProfileReference.Version3 ||
+                               document.Profile == PortableUiProfileReference.Version3 && upgraded.Profile == PortableUiProfileReference.Version4))
                             throw new InvalidDataException("Invalid profile upgrade transition.");
                         Validate(document);
                         document = document with { Profile = upgraded.Profile };
