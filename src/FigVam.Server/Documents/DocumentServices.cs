@@ -43,6 +43,7 @@ public static class DocumentServices
         builder.Services.AddSingleton<IDocumentDatasetQueries, DocumentDatasetQueries>();
         builder.Services.AddSingleton<IDocumentTokenQueries, DocumentTokenQueries>();
         builder.Services.AddSingleton<IDocumentTokenExporter, DocumentTokenExporter>();
+        builder.Services.AddSingleton<IDocumentResourceExporter, DocumentResourceExporter>();
         builder.Services.AddSingleton<IDocumentJsonExporter, DocumentJsonExporter>();
         builder.Services.AddSingleton<IDocumentContainerExporter, DocumentContainerExporter>();
         builder.Services.AddSingleton<IDocumentFileReader, DocumentFileReader>();

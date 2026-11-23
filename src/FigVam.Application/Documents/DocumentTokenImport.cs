@@ -6,7 +6,9 @@ using FigVam.Domain.Tokens;
 namespace FigVam.Application.Documents;
 
 public sealed record ImportDesignTokensCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision,
-    string LightJson, string DarkJson, IReadOnlyDictionary<string, TokenType> DimensionTypes);
+    string LightJson, string DarkJson, IReadOnlyDictionary<string, TokenType> DimensionTypes,
+    IReadOnlyDictionary<string, TokenCategory>? DimensionCategories = null,
+    IReadOnlyDictionary<string, TokenCategory>? NumberCategories = null);
 public sealed record TokenImportDiagnostic(string Code, string Path, string Message);
 
 public sealed partial class DocumentCommandHandler
@@ -38,110 +40,323 @@ public sealed partial class DocumentCommandHandler
 internal static class DtcgTokenImporter
 {
     internal sealed record Import(IReadOnlyList<DesignToken> Tokens, IReadOnlyList<TokenImportDiagnostic> Diagnostics);
-    private sealed record Entry(TokenType Type, JsonElement Value);
+    private sealed record Entry(TokenType Type, TokenCategory? Category, Guid? Id, JsonElement Value);
+
     public static Import Parse(ImportDesignTokensCommand command, IReadOnlyList<DesignToken> existing)
     {
         var errors = new List<TokenImportDiagnostic>();
-        void Error(string code, string path, string message) { if (errors.Count < 100) errors.Add(new(code, path, message)); }
+        void Error(string code, string path, string message)
+        {
+            if (errors.Count < 100) errors.Add(new(code, path.Length <= 300 ? path : path[..300], message));
+        }
+
         if (command.LightJson is null || command.DarkJson is null || command.DimensionTypes is null)
-            return new([], [new("missing-theme-mapping", "$", "Supply LightJson, DarkJson and DimensionTypes explicitly.")]);
+            return new([], [new("missing-theme-mapping", "$", "LightJson, DarkJson and DimensionTypes are required.")]);
         if (command.LightJson.Length > 1024 * 1024 || command.DarkJson.Length > 1024 * 1024 ||
-            Encoding.UTF8.GetByteCount(command.LightJson) + Encoding.UTF8.GetByteCount(command.DarkJson) > 2 * 1024 * 1024 || command.DimensionTypes.Count > 1000)
-            return new([], [new("import-limit", "$", "Input exceeds 2 MiB or 1000 dimension mappings.")]);
-        if (command.DimensionTypes.Keys.Any(name => !DesignTokenValidator.IsValidName(name)))
-            return new([], [new("invalid-dimension-mapping", "$.dimensionTypes", "Mapping names must contain 1 to 256 printable characters.")]);
+            Encoding.UTF8.GetByteCount(command.LightJson) + Encoding.UTF8.GetByteCount(command.DarkJson) > 2 * 1024 * 1024 ||
+            command.DimensionTypes.Count > 1000 || command.DimensionCategories?.Count > 1000 || command.NumberCategories?.Count > 1000)
+            return new([], [new("import-limit", "$", "DTCG input exceeds size or mapping limits.")]);
+        if (command.DimensionTypes.Keys.Concat(command.DimensionCategories?.Keys ?? []).Concat(command.NumberCategories?.Keys ?? [])
+            .Any(name => !DesignTokenValidator.IsValidName(name)))
+            return new([], [new("invalid-dimension-mapping", "$.mappings", "Invalid token mapping path.")]);
+
         var light = Read(command.LightJson, "Light");
         var dark = Read(command.DarkJson, "Dark");
-        if (errors.Count > 0) return new([], errors);
+        if (errors.Count != 0) return new([], errors);
         if (light.Count == 0 || light.Count + existing.Count > 1000)
-            Error("import-limit", "$", "Import must contain tokens and the resulting document may contain at most 1000 tokens.");
+            Error("import-limit", "$", "At least one token and at most 1000 total tokens are supported.");
+
         foreach (var name in light.Keys.Union(dark.Keys, StringComparer.Ordinal))
         {
             if (!light.TryGetValue(name, out var l) || !dark.TryGetValue(name, out var d))
-                Error("incomplete-theme", name, "The token must be present in both explicitly supplied themes.");
-            else if (l.Type != d.Type) Error("type-mismatch", name, "Both themes must declare the same FigVam type.");
-            if (existing.Any(t => t.Name == name)) Error("name-conflict", name, "An existing token already uses this name; import only adds new tokens.");
+            {
+                Error("incomplete-theme", name, "Both Light and Dark must contain the same token paths.");
+                continue;
+            }
+            if (l.Type != d.Type || l.Category != d.Category)
+                Error("type-mismatch", name, "Both themes must use the same type and category.");
+            if (l.Id != d.Id)
+                Error("identity-conflict", name, "Both themes must agree on org.figvam identity.");
+            if (existing.Any(t => t.Name == name))
+                Error("name-conflict", name, "An existing token already has this path.");
         }
-        foreach (var name in command.DimensionTypes.Keys)
-            if (!light.TryGetValue(name, out var entry) || entry.Type == TokenType.Color)
-                Error("invalid-dimension-mapping", name, "Dimension mapping must name an imported dimension token.");
-        if (errors.Count > 0) return new([], errors);
-        var ids = light.Keys.ToDictionary(n => n, _ => Guid.NewGuid(), StringComparer.Ordinal);
-        var tokens = light.OrderBy(e => e.Key, StringComparer.Ordinal).Select(e => new DesignToken(ids[e.Key], e.Key, e.Value.Type,
-            new Dictionary<TokenTheme, TokenExpression> { [TokenTheme.Light] = Expression(e.Key, e.Value, "Light"), [TokenTheme.Dark] = Expression(e.Key, dark[e.Key], "Dark") })).ToArray();
+        foreach (var name in command.DimensionTypes.Keys.Concat(command.DimensionCategories?.Keys ?? []).Concat(command.NumberCategories?.Keys ?? []))
+            if (!light.ContainsKey(name))
+                Error("invalid-dimension-mapping", name, "Mapping must name a token being imported.");
+        var existingIds = existing.Select(t => t.Id).ToHashSet();
+        var incomingIds = new HashSet<Guid>();
+        foreach (var (name, entry) in light)
+            if (entry.Id is { } id && (!incomingIds.Add(id) || existingIds.Contains(id)))
+                Error("id-conflict", name, "Token ID is duplicated or already exists in the document.");
+        if (errors.Count != 0) return new([], errors);
+
+        var ids = light.ToDictionary(e => e.Key, e => e.Value.Id ?? Guid.NewGuid(), StringComparer.Ordinal);
+        var result = new List<DesignToken>();
+        foreach (var (name, entry) in light.OrderBy(e => e.Key, StringComparer.Ordinal))
+        {
+            var values = new Dictionary<TokenTheme, TokenExpression>
+            {
+                [TokenTheme.Light] = Expression(entry.Value, entry.Type, entry.Category, "Light." + name + ".$value"),
+                [TokenTheme.Dark] = Expression(dark[name].Value, entry.Type, entry.Category, "Dark." + name + ".$value")
+            };
+            result.Add(new(ids[name], name, entry.Type, values, entry.Category));
+        }
         if (errors.Count == 0)
-            foreach (var diagnostic in DesignTokenValidator.Validate(tokens))
-                Error(diagnostic.Code, $"{diagnostic.Theme}.{tokens.First(t => t.Id == diagnostic.TokenId).Name}", diagnostic.Message);
-        return new(errors.Count == 0 ? tokens : [], errors);
+        {
+            foreach (var diagnostic in DesignTokenValidator.Validate(result))
+                Error(diagnostic.Code, diagnostic.Theme + "." + (result.FirstOrDefault(t => t.Id == diagnostic.TokenId)?.Name ?? "$"), diagnostic.Message);
+            if (errors.Count == 0)
+                foreach (var token in result)
+                foreach (var theme in Enum.GetValues<TokenTheme>())
+                {
+                    var resolution = DesignTokenValidator.Resolve(result, token.Id, theme);
+                    foreach (var diagnostic in resolution.Diagnostics)
+                    {
+                        Error(diagnostic.Code, theme + "." + token.Name + (diagnostic.Field is null ? "" : "." + diagnostic.Field), diagnostic.Message);
+                        if (errors.Count != 0) break;
+                    }
+                    if (errors.Count != 0) break;
+                }
+        }
+        return new(errors.Count == 0 ? result : [], errors);
 
         Dictionary<string, Entry> Read(string json, string theme)
         {
             var entries = new Dictionary<string, Entry>(StringComparer.Ordinal);
             try
             {
-                using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 8 });
-                if (document.RootElement.ValueKind != JsonValueKind.Object) { Error("invalid-json", theme, "DTCG input must be a flat token object."); return entries; }
-                var count = 0;
-                foreach (var property in document.RootElement.EnumerateObject())
+                using var document = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
                 {
-                    if (++count > 1000) { Error("import-limit", theme, "At most 1000 tokens per theme."); break; }
-                    var name = property.Name; var path = name.Length <= 256 ? theme + "." + name : theme;
-                    if (!DesignTokenValidator.IsValidName(name) || name.StartsWith('$') || name.IndexOfAny(['{', '}', '.']) >= 0)
-                    { Error("unsupported-name", path, "Token names must be printable, at most 256 characters, and cannot start with $ or contain braces or periods."); continue; }
-                    if (entries.ContainsKey(name)) { Error("duplicate-name", path, "Duplicate token name."); continue; }
-                    var token = property.Value;
-                    if (!Fields(token, ["$type", "$value"]) || !token.TryGetProperty("$type", out var type) || type.ValueKind != JsonValueKind.String || !token.TryGetProperty("$value", out var value))
-                    { Error("unsupported-construct", path, "Only flat tokens with explicit $type and $value are supported; groups, extensions and metadata are rejected."); continue; }
-                    TokenType figType;
-                    switch (type.GetString())
+                    Error("invalid-json", theme, "Root of a DTCG file must be an object.");
+                    return entries;
+                }
+                Group(document.RootElement, "", null, 0);
+            }
+            catch (JsonException) { Error("invalid-json", theme, "Malformed JSON or nesting exceeds 32 levels."); }
+            return entries;
+
+            void Group(JsonElement group, string prefix, string? inherited, int depth)
+            {
+                if (depth > 28) { Error("import-limit", theme + "." + prefix, "Group depth exceeds 28."); return; }
+                if (HasDuplicates(group)) { Error("duplicate-name", theme + "." + prefix, "Duplicate JSON object key."); return; }
+                if (group.TryGetProperty("$extends", out _)) { Error("unsupported-construct", theme + "." + prefix, "$extends is not supported."); return; }
+                string? type = inherited;
+                if (group.TryGetProperty("$type", out var localType))
+                {
+                    if (localType.ValueKind != JsonValueKind.String) { Error("unsupported-type", theme + "." + prefix, "$type must be a string."); return; }
+                    type = localType.GetString();
+                }
+                foreach (var property in group.EnumerateObject())
+                {
+                    if (property.Name == "$type" || property.Name == "$description") continue;
+                    if (property.Name.StartsWith('$')) { Error("unsupported-construct", theme + "." + prefix, "Unsupported group metadata."); continue; }
+                    if (!ValidSegment(property.Name))
+                    { Error("unsupported-name", theme + "." + prefix, "Invalid DTCG path segment."); continue; }
+                    var name = prefix.Length == 0 ? property.Name : prefix + "." + property.Name;
+                    if (!DesignTokenValidator.IsValidName(name)) { Error("unsupported-name", theme + "." + name, "Token name is too long."); continue; }
+                    if (property.Value.ValueKind != JsonValueKind.Object)
+                    { Error("unsupported-construct", theme + "." + name, "Expected a token or nested group object."); continue; }
+                    if (property.Value.TryGetProperty("$value", out var value))
                     {
-                        case "color": figType = TokenType.Color; break;
-                        case "dimension":
-                            if (!command.DimensionTypes.TryGetValue(name, out figType) || figType is not (TokenType.Spacing or TokenType.Geometry))
-                            { Error("dimension-type-required", path, "Explicitly map dimension to Spacing or Geometry."); continue; }
-                            break;
-                        default: Error("unsupported-type", path, "Only color and dimension are supported. Typography cannot be mapped without ambiguous semantics."); continue;
+                        if (!Fields(property.Value, ["$type", "$value", "$description", "$extensions"]))
+                        { Error("unsupported-construct", theme + "." + name, "Token contains unsupported or duplicate metadata."); continue; }
+                        if (entries.Count >= 1000) { Error("import-limit", theme, "At most 1000 tokens per theme."); return; }
+                        var declared = property.Value.TryGetProperty("$type", out var ownType) ? ownType : default;
+                        var effective = declared.ValueKind == JsonValueKind.String ? declared.GetString() : type;
+                        if (declared.ValueKind != JsonValueKind.Undefined && declared.ValueKind != JsonValueKind.String)
+                        { Error("unsupported-type", theme + "." + name, "$type must be a string."); continue; }
+                        var figType = effective switch
+                        {
+                            "color" => TokenType.Color,
+                            "dimension" => TokenType.Dimension,
+                            "number" => TokenType.Number,
+                            "fontFamily" => TokenType.FontFamily,
+                            "fontWeight" => TokenType.FontWeight,
+                            "typography" => TokenType.Typography,
+                            _ => (TokenType)(-1)
+                        };
+                        if (!Enum.IsDefined(figType)) { Error("unsupported-type", theme + "." + name, "Unsupported or absent DTCG type."); continue; }
+                        Guid? id = null;
+                        TokenCategory? category = null;
+                        var extensionTypeSpecified = false;
+                        if (property.Value.TryGetProperty("$extensions", out var extensions))
+                        {
+                            if (!Fields(extensions, ["org.figvam"]) || !extensions.TryGetProperty("org.figvam", out var meta) ||
+                                !Fields(meta, ["id", "type", "category"]))
+                            { Error("unsupported-construct", theme + "." + name, "Only org.figvam identity/type/category extensions are supported."); continue; }
+                            if (meta.TryGetProperty("id", out var valueId))
+                            {
+                                if (valueId.ValueKind != JsonValueKind.String || !Guid.TryParse(valueId.GetString(), out var parsed) || parsed == Guid.Empty)
+                                { Error("invalid-id", theme + "." + name, "Invalid org.figvam ID."); continue; }
+                                id = parsed;
+                            }
+                            if (meta.TryGetProperty("category", out var valueCategory))
+                            {
+                                if (valueCategory.ValueKind != JsonValueKind.String || !Enum.TryParse<TokenCategory>(valueCategory.GetString(), false, out var parsed) ||
+                                    !Enum.IsDefined(parsed))
+                                { Error("invalid-category", theme + "." + name, "Invalid org.figvam category."); continue; }
+                                category = parsed;
+                            }
+                            if (meta.TryGetProperty("type", out var valueType))
+                            {
+                                if (valueType.ValueKind != JsonValueKind.String || !Enum.TryParse<TokenType>(valueType.GetString(), false, out var internalType) ||
+                                    !Enum.IsDefined(internalType) ||
+                                    (figType == TokenType.Dimension ? internalType is not (TokenType.Dimension or TokenType.Spacing or TokenType.Geometry) : internalType != figType))
+                                { Error("type-mismatch", theme + "." + name, "Extension type is incompatible with DTCG type."); continue; }
+                                figType = internalType;
+                                extensionTypeSpecified = true;
+                            }
+                        }
+                        // Existing explicit legacy mappings remain valid for old files without org.figvam metadata.
+                        if (figType == TokenType.Dimension && command.DimensionTypes.TryGetValue(name, out var legacy) &&
+                            legacy is TokenType.Spacing or TokenType.Geometry)
+                        {
+                            if (extensionTypeSpecified)
+                            { Error("invalid-dimension-mapping", name, "Mapping conflicts with an explicitly declared FigVam type."); continue; }
+                            figType = legacy;
+                        }
+                        if (figType == TokenType.Dimension)
+                        {
+                            if (command.DimensionTypes.TryGetValue(name, out var mapped) && mapped != TokenType.Dimension)
+                            { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with extension type."); continue; }
+                            if (command.DimensionCategories?.TryGetValue(name, out var mappedCategory) == true)
+                            {
+                                if (category is { } declaredCategory && declaredCategory != mappedCategory)
+                                { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with the declared category."); continue; }
+                                category = mappedCategory;
+                            }
+                            if (category is null) { Error("dimension-type-required", theme + "." + name, "Dimension category must be supplied in org.figvam or dimensionCategories."); continue; }
+                        }
+                        else if (figType is TokenType.Spacing or TokenType.Geometry)
+                        {
+                            if (category is not null) { Error("invalid-category", theme + "." + name, "Legacy dimensions cannot have a semantic category."); continue; }
+                            if (command.DimensionTypes.TryGetValue(name, out var mapped) && mapped != figType)
+                            { Error("invalid-dimension-mapping", name, "Dimension mapping conflicts with extension type."); continue; }
+                        }
+                        else if (figType == TokenType.Number)
+                        {
+                            if (command.NumberCategories?.TryGetValue(name, out var mappedCategory) == true)
+                            {
+                                if (category is { } declaredCategory && declaredCategory != mappedCategory)
+                                { Error("invalid-number-mapping", name, "Number mapping conflicts with the declared category."); continue; }
+                                category = mappedCategory;
+                            }
+                            if (category is null) { Error("number-category-required", theme + "." + name, "Number category must be supplied in org.figvam or numberCategories."); continue; }
+                        }
+                        else if (category is not null)
+                        { Error("invalid-category", theme + "." + name, "This token type cannot have a semantic category."); continue; }
+                        if (!DesignTokenValidator.ValidCategory(figType, category))
+                        { Error("invalid-category", theme + "." + name, "Semantic category is incompatible with token type."); continue; }
+                        entries.Add(name, new(figType, category, id, value.Clone()));
                     }
-                    entries.Add(name, new(figType, value.Clone()));
+                    else
+                    {
+                        if (property.Value.TryGetProperty("$extensions", out _) || property.Value.TryGetProperty("$ref", out _))
+                        { Error("unsupported-construct", theme + "." + name, "Group extensions and $ref are unsupported."); continue; }
+                        Group(property.Value, name, type, depth + 1);
+                    }
                 }
             }
-            catch (JsonException) { Error("invalid-json", theme, "Malformed JSON or input nesting exceeds 8."); }
-            return entries;
         }
-        TokenExpression Expression(string name, Entry entry, string theme)
+
+        TokenExpression Expression(JsonElement value, TokenType type, TokenCategory? category, string path)
         {
-            var value = entry.Value; var path = theme + "." + name + ".$value";
+            if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("$ref", out _))
+            { Error("UNSUPPORTED_REFERENCE", path, "JSON Pointer $ref is not available for this profile."); return Invalid(); }
             if (value.ValueKind == JsonValueKind.String)
             {
-                var alias = value.GetString()!;
-                if (alias.Length >= 3 && alias[0] == '{' && alias[^1] == '}' && ids.TryGetValue(alias[1..^1], out var target)) return new TokenAlias(target);
-                Error("missing-reference", path, "Alias must reference an imported flat token by {name}.");
+                var source = value.GetString()!;
+                if (source.Length >= 3 && source[0] == '{' && source[^1] == '}')
+                {
+                    var targetName = source[1..^1];
+                    if (ids.TryGetValue(targetName, out var reference)) return new TokenAlias(reference);
+                    Error("missing-reference", path, "Alias points outside the imported DTCG files.");
+                    return Invalid();
+                }
+                if (type == TokenType.FontFamily) return new LiteralTokenValue(new FontFamilyValue(source));
+                Error("unsupported-value", path, "String is neither a valid reference nor a fontFamily.");
+                return Invalid();
             }
-            else if (entry.Type == TokenType.Color && Fields(value, ["colorSpace", "components", "alpha"]) &&
-                value.TryGetProperty("colorSpace", out var space) && space.ValueKind == JsonValueKind.String && space.GetString() == "srgb" &&
-                value.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Array && components.GetArrayLength() == 3)
+            switch (type)
             {
-                var channels = components.EnumerateArray().ToArray();
-                var alpha = value.TryGetProperty("alpha", out var a) ? a : default;
-                if (channels.All(Channel) && (alpha.ValueKind == JsonValueKind.Undefined || Channel(alpha)))
-                    return new LiteralTokenValue(new ColorValue(Byte(channels[0]), Byte(channels[1]), Byte(channels[2]), alpha.ValueKind == JsonValueKind.Undefined ? (byte)255 : Byte(alpha)));
-                Error("unsupported-color", path, "sRGB components and alpha must be exactly representable by FigVam 8-bit channels.");
+                case TokenType.Typography:
+                    if (!Fields(value, ["fontFamily", "fontSize", "fontWeight", "letterSpacing", "lineHeight"]) ||
+                        new[] { "fontFamily", "fontSize", "fontWeight", "letterSpacing", "lineHeight" }.Any(field => !value.TryGetProperty(field, out _)))
+                    {
+                        Error("unsupported-value", path, "Typography must contain all five DTCG fields.");
+                        return Invalid();
+                    }
+                    return new LiteralTokenValue(new TypographyFieldsValue(
+                        Expression(value.GetProperty("fontFamily"), TokenType.FontFamily, null, path + ".fontFamily"),
+                        Expression(value.GetProperty("fontSize"), TokenType.Dimension, TokenCategory.FontSize, path + ".fontSize"),
+                        Expression(value.GetProperty("fontWeight"), TokenType.FontWeight, null, path + ".fontWeight"),
+                        Expression(value.GetProperty("lineHeight"), TokenType.Number, TokenCategory.LineHeight, path + ".lineHeight"),
+                        Expression(value.GetProperty("letterSpacing"), TokenType.Dimension, TokenCategory.LetterSpacing, path + ".letterSpacing")));
+                case TokenType.Color:
+                    if (Fields(value, ["colorSpace", "components", "alpha"]) &&
+                        value.TryGetProperty("colorSpace", out var space) && space.ValueKind == JsonValueKind.String && space.GetString() == "srgb" &&
+                        value.TryGetProperty("components", out var components) && components.ValueKind == JsonValueKind.Array && components.GetArrayLength() == 3)
+                    {
+                        var channels = components.EnumerateArray().ToArray();
+                        var alpha = value.TryGetProperty("alpha", out var a) ? a : default;
+                        if (channels.All(Channel) && (alpha.ValueKind == JsonValueKind.Undefined || Channel(alpha)))
+                            return new LiteralTokenValue(new ColorValue(Byte(channels[0]), Byte(channels[1]), Byte(channels[2]),
+                                alpha.ValueKind == JsonValueKind.Undefined ? (byte)255 : Byte(alpha)));
+                    }
+                    Error("unsupported-color", path, "Only exactly representable 8-bit sRGB colors are supported.");
+                    return Invalid();
+                case TokenType.Spacing or TokenType.Geometry or TokenType.Dimension:
+                    if (Fields(value, ["value", "unit"]) && value.TryGetProperty("unit", out var unit) &&
+                        unit.ValueKind == JsonValueKind.String && unit.GetString() == "px" &&
+                        value.TryGetProperty("value", out var amount) && amount.ValueKind == JsonValueKind.Number &&
+                        amount.TryGetDouble(out var d) && double.IsFinite(d))
+                        return new LiteralTokenValue(type switch
+                        {
+                            TokenType.Spacing => new SpacingValue(d),
+                            TokenType.Geometry => new GeometryValue(d),
+                            _ => new DimensionValue(d)
+                        });
+                    Error("unsupported-value", path, "Dimension must have finite px value; unsupported unit or shape.");
+                    return Invalid();
+                case TokenType.Number:
+                    if (value.ValueKind == JsonValueKind.Number && value.TryGetDouble(out var n) && double.IsFinite(n))
+                        return new LiteralTokenValue(new NumberValue(n));
+                    Error("unsupported-value", path, "Number must be a finite JSON number.");
+                    return Invalid();
+                case TokenType.FontWeight:
+                    if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var w))
+                        return new LiteralTokenValue(new FontWeightValue(w));
+                    Error("unsupported-value", path, "FontWeight must be an integer.");
+                    return Invalid();
+                default:
+                    Error("unsupported-value", path, "Unsupported DTCG literal.");
+                    return Invalid();
             }
-            else if (entry.Type is TokenType.Spacing or TokenType.Geometry && Fields(value, ["value", "unit"]) &&
-                value.TryGetProperty("unit", out var unit) && unit.ValueKind == JsonValueKind.String && unit.GetString() == "px" &&
-                value.TryGetProperty("value", out var number) && number.ValueKind == JsonValueKind.Number && number.TryGetDouble(out var n) && double.IsFinite(n))
-                return new LiteralTokenValue(entry.Type == TokenType.Spacing ? new SpacingValue(n) : new GeometryValue(n));
-            else Error("unsupported-value", path, "Expected a whole-token alias, sRGB color or finite px dimension; component references and other representations are unsupported.");
-            return new LiteralTokenValue(new SpacingValue(0));
         }
+        static TokenExpression Invalid() => new LiteralTokenValue(new NumberValue(0));
     }
+
+    private static bool ValidSegment(string name) =>
+        name.Length is > 0 and <= 256 && !name.StartsWith('$') && !name.Any(c => char.IsControl(c) || c is '{' or '}' or '.');
+
+    private static bool HasDuplicates(JsonElement value)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        return value.EnumerateObject().Any(p => !names.Add(p.Name));
+    }
+
     private static bool Fields(JsonElement value, string[] allowed)
     {
         if (value.ValueKind != JsonValueKind.Object) return false;
         var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var property in value.EnumerateObject()) if (!names.Add(property.Name) || !allowed.Contains(property.Name, StringComparer.Ordinal)) return false;
+        foreach (var p in value.EnumerateObject())
+            if (!names.Add(p.Name) || !allowed.Contains(p.Name, StringComparer.Ordinal)) return false;
         return true;
     }
-    private static bool Channel(JsonElement e) => e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out var n) && double.IsFinite(n) && n >= 0 && n <= 1 && Math.Abs(n * 255 - Math.Round(n * 255)) < 1e-9;
+
+    private static bool Channel(JsonElement e) =>
+        e.ValueKind == JsonValueKind.Number && e.TryGetDouble(out var n) && double.IsFinite(n) && n >= 0 && n <= 1 &&
+        Math.Abs(n * 255 - Math.Round(n * 255)) < 1e-9;
     private static byte Byte(JsonElement e) => (byte)Math.Round(e.GetDouble() * 255);
 }

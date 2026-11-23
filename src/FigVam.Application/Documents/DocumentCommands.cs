@@ -23,6 +23,7 @@ public sealed record SaveDocumentCommand(Guid DocumentId, Guid CommandId, string
 public sealed record SetTokenValueCommand(Guid DocumentId, Guid CommandId, Guid TokenId, TokenTheme Theme, TokenExpression Value);
 public sealed record RenameTokenCommand(Guid DocumentId, Guid CommandId, Guid TokenId, string Name);
 public sealed record AddTokenCommand(Guid DocumentId, Guid CommandId, DesignToken Token);
+public sealed record DeleteTokenCommand(Guid DocumentId, Guid CommandId, Guid TokenId, long ExpectedRevision);
 public sealed record UpsertStyleCommand(Guid DocumentId, Guid CommandId, DesignStyle Style, long ExpectedRevision);
 public sealed record DeleteStyleCommand(Guid DocumentId, Guid CommandId, Guid StyleId, long ExpectedRevision);
 public sealed record RemoveNodePropertiesCommand(Guid DocumentId, Guid CommandId, Guid NodeId, IReadOnlyList<string> Properties, long ExpectedRevision);
@@ -104,6 +105,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DatasetFixtureReplaced), "DATASET_FIXTURE_REPLACED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokensImported), "TOKENS_IMPORTED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenAdded), "TOKEN_ADDED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(TokenDeleted), "TOKEN_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(StyleUpserted), "STYLE_UPSERTED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(StyleDeleted), "STYLE_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(NodePropertiesRemoved), "NODE_PROPERTIES_REMOVED")]
@@ -154,6 +156,7 @@ public sealed record DatasetAdded(DocumentDataset Dataset) : DocumentEvent;
 public sealed record DatasetFixtureReplaced(Guid DatasetId, string FixtureJson) : DocumentEvent;
 public sealed record TokensImported(IReadOnlyList<DesignToken> Tokens) : DocumentEvent;
 public sealed record TokenAdded(DesignToken Token) : DocumentEvent;
+public sealed record TokenDeleted(Guid TokenId) : DocumentEvent;
 public sealed record StyleUpserted(DesignStyle Style) : DocumentEvent;
 public sealed record StyleDeleted(Guid StyleId) : DocumentEvent;
 public sealed record PageDeleted(Guid PageId) : DocumentEvent;
@@ -225,6 +228,7 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(SetTokenValueCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenameTokenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(AddTokenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(DeleteTokenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(UpsertStyleCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(DeleteStyleCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RemoveNodePropertiesCommand command, DocumentActor actor, CancellationToken cancellationToken = default);

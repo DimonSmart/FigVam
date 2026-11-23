@@ -111,7 +111,7 @@ OpenAPI опубликован в `GET /openapi/v1.json`. JSON Schemas DTO ге�
 Structural read queries are available at `/api/v1/documents/{documentId}` and its `pages`, `screens`, `nodes`, and `children/{parentId}` routes. Individual pages, screens, and nodes can be addressed by ID. Results identify the committed revision. Lists use `offset` and `limit` (1-100, default 50); `nodes` accepts `screenId` and `kind`, and `children` accepts `kind`. `fields` selects a comma-separated subset of `kind`, `properties`, and `childCount`; ID and type are always included. `depth` expands children from 0 to 2 levels, with at most 100 total items per response. `childrenTruncated` indicates an incomplete expansion; query children separately to paginate them. Name and semantic-key filters are not available until those fields exist in the document model. JSON Schemas are served under `/api/v1/schemas/` and OpenAPI at `/openapi/v1.json`.
 
 
-`add-token` accepts `commandId`, `tokenId`, `name`, numeric `type` (0 Color, 1 Spacing, 2 Typography, 3 Geometry), and `values` with `Light`/`Dark` keys. A theme expression is `{ "expression": "literal", "value": { "type": "spacing", "value": 8 } }` or `{ "expression": "alias", "tokenId": "<uuid>" }`. Literal types: `color` (red, green, blue, alpha), `spacing` (value), `typography` (fontFamily, fontSize, fontWeight, lineHeight), `geometry` (radius). Tokens are part of document snapshots, saved versions and safe Undo/Redo; `affectedIds` includes the token ID. Invalid names, types, themes, references or cycles return `INVALID_TOKEN` (400); occupied IDs return `DUPLICATE_ID` (409). Published schemas: `AddTokenRequest` and `DocumentStructure`.
+`add-token` accepts `commandId`, `tokenId`, `name`, numeric `type` (0 Color, 1 Spacing, 2 Typography, 3 Geometry), and `values` with `Light`/`Dark` keys. A theme expression is `{ "expression": "literal", "value": { "type": "spacing", "value": 8 } }` or `{ "expression": "alias", "tokenId": "<uuid>" }`. Literal token types include `color`, `spacing`, `geometry`, `dimension`, `number`, `fontFamily`, `fontWeight`, `typography` (optional `letterSpacing`, default 0) and composite `typographyFields` with atomic references. Tokens are part of document snapshots, saved versions and safe Undo/Redo; `affectedIds` includes the token ID. Invalid names, types, themes, references or cycles return `INVALID_TOKEN` (400); occupied IDs return `DUPLICATE_ID` (409). Published schemas: `AddTokenRequest` and `DocumentStructure`.
 
 Component instances: `POST /api/v1/documents/{documentId}/commands/insert-component-instance`
 accepts `commandId`, a unique `nodeId`, an existing `definitionId`, `parentId` (screen or
@@ -266,30 +266,40 @@ their targets are no longer available.
 
 ## Design token export
 
-`GET /api/v1/documents/{documentId}/token-export?theme=Light&revision=...` exports a single revision and requires an Owner or Editor; Viewer export is disabled until a viewer export policy exists. The required theme is `Light` or `Dark`; omit revision for the current revision. The response contains the revision, selected theme, a `tokens` object, and diagnostics. A null `tokens` object means no partial export was produced. Exports are limited to 1000 tokens and 1 MiB of token JSON.
+`GET /api/v1/documents/{documentId}/token-export?theme=Light&revision=...` produces a single [DTCG 2025.10](https://www.designtokens.org/TR/2025.10/format/) JSON token document. Call it once for Light and once for Dark to preserve FigVam's two themes; this is **not** the DTCG Resolver Module. The endpoint requires Owner/Editor and supports revision-pinned reads, up to 1000 tokens and 1 MiB of output. Failed conversion returns `tokens: null` and diagnostics, never partial success.
 
-The mapping follows the [DTCG Design Tokens Format Module 2025.10](https://www.designtokens.org/TR/2025.10/format/): color uses sRGB components and alpha; spacing and radius use `dimension` in CSS pixels; aliases use curly-brace references. Names are preserved exactly, so duplicate names or names beginning with `$` or containing `.`, `{`, or `}` are rejected. Typography is rejected because DTCG requires letter spacing, which the document model does not provide, and the model does not define whether line height is a multiplier or a length; inventing that meaning would change the value. Invalid references, cycles, types and missing selected-theme values are reported. The export does not encode the other theme.
-
+Supported DTCG types: `color` (exact 8-bit sRGB), `dimension` (`px`), `number`, `fontFamily`, `fontWeight`, and `typography`. Dotted FigVam names become nested DTCG groups, retaining their exact path. Curly-brace references preserve token aliases, typography aliases, and aliases in individual typography fields. A `$extensions["org.figvam"]` object records stable `id`, internal `type`, and optional `category` to allow round-tripping the existing Spacing/Geometry and semantic Dimension/Number categories. The Typography fields are `fontFamily`, `fontSize`, `fontWeight`, `letterSpacing` and `lineHeight`; line height is a multiplier and absent legacy tracking defaults to `0 px`.
 
 ## Design token import
 
-`POST /api/v1/documents/{documentId}/commands/import-design-tokens` uses the common authorized command handler (Owner/Editor). Supply `commandId`, `expectedRevision`, `lightJson`, `darkJson`, and `dimensionTypes`. Each JSON string is a flat DTCG 2025.10 token object, such as the `tokens` object from token export. `lightJson` explicitly maps to Light and `darkJson` to Dark; supplying the same JSON twice explicitly selects equal theme values. Every token must occur in both inputs with the same type. No theme values are inferred.
+`POST /api/v1/documents/{documentId}/commands/import-design-tokens` accepts `commandId`, `expectedRevision`, `lightJson`, `darkJson`, and a required `dimensionTypes` object (which may be empty). Each JSON string is a standalone DTCG token document. Optional `dimensionCategories` and `numberCategories` objects map ambiguous third-party tokens by their full dot-separated paths to the FigVam `TokenCategory` enum; for old Spacing/Geometry imports, `dimensionTypes` remains available. Conflicts with declared `org.figvam` metadata are rejected. If metadata includes `id`, import retains it; otherwise it generates a new stable token ID.
 
-`dimensionTypes` maps every imported dimension name to the FigVam enum: `1` (Spacing) or `3` (Geometry/radius). Color needs no mapping. For example:
+The importer supports up to 28 group levels (32 JSON levels), inherited/explicit `$type`, nested token groups, compatible references and all five typography fields. It rejects unsupported `$ref`, `$extends`, unknown extensions, unsupported colors or units, missing references, alias cycles, unsupported value shapes, duplicates, conflicting IDs, and mismatched themes with path-specific diagnostics. The whole import is atomic: validation failure leaves document and revision unchanged. Input is limited to 1,048,576 characters per theme, 2 MiB combined UTF-8, 1000 resulting tokens, 1000 mappings per category, and 100 diagnostics. Command IDs are idempotent, and imports survive journal recovery and guarded Undo/Redo. The `.figvam`/`document.json` formats remain the authoritative representation of styles and documents.
 
-```json
-{
-  "commandId": "7f436282-5a22-49ab-a7c7-e8af02ae2739",
-  "expectedRevision": 0,
-  "lightJson": "{\"gap\":{\"$type\":\"dimension\",\"$value\":{\"value\":8,\"unit\":\"px\"}}}",
-  "darkJson": "{\"gap\":{\"$type\":\"dimension\",\"$value\":{\"value\":12,\"unit\":\"px\"}}}",
-  "dimensionTypes": { "gap": 1 }
-}
-```
+## Resource dependencies and portable CSS
 
-Import adds fresh technical token IDs, preserves names and whole-token `{name}` aliases within the import, and rejects existing name conflicts. Color supports sRGB channels and optional alpha exactly representable as 8-bit values; dimension supports finite CSS pixels (radius must be nonnegative). Groups, inheritance, metadata/extensions, JSON Pointer and component references, other color representations/units/types, and typography are explicitly rejected. This is a compatible subset, not a general DTCG importer.
+`GET /api/v1/documents/{documentId}/tokens/{tokenId}/usages?revision=...&offset=0&limit=50` and
+`GET /api/v1/documents/{documentId}/styles/{styleId}/usages?revision=...&offset=0&limit=50`
+return direct and indirect resource usage paths, including node properties, ScreenVariant overrides,
+composite Typography fields, styles, inherited styles and component parameters/variants/instances.
+Results have stable ordering, owner labels, theme and chain, are revision-scoped and paginated.
+The editor panels display the same data with direct/indirect grouping and layer navigation.
 
-Limits: 1000 tokens in the resulting document, 1000 dimension mappings, JSON depth 8, 1,048,576 characters per input and 2 MiB UTF-8 combined, a 4 MiB HTTP body, and at most 100 diagnostics. A rejected import returns HTTP 400 `INVALID_TOKEN_IMPORT` with `diagnostics` entries (`code`, `path`, `message`); malformed transport DTOs return `INVALID_REQUEST`. Name/type conflicts, missing themes or references, cycles and unsupported content never partially modify the document or increment revision. Revision conflicts return HTTP 409. Accepted imports commit one revision and `IMPORT_DESIGN_TOKENS` event, return affected IDs, survive recovery and support guarded Undo/Redo. Repeating `commandId` returns the original result after checking current rights. Schemas are published as `ImportDesignTokensRequest.json`, `TokenImportDiagnostic.json`, `ApiError.json` and `CommandResponse.json` under `/api/v1/schemas/`; OpenAPI describes the route.
+`POST /api/v1/documents/{documentId}/commands/delete-token` accepts `commandId`, `tokenId`
+and `expectedRevision`. Referenced tokens are protected with `TOKEN_IN_USE` (409);
+unused tokens are removed with a journal event and guarded Undo/Redo. Style deletion
+continues to use `delete-style` and retains its dependency validation.
+
+`GET /api/v1/documents/{documentId}/resources/css?revision=...` requires Owner/Editor
+and returns `{documentId, revision, css, resources}`. The neutral resource snapshot
+preserves IDs, atomic effective Light/Dark values, source references and inherited style
+fields; the CSS contains stable ID-based custom properties, explicitly selected
+`data-figvam-theme="Light"/"Dark"` definitions and reusable style classes.
+Unsupported or invalid documents return `css: null` with diagnostics. This is a
+resource generator, **not** a full HTML/WPF exporter. A bounded WPF mapping prototype,
+including the intentionally untranslatable relative `lineHeight` and `letterSpacing` semantics,
+is in `examples/WpfResourcePrototype`.
+
 
 
 Screen variants are stored separately from component variants on each screen. The typed

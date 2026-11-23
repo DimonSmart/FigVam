@@ -1,6 +1,6 @@
 // The browser mirrors the portable token contract; the server remains authoritative.
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
-const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity'];
+const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
 const valueTypes = {
   Color: 'color', Spacing: 'spacing', Typography: 'typography', Geometry: 'geometry',
   Dimension: 'dimension', Number: 'number', FontFamily: 'fontFamily', FontWeight: 'fontWeight'
@@ -18,7 +18,7 @@ export function normalizedTokenCategory(category) {
 }
 
 function categoryIsValid(type, category) {
-  if (type === 'Dimension') return ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size'].includes(category);
+  if (type === 'Dimension') return ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LetterSpacing'].includes(category);
   if (type === 'Number') return ['LineHeight', 'Opacity'].includes(category);
   return category === null;
 }
@@ -38,8 +38,8 @@ function isValidValue(value, type, category) {
   if (type === 'Spacing') return Number.isFinite(value.value);
   if (type === 'Geometry') return Number.isFinite(value.radius) && value.radius >= 0;
   if (type === 'Dimension')
-    return Number.isFinite(value.value) && value.value >= (category === 'FontSize' ? 1 : 0) &&
-      value.value <= (category === 'FontSize' ? 1024 : 1000000);
+    return Number.isFinite(value.value) && value.value >= (category === 'FontSize' ? 1 : category === 'LetterSpacing' ? -100 : 0) &&
+      value.value <= (category === 'FontSize' ? 1024 : category === 'LetterSpacing' ? 100 : 1000000);
   if (type === 'Number') return Number.isFinite(value.value) &&
     (category === 'Opacity' ? value.value >= 0 && value.value <= 1 : value.value >= 0.1 && value.value <= 10);
   if (type === 'FontFamily') return typeof value.value === 'string' && value.value.length <= 128 &&
@@ -48,7 +48,8 @@ function isValidValue(value, type, category) {
   return type === 'Typography' && typeof value.fontFamily === 'string' &&
     value.fontFamily.trim() !== '' && Number.isFinite(value.fontSize) && value.fontSize > 0 &&
     Number.isInteger(value.fontWeight) && value.fontWeight >= 1 && value.fontWeight <= 1000 &&
-    Number.isFinite(value.lineHeight) && value.lineHeight > 0;
+    Number.isFinite(value.lineHeight) && value.lineHeight > 0 &&
+    Number.isFinite(value.letterSpacing ?? 0) && Math.abs(value.letterSpacing ?? 0) <= 100;
 }
 
 export function resolveTokenValue(reference, tokens, theme = 'Light', expectedType = null, expectedCategory = null) {
@@ -74,11 +75,13 @@ export function resolveTokenValue(reference, tokens, theme = 'Light', expectedTy
     if (type === 'Typography' && expression.expression === 'literal' && expression.value?.type === 'typographyFields') {
       const spec = [
         ['fontFamily', 'FontFamily', null], ['fontSize', 'Dimension', 'FontSize'],
-        ['fontWeight', 'FontWeight', null], ['lineHeight', 'Number', 'LineHeight']
+        ['fontWeight', 'FontWeight', null], ['lineHeight', 'Number', 'LineHeight'],
+        ['letterSpacing', 'Dimension', 'LetterSpacing']
       ];
       const values = {};
       for (const [field, expectedType, expectedCategory] of spec) {
-        const part = expression.value[field];
+        const part = expression.value[field] ?? (field === 'letterSpacing'
+          ? { expression: 'literal', value: { type: 'dimension', value: 0 } } : null);
         let resolved;
         if (part?.expression === 'literal') {
           resolved = isValidValue(part.value, expectedType, expectedCategory)
@@ -130,7 +133,7 @@ export function tokenValueText(value) {
   if (['number', 'fontWeight'].includes(value?.type)) return String(value.value);
   if (value?.type === 'fontFamily') return value.value;
   if (value?.type === 'typography') return [value.fontFamily, value.fontSize + ' px',
-    value.fontWeight, value.lineHeight].join(' · ');
+    value.fontWeight, value.lineHeight, (value.letterSpacing ?? 0) + ' px tracking'].join(' · ');
   if (value?.type === 'color') return '#' + [value.red, value.green, value.blue, value.alpha]
     .map(channel => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
   return '—';

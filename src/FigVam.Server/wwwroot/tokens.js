@@ -1,9 +1,9 @@
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText, tokenColorHex } from './token-resolution.js';
 
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
-const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity'];
+const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
 const allowedCategories = {
-  Dimension: ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size'],
+  Dimension: ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LetterSpacing'],
   Number: ['LineHeight', 'Opacity']
 };
 const typeIndex = type => types.indexOf(normalizedTokenType(type));
@@ -28,8 +28,8 @@ function literalExpression(type, category, raw) {
   const value = Number(raw), c = normalizedTokenCategory(category);
   if (valueType === 'FontWeight' && (!Number.isInteger(value) || value < 1 || value > 1000))
     throw new Error('Толщина шрифта должна быть целым числом от 1 до 1000.');
-  if (valueType === 'Dimension' && (value < (c === 'FontSize' ? 1 : 0) ||
-      value > (c === 'FontSize' ? 1024 : 1000000)))
+  if (valueType === 'Dimension' && (value < (c === 'FontSize' ? 1 : c === 'LetterSpacing' ? -100 : 0) ||
+      value > (c === 'FontSize' ? 1024 : c === 'LetterSpacing' ? 100 : 1000000)))
     throw new Error('Размер выходит за пределы допустимого диапазона.');
   if (valueType === 'Number' && (value < (c === 'LineHeight' ? 0.1 : 0) ||
       value > (c === 'LineHeight' ? 10 : 1)))
@@ -58,7 +58,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
     { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
     { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
-    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' }
+    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
+    { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
   ];
   const typographyPrefixes = ['new-token-light', 'new-token-dark', 'token'];
   function makeTypographyFields(prefix) {
@@ -113,7 +114,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         value?.type === 'typography' ? { expression: 'literal', value:
           field.type === 'FontFamily' ? { type: 'fontFamily', value: value.fontFamily } :
           { type: { Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[field.type],
-            value: value[field.name] } } : null;
+            value: value[field.name] ?? (field.name === 'letterSpacing' ? 0 : undefined) } } : null;
       el(prefix + '-' + field.name + '-source').value = part?.expression === 'alias' ? 'alias' : 'literal';
       el(prefix + '-' + field.name + '-value').value = part?.expression === 'literal'
         ? String(part.value.value) : field.initial;
@@ -309,17 +310,38 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-values').textContent = categoryOf(item) ? `${typeOf(item)}.${categoryOf(item)} · ${pair}` : pair;
     el('token-edit').hidden = !editable();
     el('token-set').hidden = false;
+    el('token-delete').disabled = tokenUsages.length > 0;
+    el('token-delete').title = tokenUsages.length ? 'У токена есть зависимости: ' + tokenUsages.length : 'Удалить токен';
     el('token-name').value = item.name;
     setEditorFromTheme();
     const usages = el('token-usages'); usages.replaceChildren();
-    for (const usage of tokenUsages) {
-      const li = document.createElement('li');
-      li.textContent = [usage.kind, usage.ownerId, usage.property, usage.theme == null ? null : `тема ${usage.theme}`,
-        usage.parameterId].filter(x => x != null).join(' · ');
-      usages.append(li);
+    for (const indirect of [false, true]) {
+      const group = tokenUsages.filter(usage => Boolean(usage.indirect) === indirect);
+      if (!group.length) continue;
+      const heading = document.createElement('li');
+      heading.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + group.length;
+      heading.className = 'resource-usage-group';
+      usages.append(heading);
+      for (const usage of group) {
+        const li = document.createElement('li');
+        li.textContent = [usage.label ?? usage.kind, usage.property,
+          usage.theme == null ? null : 'тема ' + usage.theme].filter(x => x != null).join(' · ');
+        li.title = (usage.chain ?? []).map(id => tokenItems.find(t => t.id === id)?.name ?? id).join(' → ');
+        if (usage.kind === 'nodeProperty') {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = 'К слою';
+          button.addEventListener('click', () => {
+            const layer = [...document.querySelectorAll('#layers [role="treeitem"]')].find(row => row.dataset.id === usage.ownerId);
+            if (layer) layer.querySelector('.layer-label')?.click();
+          });
+          li.append(' ', button);
+        }
+        usages.append(li);
+      }
     }
     if (!tokenUsages.length) {
-      const li = document.createElement('li'); li.textContent = 'Прямых использований нет.'; usages.append(li);
+      const li = document.createElement('li'); li.textContent = 'Использований нет.'; usages.append(li);
     }
   }
   async function selectToken(id) {
@@ -397,6 +419,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       tokenCommand('add-token', { tokenId: id, name: el('new-token-name').value, type: typeIndex(type),
         category: categoryIndex(category), values }, id);
     } catch (error) { el('tokens-error').textContent = error.message; }
+  });
+  el('token-delete').addEventListener('click', () => {
+    if (!selectedToken || tokenUsages.length) return;
+    tokenCommand('delete-token', { tokenId: selectedToken, expectedRevision: getContext().revision });
   });
   el('token-rename').addEventListener('submit', event => {
     event.preventDefault();

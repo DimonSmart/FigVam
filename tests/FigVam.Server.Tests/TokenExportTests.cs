@@ -38,11 +38,13 @@ public sealed class TokenExportTests
             Assert.Equal("FORBIDDEN", (await exporter.ExportAsync(id, null, TokenTheme.Light, new("outsider"))).Code);
             Assert.True((await handler.HandleAsync(new RenameTokenCommand(id, Guid.NewGuid(), space.Id, "new.space"), owner)).Accepted);
             var unsupported = (await exporter.ExportAsync(id, null, TokenTheme.Light, owner)).Response!;
-            Assert.Null(unsupported.Tokens); Assert.Contains(unsupported.Diagnostics, d => d.Code == "unsupported-name");
+            Assert.Empty(unsupported.Diagnostics); Assert.Equal(8d, unsupported.Tokens!["new"]!["space"]!["$value"]!["value"]!.GetValue<double>());
             Assert.NotNull((await exporter.ExportAsync(id, 4, TokenTheme.Light, owner)).Response!.Tokens);
             var typography = Make("type", TokenType.Typography, new LiteralTokenValue(new TypographyValue("Arial", 12, 400, 1.2)), new LiteralTokenValue(new TypographyValue("Arial", 12, 400, 1.2)));
             Assert.True((await handler.HandleAsync(new AddTokenCommand(id, Guid.NewGuid(), typography), owner)).Accepted);
-            Assert.Contains((await exporter.ExportAsync(id, null, TokenTheme.Dark, owner)).Response!.Diagnostics, d => d.Code == "unsupported-typography");
+            var exportedTypography = (await exporter.ExportAsync(id, null, TokenTheme.Dark, owner)).Response!;
+            Assert.Empty(exportedTypography.Diagnostics);
+            Assert.Equal(0d, exportedTypography.Tokens!["type"]!["$value"]!["letterSpacing"]!["value"]!.GetValue<double>());
         }
         finally { Directory.Delete(directory, true); }
     }

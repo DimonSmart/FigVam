@@ -108,6 +108,14 @@ public sealed class AddTokenRequest
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class DeleteTokenRequest
+{
+    public required Guid CommandId { get; init; }
+    public required Guid TokenId { get; init; }
+    [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RenameTokenRequest { public required Guid CommandId { get; init; } public required Guid TokenId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Name { get; init; } }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -330,6 +338,8 @@ public sealed class ImportDesignTokensRequest
     [Required, StringLength(1048576)] public required string LightJson { get; init; }
     [Required, StringLength(1048576)] public required string DarkJson { get; init; }
     [Required] public required IReadOnlyDictionary<string, FigVam.Domain.Tokens.TokenType> DimensionTypes { get; init; }
+    public IReadOnlyDictionary<string, FigVam.Domain.Tokens.TokenCategory>? DimensionCategories { get; init; }
+    public IReadOnlyDictionary<string, FigVam.Domain.Tokens.TokenCategory>? NumberCategories { get; init; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

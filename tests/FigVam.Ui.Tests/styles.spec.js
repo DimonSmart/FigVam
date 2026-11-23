@@ -76,3 +76,48 @@ test('border style editor supports partial fields and rejects invalid color with
   expect(persisted.items[0].type).toBe(1);
   expect(persisted.items[0].fields.cornerRadius.value).toBe(8);
 });
+
+test('DTCG import is visible and imported typography can be applied to a reusable text style', async ({ page, request }) => {
+  await open(page);
+  const { randomUUID } = require('node:crypto');
+  const id = page.url().split('/').pop();
+  const headers = { Authorization: `Bearer ${bearer}` };
+  const makeTheme = size => ({
+    font: { size: { body: {
+      $type: 'dimension',
+      $value: { value: size, unit: 'px' },
+      $extensions: { 'org.figvam': { type: 'Dimension', category: 'FontSize' } }
+    } } },
+    type: { body: { $type: 'typography',
+      $value: {
+        fontFamily: 'Arial', fontSize: '{font.size.body}',
+        fontWeight: 400, letterSpacing: { value: -0.5, unit: 'px' }, lineHeight: 1.25
+      }
+    } }
+  });
+  const imported = await request.post(`/api/v1/documents/${id}/commands/import-design-tokens`, {
+    headers,
+    data: {
+      commandId: randomUUID(), expectedRevision: 0,
+      lightJson: JSON.stringify(makeTheme(16)),
+      darkJson: JSON.stringify(makeTheme(19)),
+      dimensionTypes: {}
+    }
+  });
+  expect(imported.ok(), await imported.text()).toBeTruthy();
+  await expect(page.locator('#tokens-list')).toContainText('type.body');
+
+  await page.locator('#styles-name').fill('text.imported');
+  await page.locator('input[aria-label="Типографика: переопределить"]').check();
+  await page.locator('select[aria-label="Типографика: источник"]').selectOption('alias');
+  await page.locator('select[aria-label="Типографика: ссылка на токен"]').selectOption({ label: 'type.body' });
+  await page.getByRole('button', { name: 'Сохранить стиль' }).click();
+  await expect(page.locator('#styles-total')).toContainText('1');
+  await expect(page.locator('#styles-preview')).toContainText('Arial');
+
+  const styles = await (await request.get(`/api/v1/documents/${id}/styles`, { headers })).json();
+  expect(styles.items[0].fields.typography.type).toBe('token');
+  const typography = await (await request.get(`/api/v1/documents/${id}/tokens`, { headers })).json();
+  expect(styles.items[0].fields.typography.tokenId)
+    .toBe(typography.items.find(t => t.name === 'type.body').id);
+});

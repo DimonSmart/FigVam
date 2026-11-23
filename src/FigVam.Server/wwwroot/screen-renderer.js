@@ -61,6 +61,8 @@ function appearance(surface, property, tokens, theme, bounds, report, definition
   if (fallback) style.fontFamily = family && /^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$/u.test(family) ? `"${family}", ${fallback}` : fallback;
   const lineHeight = resolved('lineHeight')?.value;
   if (Number.isFinite(lineHeight)) style.lineHeight = String(lineHeight);
+  const letterSpacing = resolved('letterSpacing')?.value;
+  if (Number.isFinite(letterSpacing)) style.letterSpacing = px(letterSpacing);
   if (property('wrap')?.value === false) style.whiteSpace = 'pre';
 }
 

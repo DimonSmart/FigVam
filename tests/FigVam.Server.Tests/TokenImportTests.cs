@@ -41,7 +41,10 @@ public sealed class TokenImportTests
             {
                 var j = Journal(); var export = await new DocumentTokenExporter(j, j).ExportAsync(id, 1, theme, owner);
                 Assert.Empty(export.Response!.Diagnostics);
-                Assert.True(JsonNode.DeepEquals(JsonNode.Parse(theme == TokenTheme.Light ? Light : Dark), export.Response.Tokens));
+                Assert.Equal("{space}", export.Response.Tokens!["alias"]!["$value"]!.GetValue<string>());
+                Assert.Equal(theme == TokenTheme.Light ? 8d : 12d, export.Response.Tokens!["space"]!["$value"]!["value"]!.GetValue<double>());
+                Assert.Equal(expected: state.Document.Tokens.Single(t => t.Name == "space").Id.ToString("D"),
+                    actual: export.Response.Tokens!["space"]!["$extensions"]!["org.figvam"]!["id"]!.GetValue<string>());
             }
             Assert.True((await Handler().HandleAsync(new UndoDocumentCommand(id, Guid.NewGuid()), owner)).Accepted);
             Assert.Empty((await Journal().ReadAsync(id))!.Document.Tokens);
@@ -81,8 +84,8 @@ public sealed class TokenImportTests
                 (command with { LightJson = Light.Replace("\"value\":4", "\"value\":-4") }, "type-mismatch"),
                 (command with { LightJson = Light.Replace("\"px\"", "\"rem\"") }, "unsupported-value"),
                 (command with { LightJson = Light.Replace("[1,0,0]", "[0.5,0,0]") }, "unsupported-color"),
-                (command with { LightJson = """{"group":{"token":{"$type":"number","$value":1}}}""" }, "unsupported-construct"),
-                (command with { LightJson = """{"type":{"$type":"typography","$value":{}}}""" }, "unsupported-type"),
+                (command with { LightJson = """{"group":{"$extends":"{other}","token":{"$type":"number","$value":1}}}""" }, "unsupported-construct"),
+                (command with { LightJson = """{"type":{"$type":"typography","$value":{}}}""", DarkJson = """{"type":{"$type":"typography","$value":{}}}""", DimensionTypes = new Dictionary<string, TokenType>() }, "unsupported-value"),
                 (command with { LightJson = """{"x":{"$type":"dimension","$value":1,"$value":2}}""" }, "unsupported-construct"),
                 (command with { LightJson = """{"x":{"$type":"color","$value":{}},"x":{"$type":"color","$value":{}}}""" }, "duplicate-name"),
                 (command with { LightJson = new string(' ', 1048577) }, "import-limit"),

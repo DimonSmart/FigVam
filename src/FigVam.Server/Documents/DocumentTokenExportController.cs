@@ -12,7 +12,7 @@ namespace FigVam.Server.Documents;
 public sealed class DocumentTokenExportController(IDocumentTokenExporter exporter) : ControllerBase
 {
     [HttpGet, EndpointSummary("Export design tokens in DTCG 2025.10 format"), ProducesResponseType<TokenExportResponse>(200)]
-    [EndpointDescription("Select Light or Dark. A null tokens object and diagnostics indicate that the document cannot be represented without loss. At most 1000 tokens and 1 MiB of token JSON are supported.")]
+    [EndpointDescription("Select Light or Dark, optionally by revision. DTCG 2025.10 includes nested groups, typography, token aliases, and org.figvam metadata for stable IDs, legacy types and semantic categories. A null tokens object and diagnostics mean lossless export is impossible. At most 1000 tokens and 1 MiB of token JSON are supported.")]
     public async Task<IActionResult> Export(Guid documentId, [FromQuery] string? theme, [FromQuery] long? revision, CancellationToken ct)
     {
         if (Request.Query.Any(k => k.Value.Count != 1 || !new[] { "theme", "revision" }.Contains(k.Key, StringComparer.OrdinalIgnoreCase)) ||
