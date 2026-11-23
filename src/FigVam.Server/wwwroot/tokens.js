@@ -48,7 +48,7 @@ function directText(expression) {
 }
 
 export function createTokens({ element, request, getContext, startRequest, stopLive, startLive, readPages }) {
-  let tokenItems = [], selectedToken = null, tokenUsages = [], tokenLoad = 0, profileVersion = 3;
+  let tokenItems = [], selectedToken = null, tokenUsages = [], tokenLoad = 0, profileVersion = 3, rendered = false;
   const el = element, editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   const selected = () => tokenItems.find(t => t.id === selectedToken);
   const typeOf = token => normalizedTokenType(token?.type);
@@ -56,7 +56,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   const nameOf = id => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
 
   function resetTokens() {
-    tokenLoad++; tokenItems = []; tokenUsages = []; selectedToken = null; profileVersion = 3;
+    tokenLoad++; tokenItems = []; tokenUsages = []; selectedToken = null; profileVersion = 3; rendered = false;
     el('token-create').inert = el('token-edit').inert = false;
     el('tokens-list').replaceChildren(); el('token-usages').replaceChildren();
     el('token-detail').hidden = true; el('token-create').hidden = true;
@@ -103,7 +103,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
     if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
     tokenUsages = snapshot.usages;
-    if (before !== JSON.stringify([tokenItems, tokenUsages, selectedToken, profileVersion])) renderTokens();
+    if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken, profileVersion])) {
+      rendered = true;
+      renderTokens();
+    }
   }
 
   function allowedAliases(type, category, excludeId = null) {
