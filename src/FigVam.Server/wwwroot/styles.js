@@ -17,7 +17,8 @@ const typographyParts = {
   fontFamily: ['Семейство', 'FontFamily', null, 'Arial'],
   fontSize: ['Размер', 'Dimension', 'FontSize', '16'],
   fontWeight: ['Толщина', 'FontWeight', null, '400'],
-  lineHeight: ['Интерлиньяж', 'Number', 'LineHeight', '1.25']
+  lineHeight: ['Интерлиньяж', 'Number', 'LineHeight', '1.25'],
+  letterSpacing: ['Межбуквенный интервал', 'Dimension', 'LetterSpacing', '0']
 };
 const palette = {
   fontStyle: ['Normal', 'Italic'],
@@ -123,6 +124,8 @@ export function createStyles({ element, request, getContext, getTokens, startReq
               const number = Number(raw);
               if (type === 'FontWeight' && (!Number.isInteger(number) || number < 1 || number > 1000))
                 throw new Error('Недопустимая толщина шрифта.');
+              if (field === 'letterSpacing' && Math.abs(number) > 100)
+                throw new Error('Межбуквенный интервал должен быть от -100 до 100 px.');
               data = { type: { Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[type], value: number };
             }
             value[field] = { expression: 'literal', value: data };
