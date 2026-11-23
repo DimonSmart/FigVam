@@ -22,7 +22,7 @@ public sealed partial class DocumentCommandHandler
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             if (state.Revision != command.ExpectedRevision) return new(Result("REVISION_CONFLICT"), null);
             var existing = state.Document.Styles.Any(s => s.Id == command.Style.Id);
-            var styles = existing
+            IReadOnlyList<DesignStyle> styles = existing
                 ? state.Document.Styles.Select(s => s.Id == command.Style.Id ? command.Style : s).ToArray()
                 : [.. state.Document.Styles, command.Style];
             var changed = state.Document with { Styles = styles };
