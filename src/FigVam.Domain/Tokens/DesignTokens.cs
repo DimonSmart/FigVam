@@ -5,7 +5,7 @@ namespace FigVam.Domain.Tokens;
 // Explicit numbers preserve the wire values of documents created before v4.
 public enum TokenType { Color = 0, Spacing = 1, Typography = 2, Geometry = 3,
     Dimension = 4, Number = 5, FontFamily = 6, FontWeight = 7 }
-public enum TokenCategory { Spacing, FontSize, Radius, BorderWidth, Size, LineHeight, Opacity }
+public enum TokenCategory { Spacing, FontSize, Radius, BorderWidth, Size, LineHeight, Opacity, LetterSpacing }
 public enum TokenTheme { Light, Dark }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
@@ -24,14 +24,15 @@ public sealed record ColorValue([property: JsonRequired] byte Red, [property: Js
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record SpacingValue([property: JsonRequired] double Value) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed record TypographyValue([property: JsonRequired] string FontFamily, [property: JsonRequired] double FontSize, [property: JsonRequired] int FontWeight, [property: JsonRequired] double LineHeight) : TokenValue;
+public sealed record TypographyValue([property: JsonRequired] string FontFamily, [property: JsonRequired] double FontSize, [property: JsonRequired] int FontWeight, [property: JsonRequired] double LineHeight, double LetterSpacing = 0) : TokenValue;
 // Each field reuses the atomic token expression contract. Legacy flat TypographyValue remains supported.
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record TypographyFieldsValue(
     [property: JsonRequired] TokenExpression FontFamily,
     [property: JsonRequired] TokenExpression FontSize,
     [property: JsonRequired] TokenExpression FontWeight,
-    [property: JsonRequired] TokenExpression LineHeight) : TokenValue;
+    [property: JsonRequired] TokenExpression LineHeight,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenExpression? LetterSpacing = null) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record GeometryValue([property: JsonRequired] double Radius) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -156,6 +157,7 @@ public static class DesignTokenValidator
         Check("fontSize", value.FontSize, TokenType.Dimension, TokenCategory.FontSize);
         Check("fontWeight", value.FontWeight, TokenType.FontWeight, null);
         Check("lineHeight", value.LineHeight, TokenType.Number, TokenCategory.LineHeight);
+        Check("letterSpacing", value.LetterSpacing ?? new LiteralTokenValue(new DimensionValue(0)), TokenType.Dimension, TokenCategory.LetterSpacing);
     }
 
     public static TokenResolution Resolve(IReadOnlyList<DesignToken> tokens, Guid tokenId, TokenTheme theme)
@@ -171,7 +173,7 @@ public static class DesignTokenValidator
     public static bool ValidCategory(TokenType type, TokenCategory? category) => type switch
     {
         TokenType.Dimension => category is TokenCategory.Spacing or TokenCategory.FontSize or
-            TokenCategory.Radius or TokenCategory.BorderWidth or TokenCategory.Size,
+            TokenCategory.Radius or TokenCategory.BorderWidth or TokenCategory.Size or TokenCategory.LetterSpacing,
         TokenType.Number => category is TokenCategory.LineHeight or TokenCategory.Opacity,
         _ => category is null
     };
@@ -182,6 +184,7 @@ public static class DesignTokenValidator
         return (token.Type, token.Category, value) switch
         {
             (TokenType.Dimension, TokenCategory.FontSize, DimensionValue v) => v.Value is >= 1 and <= 1024,
+            (TokenType.Dimension, TokenCategory.LetterSpacing, DimensionValue v) => v.Value is >= -100 and <= 100,
             (TokenType.Dimension, _, DimensionValue v) => v.Value is >= 0 and <= 1_000_000,
             (TokenType.Number, TokenCategory.LineHeight, NumberValue v) => v.Value is >= 0.1 and <= 10,
             (TokenType.Number, TokenCategory.Opacity, NumberValue v) => v.Value is >= 0 and <= 1,
@@ -201,7 +204,8 @@ public static class DesignTokenValidator
         (TokenType.FontWeight, FontWeightValue weight) => weight.Value is >= 1 and <= 1000,
         (TokenType.Typography, TypographyValue typography) => !string.IsNullOrWhiteSpace(typography.FontFamily) &&
             typography.FontFamily.Length <= 256 && double.IsFinite(typography.FontSize) && typography.FontSize > 0 &&
-            typography.FontWeight is >= 1 and <= 1000 && double.IsFinite(typography.LineHeight) && typography.LineHeight > 0,
+            typography.FontWeight is >= 1 and <= 1000 && double.IsFinite(typography.LineHeight) && typography.LineHeight > 0 &&
+            double.IsFinite(typography.LetterSpacing) && typography.LetterSpacing is >= -100 and <= 100,
         _ => false
     };
 }
@@ -294,8 +298,10 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
         if (!weight.IsSuccess) return weight;
         var line = Field("lineHeight", fields.LineHeight, TokenType.Number, TokenCategory.LineHeight);
         if (!line.IsSuccess) return line;
+        var spacing = Field("letterSpacing", fields.LetterSpacing ?? new LiteralTokenValue(new DimensionValue(0)), TokenType.Dimension, TokenCategory.LetterSpacing);
+        if (!spacing.IsSuccess) return spacing;
         var flat = new TypographyValue(((FontFamilyValue)family.Value!).Value, ((DimensionValue)size.Value!).Value,
-            ((FontWeightValue)weight.Value!).Value, ((NumberValue)line.Value!).Value);
+            ((FontWeightValue)weight.Value!).Value, ((NumberValue)line.Value!).Value, ((DimensionValue)spacing.Value!).Value);
         return DesignTokenValidator.Matches(TokenType.Typography, flat)
             ? new(flat, []) : new(null, [new("type-mismatch", owner.Id, theme, null, "Resolved typography fields are invalid.")]);
     }
