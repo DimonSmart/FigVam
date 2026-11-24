@@ -3,7 +3,7 @@ using FigVam.Domain.Preview;
 
 namespace FigVam.Application.Documents;
 
-public sealed record CreateScenarioCommand(Guid DocumentId, Guid CommandId, PreviewScenario Scenario);
+public sealed record CreateScenarioCommand(Guid DocumentId, Guid CommandId, PreviewScenario Scenario, long? ExpectedRevision = null);
 public sealed record UpdateScenarioCommand(Guid DocumentId, Guid CommandId, PreviewScenario Scenario, long ExpectedRevision);
 public sealed record DeleteScenarioCommand(Guid DocumentId, Guid CommandId, Guid ScenarioId, long ExpectedRevision);
 public sealed record ScenarioChanged(Guid ScenarioId, PreviewScenario? Scenario, string Operation) : DocumentEvent;
@@ -11,7 +11,7 @@ public sealed record ScenarioChanged(Guid ScenarioId, PreviewScenario? Scenario,
 public sealed partial class DocumentCommandHandler
 {
     public Task<CommandResult> HandleAsync(CreateScenarioCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
-        => ChangeScenario(c.DocumentId, c.CommandId, c.Scenario?.Id ?? Guid.Empty, c.Scenario, null, "CREATE_SCENARIO", actor, cancellationToken);
+        => ChangeScenario(c.DocumentId, c.CommandId, c.Scenario?.Id ?? Guid.Empty, c.Scenario, c.ExpectedRevision, "CREATE_SCENARIO", actor, cancellationToken);
     public Task<CommandResult> HandleAsync(UpdateScenarioCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
         => ChangeScenario(c.DocumentId, c.CommandId, c.Scenario?.Id ?? Guid.Empty, c.Scenario, c.ExpectedRevision, "UPDATE_SCENARIO", actor, cancellationToken);
     public Task<CommandResult> HandleAsync(DeleteScenarioCommand c, DocumentActor actor, CancellationToken cancellationToken = default)

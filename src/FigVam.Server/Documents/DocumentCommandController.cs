@@ -15,7 +15,7 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
 {
     [HttpPost("create-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Create a saved prototype event and ordered actions")]
     [EndpointDescription("Scenario requires a globally unique ID, screenId, nodeId, numeric event (Click=0, Change=1, Hover=2, Leave=3, Submit=4), and 1-32 typed actions. Profile must explicitly support the event, actions and demo value targets.")]
-    public async Task<IActionResult> CreateScenario(Guid documentId, CreateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new CreateScenarioCommand(documentId, request.CommandId, request.Scenario), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> CreateScenario(Guid documentId, CreateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new CreateScenarioCommand(documentId, request.CommandId, request.Scenario, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("update-scenario"), RequestSizeLimit(1024 * 1024), EndpointSummary("Replace one saved scenario with an exact revision precondition")]
     public async Task<IActionResult> UpdateScenario(Guid documentId, UpdateScenarioRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new UpdateScenarioCommand(documentId, request.CommandId, request.Scenario, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("delete-scenario"), EndpointSummary("Delete one saved scenario with an exact revision precondition")]
