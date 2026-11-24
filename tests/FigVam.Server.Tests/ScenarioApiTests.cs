@@ -43,6 +43,8 @@ public sealed class ScenarioApiTests
             var openapi = await client.GetStringAsync("/openapi/v1.json");
             Assert.Contains("create-scenario", openapi); Assert.Contains("update-scenario", openapi); Assert.Contains("delete-scenario", openapi);
             Assert.Equal(400, (int)(await client.PostAsJsonAsync(root + "/commands/create-scenario", create)).StatusCode);
+            var staleCreate = new CreateScenarioRequest { CommandId = Guid.NewGuid(), Scenario = scenario, ExpectedRevision = 1 };
+            Assert.Equal(409, (int)(await client.PostAsJsonAsync(root + "/commands/create-scenario", staleCreate)).StatusCode);
             Assert.Equal(404, (int)(await client.PostAsJsonAsync(root + "/commands/update-scenario", update)).StatusCode);
             Assert.Equal(404, (int)(await client.PostAsJsonAsync(root + "/commands/delete-scenario", delete)).StatusCode);
             Assert.Empty((await client.GetFromJsonAsync<ScenariosResponse>(root + "/scenarios?revision=0"))!.Items);
