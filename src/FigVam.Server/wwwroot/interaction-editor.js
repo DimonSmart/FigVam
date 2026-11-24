@@ -14,6 +14,7 @@ function button(text, name, click) {
 }
 function labelled(text, control, parent) {
   const label = document.createElement('label');
+  control.setAttribute('aria-label', text);
   label.append(text, control); parent.append(label); return control;
 }
 function setChoices(select, items, value, placeholder = 'Выберите значение') {
