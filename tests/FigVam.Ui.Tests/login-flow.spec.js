@@ -2,6 +2,24 @@ const { test, expect, bearer } = require('./fixtures');
 const { show } = require('./ui-panels');
 const { createDemo } = require('./demo-overlay');
 
+// A few stable interior and shadow pixels provide a visual regression without font-dependent baselines.
+async function verifyLoginVisual(page, root, name) {
+  const png = await root.screenshot({ animations: 'disabled', scale: 'css' });
+  await test.info().attach(name, { body: png, contentType: 'image/png' });
+  const colors = await page.evaluate(async bytes => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(bytes)], { type: 'image/png' }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    return [[10, 10], [235, 300], [270, 414], [214, 300], [270, 440]]
+      .map(([x, y]) => [...ctx.getImageData(x, y, 1, 1).data]);
+  }, [...png]);
+  expect(colors.slice(0, 3)).toEqual([[238, 242, 247, 255], [255, 255, 255, 255], [37, 99, 235, 255]]);
+  expect(colors[3][0]).toBeLessThan(238);
+  expect(colors[4][0]).toBeLessThan(255);
+  expect(colors[4][2]).toBeGreaterThan(colors[4][0]);
+}
+
 async function signIn(page) {
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
@@ -227,7 +245,7 @@ test('designs two linked login screens and previews invalid password through UI'
   await expect(loginRoot.locator('[data-visual-node="' + frame + '"]')).toHaveCSS('box-shadow', /rgba\(15, 23, 42, 0\.16/);
   await expect(loginRoot.locator('[data-visual-node="' + loginButton + '"]')).toHaveCSS('box-shadow', /rgba\(37, 99, 235, 0\.2(?:39|4)/);
   if (process.env.FIGVAM_DEMO !== '1')
-    await test.info().attach('Login Preview', { body: await loginRoot.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+    await verifyLoginVisual(page, loginRoot, 'Login Preview');
   await loginRoot.locator('[data-visual-node="' + username + '"] input').fill('demo-user');
   const secret = loginRoot.locator('[data-visual-node="' + password + '"] input');
   await expect(secret).toHaveAttribute('type', 'password');
@@ -238,7 +256,7 @@ test('designs two linked login screens and previews invalid password through UI'
   await expect(errorRoot).toContainText('Invalid password');
   await expect(errorRoot.locator('input')).toHaveCount(2);
   if (process.env.FIGVAM_DEMO !== '1')
-    await test.info().attach('Login Error Preview', { body: await errorRoot.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
+    await verifyLoginVisual(page, errorRoot, 'Login Error Preview');
 
   await demo.step('Проверяем кнопку Login', 'Возвращаемся на первый экран. Нажатие Login открывает тот же экран ошибки.');
   await page.getByRole('button', { name: 'Назад по сценарию' }).click();

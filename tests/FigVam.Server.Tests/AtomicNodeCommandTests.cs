@@ -199,7 +199,21 @@ public sealed class AtomicNodeCommandTests : IDisposable
         Assert.Empty(readContainer.Diagnostics);
         Assert.Equal(updated, Assert.Single(readContainer.Document!.Document.Nodes).Properties["shadow"]);
 
-        var remove = await handler.HandleAsync(new RemoveNodePropertiesCommand(documentId, Guid.NewGuid(), nodeId, ["shadow"], snapshot.Revision), owner);
+        foreach (var (format, bytes) in new[] { (DocumentFileFormat.Json, json.Content!), (DocumentFileFormat.FigVam, container.Content!) })
+        {
+            var path = Path.Combine(directory, "import-" + format);
+            var importedJournal = new SqliteDocumentJournal(path, profile);
+            var result = await new DocumentFileImporter(reader, importedJournal)
+                .ImportAsync(new(format, new MemoryStream(bytes)), owner);
+            Assert.Equal("ACCEPTED", result.Code);
+            Assert.Equal(updated, Assert.Single((await new SqliteDocumentJournal(path, profile)
+                .ReadAsync(result.DocumentId))!.Document.Nodes).Properties["shadow"]);
+        }
+        var saved = await handler.HandleAsync(new SaveDocumentCommand(documentId, Guid.NewGuid(), "Shadow version"), owner);
+        Assert.True(saved.Accepted);
+        Assert.Equal(updated, Assert.Single((await Journal().ReadVersionAsync(documentId, saved.VersionId!.Value))
+            .Version!.Snapshot.Document.Nodes).Properties["shadow"]);
+        var remove = await handler.HandleAsync(new RemoveNodePropertiesCommand(documentId, Guid.NewGuid(), nodeId, ["shadow"], saved.Revision!.Value), owner);
         Assert.True(remove.Accepted, remove.Code);
         Assert.False(Assert.Single((await Journal().ReadAsync(documentId))!.Document.Nodes).Properties.ContainsKey("shadow"));
         Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
