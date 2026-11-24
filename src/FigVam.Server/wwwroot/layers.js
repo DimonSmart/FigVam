@@ -1,5 +1,5 @@
 // Derived layer captions are for display only and never change the saved node name.
-function layerDisplayName(item) {
+export function layerDisplayName(item) {
   const explicit = item.name?.trim();
   if (explicit) return { text: explicit, source: 'explicit', origin: 'Имя слоя' };
 
@@ -41,11 +41,12 @@ export function createLayers({
   let layerSelectionEpoch = 0;
   let screenContextEpoch = 0;
   let layerRoots = [], layerExpanded = new Set(), layerChildren = new Map();
+  let interactiveNodes = new Set();
 
   function reset() {
     closeNodeReparent();
     layerController?.abort(); layerController = null; layerGeneration++;
-    layerSelection = null; layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
+    layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
     element('layers').replaceChildren();
     element('layers-status').textContent = 'Выберите экран.';
@@ -487,6 +488,16 @@ export function createLayers({
           label.title = `${name} · ${item.kind} · ${origin}`;
           row.setAttribute('aria-label', `${name}, ${item.kind}`);
         }
+        let marker = label.querySelector('.layer-interaction');
+        if (interactiveNodes.has(item.id) && !marker) {
+          marker = document.createElement('span');
+          marker.className = 'layer-interaction';
+          marker.textContent = '↗';
+          marker.title = 'Есть взаимодействия';
+          marker.setAttribute('aria-hidden', 'true');
+          label.append(marker);
+        } else if (!interactiveNodes.has(item.id)) marker?.remove();
+        row.setAttribute('aria-label', name + ', ' + item.kind + (interactiveNodes.has(item.id) ? ', есть взаимодействия' : ''));
         let group = row.querySelector(':scope > [role=group]');
         if (layerExpanded.has(item.id) && item.childCount) {
           if (!group) {
@@ -657,6 +668,14 @@ export function createLayers({
 
   return {
     reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    setInteractiveNodes(ids) { interactiveNodes = new Set(ids); renderLayers(); },
+    clearSelection() {
+      if (!layerSelection) return;
+      layerSelection = null; layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
+      closeNodeReparent(); renderNodeMetadata(); renderNodeOrder(); renderLayers();
+      element('inspector-selection').textContent = 'Выберите слой.';
+      onSelectionCleared();
+    },
     onScreenContextChanged: () => { screenContextEpoch++; },
     get selection() { return layerSelection; },
     get hasLayers() { return layerRoots.length > 0; }

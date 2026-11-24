@@ -1,11 +1,14 @@
 import { token, navigationEpoch } from './session.js';
+import { layerDisplayName } from './layers.js';
+import { readInteractionCatalog, interactionObjectName } from './interaction-catalog.js';
 
 export function createScenarios({
-  element, request, pageSize, workspace, findLayer, reloadPages, findRole, setDocumentRole, closeInaccessibleDocument
+  element, request, pageSize, workspace, findLayer, setInteractiveNodes, selectSource, reloadPages, findRole, setDocumentRole, closeInaccessibleDocument
 }) {
   const scenarioOperations = new Map();
   const scenarioKey = (doc, screen) => `${doc}/${screen}`;
   let scenariosController = null, scenariosGeneration = 0, scenariosOffset = 0, scenariosTotal = 0, scenariosKey = null;
+  let catalog = null, allScenarios = null;
   let scenarioCapabilities = null, capabilityGeneration = 0, scenarioDatasetsReady = false;
   const scenarioEvents = ['Click', 'Change', 'Hover', 'Leave', 'Submit'];
   const scenarioActionLabels = { setDemoValue: 'SetDemoValue', selectDataset: 'SelectDataset', showVariant: 'ShowVariant', navigate: 'Navigate', openOverlay: 'OpenOverlay', closeOverlay: 'CloseOverlay', resetPreview: 'ResetPreview' };
@@ -51,7 +54,8 @@ export function createScenarios({
     resetScenarioEditor();
     clearScenarioCapabilities('Возможности сценария недоступны.');
     scenarioDatasetsReady = false; element('scenario-dataset').replaceChildren(); element('scenario-dataset-status').textContent = ''; element('scenario-dataset-retry').hidden = true;
-    scenariosOffset = scenariosTotal = 0; scenariosKey = null;
+    scenariosOffset = scenariosTotal = 0; scenariosKey = null; catalog = null; allScenarios = null;
+    setInteractiveNodes([]);
     element('scenarios-list').replaceChildren(); element('scenarios-status').textContent = 'Выберите экран.';
     element('scenarios-error').textContent = ''; element('scenarios-retry').hidden = true;
     element('scenario-command-status').textContent = ''; element('scenario-command-error').textContent = ''; element('scenario-command-retry').hidden = true;
@@ -59,27 +63,86 @@ export function createScenarios({
     element('scenarios-previous').disabled = element('scenarios-next').disabled = true;
     element('scenario-create').hidden = true; element('scenario-target').replaceChildren(); element('scenario-variant').replaceChildren();
   }
+  function sourceName(id) {
+    const node = findLayer(id) ?? catalog?.nodes.find(n => n.id === id);
+    if (!node) return interactionObjectName(catalog, 'nodes', id);
+    const name = layerDisplayName(node);
+    return name.source === 'missing' ? node.kind : name.text;
+  }
   function scenarioActionText(action) {
-    const value = v => v === null ? 'не задано' : String(v);
+    const name = (kind, id) => interactionObjectName(catalog, kind, id);
     switch (action.type) {
-      case 'navigate': return `Navigate · Экран: ${value(action.screenId)}`;
-      case 'showVariant': return `ShowVariant · Вариант: ${value(action.variantId)}`;
-      case 'setDemoValue': return `SetDemoValue · Узел: ${value(action.nodeId)} · Значение: ${value(action.value)}`;
-      case 'selectDataset': return `SelectDataset · Датасет: ${value(action.datasetId)}`;
-      case 'openOverlay': return `OpenOverlay · Экран: ${value(action.screenId)}`;
-      case 'closeOverlay': return 'CloseOverlay';
-      case 'resetPreview': return 'ResetPreview';
-      default: throw new TypeError('Некорректное действие');
+      case 'navigate': return 'Перейти на экран · ' + name('screens', action.screenId);
+      case 'showVariant': return 'Переключить вариант · ' + (action.variantId === null ? 'Базовое состояние' : name('variants', action.variantId));
+      case 'setDemoValue': return 'Установить значение · ' + name('nodes', action.nodeId) + ' · ' + (action.value === null ? 'null' : action.value === '' ? 'Пустая строка' : 'Значение задано');
+      case 'selectDataset': return 'Выбрать датасет · ' + (action.datasetId === null ? 'Без датасета' : name('datasets', action.datasetId));
+      case 'openOverlay': return 'Открыть оверлей · ' + name('screens', action.screenId);
+      case 'closeOverlay': return 'Закрыть оверлей';
+      case 'resetPreview': return 'Сбросить Preview';
+      default: return 'Неизвестное действие';
     }
+  }
+  const eventLabels = ['По нажатию', 'При изменении', 'При наведении', 'При уходе указателя', 'При отправке'];
+  function renderInteractionList() {
+    if (!allScenarios) return;
+    const doc = workspace.documentId, screen = workspace.selectedScreen, atRevision = workspace.revision;
+    const selected = workspace.layerSelection;
+    const visible = selected ? allScenarios.filter(s => s.nodeId === selected.id) : allScenarios;
+    scenariosTotal = visible.length;
+    if (scenariosOffset >= visible.length) scenariosOffset = Math.max(0, Math.floor((visible.length - 1) / pageSize) * pageSize);
+    const items = visible.slice(scenariosOffset, scenariosOffset + pageSize);
+    element('scenarios-title').textContent = selected ? sourceName(selected.id) + ' · ' + selected.kind : 'Взаимодействия экрана';
+    const fragment = document.createDocumentFragment();
+    for (const scenario of items) {
+      const li = document.createElement('li'), title = document.createElement('p'), actions = document.createElement('ol');
+      const description = sourceName(scenario.nodeId) + ' · ' + eventLabels[scenario.event];
+      title.textContent = description;
+      if (!selected) {
+        const source = catalog?.nodes.find(n => n.id === scenario.nodeId && n.screenId === screen);
+        if (source) {
+          const link = document.createElement('button');
+          link.type = 'button'; link.textContent = description;
+          link.addEventListener('click', () => selectSource(source, catalog.nodes.filter(n => n.screenId === screen)));
+          title.replaceChildren(link);
+        }
+      }
+      actions.setAttribute('aria-label', 'Действия по порядку');
+      for (const action of scenario.actions) {
+        const item = document.createElement('li');
+        item.textContent = scenarioActionText(action); actions.append(item);
+      }
+      li.append(title, actions);
+      if (['Owner', 'Editor'].includes(workspace.documentRole)) {
+        const edit = document.createElement('button');
+        edit.type = 'button'; edit.textContent = 'Изменить сценарий ' + description;
+        edit.addEventListener('click', () => {
+          if (doc === workspace.documentId && screen === workspace.selectedScreen && atRevision === workspace.revision)
+            openScenarioEditor(doc, screen, atRevision, scenario, edit);
+        });
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.textContent = 'Удалить сценарий ' + description;
+        remove.addEventListener('click', () => beginScenarioDeletion(doc, screen, scenario.id, description));
+        li.append(edit, remove);
+      }
+      fragment.append(li);
+    }
+    element('scenarios-list').replaceChildren(fragment);
+    renderScenarioCommand({ preserveNotice: true });
+    element('scenarios-status').textContent = visible.length ? 'Взаимодействия: ' + visible.length :
+      selected ? 'Нет взаимодействий. Добавьте взаимодействие, чтобы определить поведение элемента.' : 'Сценариев для выбранного экрана нет.';
+    element('scenarios-number').textContent = visible.length ? (scenariosOffset + 1) + '–' + (scenariosOffset + items.length) + ' из ' + visible.length : '';
+    element('scenarios-previous').disabled = scenariosOffset === 0;
+    element('scenarios-next').disabled = scenariosOffset + items.length >= visible.length;
   }
   async function loadScenarios() {
     scenariosController?.abort();
     const controller = new AbortController(), current = ++scenariosGeneration;
     scenariosController = controller;
-    const doc = workspace.documentId, screen = workspace.selectedScreen, atRevision = workspace.revision, requestToken = token, epoch = navigationEpoch, offset = scenariosOffset;
+    const doc = workspace.documentId, screen = workspace.selectedScreen, atRevision = workspace.revision, requestToken = token, epoch = navigationEpoch;
     if (!doc || !screen || !Number.isSafeInteger(atRevision)) { resetScenarios(); return; }
     scenariosKey = `${doc}:${screen}:${atRevision}`;
     const valid = () => !controller.signal.aborted && current === scenariosGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && scenariosKey === `${doc}:${screen}:${workspace.revision}` && token === requestToken && epoch === navigationEpoch && !element('editor-view').hidden;
+    allScenarios = null; catalog = null; setInteractiveNodes([]);
     element('scenarios-list').replaceChildren(); element('scenarios-error').textContent = '';
     element('scenarios-retry').hidden = true; element('scenarios-number').textContent = '';
     element('scenarios-previous').disabled = element('scenarios-next').disabled = true;
@@ -89,40 +152,30 @@ export function createScenarios({
     loadScenarioDatasets(doc, screen, atRevision, valid);
     loadScenarioTargets(doc, screen, atRevision, valid);
     loadScenarioVariants(doc, screen, atRevision, valid);
-    try {
-      const query = new URLSearchParams({ screenId: screen, revision: String(atRevision), offset: String(offset), limit: String(pageSize) });
-      const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/scenarios?${query}`, {}, controller.signal);
-      if (!valid()) return;
-      if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.revision !== atRevision || result.offset !== offset || result.limit !== pageSize || !Number.isInteger(result.total) || result.total < 0 || !Array.isArray(result.items)) throw new TypeError('Некорректный ответ');
-      if (offset && !result.items.length) { scenariosOffset = Math.max(0, offset - pageSize); return loadScenarios(); }
-      const fragment = document.createDocumentFragment();
-      for (const scenario of result.items) {
-        if (scenario.screenId?.toLowerCase() !== screen.toLowerCase() || typeof scenario.id !== 'string' || typeof scenario.nodeId !== 'string' || !scenarioEvents[scenario.event] || !Array.isArray(scenario.actions)) throw new TypeError('Некорректный сценарий');
-        const li = document.createElement('li'), title = document.createElement('p'), actions = document.createElement('ol');
-        title.textContent = `Сценарий: ${scenario.id} · Исходный узел: ${scenario.nodeId} · Событие: ${scenarioEvents[scenario.event]}`;
-        actions.setAttribute('aria-label', 'Действия по порядку');
-        for (const action of scenario.actions) { const item = document.createElement('li'); item.textContent = scenarioActionText(action); actions.append(item); }
-        li.append(title, actions);
-        if (['Owner', 'Editor'].includes(workspace.documentRole)) {
-          const edit = document.createElement('button');
-          edit.type = 'button'; edit.textContent = `Изменить сценарий ${scenario.id}`;
-          edit.addEventListener('click', () => { if (valid()) openScenarioEditor(doc, screen, workspace.revision, scenario, edit); });
-          li.append(edit);
-          const button = document.createElement('button'); button.type = 'button'; button.textContent = `Удалить сценарий ${scenario.id}`;
-          button.disabled = scenarioOperations.has(scenarioKey(doc, screen));
-          button.addEventListener('click', () => beginScenarioDeletion(doc, screen, scenario.id)); li.append(button);
+    async function readAll() {
+      const items = [];
+      let total;
+      do {
+        const query = new URLSearchParams({ screenId: screen, revision: String(atRevision), offset: String(items.length), limit: String(pageSize) });
+        const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/scenarios?${query}`, {}, controller.signal);
+        if (result.documentId?.toLowerCase() !== doc.toLowerCase() || result.revision !== atRevision || result.offset !== items.length || result.limit !== pageSize || !Number.isSafeInteger(result.total) || !Array.isArray(result.items) || result.total < items.length + result.items.length || (!result.items.length && items.length < result.total)) throw new TypeError('Некорректный ответ');
+        for (const scenario of result.items) {
+          if (scenario.screenId?.toLowerCase() !== screen.toLowerCase() || typeof scenario.id !== 'string' || typeof scenario.nodeId !== 'string' || !scenarioEvents[scenario.event] || !Array.isArray(scenario.actions)) throw new TypeError('Некорректный сценарий');
         }
-        fragment.append(li);
-      }
-      scenariosTotal = result.total; element('scenarios-list').append(fragment); renderScenarioCommand({ preserveNotice: true });
-      element('scenarios-status').textContent = result.total ? 'Сценарии выбранного экрана.' : 'Сценариев для выбранного экрана нет.';
-      element('scenarios-number').textContent = result.total ? `${offset + 1}–${offset + result.items.length} из ${result.total}` : '';
-      element('scenarios-previous').disabled = offset === 0;
-      element('scenarios-next').disabled = offset + result.items.length >= result.total || !result.items.length;
+        items.push(...result.items); total = result.total;
+      } while (items.length < total);
+      return items;
+    }
+    try {
+      const [items, objects] = await Promise.all([readAll(), readInteractionCatalog(request, doc, atRevision, controller.signal)]);
+      if (!valid()) return;
+      allScenarios = items; catalog = objects;
+      setInteractiveNodes(items.map(s => s.nodeId));
+      renderInteractionList();
     } catch (error) {
       if (!valid()) return;
       element('scenarios-status').textContent = 'Не удалось загрузить сценарии.';
-      element('scenarios-error').textContent = error instanceof TypeError ? 'Не удалось получить корректный ответ сервера.' : error.message;
+      element('scenarios-error').textContent = error instanceof TypeError ? 'Не удалось получить корректный ответ сервера.' : 'Не удалось загрузить взаимодействия. ' + (error.status === 403 ? 'Нет доступа.' : 'Повторите запрос.');
       element('scenarios-retry').hidden = false;
     }
   }
@@ -136,7 +189,7 @@ export function createScenarios({
     const descriptions = {
       create: ['Создание сценария…', 'Результат создания неизвестен. Повторите ту же команду: сценарий мог быть создан.', 'Повторить создание сценария'],
       update: ['Сохранение сценария…', 'Результат сохранения неизвестен. Повторите ту же команду: сценарий мог быть изменён.', 'Повторить сохранение сценария'],
-      delete: [`Удаление сценария «${op?.body.scenarioId}»…`, 'Результат удаления неизвестен. Повторите ту же команду: сценарий мог быть удалён.', 'Повторить удаление сценария']
+      delete: ['Удаление взаимодействия…', 'Результат удаления неизвестен. Повторите ту же команду: сценарий мог быть удалён.', 'Повторить удаление сценария']
     };
     const [pendingText, uncertainText, retryText] = descriptions[op?.kind ?? 'delete'];
     if (op || !preserveNotice) {
@@ -146,10 +199,10 @@ export function createScenarios({
     element('scenario-command-retry').textContent = retryText;
     element('scenario-command-retry').hidden = !editable || op?.state !== 'uncertain';
   }
-  function beginScenarioDeletion(doc, screen, scenarioId) {
+  function beginScenarioDeletion(doc, screen, scenarioId, description) {
     const key = scenarioKey(doc, screen);
     if (doc !== workspace.documentId || screen !== workspace.selectedScreen || !['Owner', 'Editor'].includes(workspace.documentRole) || scenarioOperations.has(key) || !Number.isSafeInteger(workspace.revision)) return;
-    if (!confirm(`Удалить сценарий «${scenarioId}»?`)) return;
+    if (!confirm(`Удалить взаимодействие «${description}»?`)) return;
     const op = { body: { commandId: crypto.randomUUID(), scenarioId, expectedRevision: workspace.revision }, state: 'ready' };
     scenarioOperations.set(key, op); sendScenarioDeletion(doc, screen, op);
   }
@@ -216,7 +269,7 @@ export function createScenarios({
       scenario: structuredClone(scenario), capabilities: new Map(), variants: new Map(),
       editor: null, validation: null, events: []
     };
-    element('scenario-edit-id').textContent = scenario.id;
+    element('scenario-edit-id').textContent = '';
     element('scenario-edit-event').replaceChildren();
     element('scenario-edit').hidden = false;
     element('scenario-edit-title').focus();
@@ -229,8 +282,7 @@ export function createScenarios({
     if (!draft) return;
     if (!scenarioDraftCurrent(draft)) { resetScenarioEditor(); return; }
     const op = scenarioOperations.get(scenarioKey(draft.doc, draft.screen));
-    const source = findLayer(draft.scenario.nodeId);
-    element('scenario-edit-source').textContent = 'Исходный узел: ' + (source?.name ? source.name + ' · ' : '') + draft.scenario.nodeId;
+    element('scenario-edit-source').textContent = 'Исходный элемент: ' + sourceName(draft.scenario.nodeId);
     element('scenario-edit-fields').disabled = !!op;
     element('scenario-edit-use-layer').disabled = !workspace.layerSelection || workspace.layerSelection.id === draft.scenario.nodeId;
     element('scenario-edit-demo-use-layer').disabled = !workspace.layerSelection;
@@ -761,8 +813,8 @@ export function createScenarios({
   }
 
   element('scenarios-retry').addEventListener('click', loadScenarios);
-  element('scenarios-previous').addEventListener('click', () => { scenariosOffset = Math.max(0, scenariosOffset - pageSize); loadScenarios(); });
-  element('scenarios-next').addEventListener('click', () => { if (scenariosOffset + pageSize < scenariosTotal) { scenariosOffset += pageSize; loadScenarios(); } });
+  element('scenarios-previous').addEventListener('click', () => { scenariosOffset = Math.max(0, scenariosOffset - pageSize); renderInteractionList(); });
+  element('scenarios-next').addEventListener('click', () => { if (scenariosOffset + pageSize < scenariosTotal) { scenariosOffset += pageSize; renderInteractionList(); } });
 
   function refresh(screen) {
     const nextKey = screen ? `${workspace.documentId}:${screen}:${workspace.revision}` : null;
@@ -773,17 +825,17 @@ export function createScenarios({
     if (screen) loadScenarios();
   }
   function retainAfterNodeEdit(screen, previousRevision) {
-    if (scenariosKey === `${workspace.documentId}:${screen}:${previousRevision}`) {
-      scenariosKey = `${workspace.documentId}:${screen}:${workspace.revision}`;
-    } else refresh(screen);
+    refresh(screen);
   }
 
   function clearLayerSelection() {
+    scenariosOffset = 0; renderInteractionList();
     clearScenarioCapabilities('Возможности сценария недоступны.');
     renderScenarioCreate();
   }
 
   function onLayerSelected() {
+    scenariosOffset = 0; renderInteractionList();
     loadScenarioCapabilities();
     renderScenarioEditor();
   }

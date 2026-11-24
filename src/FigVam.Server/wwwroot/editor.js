@@ -258,6 +258,8 @@ const scenarios = createScenarios({
     get hasLayers() { return layers.hasLayers; }
   },
   findLayer: layers.findLayer,
+  setInteractiveNodes: layers.setInteractiveNodes,
+  selectSource: layers.selectFromCanvas,
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
   findRole,
@@ -481,7 +483,7 @@ function renderScreens() {
         if (selectedScreen !== item.id) {
           layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset();
           screenVariants.reset(); screenResize.render(); refreshPages();
-        }
+        } else layers.clearSelection();
         for (const other of list.querySelectorAll('button[data-screen-id]'))
           other.setAttribute('aria-pressed', String(other === button));
         renderCanvas();
