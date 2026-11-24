@@ -561,7 +561,7 @@ test('letter spacing exposes a local style override reset and restores inherited
   expect(response.ok(), await response.text()).toBeTruthy();
   await expect.poll(async () => (await readNodes(request, base, screenId))[0].properties)
     .toEqual({ textStyle: { type: 'style', styleId } });
-  await expect(reset).toHaveCount(0);
+  await expect(reset).toBeHidden();
   await expect(page.locator('[data-visual-node="' + nodeId + '"] .visual-surface'))
     .toHaveCSS('letter-spacing', '2px');
 });
