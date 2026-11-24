@@ -50,7 +50,7 @@ public sealed record RenameScreenCommand(Guid DocumentId, Guid CommandId, Guid S
 public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record DuplicateScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid NewScreenId, long ExpectedRevision);
 public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions);
-public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position);
+public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position, long? ExpectedRevision = null);
 public sealed record DeleteNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId);
 public sealed record SetNodeNameCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Name);
 public sealed record SetNodeSemanticKeyCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string? SemanticKey);
@@ -1075,6 +1075,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty ||
             command.ExpectedParentId == Guid.Empty || command.TargetParentId == Guid.Empty)
             return Result("INVALID_ID");
+        if (command.ExpectedRevision is < 0) return Result("INVALID_REVISION");
 
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
         {
@@ -1105,6 +1106,9 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var children = screen?.ChildIds ?? parent!.ChildIds;
             var count = children.Count - (command.ExpectedParentId == command.TargetParentId ? 1 : 0);
             if (command.Position < 0 || command.Position > count) return new(Result("INVALID_POSITION"), null);
+            // A numeric index from a stale tree could still be valid but refer to the wrong gap.
+            if (command.ExpectedRevision is { } expected && expected != state.Revision)
+                return new(Result("REVISION_CONFLICT"), null);
             var changed = DocumentStructureEditor.MoveNode(document, node.Id, command.TargetParentId, command.Position);
             if (DocumentStructureValidator.Validate(changed, profile) is { Count: > 0 } moveErrors) return new(Result(moveErrors.Any(e => e.Code == "INVALID_SCENARIO") ? "SCENARIO_IN_USE" : moveErrors.Any(e => e.Code == "INVALID_VARIANT_NODE") ? "SCREEN_VARIANT_IN_USE" : moveErrors.Any(e => e.Code == "INVALID_REPEATER") ? "INVALID_REPEATER" : "INVALID_COMPONENT"), null);
             var revision = checked(state.Revision + 1);

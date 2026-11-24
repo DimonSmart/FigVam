@@ -39,7 +39,7 @@ public sealed class AddNodeRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DeleteNodeRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class MoveNodeRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } public required Guid ExpectedParentId { get; init; } public required Guid TargetParentId { get; init; } public required int Position { get; init; } }
+public sealed class MoveNodeRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } public required Guid ExpectedParentId { get; init; } public required Guid TargetParentId { get; init; } public required int Position { get; init; } [Range(0, long.MaxValue)] public long? ExpectedRevision { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SetNodePropertyRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Property { get; init; } [Required] public required NodePropertyValue Value { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]

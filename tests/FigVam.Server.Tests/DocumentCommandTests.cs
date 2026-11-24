@@ -464,8 +464,12 @@ public sealed class DocumentCommandTests : IDisposable
         Assert.Equal(accepted, await Handler(Journal()).HandleAsync(move with { TargetParentId = a.NodeId }, actor));
         var stale = move with { CommandId = Guid.NewGuid() };
         Assert.Equal("INVALID_LAYOUT_CONTEXT", (await handler.HandleAsync(stale, actor)).Code);
-        var reorder = new MoveNodeCommand(documentId, Guid.NewGuid(), b.NodeId, screen.ScreenId, screen.ScreenId, 0);
-        Assert.True((await handler.HandleAsync(reorder, actor)).Accepted);
+        var reorder = new MoveNodeCommand(documentId, Guid.NewGuid(), b.NodeId, screen.ScreenId, screen.ScreenId, 0, ExpectedRevision: 6);
+        var reordered = await handler.HandleAsync(reorder, actor);
+        Assert.True(reordered.Accepted);
+        Assert.Equal(reordered, await Handler(Journal()).HandleAsync(reorder, actor));
+        var staleOrder = reorder with { CommandId = Guid.NewGuid(), Position = 1 };
+        Assert.Equal("REVISION_CONFLICT", (await handler.HandleAsync(staleOrder, actor)).Code);
         var state = (await Journal().ReadAsync(documentId))!;
         Assert.Equal(new[] { b.NodeId, a.NodeId }, Assert.Single(state.Document.Screens).ChildIds);
         Assert.Equal(leaf.NodeId, Assert.Single(state.Document.Nodes.Single(n => n.Id == b.NodeId).ChildIds));

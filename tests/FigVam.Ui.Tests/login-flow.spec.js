@@ -211,8 +211,10 @@ test('designs two linked login screens and previews invalid password through UI'
   await dragLayer(page, loginButton, password, 'before');
   await expect(layerRow(page, loginButton)).toBeFocused();
   await expect.poll(async () => (await read()).nodes.find(node => node.id === frame).childIds.indexOf(loginButton)).toBe(5);
+  await expect(page.locator('#layers')).toHaveClass(/layer-move-enabled/);
   await dragLayer(page, loginButton, password, 'after');
   await expect.poll(async () => (await read()).nodes.find(node => node.id === frame).childIds.indexOf(loginButton)).toBe(6);
+  await expect(page.locator('#layers')).toHaveClass(/layer-move-enabled/);
   await selectLayer(page, frame);
   await padding.scrollIntoViewIfNeeded();
   await expect(padding).toBeVisible();

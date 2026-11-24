@@ -139,7 +139,7 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [HttpPost("delete-node"), EndpointSummary("Delete a node")]
     public async Task<IActionResult> DeleteNode(Guid documentId, DeleteNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeleteNodeCommand(documentId, request.CommandId, request.NodeId), User.GetDocumentActor(), ct));
     [HttpPost("move-node"), EndpointSummary("Move or reorder a node")]
-    public async Task<IActionResult> MoveNode(Guid documentId, MoveNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new MoveNodeCommand(documentId, request.CommandId, request.NodeId, request.ExpectedParentId, request.TargetParentId, request.Position), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> MoveNode(Guid documentId, MoveNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new MoveNodeCommand(documentId, request.CommandId, request.NodeId, request.ExpectedParentId, request.TargetParentId, request.Position, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("set-node-name"), EndpointSummary("Set a node name without changing its technical ID")]
     public async Task<IActionResult> SetNodeName(Guid documentId, SetNodeNameRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodeNameCommand(documentId, request.CommandId, request.NodeId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("set-node-semantic-key"), EndpointSummary("Set or clear a node semantic key")]

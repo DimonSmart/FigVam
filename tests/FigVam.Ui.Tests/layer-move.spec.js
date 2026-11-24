@@ -136,8 +136,8 @@ test('cancel, no-op and cyclic drops issue no command; leaf rows have only befor
   await page.mouse.up();
   expect(calls).toBe(1);
   await startLayerDrag(page, frameId);
-  await hoverLayer(page, secondId, 'inside');
-  await expect(layerRow(page, secondId)).toHaveAttribute('data-layer-drop', /before|after/);
+  await hoverLayer(page, secondId, 'after');
+  await expect(layerRow(page, secondId)).toHaveAttribute('data-layer-drop', 'after');
   await page.keyboard.press('Escape');
   await page.mouse.up();
   expect(calls).toBe(1);
@@ -179,4 +179,20 @@ test('edge scrolling is isolated to the layers detail panel', async ({ page, req
   expect(await master.evaluate(e => e.scrollTop)).toBe(before);
   await page.keyboard.press('Escape');
   await page.mouse.up();
+});
+
+test('a concurrently changed sibling order rejects the stale numeric insertion index', async ({ page, request }) => {
+  const { base, screenId, frameId, firstId, secondId, command } = await setup(page, request);
+  let result;
+  await page.route(`**${base}/commands/move-node`, async route => {
+    await command('move-node', { nodeId: firstId, expectedParentId: screenId, targetParentId: screenId, position: 0 });
+    const response = await route.fetch();
+    result = await response.json();
+    await route.fulfill({ response });
+  }, { times: 1 });
+  await dragLayer(page, secondId, frameId, 'before');
+  await expect(page.locator('#node-order-status')).toContainText('Структура документа изменилась');
+  expect(result.code).toBe('REVISION_CONFLICT');
+  expect(await children(request, base, screenId)).toEqual([firstId, frameId, secondId]);
+  await expect.poll(() => page.locator('#layers > [role=treeitem]').evaluateAll(rows => rows.map(row => row.dataset.id))).toEqual([firstId, frameId, secondId]);
 });

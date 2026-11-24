@@ -1,6 +1,6 @@
 // Pure destination calculation uses the order after removal of the source.
 export function resolveLayerDrop(source, target, zone) {
-  if (!source || !target || source.item.id === target.item.id) return null;
+  if (!source || !target || source.item.id === target.item.id || !['before', 'after', 'inside'].includes(zone)) return null;
   const inside = zone === 'inside';
   if (inside && target.item.canContainChildren !== true) return null;
   const targetParentId = inside ? target.item.id : target.parent;

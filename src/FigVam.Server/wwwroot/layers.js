@@ -237,7 +237,7 @@ export function createLayers({
   function renderNodeOrder() {
     const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole);
-    element('layers').classList.toggle('layer-move-enabled', canMove());
+    element('layers').classList.toggle('layer-move-enabled', editable && !op);
     element('node-order-retry').hidden = !editable || op?.state !== 'uncertain';
     element('node-order-status').textContent = !editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || '';
   }
@@ -268,12 +268,13 @@ export function createLayers({
     if (!context) return;
     const position = context.index + delta;
     if (position < 0 || position >= context.count) return;
-    startNodeMove(context.parent, context.parent, position);
+    renderLayers(layerSelection.id);
+    startNodeMove(context.parent, context.parent, position, context.ancestors);
   }
   function startNodeMove(expectedParentId, targetParentId, position, reveal = []) {
     const key = `${workspace.documentId}:${workspace.selectedScreen}`;
     if (!layerSelection || !['Owner', 'Editor'].includes(workspace.documentRole) || nodeMoves.has(key)) return;
-    const body = { commandId: crypto.randomUUID(), nodeId: layerSelection.id, expectedParentId, targetParentId, position };
+    const body = { commandId: crypto.randomUUID(), nodeId: layerSelection.id, expectedParentId, targetParentId, position, expectedRevision: workspace.revision };
     const op = { doc: workspace.documentId, screen: workspace.selectedScreen, name: layerSelection.name?.trim() || layerSelection.kind, reveal, body, state: 'ready' };
     nodeMoveNotices.delete(key);
     nodeMoves.set(key, op);
@@ -314,7 +315,7 @@ export function createLayers({
       const synced = await refreshNodeMoveTree(active, reveal);
       if (context() && synced) {
         nodeMoves.delete(key);
-        nodeMoveNotices.set(key, op.body.expectedParentId !== op.body.targetParentId ? 'Слой перемещён к новому родителю.' : 'Порядок слоёв изменён.');
+        nodeMoveNotices.set(key, (op.body.expectedParentId !== op.body.targetParentId ? 'Слой перемещён к новому родителю.' : 'Порядок слоёв изменён.') + ` Позиция: ${op.body.position + 1}.`);
         if (layerSelection?.id === op.body.nodeId && restoreFocus &&
             (element('layers').contains(document.activeElement) || document.activeElement === document.body || document.activeElement === element('node-order-retry'))) {
           renderLayers(op.body.nodeId);
@@ -329,6 +330,7 @@ export function createLayers({
         PARENT_NOT_FOUND: 'Новый родитель уже удалён другим участником.',
         INVALID_LAYOUT_CONTEXT: 'Родитель слоя изменился.',
         INVALID_POSITION: 'Эта позиция больше недоступна.',
+        REVISION_CONFLICT: 'Структура документа изменилась. Повторите жест.',
         CHILDREN_NOT_ALLOWED: 'Новый родитель не может содержать дочерние слои.',
         CYCLE_NOT_ALLOWED: 'Нельзя переместить слой внутрь его собственного поддерева.',
         INVALID_COMPONENT: 'Перемещение нарушит структуру компонента.',
@@ -337,7 +339,7 @@ export function createLayers({
         SCREEN_VARIANT_IN_USE: 'Перемещение нарушит ссылки варианта экрана.'
       };
       const notice = explanations[error.code] ?? error.message;
-      const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED'].includes(error.code);
+      const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED', 'REVISION_CONFLICT'].includes(error.code);
       const synced = refresh && await refreshNodeMoveTree(context);
       if (context())
         nodeMoveNotices.set(key, notice + (synced ? ' Дерево обновлено.' : ''));
@@ -355,7 +357,7 @@ export function createLayers({
 
     function reconcile(parent, items) {
       const rows = [];
-      for (const item of items) {
+      for (const [index, item] of items.entries()) {
         let row = old.get(item.id);
         if (!row) {
           row = document.createElement('div');
@@ -372,6 +374,8 @@ export function createLayers({
             if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
           });
         }
+        row.setAttribute('aria-posinset', String(index + 1));
+        row.setAttribute('aria-setsize', String(items.length));
         const selected = String(layerSelection?.id === item.id);
         if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
         if (item.childCount) {
@@ -503,7 +507,7 @@ export function createLayers({
     let target;
     if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
       event.preventDefault(); event.stopPropagation();
-      if (canMove() && row.dataset.id === layerSelection?.id) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1);
+      if (canMove() && layerSelection) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1);
       return;
     }
     if (event.key === 'ArrowDown') target = rows[index + 1];
@@ -592,6 +596,7 @@ export function createLayers({
 
   return {
     reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids) { interactiveNodes = new Set(ids); renderLayers(); },
     clearSelection() {
       if (!layerSelection) return;

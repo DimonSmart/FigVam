@@ -265,7 +265,7 @@ const scenarios = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentRole = role; visualNodeEditor.refresh(); },
+  setDocumentRole: role => { documentRole = role; layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
 
