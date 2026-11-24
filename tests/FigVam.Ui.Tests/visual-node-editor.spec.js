@@ -772,9 +772,9 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   await select(frameId);
   for (const [, name, value] of sides) await expect(input(name)).toHaveValue(String(value));
   await expect(gap.getByRole('spinbutton')).toHaveValue('12');
-  await panel.getByLabel('Компоновка', { exact: true }).selectOption('Vertical');
+  await panel.locator('#visual-property-layout').selectOption('Vertical');
   await expect(gap.locator('.padding-gap-icon')).toHaveCSS('flex-direction', 'column');
-  await panel.getByLabel('Компоновка', { exact: true }).selectOption('Horizontal');
+  await panel.locator('#visual-property-layout').selectOption('Horizontal');
   await expect(gap.locator('.padding-gap-icon')).toHaveCSS('flex-direction', 'row');
 });
 
