@@ -121,7 +121,7 @@ export function createCanvasNodeEditor({
     viewport.focus({ preventScroll: true });
     const id = wrapper.dataset.visualNode, selected = target(id);
     if (!selected || gesture) return;
-    if (getContext().selection?.id !== id) selectLayer(selected.node, selected.model.orderedNodes);
+    if (getContext().selection?.id !== id && selectLayer(selected.node, selected.model.orderedNodes) === false) return;
     const edit = begin(id, wrapper, event.target === resizeHandle);
     if (!edit) return;
     gesture = { ...edit, pointer: event.pointerId, x: event.clientX, y: event.clientY, scale: getScale(), moved: false };

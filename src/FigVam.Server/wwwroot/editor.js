@@ -23,7 +23,7 @@ import { createStyles } from './styles.js';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from './session.js';
 
 const element = id => document.getElementById(id);
-createEditorShell();
+createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next) });
 const userAdmin = createUserAdmin(element);
 function selectHomeView(view) {
   const users = view === 'users' && !element('home-users').hidden;
@@ -243,6 +243,7 @@ const layers = createLayers({
   },
   runPageRefresh: work => run(() => refreshPages(), work),
   readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, pagesOffset, null, isCurrent, reveal),
+  beforeSelectionChange: next => scenarios.requestLeave(next),
   onSelectionCleared: () => { scenarios.clearLayerSelection(); visualScreens.syncSelection(); visualNodeEditor.refresh(); },
   onLayerSelected: () => { scenarios.onLayerSelected(); visualScreens.syncSelection(); visualNodeEditor.refresh(); }
 });
@@ -383,6 +384,7 @@ function renderPages() {
     button.setAttribute('aria-pressed', String(selected));
     button.setAttribute('aria-expanded', String(selected && pageExpanded));
     button.addEventListener('click', () => {
+      if (selectedPage !== item.id && !scenarios.requestLeave(() => button.click())) return;
       if (selectedPage === item.id) {
         pageExpanded = !pageExpanded;
         renderPages();
@@ -480,6 +482,7 @@ function renderScreens() {
       button.title = name;
       button.setAttribute('aria-pressed', String(item.id === selectedScreen));
       button.addEventListener('click', () => {
+        if ((selectedScreen !== item.id || layers.selection) && !scenarios.requestLeave(() => button.click())) return;
         if (selectedScreen !== item.id) {
           layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset();
           screenVariants.reset(); screenResize.render(); refreshPages();
@@ -891,6 +894,7 @@ function route() {
 }
 
 function navigate(path) {
+  if (!scenarios.requestLeave(() => navigate(path))) return;
   history.pushState(null, '', path);
   route();
   element('content').focus();
@@ -1028,7 +1032,14 @@ document.addEventListener('click', event => {
   event.preventDefault();
   navigate(link.getAttribute('href'));
 });
-window.addEventListener('popstate', route);
+window.addEventListener('popstate', () => {
+  const destination = location.pathname;
+  if (scenarios.requestLeave(() => navigate(destination))) route();
+  else history.replaceState(null, '', documentId ? '/documents/' + documentId : '/');
+});
+window.addEventListener('beforeunload', event => {
+  if (scenarios.hasDirtyDraft()) { event.preventDefault(); event.returnValue = ''; }
+});
 window.addEventListener('pagehide', clearSession);
 async function initializeAuthentication() {
   try {

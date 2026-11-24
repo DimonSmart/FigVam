@@ -579,3 +579,5 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .interaction-action-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .app-shell .interaction-action-error { color: #a32638; font-size: 12px; }
 .app-shell #scenario-edit-conflict:not(:empty) { color: #a32638; }
+
+.app-shell .interaction-action label[hidden] { display: none !important; }

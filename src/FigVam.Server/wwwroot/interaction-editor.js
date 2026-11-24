@@ -1,5 +1,3 @@
-import { interactionObjectName } from './interaction-catalog.js';
-
 export const eventLabels = ['По нажатию', 'При изменении', 'При наведении', 'При уходе указателя', 'При отправке'];
 export const actionLabels = {
   navigate: 'Перейти на экран', openOverlay: 'Открыть оверлей', closeOverlay: 'Закрыть оверлей',
@@ -190,6 +188,9 @@ export function createInteractionEditor({ element, request, current, catalog, so
       method: 'POST', body: JSON.stringify({ demoValue, sourceScreenId: d.screen, prefix })
     }, controller.signal);
     if (response.documentId !== d.doc || response.nodeId !== d.scenario.nodeId || response.revision !== d.revision ||
+        (response.targetId ?? null) !== (targetId ?? null) || (response.screenId ?? null) !== (screenId ?? null) ||
+        (response.variantId ?? null) !== (variantId ?? null) || (response.datasetId ?? null) !== (datasetId ?? null) ||
+        (response.demoNodeId ?? null) !== (demoNodeId ?? null) || response.demoValue !== demoValue ||
         !Array.isArray(response.events) || !Array.isArray(response.actions) || !Array.isArray(response.potentialActions) ||
         !Array.isArray(response.demoTargetIds) || !Object.hasOwn(response, 'navigationScreenId') || !Object.hasOwn(response, 'demoScreenId'))
       throw new TypeError('Некорректный ответ о возможностях');
@@ -295,7 +296,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
   }
   function revisionChanged() {
     if (!draft) return;
-    if (current().revision !== draft.revision && !pending()) {
+    if ((current().revision !== draft.revision || current().node !== draft.scenario.nodeId) && !pending()) {
       if (!dirty()) { close(); return; }
       draft.conflict = true; draft.valid = false; controller?.abort(); generation++;
     }

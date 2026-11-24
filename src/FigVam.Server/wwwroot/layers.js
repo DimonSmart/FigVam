@@ -29,7 +29,7 @@ export function layerDisplayName(item) {
 
 export function createLayers({
   element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
-  closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected
+  closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected, beforeSelectionChange = () => true
 }) {
   let layerController = null, layerGeneration = 0, layerSelection = null;
   let nodeReadGeneration = 0, nodeMetadata = null;
@@ -453,9 +453,8 @@ export function createLayers({
           label.addEventListener('click', () => {
             const latest = findLayer(item.id);
             if (!latest) return;
-            selectLayer(latest);
-            row.focus();
-            if (latest.childCount) toggleLayer(latest);
+            const select = () => { selectLayer(latest); row.focus(); if (latest.childCount) toggleLayer(latest); };
+            if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
           });
         }
         const selected = String(layerSelection?.id === item.id);
@@ -598,7 +597,8 @@ export function createLayers({
       if (row.getAttribute('aria-expanded') === 'false') toggleLayer(findLayer(row.dataset.id));
       else if (row.getAttribute('aria-expanded') === 'true') target = row.querySelector('[role=treeitem]');
     } else if (event.key === 'Enter' || event.key === ' ') {
-      const item = findLayer(row.dataset.id); if (item) selectLayer(item);
+      const item = findLayer(row.dataset.id);
+      if (item && (layerSelection?.id === item.id || beforeSelectionChange(() => selectLayer(item)))) selectLayer(item);
     } else return;
     event.preventDefault();
     if (target) { row.tabIndex = -1; target.tabIndex = 0; target.focus(); }
@@ -646,7 +646,8 @@ export function createLayers({
     element('layers-status').textContent = screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.';
   }
 
-  function selectFromCanvas(item, nodes) {
+  function selectFromCanvas(item, nodes, confirmed = false) {
+    if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true))) return false;
     const byId = new Map(nodes.map(node => [node.id, node]));
     const branches = new Map();
     for (const node of nodes) {
@@ -660,6 +661,7 @@ export function createLayers({
     layerRoots = branches.get(workspace.selectedScreen) ?? [];
     selectLayer(item);
     renderLayers();
+    return true;
   }
 
   function clearCommands() {

@@ -43,7 +43,7 @@ function icon(name) {
   return svg;
 }
 
-function tabs(root, entries, label) {
+function tabs(root, entries, label, beforeSelect = null) {
   const byId = id => document.getElementById(id);
   const nav = el('div', 'editor-tabs');
   nav.setAttribute('role', 'tablist');
@@ -63,7 +63,9 @@ function tabs(root, entries, label) {
     panel.setAttribute('aria-labelledby', tab.id);
     stage.append(panel);
   }
-  function select(key) {
+  function select(key, confirmed = false) {
+    const previous = entries.find(([id]) => byId('tab-' + id)?.getAttribute('aria-selected') === 'true')?.[0];
+    if (!confirmed && beforeSelect && !beforeSelect(previous, key, () => { select(key, true); byId('tab-' + key)?.focus(); })) return false;
     for (const [id, , panel] of entries) {
       const selected = id === key;
       panel.hidden = !selected;
@@ -71,6 +73,7 @@ function tabs(root, entries, label) {
       tab.setAttribute('aria-selected', String(selected));
       tab.tabIndex = selected ? 0 : -1;
     }
+    return true;
   }
   nav.addEventListener('keydown', event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -79,15 +82,14 @@ function tabs(root, entries, label) {
     const next = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1 :
       (active + (event.key === 'ArrowRight' ? 1 : -1) + entries.length) % entries.length;
     event.preventDefault();
-    select(entries[next][0]);
-    byId('tab-' + entries[next][0]).focus();
+    if (select(entries[next][0])) byId('tab-' + entries[next][0]).focus();
   });
   root.append(nav, stage);
   select(entries[0][0]);
   return { select };
 }
 
-export function createEditorShell() {
+export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   // Capture original nodes before reparenting them into temporarily detached panels.
   const shellNodes = new Map([...document.querySelectorAll('[id]')].map(node => [node.id, node]));
   const byId = id => shellNodes.get(id) ?? document.getElementById(id);
@@ -306,7 +308,8 @@ export function createEditorShell() {
   diagnosticsPage.append(byId('diagnostics-title').closest('section'));
   right.replaceChildren();
   tabs(right, [['design', 'Дизайн', inspectorPage], ['prototype', 'Prototype', prototypePage],
-    ['diagnostics', 'Проверка', diagnosticsPage]], 'Разделы инспектора');
+    ['diagnostics', 'Проверка', diagnosticsPage]], 'Разделы инспектора',
+    (previous, next, resume) => previous !== 'prototype' || next === 'prototype' || beforePrototypeLeave(resume));
 
   // Creation toolbar submits the original profile-aware add-node form.
   const drawing = el('div', 'drawing-toolbar');
