@@ -1,5 +1,7 @@
 import { createPropertyControl, propertyLabel, shadowPreset } from './node-property-controls.js';
 
+import { paddingProperties, createPaddingEditor, updatePaddingEditor, createGapRow, updateGapRow } from './padding-editor.js';
+
 const canEdit = role => role === 'Owner' || role === 'Editor';
 const sameRaw = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 const draft = () => ({ values: new Map(), error: '', status: '' });
@@ -296,6 +298,22 @@ export function createVisualNodeEditor({
         reconcileChildren(group, children);
         geometryGroups.push(group);
         children.forEach(row => groupedRows.add(row));
+      }
+    }
+    if (prefix === 'visual-property' && paddingProperties.every(name => fields.has(name))) {
+      const paddingRows = paddingProperties.map(name => fields.get(name).row);
+      const padding = container.querySelector(':scope > .padding-editor') ?? createPaddingEditor();
+      updatePaddingEditor(padding, fields, reconcileChildren);
+      // Keep the section at the first padding property's original position.
+      const index = rows.findIndex(row => paddingRows.includes(row));
+      rows.splice(index, 0, padding);
+      paddingRows.forEach(row => groupedRows.add(row));
+      if (fields.has('gap')) {
+        const gapField = fields.get('gap');
+        const gap = container.querySelector(':scope > .padding-gap-row') ?? createGapRow();
+        updateGapRow(gap, gapField, reconcileChildren);
+        rows.splice(index + 1, 0, gap);
+        groupedRows.add(gapField.row);
       }
     }
     reconcileChildren(container, [...geometryGroups, ...rows.filter(row => !groupedRows.has(row))]);

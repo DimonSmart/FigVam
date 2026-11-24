@@ -581,3 +581,89 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #scenario-edit-conflict:not(:empty) { color: #a32638; }
 
 .app-shell .interaction-action label[hidden] { display: none !important; }
+
+/* Padding is an inspector-only arrangement of the ordinary property controls. */
+.app-shell .padding-editor { min-width: 0; padding: 8px 0; border-top: 1px solid var(--ui-border); }
+.app-shell .padding-editor-heading { display: block; font-size: 12px; margin-bottom: 8px; }
+.app-shell .padding-editor-grid {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-areas: ". top ." "left diagram right" ". bottom .";
+  gap: 6px; align-items: center; min-width: 0;
+}
+.app-shell .padding-editor-field { min-width: 0; align-self: center; }
+.app-shell .padding-editor-field[data-side=top] { grid-area: top; }
+.app-shell .padding-editor-field[data-side=right] { grid-area: right; }
+.app-shell .padding-editor-field[data-side=bottom] { grid-area: bottom; }
+.app-shell .padding-editor-field[data-side=left] { grid-area: left; }
+.app-shell .padding-editor .node-property--token .token-value-layout {
+  grid-template-columns: minmax(0, 1fr); gap: 2px;
+}
+.app-shell .padding-editor .token-value-label,
+.app-shell .padding-editor .node-property > label { text-align: center; font-size: 11px; }
+.app-shell #visual-inspector .padding-editor input[type=number] {
+  padding: 3px 4px; font-variant-numeric: tabular-nums;
+}
+.app-shell #visual-properties-form .padding-editor .token-value-link {
+  flex: 0 0 24px; width: 24px; min-width: 24px; padding: 2px;
+}
+.app-shell .padding-editor .token-value-reference {
+  height: var(--ui-control); padding: 1px 3px; column-gap: 0; box-sizing: border-box;
+}
+.app-shell .padding-editor .token-value-name,
+.app-shell .padding-editor .token-value-resolved { font-size: 10px; white-space: nowrap; }
+.app-shell #visual-properties .padding-editor [data-variant-override=true] {
+  border-inline-start: 0; padding-inline-start: 0;
+  box-shadow: inset 0 -2px var(--ui-accent);
+}
+.app-shell #visual-properties .padding-editor .variant-override-reset {
+  margin-inline-start: 0; white-space: normal; overflow-wrap: anywhere; padding: 2px;
+}
+.app-shell .padding-editor-diagram {
+  grid-area: diagram; aspect-ratio: 1; display: grid;
+  grid-template-columns: 1fr 2fr 1fr; grid-template-rows: 1fr 2fr 1fr;
+  border: 1px solid var(--ui-border); border-radius: 6px; background: var(--ui-bg);
+  min-width: 0; padding: 2px; gap: 1px;
+}
+.app-shell .padding-editor-content {
+  grid-area: 2 / 2; background: var(--ui-surface);
+  border: 1px solid var(--ui-muted); border-radius: 2px;
+}
+.app-shell #visual-properties-form .padding-editor-side {
+  min-height: 0; min-width: 0; width: 100%; padding: 0; border: 0;
+  background: transparent; border-radius: 2px;
+}
+.app-shell .padding-editor-side[data-side=top] { grid-area: 1 / 1 / 2 / 4; }
+.app-shell .padding-editor-side[data-side=right] { grid-area: 2 / 3; }
+.app-shell .padding-editor-side[data-side=bottom] { grid-area: 3 / 1 / 4 / 4; }
+.app-shell .padding-editor-side[data-side=left] { grid-area: 2 / 1; }
+.app-shell #visual-properties-form .padding-editor-grid:has(.padding-editor-field[data-side=top]:is(:hover, :focus-within)) .padding-editor-side[data-side=top],
+.app-shell #visual-properties-form .padding-editor-side[data-side=top]:is(:hover, :focus-visible) {
+  background: var(--ui-selected); box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+.app-shell #visual-properties-form .padding-editor-grid:has(.padding-editor-field[data-side=right]:is(:hover, :focus-within)) .padding-editor-side[data-side=right],
+.app-shell #visual-properties-form .padding-editor-side[data-side=right]:is(:hover, :focus-visible) {
+  background: var(--ui-selected); box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+.app-shell #visual-properties-form .padding-editor-grid:has(.padding-editor-field[data-side=bottom]:is(:hover, :focus-within)) .padding-editor-side[data-side=bottom],
+.app-shell #visual-properties-form .padding-editor-side[data-side=bottom]:is(:hover, :focus-visible) {
+  background: var(--ui-selected); box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+.app-shell #visual-properties-form .padding-editor-grid:has(.padding-editor-field[data-side=left]:is(:hover, :focus-within)) .padding-editor-side[data-side=left],
+.app-shell #visual-properties-form .padding-editor-side[data-side=left]:is(:hover, :focus-visible) {
+  background: var(--ui-selected); box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+.app-shell .padding-gap-row {
+  display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 5px;
+  align-items: center; min-width: 0; border-top: 1px solid var(--ui-border); padding-top: 8px;
+}
+.app-shell .padding-gap-icon {
+  display: flex; gap: 4px; align-items: center; justify-content: center;
+  height: 18px; color: var(--ui-muted);
+}
+.app-shell .padding-gap-icon i { display: block; width: 5px; height: 13px; border: 1px solid currentColor; border-radius: 1px; }
+.app-shell #visual-properties:has(#visual-property-layout option[value=Vertical]:checked) .padding-gap-icon {
+  flex-direction: column;
+}
+.app-shell #visual-properties:has(#visual-property-layout option[value=Vertical]:checked) .padding-gap-icon i {
+  width: 13px; height: 5px;
+}
