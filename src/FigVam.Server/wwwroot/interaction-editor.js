@@ -93,8 +93,11 @@ export function createInteractionEditor({ element, request, current, catalog, so
     draft = null; rows = [];
     form.hidden = true; fields.disabled = false;
     element('scenario-edit-actions').replaceChildren();
-    if (restoreFocus) old?.opener?.focus();
     onClose();
+    if (restoreFocus && old) {
+      const target = old.creating ? element('scenario-create') : [...element('scenarios-list').children].find(card => card.dataset.scenarioId === old.scenario.id)?.querySelector('button[aria-label^="Изменить"]');
+      (target ?? element('tab-prototype')).focus();
+    }
   }
 
   function open(scenario, opener, creating = false) {

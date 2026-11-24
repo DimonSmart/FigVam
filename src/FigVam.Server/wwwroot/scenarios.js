@@ -8,7 +8,7 @@ export function createScenarios({
   reloadPages, findRole, setDocumentRole, closeInaccessibleDocument
 }) {
   let controller = null, generation = 0, offset = 0, catalog = null, scenarios = null, key = null;
-  let loadState = 'empty', notice = '', errorNotice = '', leave = null;
+  let loadState = 'empty', notice = '', errorNotice = '', leave = null, catalogLoading = false;
   const operations = new Map();
   const context = () => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
@@ -25,7 +25,9 @@ export function createScenarios({
     const node = catalog?.nodes.find(n => n.id === id) ?? findLayer(id);
     if (!node) return 'Элемент недоступен';
     const display = layerDisplayName(node);
-    return display.source === 'missing' ? node.kind : display.text;
+    const caption = display.source === 'missing' ? node.kind : display.text;
+    const duplicates = catalog?.nodes.filter(n => n.screenId === node.screenId && (layerDisplayName(n).source === 'missing' ? n.kind : layerDisplayName(n).text) === caption) ?? [];
+    return duplicates.length > 1 ? (node.label ?? caption) : caption;
   }
   const description = scenario => sourceName(scenario.nodeId) + ' · ' + (eventLabels[scenario.event] ?? 'Неизвестное событие');
   function actionText(action) {
@@ -49,7 +51,7 @@ export function createScenarios({
     if (!editor.draft) return true;
     if (opPending()) {
       // The immutable command is kept independently of the inspector and may be retried on return.
-      editor.close(); return true;
+      leave = null; editor.close(); return true;
     }
     if (!editor.dirty()) { editor.close(); return true; }
     leave = next;
@@ -73,6 +75,7 @@ export function createScenarios({
       c.screen ? 'Взаимодействия · ' + (catalog?.screens.find(s => s.id === c.screen)?.name || 'Экран') : 'Взаимодействия';
     element('scenario-create').hidden = !c.editable || !c.node || loadState !== 'ready' || !!editor.draft;
     element('scenario-create').disabled = opPending();
+    element('scenario-edit-reload').disabled = loadState !== 'ready';
     element('scenario-command-status').textContent = op?.state === 'pending' ? 'Сохранение изменений…' : notice;
     element('scenario-command-error').textContent = op?.state === 'uncertain' ? 'Результат команды неизвестен. Повторите ту же команду.' : errorNotice;
     element('scenario-command-retry').hidden = !c.editable || op?.state !== 'uncertain';
@@ -149,33 +152,56 @@ export function createScenarios({
     return items;
   }
 
+  const prototypeVisible = () => element('tab-prototype').getAttribute('aria-selected') === 'true';
+  async function loadFailed(error, c, valid, signal) {
+    if (!valid()) return;
+    if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') {
+      const role = await findRole(c.doc, signal).catch(() => undefined);
+      if (!valid()) return;
+      if (role === null || error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
+    }
+    loadState = 'error'; render();
+  }
+  async function ensureCatalog() {
+    if (!prototypeVisible() || !scenarios || catalog || catalogLoading || !controller || loadState === 'error') return;
+    const c = context(), version = generation, signal = controller.signal;
+    const valid = () => version === generation && !signal.aborted && sameScreen(c) && workspace.revision === c.revision;
+    catalogLoading = true; loadState = 'loading'; render();
+    try {
+      const objects = await readInteractionCatalog(request, c.doc, c.revision, signal);
+      if (!valid()) return;
+      catalog = objects; loadState = 'ready'; render();
+    } catch (error) {
+      await loadFailed(error, c, valid, signal);
+    } finally {
+      if (valid()) catalogLoading = false;
+    }
+  }
+  new MutationObserver(() => ensureCatalog()).observe(element('tab-prototype'), {
+    attributes: true, attributeFilter: ['aria-selected']
+  });
   async function load() {
     controller?.abort(); controller = new AbortController();
     const c = context(), version = ++generation, signal = controller.signal;
     if (!c.doc || !c.screen || !Number.isSafeInteger(c.revision)) { reset(); return; }
     key = c.doc + ':' + c.screen + ':' + c.revision;
     const valid = () => version === generation && !signal.aborted && sameScreen(c) && workspace.revision === c.revision;
-    scenarios = catalog = null; loadState = 'loading';
+    scenarios = catalog = null; catalogLoading = false; loadState = 'loading';
     setInteractiveNodes([]); render();
     try {
-      const [items, objects] = await Promise.all([readAll(c, signal), readInteractionCatalog(request, c.doc, c.revision, signal)]);
+      const items = await readAll(c, signal);
       if (!valid()) return;
-      scenarios = items; catalog = objects; loadState = 'ready';
-      setInteractiveNodes(items.map(s => s.nodeId)); render();
+      scenarios = items;
+      setInteractiveNodes(items.map(s => s.nodeId));
+      await ensureCatalog();
     } catch (error) {
-      if (!valid()) return;
-      if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') {
-        const role = await findRole(c.doc, signal).catch(() => undefined);
-        if (!valid()) return;
-        if (role === null || error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
-      }
-      loadState = 'error'; render();
+      await loadFailed(error, c, valid, signal);
     }
   }
 
   function reset() {
     controller?.abort(); generation++; controller = null;
-    key = null; catalog = scenarios = null; offset = 0; loadState = 'empty'; notice = errorNotice = '';
+    key = null; catalog = scenarios = null; catalogLoading = false; offset = 0; loadState = 'empty'; notice = errorNotice = '';
     leave = null; closeDialog(); editor.close(); setInteractiveNodes([]); render();
   }
   function refresh(screen) {
@@ -270,6 +296,7 @@ export function createScenarios({
   return {
     reset, refresh, retainAfterNodeEdit: refresh, clearLayerSelection: onSelectionChanged, onLayerSelected: onSelectionChanged,
     requestLeave, hasDirtyDraft: editor.dirty,
+    clearDocumentCommands(doc) { for (const [key, op] of operations) if (op.doc === doc) operations.delete(key); },
     clearCommands() { operations.clear(); editor.close(); }
   };
 }

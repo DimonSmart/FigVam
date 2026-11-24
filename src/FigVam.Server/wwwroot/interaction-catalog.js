@@ -19,7 +19,7 @@ export async function readInteractionCatalog(request, doc, revision, signal) {
       const q = new URLSearchParams({ revision: String(revision), offset: String(items.length), limit: '100', ...params });
       const page = await request(base + '/' + path + '?' + q, {}, signal);
       if (page.revision !== revision || !Array.isArray(page.items) || !Number.isSafeInteger(page.total) ||
-          page.total < items.length + page.items.length || (!page.items.length && items.length < page.total))
+          (total !== undefined && total !== page.total) || page.total < items.length + page.items.length || (!page.items.length && items.length < page.total))
         throw new Error('Не удалось получить полный справочник взаимодействий.');
       items.push(...page.items);
       total = page.total;
@@ -29,7 +29,7 @@ export async function readInteractionCatalog(request, doc, revision, signal) {
   const pages = await all('pages', { fields: 'name' });
   const screenGroups = await Promise.all(pages.map(async page =>
     (await all('pages/' + encodeURIComponent(page.id) + '/screens', { fields: 'name' }))
-      .map(screen => ({ ...screen, pageName: page.name?.trim() || 'Страница' }))));
+      .map((screen, index) => ({ ...screen, name: screen.name?.trim() || 'Экран ' + (index + 1), pageName: page.name?.trim() || 'Страница' }))));
   const screens = disambiguate(screenGroups.flat(), s => s.pageName + ' / ' + (s.name?.trim() || 'Экран'));
   const [datasets, ...details] = await Promise.all([
     all('datasets'),

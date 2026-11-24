@@ -135,6 +135,7 @@ const datasets = createDatasets({
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status) {
+  scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
   members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingScreenName = null; pageExpanded = true;
