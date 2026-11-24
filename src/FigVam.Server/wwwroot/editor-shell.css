@@ -309,9 +309,6 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   color: #344dbb; background: var(--ui-selected); border-color: transparent; font-weight: 650;
 }
 .app-shell #layers [role=group] { margin-left: 12px; border-left: 1px solid #e3e7f0; }
-.app-shell #node-order { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
-.app-shell #node-order button { font-size: 11px; }
-.app-shell #node-reparent-form { margin-top: 10px; }
 .app-shell .properties-sidebar #inspector-selection { font-size: 12px; color: var(--ui-muted); }
 .app-shell #visual-inspector { border-top: 1px solid var(--ui-border); padding-top: 10px; }
 .app-shell #visual-inspector h3 { margin: 0 0 10px; }
@@ -666,4 +663,29 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 }
 .app-shell #visual-properties:has(#visual-property-layout option[value=Vertical]:checked) .padding-gap-icon i {
   width: 13px; height: 5px;
+}
+
+/* Layer gesture feedback is transient and does not change the tree layout. */
+.app-shell #node-order-status:empty { display: none; }
+.app-shell #layers.layer-move-enabled .layer-label { cursor: grab; touch-action: none; user-select: none; }
+.app-shell #layers.layer-dragging .layer-label { cursor: grabbing; }
+.app-shell #layers [data-layer-drag-source] > .layer-label { opacity: .45; }
+.app-shell #layers [data-layer-drop] { position: relative; }
+.app-shell #layers [data-layer-drop=before]::before,
+.app-shell #layers [data-layer-drop=after]::after {
+  content: ''; position: absolute; left: 0; right: 0; height: 2px;
+  background: var(--ui-accent); z-index: 4; pointer-events: none;
+}
+.app-shell #layers [data-layer-drop=before]::before { top: 0; }
+.app-shell #layers [data-layer-drop=after]::after { bottom: 0; }
+.app-shell #layers [data-layer-drop=inside] > .layer-label {
+  box-shadow: inset 0 0 0 1px var(--ui-accent); background: var(--ui-selected);
+}
+.app-shell #layers [data-layer-drop=invalid] > .layer-label {
+  outline: 1px dashed var(--ui-muted); cursor: not-allowed;
+}
+.app-shell .layer-drag-ghost {
+  position: fixed; z-index: 1000; pointer-events: none; opacity: .75;
+  background: var(--ui-selected); border: 1px solid var(--ui-accent);
+  box-shadow: 0 3px 9px #0002; overflow: hidden;
 }

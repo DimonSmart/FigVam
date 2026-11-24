@@ -151,7 +151,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
 
   function readNodes(screen) {
     return readCached(screenNodes, screen, () => readPages('nodes',
-      { screenId: screen, fields: 'kind,properties,name,parentId,childCount' }, 'items', controller.signal));
+      { screenId: screen, fields: 'kind,properties,name,parentId,childCount,canContainChildren' }, 'items', controller.signal));
   }
 
   async function readDesignModel() {

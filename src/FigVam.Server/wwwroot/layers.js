@@ -1,3 +1,5 @@
+import { createLayerDrag, resolveLayerDrop } from './layer-drag.js';
+
 // Derived layer captions are for display only and never change the saved node name.
 export function layerDisplayName(item) {
   const explicit = item.name?.trim();
@@ -37,14 +39,13 @@ export function createLayers({
   const nodeDeletions = new Map();
   const nodeMoves = new Map();
   const nodeMoveNotices = new Map();
-  let nodeReparentDraft = null;
   let layerSelectionEpoch = 0;
   let screenContextEpoch = 0;
   let layerRoots = [], layerExpanded = new Set(), layerChildren = new Map();
   let interactiveNodes = new Set();
 
   function reset() {
-    closeNodeReparent();
+    drag.cancel();
     layerController?.abort(); layerController = null; layerGeneration++;
     layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
@@ -56,7 +57,7 @@ export function createLayers({
 
   function selectLayer(item) {
     const changed = layerSelection?.id !== item.id;
-    if (changed) { layerSelectionEpoch++; closeNodeReparent(); }
+    if (changed) layerSelectionEpoch++;
     layerSelection = item;
     if (changed || nodeMetadata?.id !== item.id) loadNodeMetadata();
     if (changed) onLayerSelected();
@@ -219,140 +220,51 @@ export function createLayers({
     } finally { if (nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && !element('editor-view').hidden) renderNodeDeletion(); }
   }
 
-  function selectedSiblingContext() {
-    function find(parent, items) {
-      const index = items.findIndex(item => item.id === layerSelection?.id);
-      if (index >= 0) return { parent, index, count: items.length };
+  function siblingContext(id) {
+    function find(parent, items, ancestors = []) {
+      const index = items.findIndex(item => item.id === id);
+      if (index >= 0) return { parent, index, count: items.length, ancestors, item: items[index] };
       for (const item of items) {
-        const found = find(item.id, layerChildren.get(item.id) || []);
+        const found = find(item.id, layerChildren.get(item.id) || [], [...ancestors, item.id]);
         if (found) return found;
       }
       return null;
     }
-    return workspace.selectedScreen && layerSelection ? find(workspace.selectedScreen, layerRoots) : null;
+    return workspace.selectedScreen && id ? find(workspace.selectedScreen, layerRoots) : null;
   }
+  const moveKey = () => `${workspace.documentId}:${workspace.selectedScreen}`;
+  const canMove = () => ['Owner', 'Editor'].includes(workspace.documentRole) && !nodeMoves.has(moveKey()) && !element('editor-view').hidden;
   function renderNodeOrder() {
-    const op = nodeMoves.get(`${workspace.documentId}:${workspace.selectedScreen}`), context = selectedSiblingContext();
+    const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole);
-    element('node-order').hidden = !editable || !layerSelection;
-    element('node-earlier').disabled = !context || context.index === 0 || !!op;
-    element('node-later').disabled = !context || context.index === context.count - 1 || !!op;
-    element('node-reparent').disabled = !context || !!op;
+    element('layers').classList.toggle('layer-move-enabled', canMove());
     element('node-order-retry').hidden = !editable || op?.state !== 'uncertain';
-    element('node-order-status').textContent = !editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(`${workspace.documentId}:${workspace.selectedScreen}`) || '';
-  }
-  function closeNodeReparent() {
-    nodeReparentDraft?.controller.abort();
-    nodeReparentDraft = null;
-    element('node-reparent-form').hidden = true;
-    element('node-reparent').setAttribute('aria-expanded', 'false');
+    element('node-order-status').textContent = !editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || '';
   }
 
-  async function loadNodeReparent() {
-    const key = `${workspace.documentId}:${workspace.selectedScreen}`;
-    if (!selectedSiblingContext() || !['Owner', 'Editor'].includes(workspace.documentRole) || nodeMoves.has(key)) return;
-    closeNodeReparent();
-    const doc = workspace.documentId, screen = workspace.selectedScreen, node = layerSelection.id;
-    const epoch = workspace.navigationEpoch, screenEpoch = screenContextEpoch, selectionEpoch = layerSelectionEpoch, requestToken = workspace.token;
-    const controller = new AbortController();
-    const draft = { doc, screen, node, controller, targets: new Map() };
-    const active = () => nodeReparentDraft === draft && doc === workspace.documentId && screen === workspace.selectedScreen &&
-      node === layerSelection?.id && epoch === workspace.navigationEpoch && screenEpoch === screenContextEpoch &&
-      selectionEpoch === layerSelectionEpoch && workspace.token === requestToken && !element('editor-view').hidden;
-    nodeReparentDraft = draft;
-    const target = element('node-reparent-target'), status = element('node-reparent-status');
-    target.replaceChildren(new Option('Выберите родителя', ''));
-    target.disabled = true;
-    renderNodeReparentPosition();
-    element('node-reparent-reload').hidden = true;
-    element('node-reparent-form').hidden = false;
-    element('node-reparent').setAttribute('aria-expanded', 'true');
-    status.textContent = 'Загрузка родителей слоя…';
-    status.focus();
-    try {
-      const base = `/api/v1/documents/${encodeURIComponent(doc)}/nodes`;
-      const items = [];
-      let atRevision, total;
-      do {
-        const query = new URLSearchParams({ screenId: screen, offset: String(items.length), limit: '100', fields: 'parentId,canContainChildren,childCount,name,kind' });
-        if (atRevision !== undefined) query.set('revision', String(atRevision));
-        const result = await request(`${base}?${query}`, {}, controller.signal, active);
-        if (!active()) return;
-        if (result.documentId?.toLowerCase() !== doc.toLowerCase() || !Array.isArray(result.items) || !Number.isSafeInteger(result.revision) || !Number.isSafeInteger(result.total) ||
-            result.total < items.length || result.items.length > result.total - items.length || (!result.items.length && items.length < result.total) ||
-            (atRevision !== undefined && (result.revision !== atRevision || total !== result.total))) throw new TypeError('Некорректный список слоёв.');
-        atRevision = result.revision;
-        total = result.total;
-        items.push(...result.items);
-      } while (items.length < total);
-      const source = items.find(item => item.id === node);
-      if (!source) {
-        const notice = 'Слой больше не находится на этом экране.';
-        status.textContent = 'Обновление дерева слоёв…';
-        const synced = await refreshNodeMoveTree(active);
-        if (synced) {
-          nodeMoveNotices.set(key, notice + ' Дерево обновлено.');
-          renderNodeOrder();
-        } else if (active()) {
-          status.textContent = notice;
-          element('node-reparent-reload').hidden = false;
-        }
-        return;
+  const drag = createLayerDrag({
+    tree: element('layers'), canMove, context: siblingContext,
+    stamp: () => [workspace.documentId, workspace.selectedScreen, workspace.revision, layerGeneration, workspace.navigationEpoch, layerSelectionEpoch].join(':'),
+    resolve: (source, target, zone) => resolveLayerDrop(siblingContext(source), siblingContext(target), zone),
+    expand: id => {
+      if (!layerExpanded.has(id) && layerChildren.has(id)) {
+        layerExpanded.add(id);
+        renderLayers();
       }
-      draft.expectedParentId = source.parentId;
-      const paths = new Map([[screen, []]]);
-      if (source.parentId !== screen) {
-        const count = items.filter(item => item.parentId === screen).length;
-        draft.targets.set(screen, { label: 'Экран (корень)', count, reveal: [] });
-      }
-      for (const item of items) {
-        const ancestors = paths.get(item.parentId);
-        if (!ancestors || paths.has(item.id) || !Number.isSafeInteger(item.childCount) || item.childCount < 0 || typeof item.canContainChildren !== 'boolean') throw new TypeError('Некорректный список слоёв.');
-        const path = [...ancestors, item];
-        paths.set(item.id, path);
-        if (item.canContainChildren && item.id !== source.parentId && !path.some(part => part.id === node)) {
-          const label = path.map(part => part.name?.trim() || part.kind).join(' / ');
-          draft.targets.set(item.id, { label, count: item.childCount, reveal: path.map(part => part.id) });
-        }
-      }
-      const labels = new Map();
-      for (const { label } of draft.targets.values()) labels.set(label, (labels.get(label) ?? 0) + 1);
-      for (const [id, { label }] of draft.targets) target.add(new Option(labels.get(label) > 1 ? `${label} · ${id}` : label, id));
-      target.disabled = !draft.targets.size;
-      status.textContent = target.disabled ? 'На этом экране нет другого подходящего родителя.' : 'Выберите нового родителя и позицию слоя.';
-      if (!target.disabled && document.activeElement === status) target.focus();
-    } catch (error) {
-      if (!active() || error.name === 'AbortError') return;
-      if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
-      status.textContent = error instanceof TypeError || error instanceof SyntaxError ? 'Не удалось загрузить родителей слоя.' : error.message;
-      element('node-reparent-reload').hidden = false;
+    },
+    commit: (id, plan) => {
+      const item = findLayer(id);
+      if (!item || !canMove()) return;
+      // A dirty inspector draft must be resolved before moving, never during a gesture.
+      if (layerSelection?.id !== id && !beforeSelectionChange(() => selectLayer(item))) return;
+      selectLayer(item);
+      renderLayers(id);
+      startNodeMove(plan.expectedParentId, plan.targetParentId, plan.position, plan.reveal);
     }
-  }
-
-  function renderNodeReparentPosition() {
-    const target = nodeReparentDraft?.targets.get(element('node-reparent-target').value);
-    const position = element('node-reparent-position');
-    position.disabled = element('node-reparent-submit').disabled = !target;
-    position.max = position.value = target ? String(target.count + 1) : '';
-    element('node-reparent-range').textContent = target ? `Доступные позиции: от 1 до ${position.max}.` : '';
-  }
-
-  element('node-reparent').addEventListener('click', loadNodeReparent);
-  element('node-reparent-reload').addEventListener('click', loadNodeReparent);
-  element('node-reparent-target').addEventListener('change', renderNodeReparentPosition);
-  element('node-reparent-cancel').addEventListener('click', () => { closeNodeReparent(); element('node-reparent').focus(); });
-  element('node-reparent-form').addEventListener('submit', event => {
-    event.preventDefault();
-    const draft = nodeReparentDraft, targetId = element('node-reparent-target').value;
-    const target = draft?.targets.get(targetId), position = element('node-reparent-position').valueAsNumber - 1;
-    if (!target || draft.doc !== workspace.documentId || draft.screen !== workspace.selectedScreen || draft.node !== layerSelection?.id ||
-        !Number.isInteger(position) || position < 0 || position > target.count) return;
-    startNodeMove(draft.expectedParentId, targetId, position, target.reveal);
-    element('node-order-status').focus();
   });
 
   function beginNodeMove(delta) {
-    const context = selectedSiblingContext();
+    const context = siblingContext(layerSelection?.id);
     if (!context) return;
     const position = context.index + delta;
     if (position < 0 || position >= context.count) return;
@@ -363,13 +275,10 @@ export function createLayers({
     if (!layerSelection || !['Owner', 'Editor'].includes(workspace.documentRole) || nodeMoves.has(key)) return;
     const body = { commandId: crypto.randomUUID(), nodeId: layerSelection.id, expectedParentId, targetParentId, position };
     const op = { doc: workspace.documentId, screen: workspace.selectedScreen, name: layerSelection.name?.trim() || layerSelection.kind, reveal, body, state: 'ready' };
-    closeNodeReparent();
     nodeMoveNotices.delete(key);
     nodeMoves.set(key, op);
     sendNodeMove(op);
   }
-  element('node-earlier').addEventListener('click', () => beginNodeMove(-1));
-  element('node-later').addEventListener('click', () => beginNodeMove(1));
   element('node-order-retry').addEventListener('click', () => {
     const op = nodeMoves.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     if (op?.state === 'uncertain') sendNodeMove(op);
@@ -395,6 +304,7 @@ export function createLayers({
     const epoch = workspace.navigationEpoch, screenEpoch = screenContextEpoch, selectionEpoch = layerSelectionEpoch, requestToken = workspace.token;
     const context = () => nodeMoves.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && screenContextEpoch === screenEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
     const active = () => context() && layerSelectionEpoch === selectionEpoch;
+    const restoreFocus = element('layers').contains(document.activeElement) || document.activeElement === element('node-order-retry');
     op.state = 'pending'; renderNodeOrder();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/move-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
@@ -404,10 +314,15 @@ export function createLayers({
       const synced = await refreshNodeMoveTree(active, reveal);
       if (context() && synced) {
         nodeMoves.delete(key);
-        if (op.body.expectedParentId !== op.body.targetParentId) nodeMoveNotices.set(key, 'Слой перемещён к новому родителю.');
+        nodeMoveNotices.set(key, op.body.expectedParentId !== op.body.targetParentId ? 'Слой перемещён к новому родителю.' : 'Порядок слоёв изменён.');
+        if (layerSelection?.id === op.body.nodeId && restoreFocus &&
+            (element('layers').contains(document.activeElement) || document.activeElement === document.body || document.activeElement === element('node-order-retry'))) {
+          renderLayers(op.body.nodeId);
+          element('layers').querySelector('[role=treeitem][aria-selected=true]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        }
       } else op.state = 'uncertain';
     } catch (error) {
-      if (!context() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (!active() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
       if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
       const explanations = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',
@@ -535,7 +450,7 @@ export function createLayers({
   async function readLayerChildren(base, parentId, signal, revision, isCurrent) {
     const items = []; let total;
     do {
-      const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields: 'name,kind,childCount,properties', revision: String(revision) });
+      const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields: 'name,kind,childCount,properties,canContainChildren', revision: String(revision) });
       const result = await request(`${base}/children/${encodeURIComponent(parentId)}?${query}`, {}, signal, isCurrent);
       total = result.total;
       if (!result.items.length && items.length < total) throw new Error('Не удалось загрузить все слои. Обновите страницы.');
@@ -586,6 +501,11 @@ export function createLayers({
     if (!row) return;
     const rows = [...element('layers').querySelectorAll('[role=treeitem]')], index = rows.indexOf(row);
     let target;
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+      event.preventDefault(); event.stopPropagation();
+      if (canMove() && row.dataset.id === layerSelection?.id) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1);
+      return;
+    }
     if (event.key === 'ArrowDown') target = rows[index + 1];
     else if (event.key === 'ArrowUp') target = rows[index - 1];
     else if (event.key === 'Home') target = rows[0];
@@ -610,7 +530,7 @@ export function createLayers({
     async function readBranch(parent) {
       const items = await readLayerChildren(base, parent, signal, revision, isCurrent);
       if (!isCurrent()) return [];
-      for (const item of items) if (expanded.has(item.id)) children.set(item.id, await readBranch(item.id));
+      for (const item of items) if (item.childCount > 0 || expanded.has(item.id)) children.set(item.id, await readBranch(item.id));
       return items;
     }
     try {
@@ -627,6 +547,7 @@ export function createLayers({
   }
 
   function applySnapshot({ screen, roots, children, expanded }, selection) {
+    drag.cancel();
     layerController?.abort();
     layerGeneration++;
     layerRoots = roots; layerChildren = children; layerExpanded = expanded;
@@ -648,6 +569,7 @@ export function createLayers({
 
   function selectFromCanvas(item, nodes, confirmed = false) {
     if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true))) return false;
+    drag.cancel();
     const byId = new Map(nodes.map(node => [node.id, node]));
     const branches = new Map();
     for (const node of nodes) {
@@ -674,11 +596,11 @@ export function createLayers({
     clearSelection() {
       if (!layerSelection) return;
       layerSelection = null; layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
-      closeNodeReparent(); renderNodeMetadata(); renderNodeOrder(); renderLayers();
+      drag.cancel(); renderNodeMetadata(); renderNodeOrder(); renderLayers();
       element('inspector-selection').textContent = 'Выберите слой.';
       onSelectionCleared();
     },
-    onScreenContextChanged: () => { screenContextEpoch++; },
+    onScreenContextChanged: () => { drag.cancel(); screenContextEpoch++; },
     get selection() { return layerSelection; },
     get hasLayers() { return layerRoots.length > 0; }
   };

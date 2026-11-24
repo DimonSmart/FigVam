@@ -245,20 +245,6 @@
           <section aria-labelledby="layers-title"><h2 id="layers-title">Слои выбранного экрана</h2>
             <p id="layers-status" role="status" aria-live="polite">Выберите экран.</p>
             <div id="layers" role="tree" aria-label="Слои экрана"></div>
-            <div id="node-order" hidden>
-              <button id="node-earlier" type="button">Переместить слой раньше</button>
-              <button id="node-later" type="button">Переместить слой позже</button>
-              <button id="node-reparent" type="button" aria-controls="node-reparent-form" aria-expanded="false">Сменить родителя слоя</button>
-            </div>
-            <form id="node-reparent-form" aria-label="Смена родителя слоя" hidden>
-              <p id="node-reparent-status" role="status" tabindex="-1"></p>
-              <label>Новый родитель <select id="node-reparent-target" required></select></label>
-              <label>Позиция среди детей <input id="node-reparent-position" type="number" min="1" step="1" required aria-describedby="node-reparent-range"></label>
-              <p id="node-reparent-range"></p>
-              <button type="submit" id="node-reparent-submit">Переместить к новому родителю</button>
-              <button type="button" id="node-reparent-reload" hidden>Повторить загрузку родителей</button>
-              <button type="button" id="node-reparent-cancel">Отмена</button>
-            </form>
             <p id="node-order-status" role="status" tabindex="-1"></p>
             <button id="node-order-retry" type="button" hidden>Повторить перемещение слоя</button>
             <p id="node-delete-status" role="alert"></p><button id="node-delete-retry" type="button" hidden>Повторить удаление слоя</button>
