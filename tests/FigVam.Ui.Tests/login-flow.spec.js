@@ -156,37 +156,59 @@ test('designs two linked login screens and previews invalid password through UI'
   const frame = await addLayer(page, 'Frame', background);
   await saveProperties(page, { X: 220, Y: 100, 'Ширина': 360, 'Высота': 400,
     'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#E2E8F0', 'Радиус углов': 16 });
+  // The dialog uses Free layout: child coordinates below are relative to its padded content.
+  await show(page, 'assets');
+  await page.getByLabel('Имя токена', { exact: true }).fill('spacing.dialog');
+  await page.getByLabel('Тип токена').selectOption('Spacing');
+  await page.getByLabel('Light', { exact: true }).fill('32');
+  await page.getByLabel('Dark', { exact: true }).fill('32');
+  await page.getByRole('button', { name: 'Создать токен' }).click();
+  await expect(page.locator('#token-values')).toHaveText('Light: 32; Dark: 32');
+  await selectLayer(page, frame);
+  const padding = page.locator('#visual-inspector .padding-editor');
+  await padding.getByLabel('Отступ сверху', { exact: true }).fill('24');
+  await padding.getByLabel('Отступ снизу', { exact: true }).fill('16');
+  await padding.getByLabel('Отступ слева', { exact: true }).fill('32');
+  const right = padding.locator('[data-side=right].padding-editor-field');
+  await right.getByRole('button', { name: 'Привязать токен' }).click();
+  await right.getByRole('dialog').getByRole('button', { name: /spacing.dialog/ }).click();
+  await saveProperties(page, { 'Между элементами': 12 });
+  await expect(right.locator('.token-value-name')).toHaveText('spacing.dialog');
   await demo.step('Effects: тень диалога', 'Добавляем Drop shadow штатным Inspector.');
   const dialogShadow = { geometry: { X: 0, Y: 12, Blur: 32, Spread: 0 }, color: '#0F172A', alpha: 41 };
   await saveProperties(page, {}, {}, {}, dialogShadow);
   await demo.step('Добавляем заголовок и подзаголовок', 'Типографика формирует иерархию карточки.');
   const title = await addLayer(page, 'Text', frame);
-  await saveProperties(page, { X: 32, Y: 28, 'Ширина': 296, 'Высота': 36, 'Текст': 'Sign in',
+  await saveProperties(page, { X: 0, Y: 4, 'Ширина': 296, 'Высота': 36, 'Текст': 'Sign in',
     'Размер шрифта': 26, 'Цвет текста': '#0F172A' }, {}, { 'Толщина шрифта — пресет': 'Bold' });
   await addLayer(page, 'Text', frame);
-  await saveProperties(page, { X: 32, Y: 64, 'Ширина': 296, 'Высота': 24,
+  await saveProperties(page, { X: 0, Y: 40, 'Ширина': 296, 'Высота': 24,
     'Текст': 'Welcome back to your account.', 'Размер шрифта': 14, 'Цвет текста': '#64748B' });
   await demo.step('Добавляем имя пользователя', 'Label и TextInput без тени.');
   await addLayer(page, 'Text', frame);
-  await saveProperties(page, { X: 32, Y: 100, 'Ширина': 296, 'Высота': 24, 'Текст': 'Username',
+  await saveProperties(page, { X: 0, Y: 76, 'Ширина': 296, 'Высота': 24, 'Текст': 'Username',
     'Размер шрифта': 13, 'Цвет текста': '#334155' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
   const username = await addLayer(page, 'TextInput', frame);
-  await saveProperties(page, { X: 32, Y: 130, 'Ширина': 296, 'Высота': 44, 'Подсказка': 'Username',
+  await saveProperties(page, { X: 0, Y: 106, 'Ширина': 296, 'Высота': 44, 'Подсказка': 'Username',
     'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#CBD5E1', 'Радиус углов': 8, 'Размер шрифта': 14 });
   await demo.step('Добавляем пароль', 'Password TextInput сохраняет нативную маскировку.');
   await addLayer(page, 'Text', frame);
-  await saveProperties(page, { X: 32, Y: 188, 'Ширина': 296, 'Высота': 24, 'Текст': 'Password',
+  await saveProperties(page, { X: 0, Y: 164, 'Ширина': 296, 'Высота': 24, 'Текст': 'Password',
     'Размер шрифта': 13, 'Цвет текста': '#334155' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
   const password = await addLayer(page, 'TextInput', frame);
-  await saveProperties(page, { X: 32, Y: 218, 'Ширина': 296, 'Высота': 44, 'Подсказка': 'Password',
+  await saveProperties(page, { X: 0, Y: 194, 'Ширина': 296, 'Высота': 44, 'Подсказка': 'Password',
     'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#CBD5E1', 'Радиус углов': 8, 'Размер шрифта': 14 }, {}, { 'Тип ввода': 'Password' });
   await demo.step('Оформляем кнопку Login', 'Primary action с собственным цветом и скруглением.');
   const loginButton = await addLayer(page, 'Button', frame);
-  await saveProperties(page, { X: 32, Y: 292, 'Ширина': 296, 'Высота': 44, 'Текст': 'Login',
+  await saveProperties(page, { X: 0, Y: 268, 'Ширина': 296, 'Высота': 44, 'Текст': 'Login',
     'Цвет фона': '#2563EB', 'Толщина рамки': 0, 'Радиус углов': 8, 'Размер шрифта': 15,
     'Цвет текста': '#FFFFFF' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
   await demo.step('Effects: тень кнопки', 'Второй, более лёгкий уровень elevation.');
   await saveProperties(page, {}, {}, {}, { geometry: { X: 0, Y: 4, Blur: 8, Spread: 0 }, color: '#2563EB', alpha: 61 });
+  await selectLayer(page, frame);
+  await padding.scrollIntoViewIfNeeded();
+  await expect(padding).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('login-padding-editor.png'), animations: 'disabled' });
   const original = await read();
   expect(original.screens).toHaveLength(1);
   const property = (id, name) => original.nodes.find(node => node.id === id).properties[name];
@@ -194,6 +216,11 @@ test('designs two linked login screens and previews invalid password through UI'
     color: { red: 15, green: 23, blue: 42, alpha: 41 } };
   const buttonEffect = { type: 'shadow', offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0,
     color: { red: 37, green: 99, blue: 235, alpha: 61 } };
+  expect(property(frame, 'paddingTop')).toEqual({ type: 'number', value: 24 });
+  expect(property(frame, 'paddingRight').type).toBe('token');
+  expect(property(frame, 'paddingBottom')).toEqual({ type: 'number', value: 16 });
+  expect(property(frame, 'paddingLeft')).toEqual({ type: 'number', value: 32 });
+  expect(property(frame, 'gap')).toEqual({ type: 'number', value: 12 });
   expect(property(frame, 'shadow')).toEqual(dialogEffect);
   expect(property(loginButton, 'shadow')).toEqual(buttonEffect);
   expect(property(username, 'shadow')).toBeUndefined();
@@ -227,7 +254,7 @@ test('designs two linked login screens and previews invalid password through UI'
   const copiedBackgroundRow = page.locator('#layers [data-id="' + copiedBackground + '"]');
   if (await copiedBackgroundRow.getAttribute('aria-expanded') === 'false') await copiedBackgroundRow.locator(':scope > .layer-label').click();
   const error = await addLayer(page, 'Text', copiedFrame);
-  await saveProperties(page, { X: 32, Y: 344, 'Ширина': 296, 'Высота': 24, 'Текст': 'Invalid password', 'Размер шрифта': 13, 'Цвет текста': '#B91C1C' });
+  await saveProperties(page, { X: 0, Y: 320, 'Ширина': 296, 'Высота': 24, 'Текст': 'Invalid password', 'Размер шрифта': 13, 'Цвет текста': '#B91C1C' });
   const structure = await read();
   expect(structure.screens).toHaveLength(2);
   expect(structure.screens.every(screen => screen.variants.length === 0)).toBe(true);

@@ -88,6 +88,14 @@ jobs:
       - name: Login prototype E2E
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test login-flow.spec.js --workers=1 --trace retain-on-failure
+      - name: Upload login padding screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-padding-editor
+          path: tests/FigVam.Ui.Tests/test-results/**/login-padding-editor.png
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Playwright tests
         # A smoke failure must not hide independent regression failures or overwrite its trace.
         if: ${{ !cancelled() && steps.chromium.outcome == 'success' }}

@@ -346,10 +346,10 @@ test('compact numeric control binds, switches and unlinks aliases without auto-s
 
   const panel = page.locator('#visual-inspector');
   const row = panel.locator('.node-property--token').filter({
-    has: page.locator('.token-value-label', { hasText: 'Промежуток' })
+    has: page.locator('.token-value-label', { hasText: 'Между элементами' })
   });
   const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
-  const direct = row.getByRole('spinbutton', { name: 'Промежуток' });
+  const direct = row.getByRole('spinbutton', { name: 'Между элементами' });
   await expect(row.getByText('Источник')).toHaveCount(0);
   await direct.fill('7.5');
   await save.click();
@@ -358,7 +358,7 @@ test('compact numeric control binds, switches and unlinks aliases without auto-s
     .toEqual(number(7.5));
 
   await row.getByRole('button', { name: 'Привязать токен' }).click();
-  const menu = row.getByRole('dialog', { name: 'Промежуток — дизайн-токены' });
+  const menu = row.getByRole('dialog', { name: 'Между элементами — дизайн-токены' });
   await menu.getByRole('searchbox', { name: 'Поиск токена' }).fill('space.alias');
   await menu.getByRole('button', { name: /space.alias/ }).click();
   await expect(row.locator('.token-value-name')).toHaveText('space.alias');
@@ -661,4 +661,140 @@ test('Viewer can inspect saved shadow but cannot add, edit or remove it', async 
   await expect(effects.getByLabel('Drop shadow Blur', { exact: true })).toHaveValue('8');
   await expect(effects.getByLabel('Drop shadow Blur', { exact: true })).toBeDisabled();
   await expect(effects.getByRole('button', { name: 'Remove drop shadow' })).toBeHidden();
+});
+
+
+test('padding editor retains individual controls, tokens, drafts, history and variant overrides', async ({ page, request }) => {
+  test.setTimeout(90_000);
+  const { documentId, screenId, nodeId, base } = await seedText(request);
+  const frameId = randomUUID(), tokenId = randomUUID(), variantId = randomUUID();
+  const command = (name, data) => post(request, base + '/commands/' + name, {
+    commandId: randomUUID(), ...data
+  });
+  await command('add-node', { nodeId: frameId, parentId: screenId, kind: 'Frame' });
+  const spacing = value => ({ expression: 'literal', value: { type: 'spacing', value } });
+  const tokenName = 'spacing.extremely-long-name-for-a-narrow-inspector';
+  await command('add-token', { tokenId, name: tokenName, type: 1,
+    values: { Light: spacing(32), Dark: spacing(40) } });
+  await command('add-screen-variant', { screenId, variantId, name: 'Alternate' });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await show(page, 'design');
+  const select = id => page.locator('[role=treeitem][data-id="' + id + '"]').press('Enter');
+  const panel = page.locator('#visual-inspector');
+  const editor = panel.locator('.padding-editor');
+  const gap = panel.locator('.padding-gap-row');
+  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
+  const saved = () => expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  const sides = [['top', 'Top', 24], ['right', 'Right', 32], ['bottom', 'Bottom', 16], ['left', 'Left', 32]];
+  const input = side => panel.locator('#visual-property-padding' + side);
+  const slot = side => editor.locator('.padding-editor-field[data-side="' + side + '"]');
+  const properties = async () => (await readNodes(request, base, screenId)).find(node => node.id === frameId).properties;
+  await select(nodeId);
+  await expect(editor).toHaveCount(0);
+  await select(frameId);
+  await expect(editor).toHaveCount(1);
+  await expect(gap).toBeVisible();
+  for (const [side, name] of sides) {
+    await expect(input(name)).toHaveCount(1);
+    await expect(slot(side).locator('input[type=number]')).toHaveAttribute('id', 'visual-property-padding' + name);
+    await expect(input(name)).toHaveValue('0');
+    const target = editor.locator('.padding-editor-side[data-side="' + side + '"]');
+    await input(name).hover();
+    await expect(target).toHaveCSS('box-shadow', /inset/);
+    await target.click();
+    await expect(input(name)).toBeFocused();
+    await expect(target).toHaveCSS('box-shadow', /inset/);
+  }
+  const bounds = await Promise.all(sides.map(([side]) => slot(side).boundingBox()));
+  const [top, right, bottom, left] = bounds;
+  expect(Math.abs(top.x - bottom.x)).toBeLessThan(1);
+  expect(Math.abs(left.y - right.y)).toBeLessThan(1);
+  expect(left.x).toBeLessThan(top.x);
+  expect(right.x).toBeGreaterThan(top.x);
+  expect(top.y).toBeLessThan(left.y);
+  expect(bottom.y).toBeGreaterThan(left.y);
+  await input('Top').fill('-1');
+  await expect(input('Top')).toHaveAttribute('aria-invalid', 'true');
+  await expect(input('Right')).not.toHaveAttribute('aria-invalid', 'true');
+  for (const [, name, value] of sides) await input(name).fill(String(value));
+  await gap.getByRole('spinbutton', { name: 'Между элементами' }).fill('12');
+  await input('Top').focus();
+  await input('Top').evaluate(el => el.dataset.instance = 'retained');
+  // An unrelated remote property update must not replace a live padding draft.
+  await command('set-node-properties', { nodeId: frameId, properties: { width: number(320) } });
+  await expect(panel.getByLabel('Ширина', { exact: true })).toHaveValue('320');
+  await expect(input('Top')).toBeFocused();
+  await expect(input('Top')).toHaveAttribute('data-instance', 'retained');
+  await expect(input('Top')).toHaveValue('24');
+  await save.click();
+  await saved();
+  for (const [, name, value] of sides)
+    expect((await properties())['padding' + name]).toEqual(number(value));
+  expect((await properties()).gap).toEqual(number(12));
+
+  const rightSlot = slot('right');
+  await rightSlot.getByRole('button', { name: 'Привязать токен' }).click();
+  await rightSlot.getByRole('dialog').getByRole('button', { name: new RegExp(tokenName) }).click();
+  await expect(rightSlot.locator('.token-value-name')).toHaveText(tokenName);
+  await expect(rightSlot.locator('.token-value-reference')).toHaveAttribute('title', /32/);
+  expect(await editor.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await save.click();
+  await saved();
+  expect((await properties()).paddingRight).toEqual({ type: 'token', tokenId });
+  await page.getByRole('button', { name: 'Отменить действие', exact: true }).click();
+  await expect(input('Right')).toHaveValue('32');
+  await page.getByRole('button', { name: 'Повторить действие', exact: true }).click();
+  await expect(rightSlot.locator('.token-value-name')).toHaveText(tokenName);
+  await editor.locator('.padding-editor-side[data-side=right]').click();
+  await expect(rightSlot.getByRole('button', { name: 'Изменить привязку токена' })).toBeFocused();
+  await rightSlot.getByRole('button', { name: 'Изменить привязку токена' }).click();
+  await rightSlot.getByRole('button', { name: 'Отвязать токен' }).click();
+  await expect(input('Right')).toHaveValue('32');
+  await save.click();
+  await saved();
+
+  await show(page, 'assets');
+  await page.locator('#screen-variants-list [data-variant-id="' + variantId + '"]').click();
+  await show(page, 'design');
+  await input('Bottom').fill('20');
+  await save.click();
+  await saved();
+  await expect(slot('bottom').locator('.node-property')).toHaveAttribute('data-variant-override', 'true');
+  expect((await properties()).paddingBottom).toEqual(number(16));
+  await slot('bottom').getByRole('button', { name: 'Reset Override' }).click();
+  await expect(input('Bottom')).toHaveValue('16');
+  await show(page, 'assets');
+  await page.locator('#screen-variants-list [data-variant-id=""]').click();
+  await show(page, 'design');
+  await select(nodeId);
+  await select(frameId);
+  for (const [, name, value] of sides) await expect(input(name)).toHaveValue(String(value));
+  await expect(gap.getByRole('spinbutton')).toHaveValue('12');
+  await panel.locator('#visual-property-layout').selectOption('Vertical');
+  await expect(gap.locator('.padding-gap-icon')).toHaveCSS('flex-direction', 'column');
+  await panel.locator('#visual-property-layout').selectOption('Horizontal');
+  await expect(gap.locator('.padding-gap-icon')).toHaveCSS('flex-direction', 'row');
+});
+
+test('padding editor preserves missing token feedback and read-only controls', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    const { createPropertyControl } = await import('/node-property-controls.js');
+    const { paddingProperties, createPaddingEditor, updatePaddingEditor } = await import('/padding-editor.js');
+    const definition = { type: 'Number', tokenType: 'Spacing', defaultValue: { type: 'number', value: 0 }, minimum: 0 };
+    const model = { tokens: new Map(), assets: new Map() };
+    const fields = new Map(paddingProperties.map(name => [name, createPropertyControl(name, definition, model,
+      name === 'paddingTop' ? { type: 'token', tokenId: 'missing' } : undefined, 'test-padding')]));
+    const root = createPaddingEditor();
+    updatePaddingEditor(root, fields, (parent, children) => parent.replaceChildren(...children));
+    document.body.append(root);
+    for (const field of fields.values()) field.setDisabled(true);
+    return { invalid: Boolean(fields.get('paddingTop').validate().error),
+      invalidLink: root.querySelector('#test-padding-paddingTop-1').getAttribute('aria-invalid'),
+      disabled: [...root.querySelectorAll('input[type=number]')].every(input => input.disabled),
+      linkEnabled: !root.querySelector('#test-padding-paddingTop-1').disabled };
+  });
+  expect(result).toEqual({ invalid: true, invalidLink: 'true', disabled: true, linkEnabled: true });
 });

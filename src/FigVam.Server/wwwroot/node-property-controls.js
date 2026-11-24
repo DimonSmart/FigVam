@@ -3,7 +3,7 @@ const labels = {
   x: 'X', y: 'Y', width: 'Ширина', height: 'Высота',
   widthMode: 'Режим ширины', heightMode: 'Режим высоты', visible: 'Видимость', opacity: 'Непрозрачность',
   layout: 'Компоновка', paddingTop: 'Отступ сверху', paddingRight: 'Отступ справа',
-  paddingBottom: 'Отступ снизу', paddingLeft: 'Отступ слева', gap: 'Промежуток',
+  paddingBottom: 'Отступ снизу', paddingLeft: 'Отступ слева', gap: 'Между элементами',
   mainAlignment: 'Выравнивание вдоль оси', crossAlignment: 'Выравнивание поперёк оси',
   overflow: 'Переполнение', text: 'Текст', textColor: 'Цвет текста', textAlignment: 'Выравнивание текста',
   fontSize: 'Размер шрифта', fontFamily: 'Семейство шрифта', fontFallback: 'Запасное семейство шрифта',

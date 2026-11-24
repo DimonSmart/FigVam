@@ -28,6 +28,7 @@ public static class EditorEndpoints
         MapFile("/visual-screen.js", "visual-screen.js", "text/javascript; charset=utf-8");
         MapFile("/visual-node-editor.js", "visual-node-editor.js", "text/javascript; charset=utf-8");
         MapFile("/node-property-controls.js", "node-property-controls.js", "text/javascript; charset=utf-8");
+        MapFile("/padding-editor.js", "padding-editor.js", "text/javascript; charset=utf-8");
         MapFile("/token-value-control.js", "token-value-control.js", "text/javascript; charset=utf-8");
         MapFile("/token-resolution.js", "token-resolution.js", "text/javascript; charset=utf-8");
         MapFile("/screen-renderer.js", "screen-renderer.js", "text/javascript; charset=utf-8");

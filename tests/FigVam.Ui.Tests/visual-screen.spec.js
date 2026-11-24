@@ -137,12 +137,12 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await page.locator(`#layers [data-id="${stack}"] > .layer-label`).click();
   const inspector = page.locator('#visual-inspector');
   const gap = inspector.locator('.node-property--token').filter({
-    has: page.locator('.token-value-label', { hasText: 'Промежуток' })
+    has: page.locator('.token-value-label', { hasText: 'Между элементами' })
   });
-  await expect(gap.getByRole('spinbutton', { name: 'Промежуток' })).toHaveValue('8');
+  await expect(gap.getByRole('spinbutton', { name: 'Между элементами' })).toHaveValue('8');
   await expect(gap.getByText('Источник')).toHaveCount(0);
   await gap.getByRole('button', { name: 'Привязать токен' }).click();
-  const menu = gap.getByRole('dialog', { name: 'Промежуток — дизайн-токены' });
+  const menu = gap.getByRole('dialog', { name: 'Между элементами — дизайн-токены' });
   await expect(menu.getByRole('button', { name: /Panel/ })).toHaveCount(0);
   await menu.getByRole('button', { name: /Field spacing/ }).click();
   await expect(gap.locator('.token-value-name')).toHaveText('Field spacing');
