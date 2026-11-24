@@ -14,6 +14,7 @@ namespace FigVam.Domain.Documents;
 [JsonDerivedType(typeof(NodeTypographyValue), "typography")]
 [JsonDerivedType(typeof(NodeEnumValue), "enum")]
 [JsonDerivedType(typeof(NodeColorValue), "color")]
+[JsonDerivedType(typeof(NodeShadowValue), "shadow")]
 public abstract record NodePropertyValue;
 public sealed record NodeStringValue(string Value) : NodePropertyValue;
 public sealed record NodeNumberValue(double Value) : NodePropertyValue;
@@ -26,7 +27,14 @@ public sealed record NodeEnumValue(string Value) : NodePropertyValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record NodeColorValue([property: JsonRequired] byte Red, [property: JsonRequired] byte Green,
     [property: JsonRequired] byte Blue, byte Alpha = 255) : NodePropertyValue;
-public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color, StyleReference }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record NodeShadowValue(
+    [property: JsonRequired] double OffsetX,
+    [property: JsonRequired] double OffsetY,
+    [property: JsonRequired] double BlurRadius,
+    [property: JsonRequired] double SpreadRadius,
+    [property: JsonRequired] NodeColorValue Color) : NodePropertyValue;
+public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color, StyleReference, Shadow }
 
 // The profile supplies target-specific restrictions and their diagnostic reasons.
 public sealed record NodePropertyDefinition(
@@ -68,6 +76,7 @@ public static class NodePropertyValidator
             (NodePropertyType.StyleReference, NodeStyleValue) => true,
             (NodePropertyType.Enum, NodeEnumValue) => true,
             (NodePropertyType.Color, NodeColorValue) => true,
+            (NodePropertyType.Shadow, NodeShadowValue) => true,
             (NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum, NodeTokenValue)
                 => definition.TokenType is not null,
             (NodePropertyType.Enum, NodeNumberValue) => definition.NumericFontWeight,
@@ -79,6 +88,11 @@ public static class NodePropertyValidator
                 ? $"{definition.Type} or a {tokenType} token" : definition.Type.ToString();
             return new("INVALID_PROPERTY_TYPE", $"Property '{property}' requires {expected}.");
         }
+        if (value is NodeShadowValue shadow &&
+            (!InRange(shadow.OffsetX, -1024, 1024) || !InRange(shadow.OffsetY, -1024, 1024) ||
+             !InRange(shadow.BlurRadius, 0, 256) || !InRange(shadow.SpreadRadius, -256, 256) ||
+             shadow.Color is null))
+            return new("INVALID_PROPERTY_VALUE", "Shadow requires finite offsets in [-1024, 1024], blur in [0, 256], spread in [-256, 256] and a color.");
         if (value is NodeEnumValue item && definition.EnumValues?.Contains(item.Value) != true)
             return new("INVALID_PROPERTY_VALUE", $"Property '{property}' requires a declared enum value.");
         if (value is NodeNumberValue { Value: var weight } && definition.NumericFontWeight &&
@@ -105,6 +119,8 @@ public static class NodePropertyValidator
             return null;
         return definition.ValidateValue?.Invoke(value!) is { } reason ? new("INVALID_PROPERTY_VALUE", reason) : null;
     }
+
+    private static bool InRange(double value, double min, double max) => double.IsFinite(value) && value >= min && value <= max;
 
     // Shared conversion for layout, variants, and component-bound properties.
     internal static (NodePropertyValue? Value, NodePropertyError? Error) ResolveValueToken(

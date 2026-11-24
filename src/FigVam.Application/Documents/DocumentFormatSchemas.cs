@@ -24,7 +24,7 @@ public static class DocumentFormatSchemas
         var profile = schema["properties"]!["document"]!["properties"]!["profile"]!;
         profile["properties"]!["id"]!["minLength"] = 1;
         profile["properties"]!["id"]!["maxLength"] = 128;
-        profile["properties"]!["version"]!["const"] = 4;
+        profile["properties"]!["version"]!["const"] = FigVam.Domain.Documents.PortableUiProfileReference.Current.Version;
         return schema;
     }
 

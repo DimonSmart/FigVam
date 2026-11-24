@@ -4,7 +4,7 @@ public sealed record PortableUiProfileReference(
     [property: System.Text.Json.Serialization.JsonRequired] string Id,
     [property: System.Text.Json.Serialization.JsonRequired] int Version)
 {
-    public static PortableUiProfileReference Current { get; } = new("figvam.portable-ui", 4);
+    public static PortableUiProfileReference Current { get; } = new("figvam.portable-ui", 5);
 }
 
 public sealed record ProfileResolutionDiagnostic(string Code, string Message);

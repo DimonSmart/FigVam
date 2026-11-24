@@ -151,6 +151,8 @@ public sealed class VisualNodeProfile : INodeProfile
             ("heightMode", Options(LayoutSizeMode.Fixed)),
             ("opacity", Number(1, 0, 1)),
             ("visible", Boolean(true)),
+            .. (role == NodeSemanticRole.Text ? Array.Empty<(string, NodePropertyDefinition)>() :
+                new (string, NodePropertyDefinition)[] { ("shadow", new(NodePropertyType.Shadow)) }),
             .. properties
         ];
         return new(name, role, children, all.ToFrozenDictionary(pair => pair.Name, pair => pair.Definition, StringComparer.Ordinal),

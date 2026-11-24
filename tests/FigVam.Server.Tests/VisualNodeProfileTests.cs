@@ -161,6 +161,47 @@ public sealed class VisualNodeProfileTests : IDisposable
             .ReadAsync(document.Id, asset.Id, owner, versionId: saved.VersionId)).Content!.Content);
     }
 
+    [Theory]
+    [InlineData("Frame")]
+    [InlineData("Button")]
+    [InlineData("TextInput")]
+    [InlineData("Image")]
+    public void ShadowIsOptionalAndTyped(string kind)
+    {
+        var definition = profile.GetProperty(kind, "shadow")!;
+        Assert.Equal(NodePropertyType.Shadow, definition.Type);
+        Assert.False(definition.Required);
+        Assert.Null(definition.DefaultValue);
+        Assert.Null(definition.TokenType);
+        var shadow = new NodeShadowValue(-3, 12, 32, -2, new(15, 23, 42, 41));
+        Assert.Null(NodePropertyValidator.Validate(profile, kind, "shadow", shadow));
+        Assert.Equal(shadow, JsonSerializer.Deserialize<NodePropertyValue>(JsonSerializer.Serialize<NodePropertyValue>(shadow)));
+        Assert.Equal("UNSUPPORTED_PROPERTY", NodePropertyValidator.Validate(profile, "Text", "shadow", shadow)!.Code);
+        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, kind, "shadow", new NodeStringValue("shadow"))!.Code);
+        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, kind, "shadow", new NodeTokenValue(Guid.NewGuid()))!.Code);
+        foreach (var invalid in new[] { shadow with { BlurRadius = -1 }, shadow with { BlurRadius = 257 },
+            shadow with { OffsetX = double.NaN }, shadow with { OffsetY = double.PositiveInfinity },
+            shadow with { SpreadRadius = double.NegativeInfinity }, shadow with { OffsetX = 1025 },
+            shadow with { SpreadRadius = -257 }, shadow with { Color = null! } })
+            Assert.Equal("INVALID_PROPERTY_VALUE", NodePropertyValidator.Validate(profile, kind, "shadow", invalid)!.Code);
+    }
+
+    [Fact]
+    public void ShadowJsonRequiresAllFieldsAndRejectsUnknownMembers()
+    {
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var shadow = new NodeShadowValue(0, 4, 8, 0, new(0, 0, 0, 38));
+        var json = System.Text.Json.Nodes.JsonNode.Parse(JsonSerializer.Serialize<NodePropertyValue>(shadow, options))!.AsObject();
+        foreach (var name in new[] { "offsetX", "offsetY", "blurRadius", "spreadRadius", "color" })
+        {
+            var missing = json.DeepClone().AsObject();
+            missing.Remove(name);
+            Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<NodePropertyValue>(missing.ToJsonString(), options));
+        }
+        json["unknown"] = true;
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<NodePropertyValue>(json.ToJsonString(), options));
+    }
+
     private static DesignToken Token(TokenType type, TokenValue value)
     {
         var literal = new LiteralTokenValue(value);
