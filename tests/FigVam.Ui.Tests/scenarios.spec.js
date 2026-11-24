@@ -128,7 +128,6 @@ test('creates named interaction with multiple actions, overview, marker, and del
   await screen(page, 'Start'); await expect(card(page)).toHaveCount(1);
   await card(page).getByRole('button', { name: 'Source · По нажатию' }).click();
   await expect(page.getByRole('treeitem', { name: /Source, Button/ })).toHaveAttribute('aria-selected', 'true');
-  await page.waitForTimeout(0);
   page.once('dialog', async dialog => { expect(dialog.message()).toContain('Source'); expect(dialog.message()).not.toMatch(guids); await dialog.dismiss(); });
   await card(page).getByRole('button', { name: /^Удалить сценарий/ }).click();
   expect((await f.catalog()).items).toHaveLength(1);
@@ -206,7 +205,7 @@ test('overlay context and navigation variant context stay distinct; null and emp
     { type: 'selectDataset', datasetId: null }
   ];
   expect((await f.catalog()).items[0].actions).toEqual(expected);
-  await page.reload(); await open(page, f);
+  await open(page, f);
   await edit(page);
   await expect(actions(page)).toHaveCount(9);
   await expect(actions(page).nth(3).getByLabel('Значение null')).toBeChecked();
@@ -371,4 +370,69 @@ test('potential action types are available before choosing a target; server rest
   await pick(page, 0, 'Целевой экран', 'Destination');
   await expect(actions(page).first()).toContainText('Параметры не поддерживаются');
   await expect(save(page)).toBeDisabled();
+});
+
+test('undo and redo update the scenario and layer marker together', async ({ page, request }) => {
+  const f = await setup(request); await open(page, f); await resetDraft(page); await persist(page);
+  const row = page.getByRole('treeitem', { name: /Source, Button/ });
+  await expect(row.locator('.layer-interaction')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Отменить действие', exact: true }).click();
+  await expect(row.locator('.layer-interaction')).toHaveCount(0);
+  await expect(card(page)).toHaveCount(0);
+  expect((await f.catalog()).items).toHaveLength(0);
+  await page.getByRole('button', { name: 'Повторить действие', exact: true }).click();
+  await expect(row.locator('.layer-interaction')).toHaveCount(1);
+  await expect(card(page)).toHaveCount(1);
+  expect((await f.catalog()).items).toHaveLength(1);
+});
+
+test('failed object catalog read cannot be mistaken for an empty scenario list', async ({ page, request }) => {
+  const f = await setup(request); await f.add();
+  await page.route('**/datasets?*', route => {
+    if (new URL(route.request().url()).searchParams.get('limit') === '100') return route.fulfill({ status: 503, json: {} });
+    return route.continue();
+  });
+  await open(page, f);
+  await expect(page.locator('#scenarios-status')).toContainText('Не удалось');
+  await expect(page.getByRole('treeitem', { name: /Source, Button/ }).locator('.layer-interaction')).toHaveCount(1);
+  await page.unroute('**/datasets?*');
+  await page.getByRole('button', { name: 'Повторить загрузку сценариев' }).click();
+  await expect(card(page)).toHaveCount(1);
+});
+
+test('late capability response cannot populate another node draft', async ({ page, request }) => {
+  const f = await setup(request); await open(page, f);
+  let release, entered;
+  const gate = new Promise(r => release = r), held = new Promise(r => entered = r);
+  await page.route('**/scenario-capabilities?*', async route => {
+    if (new URL(route.request().url()).searchParams.get('nodeId') !== f.source) return route.continue();
+    const response = await route.fetch(); entered(); await gate;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await layer(page, 'Source');
+  await page.getByRole('button', { name: 'Добавить взаимодействие', exact: true }).click();
+  await held;
+  await layer(page, 'Second');
+  await page.getByRole('button', { name: 'Добавить взаимодействие', exact: true }).click();
+  await expect(page.locator('#scenario-edit-source')).toContainText('Second');
+  release();
+  await type(page, 0, 'Сбросить Preview'); await persist(page);
+  expect((await f.catalog()).items[0].nodeId).toBe(f.second);
+});
+
+test('actions can be edited using keyboard controls and cannot exceed the action limit', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const f = await setup(request); await f.add(f.source, Array.from({ length: 32 }, () => ({ type: 'resetPreview' })));
+  await open(page, f); await edit(page);
+  await expect(actions(page)).toHaveCount(32);
+  await expect(page.getByRole('button', { name: 'Добавить действие', exact: true })).toBeDisabled();
+  const remove = page.getByRole('button', { name: 'Удалить действие 32', exact: true });
+  await remove.focus(); await remove.press('Enter');
+  await expect(actions(page)).toHaveCount(31);
+  const add = page.getByRole('button', { name: 'Добавить действие', exact: true });
+  await add.focus(); await add.press('Enter');
+  await expect(actions(page)).toHaveCount(32);
+  await type(page, 31, 'Закрыть оверлей');
+  await persist(page, 'update');
+  expect((await f.catalog()).items[0].actions.at(-1)).toEqual({ type: 'closeOverlay' });
 });

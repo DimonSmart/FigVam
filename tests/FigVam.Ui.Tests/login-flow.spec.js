@@ -104,7 +104,7 @@ async function scenario(page, layerName, eventLabel, targetName, selectOnCanvas 
     await button.click();
   } else {
     await show(page, 'layers');
-    await page.getByRole('treeitem', { name: new RegExp('^' + layerName + ',') }).click();
+    await page.getByRole('treeitem', { name: new RegExp('^' + layerName + ', TextInput') }).click();
   }
   await show(page, 'prototype');
   await page.getByRole('button', { name: 'Добавить взаимодействие', exact: true }).click();

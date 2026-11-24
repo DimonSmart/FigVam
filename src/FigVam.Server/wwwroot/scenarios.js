@@ -26,7 +26,7 @@ export function createScenarios({
     if (!node) return 'Элемент недоступен';
     const display = layerDisplayName(node);
     const caption = display.source === 'missing' ? node.kind : display.text;
-    const duplicates = catalog?.nodes.filter(n => n.screenId === node.screenId && (layerDisplayName(n).source === 'missing' ? n.kind : layerDisplayName(n).text) === caption) ?? [];
+    const duplicates = catalog?.nodes.filter(n => n.screenId === node.screenId && n.kind === node.kind && (layerDisplayName(n).source === 'missing' ? n.kind : layerDisplayName(n).text) === caption) ?? [];
     return duplicates.length > 1 ? (node.label ?? caption) : caption;
   }
   const description = scenario => sourceName(scenario.nodeId) + ' · ' + (eventLabels[scenario.event] ?? 'Неизвестное событие');
