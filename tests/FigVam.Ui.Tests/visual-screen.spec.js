@@ -48,7 +48,7 @@ async function seed(request, minimal = false) {
   const otherLabel = await node(other, 'Text', null, { text: text('Другой экран') });
   if (minimal) {
     const label = await node(screen, 'Text', null, { text: text(plainText) });
-    return { base, documentId, screen, label, otherLabel, assetId, command };
+    return { base, documentId, screen, label, otherLabel, assetId, image, command, read };
   }
   const tokenId = randomUUID(), aliasId = randomUUID();
   await command('add-token', { tokenId, name: 'Panel', type: 0, values: {
@@ -301,4 +301,106 @@ test('paginates both snapshots, discards a delayed screen, and reports a failed 
   await expect(liveText).toHaveText(plainText);
   await command('set-node-property', { nodeId: label, property: 'text', value: text('Изменено в общей ревизии') });
   await expect(liveText).toHaveText('Изменено в общей ревизии');
+});
+
+
+const shadow = (offsetX, offsetY, blurRadius, spreadRadius, red, green, blue, alpha = 255) =>
+  ({ type: 'shadow', offsetX, offsetY, blurRadius, spreadRadius, color: { red, green, blue, alpha } });
+
+test('shadow is shared by Design and Preview, uses effective corner radius and does not change bounds or hit area', async ({ page, request }) => {
+  const { documentId, screen, other, image, command, read } = await seed(request, true);
+  const button = randomUUID();
+  await command('add-node', { nodeId: button, parentId: screen, kind: 'Button',
+    properties: { ...geometry(60, 100, 100, 40), cornerRadius: number(12), text: text('Next') } });
+  await command('create-scenario', { scenario: { id: randomUUID(), screenId: screen, nodeId: button, event: 0,
+    actions: [{ type: 'navigate', screenId: other }] } });
+  const before = await read('screens/' + screen + '/layout');
+  const effect = shadow(0, 10, 8, 4, 15, 23, 42);
+  await command('set-node-property', { nodeId: button, property: 'shadow', value: effect });
+  await command('set-node-property', { nodeId: image, property: 'shadow', value: effect });
+  const after = await read('screens/' + screen + '/layout');
+  expect(after.boxes).toEqual(before.boxes);
+  expect(after.diagnostics).toEqual(before.diagnostics);
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openScreen(page, documentId);
+  const design = page.locator('#screen-boundary');
+  const designButton = design.locator(visual(button));
+  const expected = 'rgb(15, 23, 42) 0px 10px 8px 4px';
+  await expect(designButton).toHaveCSS('box-shadow', expected);
+  await expect(designButton).toHaveCSS('border-radius', '12px');
+  await expect(design.locator(visual(image))).toHaveCSS('border-radius', '0px');
+  await expect(design.locator(visual(image))).toHaveCSS('box-shadow', expected);
+  await expectLayout(page, '#screen-boundary', after);
+  await page.locator('#zoom-in').click();
+  await expect(designButton).toHaveCSS('box-shadow', expected);
+  const current = await read('document.json');
+  expect(current.document.nodes.find(node => node.id === button).properties.shadow).toEqual(effect);
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const root = page.locator('[data-preview-screen="' + screen + '"]');
+  const previewButton = root.locator(visual(button));
+  await expect(previewButton).toHaveCSS('box-shadow', expected);
+  await expect(previewButton).toHaveCSS('border-radius', '12px');
+  const box = await previewButton.boundingBox();
+  const outside = { x: box.x + box.width / 2, y: box.y + box.height + 5 };
+  expect(await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest('[data-visual-node]')?.dataset.visualNode, outside)).not.toBe(button);
+  await page.mouse.click(outside.x, outside.y);
+  await expect(root).toBeVisible();
+  await root.getByRole('button', { name: 'Next' }).click();
+  await expect(page.locator('[data-preview-screen="' + other + '"]')).toBeVisible();
+});
+
+// Read pixels from a deterministic screenshot without modifying the rendered document.
+async function assertPixels(page, root, name, samples) {
+  const png = await root.screenshot({ animations: 'disabled', scale: 'css' });
+  await test.info().attach(name, { body: png, contentType: 'image/png' });
+  const colors = await page.evaluate(async ({ bytes, samples }) => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(bytes)], { type: 'image/png' }));
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+    const context = canvas.getContext('2d');
+    context.drawImage(bitmap, 0, 0);
+    return samples.map(([x, y]) => [...context.getImageData(x, y, 1, 1).data]);
+  }, { bytes: [...png], samples: samples.map(([x, y]) => [x, y]) });
+  expect(colors).toEqual(samples.map(([, , color]) => color));
+}
+
+test('own Overflow.Clip does not clip its own shadow', async ({ page, request }) => {
+  const { documentId, screen, command } = await seed(request, true);
+  const frame = randomUUID();
+  await command('add-node', { nodeId: frame, parentId: screen, kind: 'Frame',
+    properties: { ...geometry(50, 80, 100, 80), overflow: option('Clip'), backgroundColor: rgba(255, 255, 255),
+      cornerRadius: number(8), shadow: shadow(0, 0, 0, 12, 0, 0, 0) } });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openScreen(page, documentId);
+  await expect(page.locator('#screen-boundary ' + visual(frame))).toHaveCSS('box-shadow', 'rgb(0, 0, 0) 0px 0px 0px 12px');
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const root = page.locator('[data-preview-screen="' + screen + '"]');
+  await expect(root.locator(visual(frame))).toHaveCSS('overflow', 'clip');
+  await assertPixels(page, root, 'Own Clip and own shadow', [
+    [44, 120, [0, 0, 0, 255]], [30, 120, [255, 255, 255, 255]]
+  ]);
+});
+
+test('ancestor Overflow.Clip clips child shadow while Visible lets it paint outside', async ({ page, request }) => {
+  const { documentId, screen, command } = await seed(request, true);
+  const parent = randomUUID(), child = randomUUID();
+  await command('add-node', { nodeId: parent, parentId: screen, kind: 'Frame',
+    properties: { ...geometry(50, 80, 100, 80), overflow: option('Clip'), backgroundColor: rgba(255, 255, 255) } });
+  await command('add-node', { nodeId: child, parentId: parent, kind: 'Button',
+    properties: { ...geometry(80, 20, 40, 40), shadow: shadow(0, 0, 0, 12, 255, 0, 0) } });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openScreen(page, documentId);
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const root = page.locator('[data-preview-screen="' + screen + '"]');
+  await expect(root.locator(visual(child))).toHaveCSS('box-shadow', 'rgb(255, 0, 0) 0px 0px 0px 12px');
+  await assertPixels(page, root, 'Parent Clip and child shadow', [
+    [145, 94, [255, 0, 0, 255]], [155, 94, [255, 255, 255, 255]]
+  ]);
+  await page.getByRole('button', { name: 'Вернуться в Design' }).click();
+  await command('set-node-property', { nodeId: parent, property: 'overflow', value: option('Visible') });
+  await expect(page.locator('#screen-boundary ' + visual(parent))).toHaveCSS('overflow', 'visible');
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(root.locator(visual(parent))).toHaveCSS('overflow', 'visible');
+  await assertPixels(page, root, 'Parent Visible and child shadow', [
+    [145, 94, [255, 0, 0, 255]], [155, 94, [255, 0, 0, 255]]
+  ]);
 });

@@ -566,3 +566,94 @@ test('letter spacing exposes a local style override reset and restores inherited
   await expect(page.locator('[data-visual-node="' + nodeId + '"] .visual-surface'))
     .toHaveCSS('letter-spacing', '2px');
 });
+
+
+test('Effects is optional, edits one typed shadow, resets variants and removes without losing other drafts', async ({ page, request }) => {
+  const { documentId, screenId, nodeId, base } = await seedText(request);
+  const frameId = randomUUID(), variantId = randomUUID();
+  await post(request, base + '/commands/add-node', { commandId: randomUUID(), nodeId: frameId, parentId: screenId, kind: 'Frame' });
+  await post(request, base + '/commands/add-screen-variant', { commandId: randomUUID(), screenId, variantId, name: 'Alternate' });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await show(page, 'design');
+  const panel = page.locator('#visual-inspector');
+  const effects = panel.locator('.shadow-effects');
+  const select = id => page.locator('[role=treeitem][data-id="' + id + '"]').press('Enter');
+  await select(nodeId);
+  await expect(effects).toHaveCount(0);
+  await select(frameId);
+  await expect(effects).toBeVisible();
+  const add = effects.getByRole('button', { name: 'Add drop shadow', exact: true });
+  const remove = effects.getByRole('button', { name: 'Remove drop shadow', exact: true });
+  const field = label => effects.getByLabel('Drop shadow ' + label, { exact: true });
+  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
+  const saved = () => expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  const properties = async () => (await readNodes(request, base, screenId)).find(node => node.id === frameId).properties;
+  const typedShadow = { type: 'shadow', offsetX: -4, offsetY: 12, blurRadius: 24, spreadRadius: -3,
+    color: { red: 17, green: 34, blue: 51, alpha: 100 } };
+  await add.click();
+  for (const [label, value] of [['X', '0'], ['Y', '4'], ['Blur', '8'], ['Spread', '0']])
+    await expect(field(label)).toHaveValue(value);
+  await expect(effects.getByLabel('Drop shadow', { exact: true })).toHaveValue('#000000');
+  await effects.getByRole('button', { name: 'Изменить Alpha' }).click();
+  await expect(effects.getByLabel('Drop shadow — альфа', { exact: true })).toHaveValue('38');
+  expect((await properties()).shadow).toBeUndefined();
+  await field('Blur').fill('-1');
+  await expect(field('Blur')).toHaveAttribute('aria-invalid', 'true');
+  for (const [label, value] of [['X', -4], ['Y', 12], ['Blur', 24], ['Spread', -3]])
+    await field(label).fill(String(value));
+  await effects.getByLabel('Drop shadow', { exact: true }).fill('#112233');
+  await effects.getByLabel('Drop shadow — альфа', { exact: true }).fill('100');
+  await save.click();
+  await saved();
+  expect((await properties()).shadow).toEqual(typedShadow);
+  await select(nodeId);
+  await select(frameId);
+  await expect(field('Blur')).toHaveValue('24');
+
+  await show(page, 'assets');
+  await page.locator('#screen-variants-list [data-variant-id="' + variantId + '"]').click();
+  await show(page, 'design');
+  await expect(field('Blur')).toHaveValue('24');
+  await field('Blur').fill('48');
+  await save.click();
+  await saved();
+  await expect(effects.getByRole('button', { name: 'Reset Override' })).toBeVisible();
+  expect((await properties()).shadow).toEqual(typedShadow);
+  await effects.getByRole('button', { name: 'Reset Override' }).click();
+  await expect(field('Blur')).toHaveValue('24');
+  await show(page, 'assets');
+  await page.locator('#screen-variants-list [data-variant-id=""]').click();
+  await show(page, 'design');
+  const width = panel.getByLabel('Ширина', { exact: true });
+  await width.fill('321');
+  await remove.click();
+  await expect(add).toBeVisible();
+  await expect(width).toHaveValue('321');
+  expect((await properties()).shadow).toBeUndefined();
+  await save.click();
+  await saved();
+  expect((await properties()).width).toEqual(number(321));
+});
+
+test('Viewer can inspect saved shadow but cannot add, edit or remove it', async ({ page, request }) => {
+  const { documentId, screenId, base } = await seedText(request);
+  const frameId = randomUUID();
+  await post(request, base + '/commands/add-node', { commandId: randomUUID(), nodeId: frameId, parentId: screenId, kind: 'Frame',
+    properties: { shadow: { type: 'shadow', offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0,
+      color: { red: 0, green: 0, blue: 0, alpha: 38 } } } });
+  await page.route('**/api/v1/documents?*', async route => {
+    const response = await route.fetch(), json = await response.json();
+    json.items = json.items.map(item => ({ ...item, role: 'Viewer' }));
+    await route.fulfill({ response, json });
+  });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
+  const effects = page.locator('#visual-inspector .shadow-effects');
+  await expect(effects.getByLabel('Drop shadow Blur', { exact: true })).toHaveValue('8');
+  await expect(effects.getByLabel('Drop shadow Blur', { exact: true })).toBeDisabled();
+  await expect(effects.getByRole('button', { name: 'Remove drop shadow' })).toBeHidden();
+});

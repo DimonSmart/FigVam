@@ -235,3 +235,41 @@ test('a late recovery cannot overwrite another document, logout or an access ref
   await expect(page.locator('#authentication')).toBeVisible();
   await expect(page.locator('#revision')).toHaveText('');
 });
+
+
+test('two connected inspectors reconcile one structured shadow edit', async ({ page, context, request }) => {
+  const id = await create(request, 'Shared drop shadow');
+  const pageId = randomUUID(), screenId = randomUUID(), nodeId = randomUUID();
+  const headers = { Authorization: 'Bearer ' + bearer };
+  for (const [name, data] of [
+    ['add-page', { pageId }], ['add-screen', { pageId, screenId, dimensions: { width: 640, height: 480 } }],
+    ['add-node', { nodeId, parentId: screenId, kind: 'Frame' }]
+  ]) expect((await request.post('/api/v1/documents/' + id + '/commands/' + name,
+    { headers, data: { commandId: randomUUID(), ...data } })).ok()).toBeTruthy();
+  const other = await context.newPage();
+  for (const client of [page, other]) {
+    await open(client, id);
+    await client.locator('#screens button').first().click();
+    await client.locator('#layers [data-id="' + nodeId + '"]').press('Enter');
+    await show(client, 'design');
+    await connected(client);
+    await expect(client.locator('.shadow-effects').getByRole('button', { name: 'Add drop shadow' })).toBeVisible();
+  }
+  const effects = page.locator('.shadow-effects');
+  await effects.getByRole('button', { name: 'Add drop shadow' }).click();
+  await effects.getByLabel('Drop shadow Blur', { exact: true }).fill('32');
+  await page.locator('#visual-save').click();
+  const otherEffects = other.locator('.shadow-effects');
+  await expect(otherEffects.getByLabel('Drop shadow Blur', { exact: true })).toHaveValue('32');
+  await expect(other.locator('#revision')).toHaveText(await page.locator('#revision').textContent());
+  const selector = '#screen-boundary [data-visual-node="' + nodeId + '"]';
+  const paint = await page.locator(selector).evaluate(el => getComputedStyle(el).boxShadow);
+  expect(paint).not.toBe('none');
+  await expect(other.locator(selector)).toHaveCSS('box-shadow', paint);
+  const response = await request.get('/api/v1/documents/' + id + '/document.json', { headers });
+  expect(response.ok()).toBeTruthy();
+  expect((await response.json()).document.nodes.find(node => node.id === nodeId).properties.shadow).toEqual({
+    type: 'shadow', offsetX: 0, offsetY: 4, blurRadius: 32, spreadRadius: 0,
+    color: { red: 0, green: 0, blue: 0, alpha: 38 }
+  });
+});
