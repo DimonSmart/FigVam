@@ -1,6 +1,6 @@
 const { test, expect, bearer } = require('./fixtures');
 const { randomUUID } = require('node:crypto');
-const { layerRow, label, startLayerDrag, hoverLayer, dragLayer } = require('./layer-drag-helper');
+const { layerRow, label, startLayerDrag, hoverLayer, dragLayer, waitForLayerMoveReady } = require('./layer-drag-helper');
 const headers = { Authorization: `Bearer ${bearer}` };
 
 async function setup(page, request) {
@@ -97,8 +97,10 @@ test('drag across siblings, preserve selection and focus, synchronize canvas and
   await expect.poll(order).toEqual([frameId, firstId, secondId]);
   await dragLayer(page, secondId, firstId, 'before');
   await expect.poll(order).toEqual([frameId, secondId, firstId]);
+  await waitForLayerMoveReady(page);
   await layerRow(page, secondId).press('Control+ArrowDown');
   await expect.poll(order).toEqual([frameId, firstId, secondId]);
+  await waitForLayerMoveReady(page);
   await layerRow(page, secondId).press('Meta+ArrowUp');
   await expect.poll(order).toEqual([frameId, secondId, firstId]);
   expect(await children(request, base, screenId)).toEqual([frameId, secondId, firstId]);
@@ -154,6 +156,9 @@ test('moves a container together with its children and expands a collapsed targe
   await dragLayer(page, frameId, secondId, 'after');
   await expect.poll(() => children(request, base, screenId)).toEqual([secondId, frameId]);
   expect(await children(request, base, frameId)).toEqual([firstId]);
+  await waitForLayerMoveReady(page);
+  await expect(page.locator('#layers > [role=treeitem]').first()).toHaveAttribute('data-id', secondId);
+  await expect(layerRow(page, frameId)).toHaveAttribute('aria-expanded', 'true');
   await layerRow(page, frameId).press('ArrowLeft');
   await expect(layerRow(page, frameId)).toHaveAttribute('aria-expanded', 'false');
   await startLayerDrag(page, secondId);

@@ -11,7 +11,12 @@ async function point(page, id, fraction = .5) {
   return { x: box.x + Math.min(45, box.width / 2), y: box.y + box.height * fraction };
 }
 
+async function waitForLayerMoveReady(page) {
+  await expect(page.locator('#layers')).toHaveClass(/\blayer-move-enabled\b/);
+}
+
 async function startLayerDrag(page, id) {
+  await waitForLayerMoveReady(page);
   const from = await point(page, id);
   await page.mouse.move(from.x, from.y);
   await page.mouse.down();
@@ -32,4 +37,4 @@ async function dragLayer(page, source, target, zone = 'inside') {
   await expect(page.locator('.layer-drag-ghost')).toHaveCount(0);
 }
 
-module.exports = { layerRow, label, startLayerDrag, hoverLayer, dragLayer };
+module.exports = { layerRow, label, startLayerDrag, hoverLayer, dragLayer, waitForLayerMoveReady };
