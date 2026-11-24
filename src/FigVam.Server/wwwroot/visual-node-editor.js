@@ -14,7 +14,7 @@ export function createVisualNodeEditor({
   const paletteOptional = element('visual-optional-properties'), paletteDetails = element('visual-optional-details');
   const inspectorProperties = element('visual-properties');
   const textStyledFields = new Set(['textColor', 'fontFamily', 'fontSize', 'fontWeight',
-    'lineHeight', 'fontStyle', 'fontFallback']);
+    'lineHeight', 'letterSpacing', 'fontStyle', 'fontFallback']);
   const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius']);
   const operations = new Map(), paletteDrafts = new Map(), inspectorDrafts = new Map(), canvasDrafts = new Map();
   let context, model, modelKey, resolvedModelKey, modelScope, loadedKey, loadError = '', queued = false;

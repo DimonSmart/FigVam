@@ -121,3 +121,25 @@ test('DTCG import is visible and imported typography can be applied to a reusabl
   expect(styles.items[0].fields.typography.tokenId)
     .toBe(typography.items.find(t => t.name === 'type.body').id);
 });
+
+test('inline typography preview resolves nested font-size aliases independently for Light and Dark', async ({ page }) => {
+  await open(page);
+  await page.getByLabel('Имя токена', { exact: true }).fill('Font Size');
+  await page.locator('#new-token-type').selectOption('Dimension');
+  await page.locator('#new-token-category').selectOption('FontSize');
+  await page.getByLabel('Light', { exact: true }).fill('18');
+  await page.getByLabel('Dark', { exact: true }).fill('22');
+  await page.getByRole('button', { name: 'Создать токен' }).click();
+  await expect(page.locator('#token-detail-title')).toHaveText('Font Size');
+
+  await page.locator('#styles-name').fill('text.inline');
+  await page.locator('input[aria-label="Типографика: переопределить"]').check();
+  await page.locator('select[aria-label="Размер: источник"]').selectOption('alias');
+  await page.locator('select[aria-label="Размер: токен"]').selectOption({ label: 'Font Size' });
+  await page.getByRole('button', { name: 'Сохранить стиль' }).click();
+  await expect(page.locator('#styles-total')).toContainText('1');
+  const preview = page.locator('#styles-preview');
+  await expect(preview).toContainText('Light: typography = Arial · 18 px');
+  await expect(preview).toContainText('Dark: typography = Arial · 22 px');
+  await expect(preview).not.toContainText('typography = —');
+});

@@ -72,36 +72,45 @@ export function resolveTokenValue(reference, tokens, theme = 'Light', expectedTy
     const expression = token.values?.[theme];
     if (!expression) return { value: null, error: 'Нет значения токена для темы ' + theme + '.', token };
     if (expression.expression === 'alias') { id = expression.tokenId; continue; }
-    if (type === 'Typography' && expression.expression === 'literal' && expression.value?.type === 'typographyFields') {
-      const spec = [
-        ['fontFamily', 'FontFamily', null], ['fontSize', 'Dimension', 'FontSize'],
-        ['fontWeight', 'FontWeight', null], ['lineHeight', 'Number', 'LineHeight'],
-        ['letterSpacing', 'Dimension', 'LetterSpacing']
-      ];
-      const values = {};
-      for (const [field, expectedType, expectedCategory] of spec) {
-        const part = expression.value[field] ?? (field === 'letterSpacing'
-          ? { expression: 'literal', value: { type: 'dimension', value: 0 } } : null);
-        let resolved;
-        if (part?.expression === 'literal') {
-          resolved = isValidValue(part.value, expectedType, expectedCategory)
-            ? { value: part.value } : { error: 'Недопустимое прямое значение.' };
-        } else if (part?.expression === 'alias') {
-          resolved = resolveTokenValue({ type: 'token', tokenId: part.tokenId }, tokens, theme,
-            expectedType, expectedCategory);
-        } else resolved = { error: 'Не задано поле типографики.' };
-        if (resolved.error) return { value: null, error: field + ': ' + resolved.error, token };
-        values[field] = resolved.value.value;
-      }
-      const flattened = { type: 'typography', ...values };
-      return isValidValue(flattened, 'Typography', null)
-        ? { value: flattened, error: null, token }
-        : { value: null, error: 'Некорректные значения полей типографики.', token };
-    }
+    if (type === 'Typography' && expression.expression === 'literal' && expression.value?.type === 'typographyFields')
+      return { ...resolveInlineTypography(expression.value, tokens, theme), token };
     if (expression.expression !== 'literal' || !isValidValue(expression.value, type, category))
       return { value: null, error: 'Некорректное значение дизайн-токена.', token };
     return { value: expression.value, error: null, token };
   }
+}
+
+// Inline Typography and document token Typography share the same field resolution rules.
+export function resolveInlineTypography(value, tokens, theme = 'Light') {
+  if (value?.type === 'typography')
+    return isValidValue(value, 'Typography', null)
+      ? { value, error: null } : { value: null, error: 'Некорректное значение типографики.' };
+  if (value?.type !== 'typographyFields')
+    return { value: null, error: 'Не задана типографика.' };
+  const spec = [
+    ['fontFamily', 'FontFamily', null], ['fontSize', 'Dimension', 'FontSize'],
+    ['fontWeight', 'FontWeight', null], ['lineHeight', 'Number', 'LineHeight'],
+    ['letterSpacing', 'Dimension', 'LetterSpacing']
+  ];
+  const values = {};
+  for (const [field, expectedType, expectedCategory] of spec) {
+    const part = value[field] ?? (field === 'letterSpacing'
+      ? { expression: 'literal', value: { type: 'dimension', value: 0 } } : null);
+    let resolved;
+    if (part?.expression === 'literal') {
+      resolved = isValidValue(part.value, expectedType, expectedCategory)
+        ? { value: part.value } : { error: 'Недопустимое прямое значение.' };
+    } else if (part?.expression === 'alias') {
+      resolved = resolveTokenValue({ type: 'token', tokenId: part.tokenId }, tokens, theme,
+        expectedType, expectedCategory);
+    } else resolved = { error: 'Не задано поле типографики.' };
+    if (resolved.error) return { value: null, error: field + ': ' + resolved.error };
+    values[field] = resolved.value.value;
+  }
+  const flattened = { type: 'typography', ...values };
+  return isValidValue(flattened, 'Typography', null)
+    ? { value: flattened, error: null }
+    : { value: null, error: 'Некорректные значения полей типографики.' };
 }
 
 // A property may also accept a legacy Spacing/Geometry token alongside its v4 contract.

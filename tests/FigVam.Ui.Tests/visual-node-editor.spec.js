@@ -523,3 +523,45 @@ test('the creation palette accepts an optional token reference without saving un
     (await readNodes(request, base, screenId)).find(node => node.id === nodeId)?.properties.backgroundColor
   ).toEqual({ type: 'token', tokenId });
 });
+
+test('letter spacing exposes a local style override reset and restores inherited value', async ({ page, request }) => {
+  const { documentId, screenId, nodeId, base } = await seedText(request);
+  const typographyId = randomUUID(), styleId = randomUUID();
+  const typography = { expression: 'literal', value: {
+    type: 'typography', fontFamily: 'Arial', fontSize: 16, fontWeight: 400,
+    lineHeight: 1.25, letterSpacing: 2
+  } };
+  await post(request, base + '/commands/add-token', {
+    commandId: randomUUID(), tokenId: typographyId, name: 'Body typography', type: 2,
+    values: { Light: typography, Dark: typography }
+  });
+  await post(request, base + '/commands/upsert-style', {
+    commandId: randomUUID(), expectedRevision: 5,
+    style: { id: styleId, name: 'Text base', type: 0,
+      fields: { typography: { type: 'token', tokenId: typographyId } } }
+  });
+  await post(request, base + '/commands/set-node-properties', {
+    commandId: randomUUID(), nodeId, properties: {
+      textStyle: { type: 'style', styleId }, letterSpacing: number(5)
+    }
+  });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await page.locator('[role=treeitem][data-id="' + nodeId + '"]').press('Enter');
+  const inspector = page.locator('#visual-inspector');
+  const reset = inspector.getByRole('button', { name: 'Сбросить к стилю: Межбуквенный интервал' });
+  await expect(reset).toBeVisible();
+  await expect(inspector.locator('.node-property').filter({ has: reset }))
+    .toHaveAttribute('data-style-override', 'true');
+  const removed = page.waitForResponse(response => response.url().endsWith('/commands/remove-node-properties') &&
+    response.request().method() === 'POST');
+  await reset.click();
+  const response = await removed;
+  expect(response.ok(), await response.text()).toBeTruthy();
+  await expect.poll(async () => (await readNodes(request, base, screenId))[0].properties)
+    .toEqual({ textStyle: { type: 'style', styleId } });
+  await expect(reset).toHaveCount(0);
+  await expect(page.locator('[data-visual-node="' + nodeId + '"] .visual-surface'))
+    .toHaveCSS('letter-spacing', '2px');
+});

@@ -1,4 +1,4 @@
-import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from './token-resolution.js';
+import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, resolveInlineTypography, tokenValueText } from './token-resolution.js';
 
 const definitions = {
   TextStyle: {
@@ -232,10 +232,11 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     const result = style.basedOnStyleId ? resolvePreview(items.find(i => i.id === style.basedOnStyleId), theme, seen) : {};
     for (const [field, value] of Object.entries(style.fields ?? {})) {
       if (field === 'typography') {
-        const token = value?.type === 'token'
-          ? resolveTokenValue(value, new Map(tokens().map(t => [t.id, t])), theme, 'Typography')
-          : { value: value?.value };
-        result.typography = token.error ?? tokenValueText(token.value) ?? 'Вложенная типографика';
+        const catalog = new Map(tokens().map(item => [item.id, item]));
+        const resolved = value?.type === 'token'
+          ? resolveTokenValue(value, catalog, theme, 'Typography')
+          : resolveInlineTypography(value?.value, catalog, theme);
+        result.typography = resolved.error ?? tokenValueText(resolved.value);
       } else if (value?.type === 'token') {
         const token = resolveTokenValue(value, new Map(tokens().map(t => [t.id, t])), theme);
         result[field] = token.error ?? tokenValueText(token.value);
