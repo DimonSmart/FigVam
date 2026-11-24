@@ -285,9 +285,10 @@ test('designs two linked login screens and previews invalid password through UI'
   const finished = await read();
   expect(finished.screens).toHaveLength(2);
   expect(finished.scenarios).toHaveLength(2);
+  // The portable document JSON format encodes enum names, unlike the numeric command/query API.
   expect(finished.scenarios.map(({ nodeId, event, actions }) => ({ nodeId, event, actions }))).toEqual([
-    { nodeId: loginButton, event: 0, actions: [{ type: 'navigate', screenId: errorScreen }] },
-    { nodeId: password, event: 4, actions: [{ type: 'navigate', screenId: errorScreen }] }
+    { nodeId: loginButton, event: 'Click', actions: [{ type: 'navigate', screenId: errorScreen }] },
+    { nodeId: password, event: 'Submit', actions: [{ type: 'navigate', screenId: errorScreen }] }
   ]);
   expect(finished.screens.every(screen => screen.variants.length === 0)).toBe(true);
   await show(page, 'document');

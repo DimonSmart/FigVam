@@ -107,7 +107,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
     if (draft) close();
     const model = clone(scenario);
     if (creating && !model.actions.length) model.actions.push(emptyAction(''));
-    draft = { ...ctx, scenario: model, creating, opener, original: JSON.stringify(model), conflict: false, valid: false };
+    draft = { ...ctx, scenario: model, creating, opener, original: JSON.stringify(model), conflict: false, valid: false, capabilityCache: new Map() };
     form.hidden = false;
     element('scenario-edit-title').textContent = creating ? 'Новое взаимодействие' : 'Редактирование взаимодействия';
     element('scenario-edit-source').textContent = 'Элемент: ' + sourceName(model.nodeId);
@@ -188,9 +188,15 @@ export function createInteractionEditor({ element, request, current, catalog, so
     const { targetId, screenId, variantId, datasetId, demoNodeId, demoValue = null } = values;
     const q = new URLSearchParams({ revision: String(d.revision), nodeId: d.scenario.nodeId });
     for (const [key, value] of Object.entries({ targetId, screenId, variantId, datasetId, demoNodeId })) if (value) q.set(key, value);
+    const body = JSON.stringify({ demoValue, sourceScreenId: d.screen, prefix });
+    const cacheKey = q.toString() + '\n' + body;
+    // Capability answers are immutable for this draft's document revision.
+    // Reusing validated prefixes avoids exhausting the request budget while editing long action lists.
+    if (d.capabilityCache.has(cacheKey)) return d.capabilityCache.get(cacheKey);
+    const signal = controller.signal;
     const response = await request('/api/v1/documents/' + encodeURIComponent(d.doc) + '/scenario-capabilities?' + q, {
-      method: 'POST', body: JSON.stringify({ demoValue, sourceScreenId: d.screen, prefix })
-    }, controller.signal);
+      method: 'POST', body
+    }, signal);
     if (response.documentId !== d.doc || response.nodeId !== d.scenario.nodeId || response.revision !== d.revision ||
         (response.targetId ?? null) !== (targetId ?? null) || (response.screenId ?? null) !== (screenId ?? null) ||
         (response.variantId ?? null) !== (variantId ?? null) || (response.datasetId ?? null) !== (datasetId ?? null) ||
@@ -198,6 +204,10 @@ export function createInteractionEditor({ element, request, current, catalog, so
         !Array.isArray(response.events) || !Array.isArray(response.actions) || !Array.isArray(response.potentialActions) ||
         !Array.isArray(response.demoTargetIds) || !Object.hasOwn(response, 'navigationScreenId') || !Object.hasOwn(response, 'demoScreenId'))
       throw new TypeError('Некорректный ответ о возможностях');
+    if (!signal.aborted && active(d)) {
+      if (d.capabilityCache.size >= 256) d.capabilityCache.delete(d.capabilityCache.keys().next().value);
+      d.capabilityCache.set(cacheKey, response);
+    }
     return response;
   }
 
