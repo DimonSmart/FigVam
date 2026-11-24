@@ -112,6 +112,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
     element('scenario-edit-title').textContent = creating ? 'Новое взаимодействие' : 'Редактирование взаимодействия';
     element('scenario-edit-source').textContent = 'Элемент: ' + sourceName(model.nodeId);
     event.replaceChildren();
+    delete event.dataset.options;
     renderRows();
     element('scenario-edit-title').focus();
     validate();

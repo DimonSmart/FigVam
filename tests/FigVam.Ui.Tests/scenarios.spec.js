@@ -261,6 +261,20 @@ test('draft cancellation and selection change require explicit choice', async ({
   expect(writes).toBe(1); expect((await f.catalog()).items).toHaveLength(1);
 });
 
+test('reopening a cancelled draft rebuilds event choices for the same and another source', async ({ page, request }) => {
+  const f = await setup(request); await open(page, f);
+  for (const name of ['Source', 'Source', 'Second']) {
+    await create(page, name);
+    const event = page.getByLabel('Событие', { exact: true });
+    await expect(event.getByRole('option', { name: 'По нажатию', exact: true })).toHaveCount(1);
+    await type(page, 0, 'Сбросить Preview');
+    await expect(save(page)).toBeEnabled();
+    await page.getByRole('button', { name: 'Отмена', exact: true }).click();
+    await expect(form(page)).toBeHidden();
+  }
+  expect((await f.catalog()).items).toHaveLength(0);
+});
+
 test('same event scenarios keep identity and order on edit', async ({ page, request }) => {
   const f = await setup(request); const first = await f.add(); const second = await f.add();
   await open(page, f); await edit(page);
