@@ -1,16 +1,23 @@
 const {test,expect,bearer}=require('./fixtures');
 const { show } = require('./ui-panels');
-const a='11111111-1111-1111-1111-111111111111',b='22222222-2222-2222-2222-222222222222',c='33333333-3333-3333-3333-333333333333';
+const a='11111111-1111-1111-1111-111111111111',b='22222222-2222-2222-2222-222222222222',c='33333333-3333-3333-3333-333333333333',d='44444444-4444-4444-4444-444444444444';
 async function setup(page){
  await page.goto('/'); await page.getByLabel('Bearer-токен',{exact:true}).fill(bearer); await page.getByRole('button',{name:'Продолжить',exact:true}).click(); await page.getByLabel('Имя нового документа').fill('Reorder'); await page.getByRole('button',{name:'Создать документ',exact:true}).click(); await page.getByRole('button',{name:'Создать страницу'}).click(); await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600'); await page.getByRole('button',{name:'Создать экран'}).click();
- const screen=await page.locator('#screens button').getAttribute('data-screen-id'); let roots=[a,b],nested=[c,b]; const item=id=>({id,name:id===a?'Parent':id===b?'Second':'Child',kind:'Frame',childCount:id===a?2:0});
+ const screen=await page.locator('#screens button').getAttribute('data-screen-id'); let roots=[a,b],nested=[c,d]; const item=id=>({id,name:id===a?'Parent':id===b?'Second':'Child',kind:'Frame',childCount:id===a?2:0});
  await page.route('**/children/**',route=>{const p=route.request().url().split('/children/')[1].split('?')[0], ids=p===screen?roots:p===a?nested:[]; return route.fulfill({json:{items:ids.map(item),total:ids.length}});});
  await page.route('**/nodes/*?*',route=>{const id=route.request().url().split('/nodes/')[1].split('?')[0];return route.fulfill({json:{revision:Number(new URL(route.request().url()).searchParams.get('revision')),items:[{id,name:item(id).name,semanticKey:null}]}});});
  await page.getByRole('button',{name:'Обновить страницы'}).click(); return {screen,roots:v=>roots=v,nested:v=>nested=v};
 }
 test('root and nested ordering and boundaries',async({page})=>{
- const f=await setup(page),calls=[]; await page.route('**/commands/move-node',route=>{const body=route.request().postDataJSON();calls.push(body); if(body.expectedParentId===f.screen)f.roots([b,a]);else f.nested([b,c]);return route.fulfill({json:{status:'ACCEPTED',documentId:page.url().split('/').at(-1),commandId:body.commandId,revision:10}});});
- await page.locator('.layer-label').first().click();await expect(page.locator('#node-earlier')).toBeDisabled();await page.locator('#node-later').focus();await page.keyboard.press('Enter');await expect(page.locator('#node-earlier')).toBeEnabled();expect(calls[0]).toMatchObject({nodeId:a,expectedParentId:f.screen,targetParentId:f.screen,position:1});
+ const f=await setup(page),calls=[]; await page.route('**/commands/move-node',route=>{const body=route.request().postDataJSON();calls.push(body); if(body.expectedParentId===f.screen)f.roots([b,a]);else f.nested([d,c]);return route.fulfill({json:{status:'ACCEPTED',documentId:page.url().split('/').at(-1),commandId:body.commandId,revision:10}});});
+ // Wait for the expanded tree before sending a keyboard command; the tree must have unique IDs.
+ await page.locator('[data-id="'+a+'"] > .layer-label').click();
+ await expect(page.locator('[data-id="'+c+'"] > .layer-label')).toBeVisible();
+ await expect(page.locator('#node-earlier')).toBeDisabled();
+ await expect(page.locator('#node-later')).toBeEnabled();
+ await page.locator('#node-later').press('Enter');
+ await expect.poll(()=>calls.length).toBe(1);
+ await expect(page.locator('#node-earlier')).toBeEnabled();expect(calls[0]).toMatchObject({nodeId:a,expectedParentId:f.screen,targetParentId:f.screen,position:1});
  await page.locator('[data-id="'+c+'"] > .layer-label').click();await expect(page.locator('#node-earlier')).toBeDisabled();await page.locator('#node-later').click();await expect(page.locator('#node-later')).toBeDisabled();expect(calls[1]).toMatchObject({nodeId:c,expectedParentId:a,targetParentId:a,position:1});
 });
 test('uncertain retry and concurrent parent refusal',async({page})=>{
