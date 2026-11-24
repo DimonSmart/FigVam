@@ -290,56 +290,40 @@
             <button id="visual-save-retry" type="button" hidden>Повторить сохранение свойств</button>
             <button id="visual-data-retry" type="button" hidden>Повторить загрузку свойств</button>
           </section>
-          <section aria-labelledby="scenarios-title"><h2 id="scenarios-title">Сценарии прототипа</h2>
-            <p>Только просмотр сохранённых сценариев выбранного экрана.</p>
+          <section aria-labelledby="scenarios-title">
+            <h2 id="scenarios-title">Взаимодействия</h2>
             <p id="scenarios-status" role="status" aria-live="polite">Выберите экран.</p>
-            <p id="scenarios-error" role="alert"></p><button id="scenarios-retry" type="button" hidden>Повторить загрузку сценариев</button>
-            <form id="scenario-create" hidden>
-              <p id="scenario-source">Выберите исходный слой в дереве.</p>
-              <p id="scenario-capabilities-status" role="status"></p>
-              <label>Событие <select id="scenario-event"></select></label>
-              <label>Действие <select id="scenario-action"></select></label>
-              <div id="scenario-variant-fields"><label>Вариант экрана <select id="scenario-variant"></select></label><p id="scenario-variant-status" role="status"></p></div>
-              <div id="scenario-dataset-fields"><label>Датасет <select id="scenario-dataset" aria-describedby="scenario-dataset-status"></select></label><p id="scenario-dataset-status" role="status"></p><button id="scenario-dataset-retry" type="button" hidden>Повторить загрузку датасетов для сценария</button></div>
-              <div id="scenario-demo-fields"><label>Целевой узел (ID) <input id="scenario-demo-node" type="text"></label><button id="scenario-demo-use-layer" type="button">Использовать выбранный слой как целевой узел</button><label><input id="scenario-demo-null" type="checkbox" checked> Значение null</label><label>Демонстрационное значение <input id="scenario-demo-value" type="text" maxlength="4096"></label></div>
-              <div id="scenario-target-fields"><label>Целевой экран <select id="scenario-target"></select></label>
-              <p id="scenario-target-status" role="status"></p></div>
-              <button id="scenario-create-submit" type="submit">Создать сценарий</button>
-            </form>
-            <p id="scenario-command-status" role="status" aria-live="polite"></p><p id="scenario-command-error" role="alert"></p><button id="scenario-command-retry" type="button" hidden>Повторить удаление сценария</button>
-            <ul id="scenarios-list" aria-label="Сценарии выбранного экрана"></ul>
+            <p id="scenarios-error" role="alert"></p>
+            <button id="scenarios-retry" type="button" hidden>Повторить загрузку сценариев</button>
+            <button id="scenario-create" type="button" hidden>Добавить взаимодействие</button>
+            <p id="scenario-command-status" role="status" aria-live="polite"></p>
+            <p id="scenario-command-error" role="alert"></p>
+            <button id="scenario-command-retry" type="button" hidden>Повторить команду</button>
+            <ul id="scenarios-list" aria-label="Взаимодействия"></ul>
             <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
-              <h3 id="scenario-edit-title" tabindex="-1">Редактирование сценария</h3>
+              <h3 id="scenario-edit-title" tabindex="-1">Настройка взаимодействия</h3>
+              <p id="scenario-edit-source"></p>
+              <p id="scenario-edit-conflict" role="alert"></p>
+              <button id="scenario-edit-reload" type="button" hidden>Загрузить актуальное взаимодействие</button>
               <fieldset id="scenario-edit-fields">
-                <legend>Сценарий</legend>
-                <p id="scenario-edit-id"></p>
-                <p id="scenario-edit-source"></p>
-                <button id="scenario-edit-use-layer" type="button">Использовать выбранный слой как исходный узел</button>
-                <label>Событие сценария <select id="scenario-edit-event"></select></label>
-                <ol id="scenario-edit-actions" aria-label="Порядок действий сценария"></ol>
+                <legend>Настройка события и действий</legend>
+                <label>Событие <select id="scenario-edit-event" aria-label="Событие"></select></label>
+                <ol id="scenario-edit-actions" aria-label="Порядок действий"></ol>
                 <button id="scenario-edit-add" type="button">Добавить действие</button>
-                <fieldset id="scenario-action-editor" hidden>
-                  <legend id="scenario-action-editor-title">Действие сценария</legend>
-                  <label>Экран перехода или оверлея <select id="scenario-edit-target"></select></label>
-                  <div id="scenario-edit-variant-screen-fields" hidden><label>Экран варианта <select id="scenario-edit-variant-screen"></select></label></div>
-                  <label>Вариант действия <select id="scenario-edit-variant"></select></label>
-                  <label>Датасет действия <select id="scenario-edit-dataset"></select></label>
-                  <label>Целевой узел действия (ID) <input id="scenario-edit-demo-node" type="text" maxlength="36"></label>
-                  <button id="scenario-edit-demo-use-layer" type="button">Взять выбранный слой для демонстрационного значения</button>
-                  <label><input id="scenario-edit-demo-null" type="checkbox" checked> Пустое значение (null)</label>
-                  <label>Значение действия <textarea id="scenario-edit-demo-value" rows="2" maxlength="4096"></textarea></label>
-                  <label>Тип действия сценария <select id="scenario-edit-action-type"></select></label>
-                  <p id="scenario-edit-action-status" role="status"></p>
-                  <button id="scenario-edit-apply-action" type="button">Применить действие</button>
-                  <button id="scenario-edit-cancel-action" type="button">Отменить правку действия</button>
-                </fieldset>
-                <p id="scenario-edit-validation" role="status"></p>
-                <button id="scenario-edit-recheck" type="button" hidden>Повторить проверку действий</button>
-                <button id="scenario-edit-submit" type="submit">Сохранить сценарий</button>
-                <button id="scenario-edit-cancel" type="button">Закрыть редактирование</button>
               </fieldset>
+              <p id="scenario-edit-validation" role="status" aria-live="polite"></p>
+              <button id="scenario-edit-recheck" type="button" hidden>Повторить проверку</button>
+              <button id="scenario-edit-submit" type="submit">Сохранить взаимодействие</button>
+              <button id="scenario-edit-cancel" type="button">Отмена</button>
             </form>
-            <div role="group" aria-label="Страницы сценариев"><button id="scenarios-previous" type="button" disabled>Предыдущие сценарии</button> <span id="scenarios-number"></span> <button id="scenarios-next" type="button" disabled>Следующие сценарии</button></div>
+            <div role="group" aria-label="Страницы взаимодействий"><button id="scenarios-previous" type="button" disabled>Предыдущие сценарии</button> <span id="scenarios-number"></span> <button id="scenarios-next" type="button" disabled>Следующие сценарии</button></div>
+            <dialog id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
+              <h3 id="scenario-leave-title">Несохранённое взаимодействие</h3>
+              <p>Сохранить изменения перед сменой контекста?</p>
+              <button type="button" id="scenario-leave-save">Сохранить</button>
+              <button type="button" id="scenario-leave-discard">Отбросить изменения</button>
+              <button type="button" id="scenario-leave-stay">Продолжить редактирование</button>
+            </dialog>
           </section>
           <section aria-labelledby="diagnostics-title"><h2 id="diagnostics-title">Диагностика экрана</h2>
             <p id="diagnostics-status" role="status" aria-live="polite">Выберите экран.</p>

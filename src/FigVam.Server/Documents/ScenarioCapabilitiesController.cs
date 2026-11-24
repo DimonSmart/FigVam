@@ -1,11 +1,12 @@
 using FigVam.Application.Documents;
+using FigVam.Domain.Preview;
 using FigVam.Server.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace FigVam.Server.Documents;
 
-public sealed record ScenarioCapabilitiesValueRequest([property: System.Text.Json.Serialization.JsonRequired] string? DemoValue);
+public sealed record ScenarioCapabilitiesValueRequest([property: System.Text.Json.Serialization.JsonRequired] string? DemoValue, Guid? SourceScreenId = null, IReadOnlyList<PreviewAction>? Prefix = null);
 
 [ApiController, Authorize, Route("api/v1/documents/{documentId}/scenario-capabilities")]
 [Produces("application/json")]
@@ -16,7 +17,7 @@ public sealed class ScenarioCapabilitiesController(IScenarioCapabilitiesQuery qu
     public async Task<IActionResult> Read(Guid documentId, [FromQuery] long revision, [FromQuery] Guid nodeId, [FromQuery] Guid? targetId, [FromQuery] Guid? screenId, [FromQuery] Guid? variantId, [FromQuery] Guid? datasetId, [FromQuery] Guid? demoNodeId, [FromBody] ScenarioCapabilitiesValueRequest value, CancellationToken ct)
     {
         if (Request.Query.Any(q => q.Value.Count != 1 || !new[] { "revision", "nodeId", "targetId", "screenId", "variantId", "datasetId", "demoNodeId" }.Contains(q.Key, StringComparer.OrdinalIgnoreCase))) return BadRequest(ApiErrors.Create(400, "INVALID_QUERY"));
-        var result = await query.ReadAsync(documentId, revision, nodeId, targetId, screenId, variantId, datasetId, demoNodeId, value.DemoValue, User.GetDocumentActor(), ct);
+        var result = await query.ReadAsync(documentId, revision, nodeId, targetId, screenId, variantId, datasetId, demoNodeId, value.DemoValue, User.GetDocumentActor(), ct, value.SourceScreenId, value.Prefix);
         if (result.Response is not null) return Ok(result.Response);
         var status = result.Code switch { "FORBIDDEN" => 403, "DOCUMENT_NOT_FOUND" or "NODE_NOT_FOUND" or "SCREEN_NOT_FOUND" or "SCREEN_VARIANT_NOT_FOUND" or "DATASET_NOT_FOUND" or "REVISION_UNAVAILABLE" => 404, _ => 400 };
         return StatusCode(status, ApiErrors.Create(status, result.Code));

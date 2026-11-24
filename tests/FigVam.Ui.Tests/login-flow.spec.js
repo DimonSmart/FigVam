@@ -96,24 +96,32 @@ async function saveProperties(page, values = {}, toggles = {}, enums = {}, shado
   await expect(inspector.getByRole('status')).toHaveText('Свойства сохранены.');
 }
 
-async function scenario(page, layerId, eventId, action, variantId, targetScreen) {
-  await selectLayer(page, layerId);
+async function scenario(page, layerName, eventLabel, targetName, selectOnCanvas = false) {
+  if (selectOnCanvas) {
+    const canvas = page.locator('#screen-boundary');
+    const button = canvas.getByText(layerName, { exact: true });
+    await expect(button).toBeVisible();
+    await button.click();
+  } else {
+    await show(page, 'layers');
+    await page.getByRole('treeitem', { name: new RegExp('^' + layerName + ', TextInput') }).click();
+  }
   await show(page, 'prototype');
-  await expect(page.locator('#scenario-create')).toBeVisible();
-  await page.locator('#scenario-event').selectOption(String(eventId));
-  if (variantId !== undefined) await page.locator('#scenario-variant').selectOption(variantId ?? '');
-  await expect(page.locator(`#scenario-action option[value="${action}"]`)).toHaveCount(1);
-  await page.locator('#scenario-action').selectOption(action);
-  // The target selector becomes visible only after choosing Navigate/OpenOverlay.
-  if (targetScreen) await page.locator('#scenario-target').selectOption(targetScreen);
-  await expect(page.locator('#scenario-action')).toHaveValue(action);
-  await expect(page.locator('#scenario-create-submit')).toBeEnabled();
+  await page.getByRole('button', { name: 'Добавить взаимодействие', exact: true }).click();
+  await page.getByLabel('Событие', { exact: true }).selectOption({ label: eventLabel });
+  await page.getByLabel('Тип действия 1', { exact: true }).selectOption({ label: 'Перейти на экран' });
+  await page.getByLabel('Поиск: Целевой экран', { exact: true }).fill(targetName);
+  const picker = page.getByLabel('Целевой экран', { exact: true });
+  const option = picker.getByRole('option', { name: new RegExp('/ ' + targetName + '$') });
+  await expect(option).toHaveCount(1);
+  await picker.selectOption({ label: await option.textContent() });
   const posted = page.waitForResponse(response => response.url().endsWith('/commands/create-scenario'));
-  await page.locator('#scenario-create-submit').click();
+  await expect(page.locator('#scenario-edit-submit')).toBeEnabled();
+  await page.getByRole('button', { name: 'Сохранить взаимодействие', exact: true }).click();
   const response = await posted;
   expect(response.ok(), await response.text()).toBeTruthy();
-  // Await the editor's revision reconciliation, not only the HTTP acknowledgement.
   await expect(page.locator('#scenario-command-status')).toHaveText('Создание сценария подтверждено.');
+  await expect(page.locator('#scenarios-list')).toContainText(targetName);
 }
 
 test('designs two linked login screens and previews invalid password through UI', async ({ page, request, server, browser }) => {
@@ -236,8 +244,15 @@ test('designs two linked login screens and previews invalid password through UI'
   if (await frameRow.getAttribute('aria-expanded') === 'false')
     await frameRow.locator(':scope > .layer-label').click();
   await expect(page.locator('#layers [data-id="' + loginButton + '"]')).toBeVisible();
-  await scenario(page, loginButton, 0, 'navigate', undefined, errorScreen);
-  await scenario(page, password, 4, 'navigate', undefined, errorScreen);
+  await scenario(page, 'Login', 'По нажатию', 'Login Error', true);
+  await scenario(page, 'Password', 'При отправке', 'Login Error');
+  await page.locator('#screens .screen-select[aria-pressed="true"]').click();
+  await expect(page.locator('#scenarios-status')).toHaveText('Взаимодействия: 2');
+  await expect(page.locator('#scenarios-list')).toContainText('Login · По нажатию');
+  await expect(page.locator('#scenarios-list')).toContainText('Password · При отправке');
+  await expect(page.locator('#scenarios-list')).not.toContainText(/[0-9a-f]{8}-[0-9a-f-]{27}/i);
+  await expect(page.locator('#layers [data-id="' + loginButton + '"] .layer-interaction')).toBeVisible();
+  await expect(page.locator('#layers [data-id="' + password + '"] .layer-interaction')).toBeVisible();
 
   await demo.step('Вводим логин и пароль', 'В Preview вводим данные и нажимаем Enter. Открывается экран с ошибкой.');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
@@ -270,6 +285,11 @@ test('designs two linked login screens and previews invalid password through UI'
   const finished = await read();
   expect(finished.screens).toHaveLength(2);
   expect(finished.scenarios).toHaveLength(2);
+  // The portable document JSON format encodes enum names, unlike the numeric command/query API.
+  expect(finished.scenarios.map(({ nodeId, event, actions }) => ({ nodeId, event, actions }))).toEqual([
+    { nodeId: loginButton, event: 'Click', actions: [{ type: 'navigate', screenId: errorScreen }] },
+    { nodeId: password, event: 'Submit', actions: [{ type: 'navigate', screenId: errorScreen }] }
+  ]);
   expect(finished.screens.every(screen => screen.variants.length === 0)).toBe(true);
   await show(page, 'document');
   await page.getByLabel('Имя версии (необязательно)').fill('Login and invalid password');
@@ -289,6 +309,19 @@ test('designs two linked login screens and previews invalid password through UI'
     await expect(reopened.locator('#screens .screen-select[data-screen-id="' + loginScreen + '"]')).toContainText('Login');
     await expect(reopened.locator('#screens .screen-select[data-screen-id="' + errorScreen + '"]')).toContainText('Login Error');
     expect(await read()).toEqual(snapshot);
+    await reopened.locator('#screens .screen-select').filter({ hasText: /^Login\b(?! Error)/ }).click();
+    await show(reopened, 'prototype');
+    await expect(reopened.locator('#scenarios-list')).toContainText('Login · По нажатию');
+    await expect(reopened.locator('#scenarios-list')).toContainText('Password · При отправке');
+    const restored = reopened.locator('#preview-viewport [data-preview-screen="' + loginScreen + '"]');
+    const restoredError = reopened.locator('#preview-viewport [data-preview-screen="' + errorScreen + '"]');
+    await reopened.getByRole('button', { name: 'Preview', exact: true }).click();
+    await restored.getByRole('button', { name: 'Login', exact: true }).click();
+    await expect(restoredError).toContainText('Invalid password');
+    await reopened.getByRole('button', { name: 'Назад по сценарию' }).click();
+    await restored.locator('[data-visual-node="' + password + '"] input').press('Enter');
+    await expect(restoredError).toContainText('Invalid password');
+    await reopened.getByRole('button', { name: 'Вернуться в Design' }).click();
   } finally {
     await reopened.close();
   }

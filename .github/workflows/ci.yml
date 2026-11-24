@@ -58,6 +58,7 @@ jobs:
         working-directory: tests/FigVam.Ui.Tests
         run: npm ci
       - name: Install Chromium
+        id: chromium
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright install chromium
       - name: UI test launcher catalog smoke
@@ -88,8 +89,10 @@ jobs:
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test login-flow.spec.js --workers=1 --trace retain-on-failure
       - name: Playwright tests
+        # A smoke failure must not hide independent regression failures or overwrite its trace.
+        if: ${{ !cancelled() && steps.chromium.outcome == 'success' }}
         working-directory: tests/FigVam.Ui.Tests
-        run: npx playwright test --max-failures=5 --trace retain-on-failure
+        run: npx playwright test --max-failures=5 --trace retain-on-failure --output=test-results/full-suite
       - name: Upload failure diagnostics
         if: failure()
         uses: actions/upload-artifact@v4

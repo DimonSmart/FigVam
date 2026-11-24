@@ -40,6 +40,8 @@ public static class EditorEndpoints
         MapFile("/document-history.js", "document-history.js", "text/javascript; charset=utf-8");
         MapFile("/layers.js", "layers.js", "text/javascript; charset=utf-8");
         MapFile("/scenarios.js", "scenarios.js", "text/javascript; charset=utf-8");
+        MapFile("/interaction-catalog.js", "interaction-catalog.js", "text/javascript; charset=utf-8");
+        MapFile("/interaction-editor.js", "interaction-editor.js", "text/javascript; charset=utf-8");
         MapFile("/screen-resize.js", "screen-resize.js", "text/javascript; charset=utf-8");
         MapFile("/screen-variants.js", "screen-variants.js", "text/javascript; charset=utf-8");
         MapFile("/screen-diagnostics.js", "screen-diagnostics.js", "text/javascript; charset=utf-8");

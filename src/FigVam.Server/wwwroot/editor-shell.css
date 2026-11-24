@@ -562,3 +562,22 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 @media (max-width: 400px) {
   .app-shell .node-property--token .token-value-layout { grid-template-columns: minmax(60px, 78px) minmax(0, 1fr); }
 }
+
+.app-shell .layer-interaction { margin-left: auto; color: #5368c7; font-size: 13px; flex: none; }
+.app-shell #scenarios-list { padding: 0; list-style: none; }
+.app-shell #scenarios-list > li { border: 1px solid #e3e7f0; border-radius: 6px; padding: 8px; margin-block: 6px; }
+.app-shell #scenarios-list > li > p { font-weight: 600; margin: 0 0 6px; }
+.app-shell #scenarios-list ol { padding-left: 18px; }
+
+.app-shell #scenario-edit { margin-block: 8px; }
+.app-shell #scenario-edit-fields { min-width: 0; border: 0; padding: 0; }
+.app-shell #scenario-edit-fields > legend { font-size: 11px; color: var(--ui-muted); }
+.app-shell #scenario-edit-actions { padding: 0; list-style: none; }
+.app-shell .interaction-action { border: 1px solid #e3e7f0; border-radius: 6px; padding: 8px; margin: 8px 0; }
+.app-shell .interaction-action label { display: grid; gap: 3px; margin-block: 5px; }
+.app-shell .interaction-action select, .app-shell .interaction-action input:not([type=checkbox]), .app-shell .interaction-action textarea { width: 100%; min-width: 0; }
+.app-shell .interaction-action-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.app-shell .interaction-action-error { color: #a32638; font-size: 12px; }
+.app-shell #scenario-edit-conflict:not(:empty) { color: #a32638; }
+
+.app-shell .interaction-action label[hidden] { display: none !important; }

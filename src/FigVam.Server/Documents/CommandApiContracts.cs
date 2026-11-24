@@ -360,7 +360,7 @@ public sealed class SetScreenVariantPropertiesRequest
 }
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
-public sealed class CreateScenarioRequest { public required Guid CommandId { get; init; } [Required] public required FigVam.Domain.Preview.PreviewScenario Scenario { get; init; } }
+public sealed class CreateScenarioRequest { public required Guid CommandId { get; init; } [Required] public required FigVam.Domain.Preview.PreviewScenario Scenario { get; init; } [Range(0, long.MaxValue)] public long? ExpectedRevision { get; init; } }
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public sealed class UpdateScenarioRequest { public required Guid CommandId { get; init; } [Required] public required FigVam.Domain.Preview.PreviewScenario Scenario { get; init; } [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; } }
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]

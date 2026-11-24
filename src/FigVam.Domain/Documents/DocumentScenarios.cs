@@ -9,6 +9,27 @@ public static class DocumentScenarioEditor
             : document.Scenarios.Any(s => s.Id == id) ? document.Scenarios.Select(s => s.Id == id ? scenario : s).ToArray() : [.. document.Scenarios, scenario] };
 }
 
+public sealed class ScenarioActionContext(Guid sourceScreen)
+{
+    private readonly Stack<Guid> overlays = new();
+    public Guid? NavigationScreen { get; private set; } = sourceScreen;
+    public Guid? DemoScreen => overlays.TryPeek(out var top) ? top : NavigationScreen;
+
+    public void Advance(PreviewAction action)
+    {
+        switch (action)
+        {
+            case Navigate a: NavigationScreen = a.ScreenId; overlays.Clear(); break;
+            case OpenOverlay a: overlays.Push(a.ScreenId); break;
+            case CloseOverlay:
+                if (overlays.Count > 0) overlays.Pop();
+                else NavigationScreen = null;
+                break;
+            case ResetPreview: NavigationScreen = null; overlays.Clear(); break;
+        }
+    }
+}
+
 public static class DocumentScenarioValidator
 {
     public const int MaxScenarios = 1000;
@@ -33,8 +54,7 @@ public static class DocumentScenarioValidator
             if (!Members(scenario.ScreenId).Contains(scenario.NodeId) || !nodes.TryGetValue(scenario.NodeId, out var trigger)) Error(scenario.NodeId, "Event node must belong to the scenario screen.");
             else if (!Enum.IsDefined(scenario.Event) || !profile.SupportsPreviewEvent(trigger.Kind, scenario.Event)) Error(scenario.NodeId, "Event is not supported by the node profile.");
             if (scenario.Actions is null || scenario.Actions.Count is < 1 or > MaxActions) { Error(null, "A scenario requires 1-32 actions."); continue; }
-            Guid? currentScreen = scenario.ScreenId;
-            var overlays = new Stack<Guid>();
+            var context = new ScenarioActionContext(scenario.ScreenId);
             foreach (var action in scenario.Actions)
             {
                 if (action is null || !profile.SupportsPreviewAction(action)) { Error(null, "Action is not supported by the profile."); continue; }
@@ -42,31 +62,24 @@ public static class DocumentScenarioValidator
                 {
                     case Navigate a:
                         if (!Screen(a.ScreenId)) Error(a.ScreenId, "Navigation target must be a screen.");
-                        currentScreen = a.ScreenId; overlays.Clear(); break;
+                        break;
                     case OpenOverlay a:
                         if (!Screen(a.ScreenId)) Error(a.ScreenId, "Overlay target must be a screen.");
-                        overlays.Push(a.ScreenId); break;
+                        break;
                     case ShowVariant { VariantId: Guid id }:
-                        if (!document.Screens.Any(s => (currentScreen is null || s.Id == currentScreen) && s.Variants.Any(v => v.Id == id))) Error(id, "Variant must belong to the navigation screen at this action.");
+                        if (!document.Screens.Any(s => (context.NavigationScreen is null || s.Id == context.NavigationScreen) && s.Variants.Any(v => v.Id == id))) Error(id, "Variant must belong to the navigation screen at this action.");
                         break;
                     case SetDemoValue a:
-                        if (!(overlays.TryPeek(out var top) ? Members(top).Contains(a.NodeId) : currentScreen is Guid active ? Members(active).Contains(a.NodeId) : document.Screens.Any(s => Members(s.Id).Contains(a.NodeId))) || !nodes.TryGetValue(a.NodeId, out var target) || !profile.SupportsDemoValue(target.Kind)) Error(a.NodeId, "Demo value target must be an eligible node on the active screen.");
+                        if (!(context.DemoScreen is Guid active ? Members(active).Contains(a.NodeId) : document.Screens.Any(s => Members(s.Id).Contains(a.NodeId))) || !nodes.TryGetValue(a.NodeId, out var target) || !profile.SupportsDemoValue(target.Kind)) Error(a.NodeId, "Demo value target must be an eligible node on the active screen.");
                         if (a.Value?.Length > 4096) Error(a.NodeId, "Demo values are limited to 4096 characters.");
                         break;
                     case SelectDataset { DatasetId: Guid id }:
                         if (!document.Datasets.Any(d => d.Id == id)) Error(id, "Dataset must exist."); break;
-                    case CloseOverlay:
-                        if (overlays.Count > 0) overlays.Pop();
-                        // A handler on an overlay can close a layer opened by an earlier event.
-                        // Its underlying navigation screen is known only to the running session.
-                        else currentScreen = null;
-                        break;
-                    case ResetPreview:
-                        currentScreen = null; overlays.Clear();
-                        break;
+                    case CloseOverlay or ResetPreview: break;
                     case ShowVariant or SelectDataset: break;
                     default: Error(null, "Unknown action."); break;
                 }
+                context.Advance(action);
             }
         }
         if (errors.Count == 0 && System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(document.Scenarios).Length > 1024 * 1024)
