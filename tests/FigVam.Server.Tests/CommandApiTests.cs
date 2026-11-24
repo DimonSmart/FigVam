@@ -245,6 +245,19 @@ public sealed class CommandApiTests
         var contract = JsonSchema.Build(document.RootElement.Clone());
         Assert.True(contract.EvaluateNode(JsonNode.Parse($"{{\"commandId\":\"{Guid.NewGuid()}\",\"pageId\":\"{Guid.NewGuid()}\"}}")!).IsValid);
         Assert.False(contract.EvaluateNode(JsonNode.Parse("{}")!).IsValid);
+
+        var shadowSchemaJson = JsonNode.Parse(await client.GetStringAsync("/api/v1/schemas/SetNodePropertyRequest.json"))!;
+        Assert.Contains("\"shadow\"", shadowSchemaJson.ToJsonString());
+        var shadowContract = JsonSchema.Build(System.Text.Json.JsonSerializer.SerializeToElement(shadowSchemaJson));
+        var shadowRequest = System.Text.Json.JsonSerializer.SerializeToNode(new
+        {
+            commandId = Guid.NewGuid(), nodeId = Guid.NewGuid(), property = "shadow",
+            value = new { type = "shadow", offsetX = -2, offsetY = 12, blurRadius = 32, spreadRadius = -1,
+                color = new { red = 15, green = 23, blue = 42, alpha = 41 } }
+        })!.AsObject();
+        Assert.True(shadowContract.EvaluateNode(shadowRequest).IsValid);
+        shadowRequest["value"]!.AsObject().Remove("blurRadius");
+        Assert.False(shadowContract.EvaluateNode(shadowRequest).IsValid);
     }
 }
 

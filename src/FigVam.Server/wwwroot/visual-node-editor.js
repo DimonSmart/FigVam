@@ -339,7 +339,7 @@ export function createVisualNodeEditor({
     kindSelect.disabled = parentSelect.disabled = blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
-    for (const field of inspectorFields.values()) field.setDisabled(blocked);
+    for (const [name, field] of inspectorFields) field.setDisabled(name === 'shadow' ? blocked : !editable || Boolean(op && !op.canvas));
     for (const button of inspectorProperties.querySelectorAll('.shadow-action, .variant-override-reset, .style-override-reset'))
       button.disabled = blocked;
     const validParent = model?.kinds.size && eligibleParent();

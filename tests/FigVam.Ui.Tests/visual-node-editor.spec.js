@@ -621,6 +621,11 @@ test('Effects is optional, edits one typed shadow, resets variants and removes w
   await saved();
   await expect(effects.getByRole('button', { name: 'Reset Override' })).toBeVisible();
   expect((await properties()).shadow).toEqual(typedShadow);
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.locator('#preview-viewport [data-visual-node="' + frameId + '"]'))
+    .toHaveCSS('box-shadow', /-4px 12px 48px -3px/);
+  await page.getByRole('button', { name: 'Вернуться в Design' }).click();
+  await show(page, 'design');
   await effects.getByRole('button', { name: 'Reset Override' }).click();
   await expect(field('Blur')).toHaveValue('24');
   await show(page, 'assets');
