@@ -32,6 +32,7 @@ public sealed class ScenarioCapabilitiesTests
     {
         public PortableUiProfileReference Identity => PortableUiProfileReference.Current;
         public bool SupportsPreviewEvent(string kind, PreviewEvent e) => kind == "test" && e == PreviewEvent.Change;
+        public IReadOnlyList<string> PreviewActions => ["navigate", "resetPreview"];
         public bool SupportsPreviewAction(PreviewAction action) => action is Navigate or ResetPreview;
         public bool SupportsDemoValue(string kind) => false;
         public NodePropertyDefinition? GetProperty(string kind, string property) => null;
@@ -49,10 +50,31 @@ public sealed class ScenarioCapabilitiesTests
         var query = new ScenarioCapabilitiesQuery(access, reader, new Limited());
         var limited = await query.ReadAsync(doc, 4, node, screen, null, null, null, null, null, actor);
         Assert.Equal([PreviewEvent.Change], limited.Response!.Events); Assert.Equal(["navigate", "resetPreview"], limited.Response.Actions);
-        Assert.Equal(["resetPreview"], (await query.ReadAsync(doc, 4, node, null, null, null, null, null, null, actor)).Response!.Actions);
+        var withoutTarget = (await query.ReadAsync(doc, 4, node, null, null, null, null, null, null, actor)).Response!;
+        Assert.Equal(["resetPreview"], withoutTarget.Actions);
+        Assert.Equal(["navigate", "resetPreview"], withoutTarget.PotentialActions);
         Assert.Equal("REVISION_UNAVAILABLE", (await query.ReadAsync(doc, 3, node, screen, null, null, null, null, null, actor)).Code);
         Assert.Equal("FORBIDDEN", (await query.ReadAsync(doc, 4, node, screen, null, null, null, null, null, new("outsider"))).Code);
     }
+    [Fact]
+    public async Task PrefixUsesNavigationAndOverlayContexts()
+    {
+        var doc = Guid.NewGuid(); var source = Guid.NewGuid(); var start = Guid.NewGuid();
+        var target = Guid.NewGuid(); var overlay = Guid.NewGuid();
+        var state = new DocumentState(new(doc, [], [new(start, [source], new(100, 100)), new(target, [], new(100, 100)), new(overlay, [], new(100, 100))], [new(source, "Button", [])]), 4);
+        var query = new ScenarioCapabilitiesQuery(new Access(), new Reader(state), new VisualNodeProfile());
+        async Task<ScenarioCapabilitiesResponse> Read(params PreviewAction[] prefix)
+            => (await query.ReadAsync(doc, 4, source, null, null, null, null, null, null, new("owner"), sourceScreenId: start, prefix: prefix)).Response!;
+        var opened = await Read(new Navigate(target), new OpenOverlay(overlay));
+        Assert.Equal(target, opened.NavigationScreenId);
+        Assert.Equal(overlay, opened.DemoScreenId);
+        var closed = await Read(new Navigate(target), new OpenOverlay(overlay), new CloseOverlay());
+        Assert.Equal(target, closed.DemoScreenId);
+        Assert.Null((await Read(new CloseOverlay())).NavigationScreenId);
+        Assert.Null((await Read(new ResetPreview())).DemoScreenId);
+        Assert.Contains("navigate", opened.PotentialActions);
+    }
+
     [Fact]
     public async Task ShowVariantUsesExactValueAndScreenAtRevision()
     {
