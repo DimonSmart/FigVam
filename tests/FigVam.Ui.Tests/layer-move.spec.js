@@ -1,5 +1,6 @@
 const { test, expect, bearer } = require('./fixtures');
 const { randomUUID } = require('node:crypto');
+const { layerRow, label, startLayerDrag, hoverLayer, dragLayer } = require('./layer-drag-helper');
 const headers = { Authorization: `Bearer ${bearer}` };
 
 async function setup(page, request) {
@@ -43,7 +44,7 @@ test('real ACK synchronizes reorder and reparent; retry does not apply a lost AC
     else await route.fulfill({ response });
   });
   await page.locator(`[role=treeitem][data-id="${firstId}"]`).press('Enter');
-  await page.locator('#node-later').click();
+  await dragLayer(page, firstId, secondId, 'after');
   await expect(page.locator('#node-order-retry')).toBeVisible();
   await page.locator('#node-order-retry').click();
   await expect(page.locator('#node-order-retry')).toBeHidden();
@@ -52,9 +53,7 @@ test('real ACK synchronizes reorder and reparent; retry does not apply a lost AC
   expect(bodies[1]).toEqual(bodies[0]);
   expect(acknowledgements[1].revision).toBe(acknowledgements[0].revision);
   expect(acknowledgements[1].status).toBe('ACCEPTED');
-  await page.locator('#node-reparent').click();
-  await page.locator('#node-reparent-target').selectOption(frameId);
-  await page.locator('#node-reparent-submit').click();
+  await dragLayer(page, firstId, frameId);
   await expect(page.locator('#node-order-status')).toContainText('Слой перемещён к новому родителю');
   await expect(page.locator('#node-order-retry')).toBeHidden();
   await expect(page.locator(`[role=treeitem][data-id="${frameId}"] [role=treeitem][data-id="${firstId}"]`)).toBeVisible();
@@ -67,11 +66,13 @@ test('real ACK synchronizes reorder and reparent; retry does not apply a lost AC
 test('a stale parent is rejected by the server without a false acknowledgement', async ({ page, request }) => {
   const { base, screenId, frameId, firstId, command } = await setup(page, request);
   await page.locator(`[role=treeitem][data-id="${firstId}"]`).press('Enter');
-  await page.locator('#node-reparent').click();
-  await page.locator('#node-reparent-target').selectOption(frameId);
-  const concurrent = await command('move-node', { nodeId: firstId, expectedParentId: screenId, targetParentId: frameId, position: 0 });
+  let concurrent;
+  await page.route(`**${base}/commands/move-node`, async route => {
+    concurrent = await command('move-node', { nodeId: firstId, expectedParentId: screenId, targetParentId: frameId, position: 0 });
+    await route.continue();
+  }, { times: 1 });
   const rejection = page.waitForResponse(response => response.url().endsWith('/commands/move-node'));
-  await page.locator('#node-reparent-submit').click();
+  await dragLayer(page, firstId, frameId);
   const response = await rejection;
   expect(response.ok()).toBeFalsy();
   expect((await response.json()).code).toBe('INVALID_LAYOUT_CONTEXT');
@@ -80,4 +81,102 @@ test('a stale parent is rejected by the server without a false acknowledgement',
   expect(await children(request, base, frameId)).toEqual([firstId]);
   const state = await request.get(`${base}/nodes?screenId=${screenId}&fields=parentId`, { headers });
   expect((await state.json()).revision).toBe(concurrent.revision);
+});
+
+test('drag across siblings, preserve selection and focus, synchronize canvas and survive reload', async ({ page, request }) => {
+  const { base, screenId, frameId, firstId, secondId } = await setup(page, request);
+  const order = () => page.locator('#layers > [role=treeitem]').evaluateAll(rows => rows.map(row => row.dataset.id));
+  await expect(page.locator('#node-earlier, #node-later, #node-reparent, #node-reparent-form')).toHaveCount(0);
+  await dragLayer(page, secondId, frameId, 'before');
+  await expect.poll(order).toEqual([secondId, frameId, firstId]);
+  await expect(layerRow(page, secondId)).toHaveAttribute('aria-selected', 'true');
+  await expect(layerRow(page, secondId)).toBeFocused();
+  const canvas = page.locator('#screen-boundary');
+  await expect.poll(() => canvas.locator('[data-visual-node]').evaluateAll(nodes => nodes.map(node => node.dataset.visualNode))).toEqual([secondId, frameId, firstId]);
+  await dragLayer(page, secondId, firstId, 'after');
+  await expect.poll(order).toEqual([frameId, firstId, secondId]);
+  await dragLayer(page, secondId, firstId, 'before');
+  await expect.poll(order).toEqual([frameId, secondId, firstId]);
+  await layerRow(page, secondId).press('Control+ArrowDown');
+  await expect.poll(order).toEqual([frameId, firstId, secondId]);
+  await layerRow(page, secondId).press('Meta+ArrowUp');
+  await expect.poll(order).toEqual([frameId, secondId, firstId]);
+  expect(await children(request, base, screenId)).toEqual([frameId, secondId, firstId]);
+  await page.reload();
+  const auth = page.getByLabel('Bearer-токен', { exact: true });
+  if (await auth.isVisible()) {
+    await auth.fill(bearer);
+    await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  }
+  await page.locator('#screens button').first().click();
+  await expect.poll(order).toEqual([frameId, secondId, firstId]);
+});
+
+test('cancel, no-op and cyclic drops issue no command; leaf rows have only before/after zones', async ({ page, request }) => {
+  const { base, screenId, frameId, firstId, secondId } = await setup(page, request);
+  let calls = 0;
+  await page.route(`**${base}/commands/move-node`, route => { calls++; return route.continue(); });
+  await startLayerDrag(page, firstId);
+  await hoverLayer(page, secondId, 'before');
+  await expect(layerRow(page, secondId)).toHaveAttribute('data-layer-drop', 'invalid');
+  await page.mouse.up();
+  expect(calls).toBe(0);
+  await startLayerDrag(page, firstId);
+  await hoverLayer(page, frameId);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.layer-drag-ghost')).toHaveCount(0);
+  await page.mouse.up();
+  expect(calls).toBe(0);
+  await dragLayer(page, firstId, frameId);
+  await expect(layerRow(page, firstId)).toBeVisible();
+  await expect(layerRow(page, firstId)).toHaveAttribute('aria-selected', 'true');
+  await startLayerDrag(page, frameId);
+  await hoverLayer(page, firstId, 'after');
+  await expect(layerRow(page, firstId)).toHaveAttribute('data-layer-drop', 'invalid');
+  await page.mouse.up();
+  expect(calls).toBe(1);
+  await startLayerDrag(page, frameId);
+  await hoverLayer(page, secondId, 'inside');
+  await expect(layerRow(page, secondId)).toHaveAttribute('data-layer-drop', /before|after/);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  expect(calls).toBe(1);
+  expect(await children(request, base, screenId)).toEqual([frameId, secondId]);
+  expect(await children(request, base, frameId)).toEqual([firstId]);
+  await dragLayer(page, firstId, secondId, 'after');
+  await expect.poll(() => children(request, base, screenId)).toEqual([frameId, secondId, firstId]);
+});
+
+test('moves a container together with its children and expands a collapsed target', async ({ page, request }) => {
+  const { base, screenId, frameId, firstId, secondId } = await setup(page, request);
+  await dragLayer(page, firstId, frameId);
+  await expect(layerRow(page, firstId)).toBeVisible();
+  await dragLayer(page, frameId, secondId, 'after');
+  await expect.poll(() => children(request, base, screenId)).toEqual([secondId, frameId]);
+  expect(await children(request, base, frameId)).toEqual([firstId]);
+  await layerRow(page, frameId).press('ArrowLeft');
+  await expect(layerRow(page, frameId)).toHaveAttribute('aria-expanded', 'false');
+  await startLayerDrag(page, secondId);
+  await hoverLayer(page, frameId);
+  await expect(layerRow(page, frameId)).toHaveAttribute('aria-expanded', 'true');
+  await hoverLayer(page, firstId, 'before');
+  await page.mouse.up();
+  await expect.poll(() => children(request, base, frameId)).toEqual([secondId, firstId]);
+});
+
+test('edge scrolling is isolated to the layers detail panel', async ({ page, request }) => {
+  const { screenId, command, frameId } = await setup(page, request);
+  for (let i = 0; i < 20; i++) await command('add-node', { nodeId: randomUUID(), parentId: screenId, kind: 'Text' });
+  await page.getByRole('button', { name: 'Обновить страницы' }).click();
+  await expect(page.locator('#layers > [role=treeitem]')).toHaveCount(23);
+  const scroll = page.locator('.layer-tree-group');
+  const master = page.locator('#pages');
+  const before = await master.evaluate(e => e.scrollTop);
+  await startLayerDrag(page, frameId);
+  const bounds = await scroll.boundingBox();
+  await page.mouse.move(bounds.x + 50, bounds.y + bounds.height - 3);
+  await expect.poll(() => scroll.evaluate(e => e.scrollTop)).toBeGreaterThan(30);
+  expect(await master.evaluate(e => e.scrollTop)).toBe(before);
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
 });

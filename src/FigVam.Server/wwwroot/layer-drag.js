@@ -14,7 +14,7 @@ export function resolveLayerDrop(source, target, zone) {
 
 export function createLayerDrag({ tree, canMove, context, stamp, resolve, expand, commit }) {
   let gesture = null, marked = null, ghost = null, frame = 0, hoverId = null, hoverSince = 0;
-  let suppressClick = false, clickTimer;
+  let suppressClick = false;
   const labelAt = (x, y) => {
     const label = document.elementFromPoint(x, y)?.closest('.layer-label');
     return label && tree.contains(label) ? label : null;
@@ -36,8 +36,7 @@ export function createLayerDrag({ tree, canMove, context, stamp, resolve, expand
     hoverId = null;
     if (wasDragging) {
       suppressClick = true;
-      clearTimeout(clickTimer);
-      clickTimer = setTimeout(() => { suppressClick = false; }, 0);
+
     }
   }
   function valid() { return gesture && canMove() && stamp() === gesture.stamp; }
@@ -76,7 +75,8 @@ export function createLayerDrag({ tree, canMove, context, stamp, resolve, expand
     frame = requestAnimationFrame(tick);
   }
   tree.addEventListener('pointerdown', event => {
-    if (event.button !== 0 || !event.isPrimary || !canMove()) return;
+    suppressClick = false;
+    if (event.button !== 0 || !event.isPrimary || event.pointerType === 'touch' || !canMove()) return;
     const label = event.target.closest('.layer-label');
     if (!label || !tree.contains(label)) return;
     const row = label.closest('[role=treeitem]');

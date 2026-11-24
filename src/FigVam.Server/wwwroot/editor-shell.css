@@ -666,8 +666,8 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 }
 
 /* Layer gesture feedback is transient and does not change the tree layout. */
-.app-shell #node-order-status:empty { display: none; }
-.app-shell #layers.layer-move-enabled .layer-label { cursor: grab; touch-action: none; user-select: none; }
+.app-shell #node-order-status:empty { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); margin: 0; }
+.app-shell #layers.layer-move-enabled .layer-label { cursor: grab; user-select: none; }
 .app-shell #layers.layer-dragging .layer-label { cursor: grabbing; }
 .app-shell #layers [data-layer-drag-source] > .layer-label { opacity: .45; }
 .app-shell #layers [data-layer-drop] { position: relative; }

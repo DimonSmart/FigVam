@@ -1,6 +1,7 @@
 const { test, expect, bearer } = require('./fixtures');
 const { show } = require('./ui-panels');
 const { createDemo } = require('./demo-overlay');
+const { dragLayer, layerRow } = require('./layer-drag-helper');
 
 // A few stable interior and shadow pixels provide a visual regression without font-dependent baselines.
 async function verifyLoginVisual(page, root, name) {
@@ -205,6 +206,13 @@ test('designs two linked login screens and previews invalid password through UI'
     'Цвет текста': '#FFFFFF' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
   await demo.step('Effects: тень кнопки', 'Второй, более лёгкий уровень elevation.');
   await saveProperties(page, {}, {}, {}, { geometry: { X: 0, Y: 4, Blur: 8, Spread: 0 }, color: '#2563EB', alpha: 61 });
+  await demo.step('Меняем порядок слоёв', 'Перетаскиваем Login перед полем Password и возвращаем на исходную позицию.');
+  await show(page, 'layers');
+  await dragLayer(page, loginButton, password, 'before');
+  await expect(layerRow(page, loginButton)).toBeFocused();
+  await expect.poll(async () => (await read()).nodes.find(node => node.id === frame).childIds.indexOf(loginButton)).toBe(5);
+  await dragLayer(page, loginButton, password, 'after');
+  await expect.poll(async () => (await read()).nodes.find(node => node.id === frame).childIds.indexOf(loginButton)).toBe(6);
   await selectLayer(page, frame);
   await padding.scrollIntoViewIfNeeded();
   await expect(padding).toBeVisible();

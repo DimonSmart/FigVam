@@ -1,5 +1,6 @@
 const { test, expect, bearer } = require('./fixtures');
 const { randomUUID } = require('node:crypto');
+const { dragLayer, startLayerDrag, hoverLayer } = require('./layer-drag-helper');
 
 function deferred() {
   let resolve;
@@ -38,7 +39,6 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   const target = add(folder, 'Destination', true), existingChild = add(target, 'Existing child');
   add(anotherScreen, 'Other screen container', true);
   const reads = [], calls = [];
-  let catalogStatus = 200;
   const item = (id, parentId) => ({ ...nodes.get(id), parentId, childCount: children.get(id).length });
   const descendants = parent => children.get(parent).flatMap(id => [item(id, parent), ...descendants(id)]);
   function read(route, items) {
@@ -51,14 +51,6 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   await page.route('**/children/*?*', route => {
     const parent = new URL(route.request().url()).pathname.split('/').at(-1);
     return read(route, (children.get(parent) ?? []).map(id => item(id, parent)));
-  });
-  await page.route('**/nodes?*', route => {
-    const params = new URL(route.request().url()).searchParams;
-    if (!params.get('fields')?.includes('canContainChildren')) return route.fallback();
-    reads.push(params);
-    expect(route.request().headers().authorization).toBe(`Bearer ${bearer}`);
-    if (catalogStatus !== 200) return route.fulfill({ status: catalogStatus, json: { code: 'FORBIDDEN' } });
-    return read(route, descendants(params.get('screenId')));
   });
   await page.route('**/nodes/*?*', route => {
     const id = new URL(route.request().url()).pathname.split('/').at(-1);
@@ -84,13 +76,10 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   await page.locator('#screens button').first().click();
   await expect(layer(page, source)).toBeVisible();
   return { calls, reads, source, target, folder, descendant, leaf, existingChild, screen, anotherScreen, children, move, ack,
-    answer: fn => { answer = fn; }, catalogStatus: status => { catalogStatus = status; } };
+    answer: fn => { answer = fn; } };
 }
 
 const layer = (page, id) => page.locator(`#layers [data-id="${id}"]`);
-const reparent = page => page.getByRole('button', { name: 'Сменить родителя слоя' });
-const targetSelect = page => page.getByLabel('Новый родитель');
-const positionInput = page => page.getByLabel('Позиция среди детей');
 const moveStatus = page => page.locator('#node-order-status');
 const retry = page => page.getByRole('button', { name: 'Повторить перемещение слоя' });
 
@@ -99,36 +88,37 @@ async function selectLayer(page, id) {
   await expect(layer(page, id)).toHaveAttribute('aria-selected', 'true');
 }
 
-async function submit(page, fixture, target = fixture.target) {
-  await reparent(page).click();
-  await targetSelect(page).selectOption(target);
-  await page.getByRole('button', { name: 'Переместить к новому родителю' }).click();
+async function openFolder(page, fixture) {
+  if (await layer(page, fixture.folder).getAttribute('aria-expanded') === 'false')
+    await layer(page, fixture.folder).locator(':scope > .layer-label').click();
+  await expect(layer(page, fixture.target)).toBeAttached();
 }
 
-test('keyboard reparenting loads collapsed paginated targets and moves back to the screen root', async ({ page, request }) => {
+async function submit(page, fixture, target = fixture.target) {
+  if (target === fixture.screen) await dragLayer(page, fixture.source, fixture.leaf, 'after');
+  else {
+    await openFolder(page, fixture);
+    await dragLayer(page, fixture.source, target);
+  }
+}
+
+test('drag opens a collapsed paginated folder and moves a subtree back to the screen root', async ({ page, request }) => {
   const f = await setup(page, request, { role: 'Editor', paged: true });
   await selectLayer(page, f.source);
   await expect(layer(page, f.target)).toHaveCount(0);
-  await page.keyboard.press('Tab');
-  await page.keyboard.press('Tab');
-  await expect(reparent(page)).toBeFocused();
-  await page.keyboard.press('Enter');
-  await expect(targetSelect(page)).toBeFocused();
-  await expect(targetSelect(page).locator('option')).toHaveText(['Выберите родителя', 'Folder', 'Folder / Destination']);
-  expect(f.reads.map(q => [q.get('offset'), q.get('revision'), q.get('screenId')])).toEqual([['0', null, f.screen], ['100', '3', f.screen]]);
-  await page.keyboard.press('End');
-  await expect(targetSelect(page)).toHaveValue(f.target);
-  await page.keyboard.press('Tab');
-  await expect(positionInput(page)).toBeFocused();
-  await expect(positionInput(page)).toHaveValue('2');
-  await page.keyboard.press('ArrowDown');
-  await page.keyboard.press('Tab');
-  await page.keyboard.press('Enter');
+  await startLayerDrag(page, f.source);
+  await hoverLayer(page, f.folder);
+  await expect(layer(page, f.folder)).toHaveAttribute('aria-expanded', 'true');
+  await expect(layer(page, f.target)).toBeAttached();
+  await hoverLayer(page, f.target);
+  await expect(layer(page, f.target)).toHaveAttribute('data-layer-drop', 'inside');
+  await page.mouse.up();
   await expect(moveStatus(page)).toContainText('Слой перемещён');
-  await expect(layer(page, f.target).locator(':scope > [role=group] > [role=treeitem]').first()).toHaveAttribute('data-id', f.source);
+  await expect(layer(page, f.target).locator(':scope > [role=group] > [role=treeitem]').last()).toHaveAttribute('data-id', f.source);
   await expect(layer(page, f.source)).toHaveAttribute('aria-selected', 'true');
   const first = JSON.parse(f.calls[0]);
-  expect(first).toMatchObject({ nodeId: f.source, expectedParentId: f.screen, targetParentId: f.target, position: 0 });
+  expect(first).toMatchObject({ nodeId: f.source, expectedParentId: f.screen, targetParentId: f.target, position: 1 });
+  expect(f.children.get(f.source)).toEqual([f.descendant]);
   await submit(page, f, f.screen);
   await expect(moveStatus(page)).toContainText('Слой перемещён');
   await expect(page.locator('#layers > [role=treeitem]').last()).toHaveAttribute('data-id', f.source);
@@ -147,7 +137,7 @@ test('refreshes the layer tree after parent conflict and concurrent deletion', a
   await submit(page, f);
   await expect(moveStatus(page)).toContainText('Родитель слоя изменился. Дерево обновлено.');
   await expect(page.locator(`#layers > [data-id="${f.source}"]`)).toHaveCount(0);
-  await layer(page, f.folder).locator(':scope > .layer-label').click();
+  if (await layer(page, f.folder).getAttribute('aria-expanded') === 'false') await layer(page, f.folder).locator(':scope > .layer-label').click();
   await expect(layer(page, f.source)).toBeVisible();
   await selectLayer(page, f.source);
   f.answer(route => {
@@ -160,13 +150,16 @@ test('refreshes the layer tree after parent conflict and concurrent deletion', a
   await expect(retry(page)).toBeHidden();
 });
 
-test('refreshes the tree when the selected layer disappeared before choosing a parent', async ({ page, request }) => {
+test('cancels an active gesture when a refreshed snapshot removes its source', async ({ page, request }) => {
   const f = await setup(page, request);
-  await selectLayer(page, f.source);
+  await startLayerDrag(page, f.source);
+  await hoverLayer(page, f.folder);
   f.children.get(f.screen).shift();
-  await reparent(page).click();
-  await expect(moveStatus(page)).toContainText('Слой больше не находится на этом экране. Дерево обновлено.');
+  // Programmatic refresh avoids ending the physical pointer gesture first.
+  await page.getByRole('button', { name: 'Обновить страницы' }).evaluate(button => button.click());
   await expect(layer(page, f.source)).toHaveCount(0);
+  await expect(page.locator('.layer-drag-ghost')).toHaveCount(0);
+  await page.mouse.up();
   expect(f.calls).toHaveLength(0);
 });
 
@@ -185,8 +178,8 @@ test('retries the exact serialized request after losing the response and prevent
   await selectLayer(page, f.source);
   await submit(page, f);
   await entered.promise;
-  await expect(reparent(page)).toBeDisabled();
-  await page.locator('#node-reparent-form').dispatchEvent('submit');
+  await expect(page.locator('#layers')).not.toHaveClass(/layer-move-enabled/);
+  await layer(page, f.source).press('Control+ArrowDown');
   release.resolve();
   await expect(retry(page)).toBeVisible();
   expect(f.calls).toHaveLength(1);
@@ -196,25 +189,25 @@ test('retries the exact serialized request after losing the response and prevent
   expect(f.calls[1]).toBe(f.calls[0]);
 });
 
-test('Viewer can select layers and cannot load reparenting targets or move layers', async ({ page, request }) => {
+test('Viewer can select layers but cannot drag or use reorder shortcuts', async ({ page, request }) => {
   const f = await setup(page, request, { role: 'Viewer' });
   await selectLayer(page, f.source);
-  await expect(reparent(page)).toBeHidden();
-  await page.locator('#node-reparent').dispatchEvent('click');
-  await expect(page.locator('#node-reparent-form')).toBeHidden();
-  expect(f.reads).toHaveLength(0);
+  const from = await layer(page, f.source).locator(':scope > .layer-label').boundingBox();
+  const to = await layer(page, f.folder).locator(':scope > .layer-label').boundingBox();
+  await page.mouse.move(from.x + 20, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 20, to.y + to.height / 2, { steps: 5 });
+  await expect(page.locator('.layer-drag-ghost')).toHaveCount(0);
+  await page.mouse.up();
+  await layer(page, f.source).press('Control+ArrowDown');
+  await expect(page.locator('#layers')).not.toHaveClass(/layer-move-enabled/);
   expect(f.calls).toHaveLength(0);
 });
 
-test('target loading is retryable and loss of access closes the document', async ({ page, request }) => {
+test('a rejected move after access loss closes the active document', async ({ page, request }) => {
   const f = await setup(page, request);
-  await selectLayer(page, f.source);
-  f.catalogStatus(503);
-  await reparent(page).click();
-  await expect(page.locator('#node-reparent-status')).toContainText('Сервер не смог выполнить запрос');
-  await expect(targetSelect(page)).toBeDisabled();
-  f.catalogStatus(403);
-  await page.getByRole('button', { name: 'Повторить загрузку родителей' }).click();
+  f.answer(route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }));
+  await submit(page, f);
   await expect(page.locator('#editor-view')).toBeHidden();
   await expect(page.locator('#error')).toContainText('Доступ к документу потерян');
 });
@@ -253,7 +246,7 @@ for (const exit of ['selection', 'screen', 'document', 'logout']) {
     if (exit === 'document') await expect(page.locator('#documents-view')).toBeVisible();
     if (exit === 'logout') await expect(page.locator('#authentication')).toBeVisible();
     await expect(page.locator('#error')).not.toContainText('Доступ к документу потерян');
-    await expect(page.locator('#node-reparent-form')).toBeHidden();
+    await expect(page.locator('.layer-drag-ghost')).toHaveCount(0);
     expect(f.calls).toHaveLength(1);
   });
 }
