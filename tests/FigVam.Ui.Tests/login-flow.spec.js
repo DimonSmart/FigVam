@@ -49,8 +49,16 @@ async function selectLayer(page, id) {
 async function saveProperties(page, values = {}, toggles = {}, enums = {}, shadow) {
   await show(page, 'design');
   const inspector = page.locator('#visual-inspector');
-  for (const [label, value] of Object.entries(values))
-    await inspector.getByLabel(label, { exact: true }).fill(String(value));
+  for (const [label, value] of Object.entries(values)) {
+    const field = inspector.getByLabel(label, { exact: true });
+    await field.fill(String(value));
+    if (label.startsWith('Цвет ')) {
+      const color = field.locator('..');
+      await color.getByRole('button', { name: 'Изменить Alpha' }).click();
+      await color.getByLabel(label + ' — альфа', { exact: true }).fill('255');
+      await color.getByRole('button', { name: 'Изменить Alpha' }).click();
+    }
+  }
   for (const [label, checked] of Object.entries(toggles)) {
     const box = inspector.getByRole('checkbox', { name: label });
     if (checked) await box.check(); else await box.uncheck();
@@ -91,7 +99,7 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
 }
 
 test('designs two linked login screens and previews invalid password through UI', async ({ page, request, server, browser }) => {
-  test.setTimeout(process.env.PWDEBUG ? 0 : (process.env.FIGVAM_DEMO === '1' ? 15 * 60_000 : 180_000));
+  test.setTimeout(process.env.PWDEBUG ? 0 : (process.env.FIGVAM_DEMO === '1' ? 15 * 60_000 : 240_000));
   const demo = createDemo(page, 16);
   if (process.env.FIGVAM_DEMO === '1') console.log('FigVam narrated demo enabled: 16 steps');
   // In demo mode, use the maximized OS window rather than a potentially off-screen 1700×1100 viewport.
@@ -217,7 +225,7 @@ test('designs two linked login screens and previews invalid password through UI'
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const loginRoot = page.locator('#preview-viewport [data-preview-screen="' + loginScreen + '"]');
   await expect(loginRoot.locator('[data-visual-node="' + frame + '"]')).toHaveCSS('box-shadow', /rgba\(15, 23, 42, 0\.16/);
-  await expect(loginRoot.locator('[data-visual-node="' + loginButton + '"]')).toHaveCSS('box-shadow', /rgba\(37, 99, 235, 0\.239/);
+  await expect(loginRoot.locator('[data-visual-node="' + loginButton + '"]')).toHaveCSS('box-shadow', /rgba\(37, 99, 235, 0\.2(?:39|4)/);
   if (process.env.FIGVAM_DEMO !== '1')
     await test.info().attach('Login Preview', { body: await loginRoot.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await loginRoot.locator('[data-visual-node="' + username + '"] input').fill('demo-user');

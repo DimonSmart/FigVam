@@ -168,6 +168,46 @@ public sealed class AtomicNodeCommandTests : IDisposable
         Assert.Equal(new NodeTokenValue(alias), Assert.Single(restored.Document.Nodes).Properties["gap"]);
     }
 
+    [Fact]
+    public async Task ShadowCommandsPersistReplayAndRoundTripWithoutSpecialCommands()
+    {
+        var journal = Journal();
+        var handler = await Initialize(journal);
+        Assert.True((await handler.HandleAsync(new AddNodeCommand(documentId, Guid.NewGuid(), screenId, nodeId, "Frame"), owner)).Accepted);
+        var shadow = new NodeShadowValue(0, 4, 8, -2, new(0, 0, 0, 38));
+        var added = await handler.HandleAsync(new SetNodePropertyCommand(documentId, Guid.NewGuid(), nodeId, "shadow", shadow), owner);
+        Assert.True(added.Accepted, added.Code);
+        var updated = shadow with { OffsetY = 12, BlurRadius = 32 };
+        var edited = await handler.HandleAsync(new SetNodePropertiesCommand(documentId, Guid.NewGuid(), nodeId,
+            new Dictionary<string, NodePropertyValue> { ["shadow"] = updated }), editor);
+        Assert.True(edited.Accepted, edited.Code);
+        var reopened = Journal();
+        var snapshot = (await reopened.ReadAsync(documentId))!;
+        Assert.Equal(updated, Assert.Single(snapshot.Document.Nodes).Properties["shadow"]);
+        var change = Assert.Single((await reopened.ReadEventsAsync(documentId, added.Revision!.Value)).Events!);
+        Assert.Equal(updated, Assert.IsType<NodePropertiesSet>(change.Payload).Properties["shadow"]);
+        var exporter = new DocumentJsonExporter(reopened, reopened, reopened, profile);
+        var json = await exporter.ExportAsync(documentId, null, null, owner);
+        Assert.Equal("OK", json.Code);
+        var reader = new DocumentFileReader(profile);
+        var imported = await reader.ReadJsonAsync(new MemoryStream(json.Content!));
+        Assert.Empty(imported.Diagnostics);
+        Assert.Equal(updated, Assert.Single(imported.Document!.Document.Nodes).Properties["shadow"]);
+        var container = await new DocumentContainerExporter(exporter, reopened).ExportAsync(documentId, null, null, owner);
+        Assert.Equal("OK", container.Code);
+        var readContainer = await reader.ReadContainerAsync(new MemoryStream(container.Content!));
+        Assert.Empty(readContainer.Diagnostics);
+        Assert.Equal(updated, Assert.Single(readContainer.Document!.Document.Nodes).Properties["shadow"]);
+
+        var remove = await handler.HandleAsync(new RemoveNodePropertiesCommand(documentId, Guid.NewGuid(), nodeId, ["shadow"], snapshot.Revision), owner);
+        Assert.True(remove.Accepted, remove.Code);
+        Assert.False(Assert.Single((await Journal().ReadAsync(documentId))!.Document.Nodes).Properties.ContainsKey("shadow"));
+        Assert.True((await handler.HandleAsync(new UndoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
+        Assert.Equal(updated, Assert.Single((await Journal().ReadAsync(documentId))!.Document.Nodes).Properties["shadow"]);
+        Assert.True((await handler.HandleAsync(new RedoDocumentCommand(documentId, Guid.NewGuid()), owner)).Accepted);
+        Assert.False(Assert.Single((await Journal().ReadAsync(documentId))!.Document.Nodes).Properties.ContainsKey("shadow"));
+    }
+
     private static Dictionary<string, NodePropertyValue> Geometry(double x, double y, double width, double height) => new()
     {
         ["x"] = new NodeNumberValue(x),

@@ -43,6 +43,30 @@ public sealed class ScreenVariantTests : IDisposable
     private SetScreenVariantOverrideCommand Set(Guid? id = null) => new(doc, Guid.NewGuid(), screen, id ?? variant, node, "text", new NodeStringValue("difference"));
 
     [Fact]
+    public async Task ShadowOverridePreservesBaseAndResetsToInheritedValue()
+    {
+        var profile = new VisualNodeProfile();
+        var journal = new SqliteDocumentJournal(directory, profile);
+        var handler = new DocumentCommandHandler(new Authorization(), journal, profile);
+        var shadow = new NodeShadowValue(0, 4, 8, 0, new(0, 0, 0, 38));
+        var frame = new NodeStructure(node, "Frame", []) { Properties =
+            ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("shadow", shadow) };
+        await journal.InitializeAsync(new(doc, [], [new(screen, [node], new(800, 600))], [frame]));
+        Assert.True((await handler.HandleAsync(Add(), actor)).Accepted);
+        var alternate = shadow with { BlurRadius = 32 };
+        var result = await handler.HandleAsync(new SetScreenVariantOverrideCommand(doc, Guid.NewGuid(), screen, variant, node, "shadow", alternate), actor);
+        Assert.True(result.Accepted, result.Code);
+        var state = (await journal.ReadAsync(doc))!;
+        Assert.Equal(shadow, Assert.Single(state.Document.Nodes).Properties["shadow"]);
+        Assert.Equal(alternate, Assert.Single(Assert.Single(Assert.Single(state.Document.Screens).Variants).Overrides).Value);
+        var diff = (await new DocumentScreenVariantDiff(new Authorization(), journal).CompareAsync(doc, screen, null, variant, null, 0, 100, actor)).Response!;
+        Assert.Equal("shadow", Assert.Single(diff.Items).Property);
+        Assert.True((await handler.HandleAsync(new RemoveScreenVariantOverrideCommand(doc, Guid.NewGuid(), screen, variant, node, "shadow", state.Revision), actor)).Accepted);
+        Assert.Empty(Assert.Single(Assert.Single((await journal.ReadAsync(doc))!.Document.Screens).Variants).Overrides);
+        Assert.Equal(shadow, Assert.Single((await journal.ReadAsync(doc))!.Document.Nodes).Properties["shadow"]);
+    }
+
+    [Fact]
     public async Task BatchInspectorOverridesUseOneRevisionAndPreserveBaseOnConflict()
     {
         await Seed();

@@ -36,6 +36,8 @@ public sealed class ScreenDuplicationTests : IDisposable
         Assert.True((await handler.HandleAsync(new SetScreenVariantOverrideCommand(documentId, Guid.NewGuid(), loginId,
             variantId, inputId, "placeholder", new NodeStringValue("Try again")), owner)).Accepted);
 
+        var shadow = new NodeShadowValue(0, 12, 32, 0, new(15, 23, 42, 41));
+        Assert.True((await handler.HandleAsync(new SetNodePropertyCommand(documentId, Guid.NewGuid(), frameId, "shadow", shadow), owner)).Accepted);
         var before = (await journal.ReadAsync(documentId))!;
         var command = new DuplicateScreenCommand(documentId, Guid.NewGuid(), loginId, copyId, before.Revision);
         var accepted = await handler.HandleAsync(command, owner);
@@ -54,6 +56,7 @@ public sealed class ScreenDuplicationTests : IDisposable
         Assert.DoesNotContain(copied.ChildIds[0], original.ChildIds);
         var clonedFrame = after.Document.Nodes.Single(n => n.Id == copied.ChildIds.Single());
         var clonedInput = after.Document.Nodes.Single(n => n.Id == clonedFrame.ChildIds.Single());
+        Assert.Equal(shadow, clonedFrame.Properties["shadow"]);
         Assert.NotEqual(inputId, clonedInput.Id);
         Assert.Equal("TextInput", clonedInput.Kind);
         Assert.Equal(new NodeEnumValue("Password"), clonedInput.Properties["inputType"]);

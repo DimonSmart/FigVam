@@ -16,7 +16,12 @@ public sealed class ComponentDetachmentTests
         public bool SupportsDemoValue(string kind) => false;
         public bool IsKnownKind(string kind) => kind is "container" or "text";
         public bool CanContainChildren(string kind) => kind == "container";
-        public NodePropertyDefinition? GetProperty(string kind, string property) => property == "text" ? new(NodePropertyType.String) : null;
+        public NodePropertyDefinition? GetProperty(string kind, string property) => property switch
+            {
+                "text" => new(NodePropertyType.String),
+                "shadow" when kind == "container" => new(NodePropertyType.Shadow),
+                _ => null
+            };
     }
     private static readonly Profile Registry = new();
     private static readonly IReadOnlyDictionary<Guid, ComponentValue> NoChanges = new Dictionary<Guid, ComponentValue>();
@@ -45,6 +50,9 @@ public sealed class ComponentDetachmentTests
         var model = Model(); var definition = model.Definitions[0]; var instance = model.Instances[0];
         if (overridden) model = model with { Instances = [instance with { ParameterOverrides = new Dictionary<Guid, ComponentValue>
             { [definition.Parameters[0].Id] = new ComponentText("Override") } }] };
+        var shadow = new NodeShadowValue(0, 4, 8, 0, new(0, 0, 0, 38));
+        model = model with { Structure = DocumentStructureEditor.SetNodeProperty(model.Structure, definition.RootNodeId, "shadow", shadow) };
+        Assert.Equal(shadow, ComponentOperations.Resolve(model, instance.NodeId, Registry).Nodes.Single(n => n.Id == definition.RootNodeId).Properties["shadow"]);
         var original = JsonSerializer.Serialize(model);
         var result = ComponentOperations.Detach(model, instance.NodeId, Registry);
         Assert.Empty(ComponentValidator.Validate(result, Registry));
@@ -53,6 +61,7 @@ public sealed class ComponentDetachmentTests
         Assert.Equal(model.Structure.Screens, result.Structure.Screens);
         var anchor = result.Structure.Nodes.Single(n => n.Id == instance.NodeId);
         Assert.Equal("container", anchor.Kind);
+        Assert.Equal(shadow, anchor.Properties["shadow"]);
         var label = result.Structure.Nodes.Single(n => n.Id == anchor.ChildIds[0]);
         Assert.Equal(new NodeStringValue(expected), label.Properties["text"]);
         var slot = result.Structure.Nodes.Single(n => n.Id == anchor.ChildIds[1]);

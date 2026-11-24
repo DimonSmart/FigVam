@@ -178,6 +178,26 @@ public sealed class DocumentScreenLayoutTests
         Assert.Equal(screen.Id, missingChild.ObjectId);
     }
 
+    [Fact]
+    public void DropShadowDoesNotAffectLayoutBoundsClipOrDiagnostics()
+    {
+        var button = Node("Button", properties: [("width", new NodeNumberValue(100)), ("height", new NodeNumberValue(40))]);
+        var frame = Node("Frame", [button.Id], ("overflow", new NodeEnumValue("Clip")), ("layout", new NodeEnumValue("Vertical")));
+        var document = Document([frame.Id], frame, button);
+        var initial = Calculate(document);
+        var shadow = new NodeShadowValue(-10, 12, 32, 3, new(15, 23, 42, 41));
+        var changed = DocumentStructureEditor.SetNodeProperty(document, frame.Id, "shadow", shadow);
+        changed = DocumentStructureEditor.SetNodeProperty(changed, button.Id, "shadow", shadow with { SpreadRadius = -5 });
+        var withShadow = Calculate(changed);
+        Assert.Empty(withShadow.Diagnostics);
+        Assert.Equal(initial.Boxes.ToArray(), withShadow.Boxes.ToArray());
+        changed = DocumentStructureEditor.SetNodeProperty(changed, button.Id, "shadow",
+            shadow with { OffsetX = 100, BlurRadius = 200, SpreadRadius = 120 });
+        var updated = Calculate(changed);
+        Assert.Empty(updated.Diagnostics);
+        Assert.Equal(initial.Boxes.ToArray(), updated.Boxes.ToArray());
+    }
+
     private static NodeStructure Node(string kind, Guid[]? children = null, params (string Name, NodePropertyValue Value)[] properties) =>
         new(Guid.NewGuid(), kind, children ?? [])
         {

@@ -33,12 +33,12 @@ public sealed class RevisionDiffTests
     {
         var doc = Guid.NewGuid(); var page = Guid.NewGuid(); var screen = Guid.NewGuid(); var a = Guid.NewGuid(); var b = Guid.NewGuid(); var c = Guid.NewGuid();
         var first = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [a, b], new(800, 600))], [new(a, "Frame", []) { Name = "Old" }, new(b, "Text", [])]);
-        var second = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [c, a], new(800, 600))], [new(a, "Frame", []) { Name = "New", SemanticKey = "key", Properties = System.Collections.Immutable.ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("hello")) }, new(c, "Text", [])]);
+        var second = new DocumentStructure(doc, [new(page, [screen])], [new(screen, [c, a], new(800, 600))], [new(a, "Frame", []) { Name = "New", SemanticKey = "key", Properties = System.Collections.Immutable.ImmutableSortedDictionary<string, NodePropertyValue>.Empty.Add("text", new NodeStringValue("hello")).Add("shadow", new NodeShadowValue(0, 4, 8, 0, new(0, 0, 0, 38))) }, new(c, "Text", [])]);
         var reader = new Reader(first, second); var service = new DocumentRevisionDiff(new Access(), reader); var actor = new DocumentActor("reader");
         var result = (await service.CompareAsync(doc, 1, 2, 0, 100, actor)).Response!;
         Assert.Equal(3, result.Total);
         var modified = result.Items.Single(x => x.Id == a); Assert.Equal("modified", modified.Change);
-        Assert.Equal(new[] { "name", "position", "properties.text", "semanticKey" }, modified.ChangedProperties);
+        Assert.Equal(new[] { "name", "position", "properties.shadow", "properties.text", "semanticKey" }, modified.ChangedProperties);
         Assert.Equal("removed", result.Items.Single(x => x.Id == b).Change);
         Assert.Equal("added", result.Items.Single(x => x.Id == c).Change);
         var paged = new List<RevisionDiffItem>();
