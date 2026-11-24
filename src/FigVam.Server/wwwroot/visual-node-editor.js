@@ -165,7 +165,7 @@ export function createVisualNodeEditor({
         field.valueSignature = valueSignature;
         function update() {
           const raw = field.read();
-          if (sameRaw(field.baseline, raw) && !(name === 'shadow' && values?.[name] === undefined && state.values.has(name))) state.values.delete(name);
+          if (sameRaw(field.baseline, raw) && !(name === 'shadow' && !field.hasValue && state.values.has(name))) state.values.delete(name);
           else state.values.set(name, raw);
           if (state === inspector && (name === 'x' || name === 'y')) {
             if (state.values.has('x') || state.values.has('y')) state.coordinateParentId ??= node.parentId;
@@ -184,6 +184,7 @@ export function createVisualNodeEditor({
         field.baseline = createPropertyControl(name, definition, model, values?.[name], prefix).baseline;
         field.valueSignature = valueSignature;
       }
+      field.hasValue = values?.[name] !== undefined;
       if (state?.values.has(name)) {
         const value = state.values.get(name);
         if (!sameRaw(field.read(), value)) field.write(value);
@@ -240,14 +241,14 @@ export function createVisualNodeEditor({
           section = document.createElement('section');
           section.className = 'shadow-effects';
         }
-        const title = document.createElement('strong');
+        const title = section.querySelector('strong') ?? document.createElement('strong');
         title.textContent = 'Effects';
         const active = values?.shadow !== undefined || state?.values.has(name);
-        const action = document.createElement('button');
+        const action = section.querySelector('.shadow-action') ?? document.createElement('button');
         action.type = 'button';
         action.className = 'shadow-action';
         action.textContent = active ? 'Remove drop shadow' : 'Add drop shadow';
-        action.addEventListener('click', () => {
+        action.onclick = () => {
           const current = getContext();
           if (!state || !canEdit(current.documentRole) || operations.has(scopeKey(current)) ||
               resolvedModelKey !== modelKey) return;
@@ -267,14 +268,14 @@ export function createVisualNodeEditor({
             state.values.delete(name);
             render();
           }
-        });
+        };
         action.hidden = !state || Boolean(currentlyInheritedShadow());
         function currentlyInheritedShadow() {
           return active && context.variantId && values?.shadow !== undefined &&
             !model?.overridden?.get(node.id)?.has(name) && !state?.values.has(name);
         }
         field.row.hidden = !active;
-        section.replaceChildren(title, field.row, action);
+        reconcileChildren(section, [title, field.row, action]);
         rows.push(section);
       } else rows.push(field.row);
     }

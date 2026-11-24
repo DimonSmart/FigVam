@@ -46,7 +46,8 @@ async function selectLayer(page, id) {
   await show(page, 'design');
 }
 
-async function saveProperties(page, values = {}, toggles = {}, enums = {}) {
+async function saveProperties(page, values = {}, toggles = {}, enums = {}, shadow) {
+  await show(page, 'design');
   const inspector = page.locator('#visual-inspector');
   for (const [label, value] of Object.entries(values))
     await inspector.getByLabel(label, { exact: true }).fill(String(value));
@@ -56,6 +57,15 @@ async function saveProperties(page, values = {}, toggles = {}, enums = {}) {
   }
   for (const [label, value] of Object.entries(enums))
     await inspector.getByRole('combobox', { name: label }).selectOption(value);
+  if (shadow) {
+    await inspector.getByRole('button', { name: 'Add drop shadow', exact: true }).click();
+    const effects = inspector.locator('.shadow-effects');
+    for (const [label, value] of Object.entries(shadow.geometry))
+      await effects.getByLabel('Drop shadow ' + label, { exact: true }).fill(String(value));
+    await effects.getByLabel('Drop shadow', { exact: true }).fill(shadow.color);
+    await effects.getByRole('button', { name: 'Изменить Alpha' }).click();
+    await effects.getByLabel('Drop shadow — альфа', { exact: true }).fill(String(shadow.alpha));
+  }
   await inspector.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
   await expect(inspector.getByRole('status')).toHaveText('Свойства сохранены.');
 }
@@ -82,8 +92,8 @@ async function scenario(page, layerId, eventId, action, variantId, targetScreen)
 
 test('designs two linked login screens and previews invalid password through UI', async ({ page, request, server, browser }) => {
   test.setTimeout(process.env.PWDEBUG ? 0 : (process.env.FIGVAM_DEMO === '1' ? 15 * 60_000 : 180_000));
-  const demo = createDemo(page, 13);
-  if (process.env.FIGVAM_DEMO === '1') console.log('FigVam narrated demo enabled: 13 steps');
+  const demo = createDemo(page, 16);
+  if (process.env.FIGVAM_DEMO === '1') console.log('FigVam narrated demo enabled: 16 steps');
   // In demo mode, use the maximized OS window rather than a potentially off-screen 1700×1100 viewport.
   if (process.env.FIGVAM_DEMO !== '1')
     await page.setViewportSize({ width: 1700, height: 1100 });
@@ -104,23 +114,57 @@ test('designs two linked login screens and previews invalid password through UI'
 
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   const loginScreen = await createScreen(page, 'Login');
-  await demo.step('Добавляем контейнер формы', 'Frame задаёт область диалога и размещение дочерних элементов.');
-  const frame = await addLayer(page, 'Frame');
-  await saveProperties(page, { X: 50, Y: 40, 'Ширина': 450, 'Высота': 330 });
-  await demo.step('Добавляем заголовок', 'Создаём текст Sign in внутри контейнера.');
+  await demo.step('Оформляем фон', 'Создаём единственный корневой Background Frame.');
+  const background = await addLayer(page, 'Frame');
+  await saveProperties(page, { X: 0, Y: 0, 'Ширина': 800, 'Высота': 600,
+    'Цвет фона': '#EEF2F7', 'Толщина рамки': 0, 'Радиус углов': 0 });
+  await demo.step('Оформляем диалог', 'Белая карточка с тонкой рамкой и скруглением.');
+  const frame = await addLayer(page, 'Frame', background);
+  await saveProperties(page, { X: 220, Y: 100, 'Ширина': 360, 'Высота': 400,
+    'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#E2E8F0', 'Радиус углов': 16 });
+  await demo.step('Effects: тень диалога', 'Добавляем Drop shadow штатным Inspector.');
+  const dialogShadow = { geometry: { X: 0, Y: 12, Blur: 32, Spread: 0 }, color: '#0F172A', alpha: 41 };
+  await saveProperties(page, {}, {}, {}, dialogShadow);
+  await demo.step('Добавляем заголовок и подзаголовок', 'Типографика формирует иерархию карточки.');
   const title = await addLayer(page, 'Text', frame);
-  await saveProperties(page, { X: 20, Y: 20, 'Текст': 'Sign in' });
-  await demo.step('Добавляем поле имени пользователя', 'Создаём TextInput с подсказкой Username.');
+  await saveProperties(page, { X: 32, Y: 28, 'Ширина': 296, 'Высота': 36, 'Текст': 'Sign in',
+    'Размер шрифта': 26, 'Цвет текста': '#0F172A' }, {}, { 'Толщина шрифта — пресет': 'Bold' });
+  await addLayer(page, 'Text', frame);
+  await saveProperties(page, { X: 32, Y: 64, 'Ширина': 296, 'Высота': 24,
+    'Текст': 'Welcome back to your account.', 'Размер шрифта': 14, 'Цвет текста': '#64748B' });
+  await demo.step('Добавляем имя пользователя', 'Label и TextInput без тени.');
+  await addLayer(page, 'Text', frame);
+  await saveProperties(page, { X: 32, Y: 100, 'Ширина': 296, 'Высота': 24, 'Текст': 'Username',
+    'Размер шрифта': 13, 'Цвет текста': '#334155' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
   const username = await addLayer(page, 'TextInput', frame);
-  await saveProperties(page, { X: 20, Y: 85, 'Подсказка': 'Username' });
-  await demo.step('Добавляем поле пароля', 'Переключаем TextInput в режим Password с маскировкой ввода.');
+  await saveProperties(page, { X: 32, Y: 130, 'Ширина': 296, 'Высота': 44, 'Подсказка': 'Username',
+    'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#CBD5E1', 'Радиус углов': 8, 'Размер шрифта': 14 });
+  await demo.step('Добавляем пароль', 'Password TextInput сохраняет нативную маскировку.');
+  await addLayer(page, 'Text', frame);
+  await saveProperties(page, { X: 32, Y: 188, 'Ширина': 296, 'Высота': 24, 'Текст': 'Password',
+    'Размер шрифта': 13, 'Цвет текста': '#334155' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
   const password = await addLayer(page, 'TextInput', frame);
-  await saveProperties(page, { X: 20, Y: 145, 'Подсказка': 'Password' }, {}, { 'Тип ввода': 'Password' });
-  await demo.step('Добавляем кнопку входа', 'Создаём кнопку Login и настраиваем её положение.');
+  await saveProperties(page, { X: 32, Y: 218, 'Ширина': 296, 'Высота': 44, 'Подсказка': 'Password',
+    'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#CBD5E1', 'Радиус углов': 8, 'Размер шрифта': 14 }, {}, { 'Тип ввода': 'Password' });
+  await demo.step('Оформляем кнопку Login', 'Primary action с собственным цветом и скруглением.');
   const loginButton = await addLayer(page, 'Button', frame);
-  await saveProperties(page, { X: 20, Y: 205, 'Текст': 'Login' });
+  await saveProperties(page, { X: 32, Y: 292, 'Ширина': 296, 'Высота': 44, 'Текст': 'Login',
+    'Цвет фона': '#2563EB', 'Толщина рамки': 0, 'Радиус углов': 8, 'Размер шрифта': 15,
+    'Цвет текста': '#FFFFFF' }, {}, { 'Толщина шрифта — пресет': 'Semibold' });
+  await demo.step('Effects: тень кнопки', 'Второй, более лёгкий уровень elevation.');
+  await saveProperties(page, {}, {}, {}, { geometry: { X: 0, Y: 4, Blur: 8, Spread: 0 }, color: '#2563EB', alpha: 61 });
   const original = await read();
   expect(original.screens).toHaveLength(1);
+  const property = (id, name) => original.nodes.find(node => node.id === id).properties[name];
+  const dialogEffect = { type: 'shadow', offsetX: 0, offsetY: 12, blurRadius: 32, spreadRadius: 0,
+    color: { red: 15, green: 23, blue: 42, alpha: 41 } };
+  const buttonEffect = { type: 'shadow', offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0,
+    color: { red: 37, green: 99, blue: 235, alpha: 61 } };
+  expect(property(frame, 'shadow')).toEqual(dialogEffect);
+  expect(property(loginButton, 'shadow')).toEqual(buttonEffect);
+  expect(property(username, 'shadow')).toBeUndefined();
+  expect(property(password, 'shadow')).toBeUndefined();
+  expect(original.screens[0].childIds).toEqual([background]);
 
   await demo.step('Создаём экран ошибки', 'У одного действия Login два экрана. Дублируем форму, чтобы сохранить её общие элементы.');
   await show(page, 'layers');
@@ -133,9 +177,12 @@ test('designs two linked login screens and previews invalid password through UI'
   const errorScreen = (await duplicated.json()).screenId;
   const errorScreenSelect = page.locator('#screens .screen-select[data-screen-id="' + errorScreen + '"]');
   await expect(errorScreenSelect).toHaveAttribute('aria-pressed', 'true');
-  const copied = (await read()).screens.find(item => item.id === errorScreen);
+  const duplicatedDocument = await read();
+  const copied = duplicatedDocument.screens.find(item => item.id === errorScreen);
   expect(copied.childIds).toHaveLength(1);
-  const copiedFrame = copied.childIds[0];
+  const copiedBackground = copied.childIds[0];
+  const copiedFrame = duplicatedDocument.nodes.find(node => node.id === copiedBackground).childIds[0];
+  expect(duplicatedDocument.nodes.find(node => node.id === copiedFrame).properties.shadow).toEqual(dialogEffect);
   expect(copiedFrame).not.toBe(frame);
   await errorScreenSelect.locator('..').locator('.screen-rename-action').click();
   await page.locator('#screen-name-input').fill('Login Error');
@@ -143,8 +190,10 @@ test('designs two linked login screens and previews invalid password through UI'
   await expect(errorScreenSelect).toContainText('Login Error');
 
   await demo.step('Добавляем текст неправильного пароля', 'Второй экран повторяет форму входа, но дополнительно показывает сообщение об ошибке.');
+  const copiedBackgroundRow = page.locator('#layers [data-id="' + copiedBackground + '"]');
+  if (await copiedBackgroundRow.getAttribute('aria-expanded') === 'false') await copiedBackgroundRow.locator(':scope > .layer-label').click();
   const error = await addLayer(page, 'Text', copiedFrame);
-  await saveProperties(page, { X: 20, Y: 260, 'Текст': 'Invalid password', 'Цвет текста': '#ba2e3e' });
+  await saveProperties(page, { X: 32, Y: 344, 'Ширина': 296, 'Высота': 24, 'Текст': 'Invalid password', 'Размер шрифта': 13, 'Цвет текста': '#B91C1C' });
   const structure = await read();
   expect(structure.screens).toHaveLength(2);
   expect(structure.screens.every(screen => screen.variants.length === 0)).toBe(true);
@@ -154,6 +203,8 @@ test('designs two linked login screens and previews invalid password through UI'
   await demo.step('Связываем два экрана', 'Login.Click и Password.Submit открывают экран Login Error — это демонстрация перехода, не настоящая проверка пароля.');
   await show(page, 'layers');
   await page.locator('#screens .screen-select[data-screen-id="' + loginScreen + '"]').click();
+  const backgroundRow = page.locator('#layers [data-id="' + background + '"]');
+  if (await backgroundRow.getAttribute('aria-expanded') === 'false') await backgroundRow.locator(':scope > .layer-label').click();
   const frameRow = page.locator('#layers [data-id="' + frame + '"]');
   await expect(frameRow).toBeVisible();
   if (await frameRow.getAttribute('aria-expanded') === 'false')
@@ -165,6 +216,10 @@ test('designs two linked login screens and previews invalid password through UI'
   await demo.step('Вводим логин и пароль', 'В Preview вводим данные и нажимаем Enter. Открывается экран с ошибкой.');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const loginRoot = page.locator('#preview-viewport [data-preview-screen="' + loginScreen + '"]');
+  await expect(loginRoot.locator('[data-visual-node="' + frame + '"]')).toHaveCSS('box-shadow', /rgba\(15, 23, 42, 0\.16/);
+  await expect(loginRoot.locator('[data-visual-node="' + loginButton + '"]')).toHaveCSS('box-shadow', /rgba\(37, 99, 235, 0\.239/);
+  if (process.env.FIGVAM_DEMO !== '1')
+    await test.info().attach('Login Preview', { body: await loginRoot.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
   await loginRoot.locator('[data-visual-node="' + username + '"] input').fill('demo-user');
   const secret = loginRoot.locator('[data-visual-node="' + password + '"] input');
   await expect(secret).toHaveAttribute('type', 'password');
@@ -174,6 +229,8 @@ test('designs two linked login screens and previews invalid password through UI'
   await expect(errorRoot).toBeVisible();
   await expect(errorRoot).toContainText('Invalid password');
   await expect(errorRoot.locator('input')).toHaveCount(2);
+  if (process.env.FIGVAM_DEMO !== '1')
+    await test.info().attach('Login Error Preview', { body: await errorRoot.screenshot({ animations: 'disabled' }), contentType: 'image/png' });
 
   await demo.step('Проверяем кнопку Login', 'Возвращаемся на первый экран. Нажатие Login открывает тот же экран ошибки.');
   await page.getByRole('button', { name: 'Назад по сценарию' }).click();
