@@ -552,8 +552,9 @@ test('letter spacing exposes a local style override reset and restores inherited
   const inspector = page.locator('#visual-inspector');
   const reset = inspector.getByRole('button', { name: 'Сбросить к стилю: Межбуквенный интервал' });
   await expect(reset).toBeVisible();
-  await expect(inspector.locator('.node-property').filter({ has: reset }))
-    .toHaveAttribute('data-style-override', 'true');
+  await expect(inspector.locator('.node-property').filter({
+    has: page.getByRole('button', { name: 'Сбросить к стилю: Межбуквенный интервал' })
+  })).toHaveAttribute('data-style-override', 'true');
   const removed = page.waitForResponse(response => response.url().endsWith('/commands/remove-node-properties') &&
     response.request().method() === 'POST');
   await reset.click();
