@@ -22,7 +22,7 @@ export function createPaddingEditor() {
   content.className = 'padding-editor-content';
   content.setAttribute('aria-hidden', 'true');
   diagram.append(content);
-  for (const [side, name, shortLabel, label] of sides) {
+  for (const [side, , , label] of sides) {
     const slot = document.createElement('div');
     slot.className = 'padding-editor-field';
     slot.dataset.side = side;
@@ -48,7 +48,7 @@ export function createPaddingEditor() {
 
 // Keep existing field nodes and their listeners, validation and drafts intact.
 export function updatePaddingEditor(root, fields, reconcileChildren) {
-  for (const [side, name, shortLabel] of sides) {
+  for (const [side, name, shortLabel, labelText] of sides) {
     const slot = root.querySelector('.padding-editor-field[data-side="' + side + '"]');
     const row = fields.get(name).row;
     const caption = row.querySelector('.token-value-label');
@@ -57,7 +57,7 @@ export function updatePaddingEditor(root, fields, reconcileChildren) {
       const label = row.querySelector('label');
       if (label?.firstChild?.nodeType === Node.TEXT_NODE) {
         const input = label.querySelector('input');
-        input?.setAttribute('aria-label', sides.find(item => item[0] === side)[3]);
+        input?.setAttribute('aria-label', labelText);
         label.firstChild.textContent = shortLabel;
       }
     }

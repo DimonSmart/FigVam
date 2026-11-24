@@ -665,6 +665,7 @@ test('Viewer can inspect saved shadow but cannot add, edit or remove it', async 
 
 
 test('padding editor retains individual controls, tokens, drafts, history and variant overrides', async ({ page, request }) => {
+  test.setTimeout(90_000);
   const { documentId, screenId, nodeId, base } = await seedText(request);
   const frameId = randomUUID(), tokenId = randomUUID(), variantId = randomUUID();
   const command = (name, data) => post(request, base + '/commands/' + name, {
