@@ -263,6 +263,7 @@ test('two connected inspectors reconcile one structured shadow edit', async ({ p
   await expect(otherEffects.getByLabel('Drop shadow Blur', { exact: true })).toHaveValue('32');
   await expect(other.locator('#revision')).toHaveText(await page.locator('#revision').textContent());
   const selector = '#screen-boundary [data-visual-node="' + nodeId + '"]';
+  await expect(page.locator(selector)).not.toHaveCSS('box-shadow', 'none');
   const paint = await page.locator(selector).evaluate(el => getComputedStyle(el).boxShadow);
   expect(paint).not.toBe('none');
   await expect(other.locator(selector)).toHaveCSS('box-shadow', paint);

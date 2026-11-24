@@ -48,7 +48,7 @@ async function seed(request, minimal = false) {
   const otherLabel = await node(other, 'Text', null, { text: text('Другой экран') });
   if (minimal) {
     const label = await node(screen, 'Text', null, { text: text(plainText) });
-    return { base, documentId, screen, label, otherLabel, assetId, image, command, read };
+    return { base, documentId, screen, other, label, otherLabel, assetId, image, command, read };
   }
   const tokenId = randomUUID(), aliasId = randomUUID();
   await command('add-token', { tokenId, name: 'Panel', type: 0, values: {
@@ -374,7 +374,7 @@ test('own Overflow.Clip does not clip its own shadow', async ({ page, request })
   await expect(page.locator('#screen-boundary ' + visual(frame))).toHaveCSS('box-shadow', 'rgb(0, 0, 0) 0px 0px 0px 12px');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const root = page.locator('[data-preview-screen="' + screen + '"]');
-  await expect(root.locator(visual(frame))).toHaveCSS('overflow', 'clip');
+  await expect(root.locator(visual(frame) + ' > .visual-children')).toHaveCSS('overflow', 'clip');
   await assertPixels(page, root, 'Own Clip and own shadow', [
     [44, 120, [0, 0, 0, 255]], [30, 120, [255, 255, 255, 255]]
   ]);
@@ -397,7 +397,7 @@ test('ancestor Overflow.Clip clips child shadow while Visible lets it paint outs
   ]);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await command('set-node-property', { nodeId: parent, property: 'overflow', value: option('Visible') });
-  await expect(page.locator('#screen-boundary ' + visual(parent))).toHaveCSS('overflow', 'visible');
+  await expect(page.locator('#screen-boundary ' + visual(parent) + ' > .visual-children')).toHaveCSS('overflow', 'visible');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(root.locator(visual(parent))).toHaveCSS('overflow', 'visible');
   await assertPixels(page, root, 'Parent Visible and child shadow', [

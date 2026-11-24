@@ -97,7 +97,6 @@ export function renderScreen(model, options) {
     const parentBox = boxes.get(node.parentId);
     // A node's own clip is for descendants; only the inherited clip may clip its effect.
     place(wrapper, { bounds: box.bounds, clip: options.preview ? parentBox.clip : null }, parentBox.bounds);
-    if (value('overflow') === 'Clip') wrapper.style.overflow = 'clip';
     if (value('visible') === false) wrapper.style.visibility = 'hidden';
     const opacityValue = property('opacity');
     const resolvedOpacity = opacityValue?.type === 'token'
@@ -170,7 +169,12 @@ export function renderScreen(model, options) {
     }
     wrapper.append(surface);
     parent.append(wrapper);
-    elements.set(id, wrapper);
+    // Clip descendants on a square host, independently of the rounded shadow caster.
+    const childHost = document.createElement('div');
+    childHost.className = 'visual-children';
+    childHost.style.overflow = value('overflow') === 'Clip' ? 'clip' : 'visible';
+    if (kind.canContainChildren) wrapper.append(childHost);
+    elements.set(id, kind.canContainChildren ? childHost : wrapper);
   }
   return { root, images };
 }
@@ -224,7 +228,14 @@ export function reconcileScreen(host, next) {
       } else if (before.tagName !== 'IMG' && before.textContent !== after.textContent)
         before.textContent = after.textContent;
     }
-    children(current, target);
+    const beforeChildren = current.querySelector(':scope > .visual-children');
+    const afterChildren = target.querySelector(':scope > .visual-children');
+    if (beforeChildren && afterChildren) {
+      attributes(beforeChildren, afterChildren);
+      children(beforeChildren, afterChildren);
+    } else if (afterChildren) current.append(afterChildren);
+    else if (beforeChildren) beforeChildren.remove();
+    else children(current, target);
   }
 
   function children(parent, template) {

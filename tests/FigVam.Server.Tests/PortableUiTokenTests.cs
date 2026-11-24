@@ -37,7 +37,7 @@ public sealed class PortableUiTokenTests
     [Fact]
     public void CurrentProfileExposesTokenContractsAndStableEnumDiscriminators()
     {
-        Assert.Equal(4, Profile.Identity.Version);
+        Assert.Equal(5, Profile.Identity.Version);
         Assert.Equal(TokenType.Dimension, Profile.GetProperty("Text", "fontSize")!.TokenType);
         Assert.Equal(TokenCategory.FontSize, Profile.GetProperty("Text", "fontSize")!.TokenCategory);
         Assert.Equal(TokenType.FontFamily, Profile.GetProperty("Button", "fontFamily")!.TokenType);
