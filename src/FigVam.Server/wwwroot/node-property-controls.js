@@ -11,7 +11,7 @@ const labels = {
   letterSpacing: 'Межбуквенный интервал', wrap: 'Перенос строк',
   enabled: 'Доступность', placeholder: 'Подсказка', value: 'Демонстрационное значение', multiline: 'Многострочный режим',
   inputType: 'Тип ввода', textStyle: 'Стиль текста', borderStyle: 'Стиль рамки',
-  typography: 'Типографика',
+  typography: 'Типографика', shadow: 'Drop shadow',
   backgroundColor: 'Цвет фона', borderColor: 'Цвет рамки', borderWidth: 'Толщина рамки', cornerRadius: 'Радиус углов',
   asset: 'Ассет', altText: 'Альтернативное описание', fit: 'Режим отображения'
 };
@@ -153,6 +153,41 @@ function fontWeightControl(name, initial) {
   };
 }
 
+export const shadowPreset = { type: 'shadow', offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0,
+  color: { red: 0, green: 0, blue: 0, alpha: 38 } };
+
+function shadowControl(initial) {
+  const value = initial ?? shadowPreset;
+  const dimensions = [['offsetX', 'X', -1024, 1024], ['offsetY', 'Y', -1024, 1024],
+    ['blurRadius', 'Blur', 0, 256], ['spreadRadius', 'Spread', -256, 256]];
+  const inputs = dimensions.map(([key, label, min, max]) => {
+    const input = document.createElement('input');
+    input.type = 'number'; input.required = true; input.step = 'any';
+    input.min = String(min); input.max = String(max);
+    return input;
+  });
+  const colors = colorControl('shadow', value.color, true);
+  const geometry = document.createElement('div');
+  geometry.className = 'shadow-geometry';
+  geometry.append(...dimensions.map(([, label], i) => labeled(label, inputs[i], 'Drop shadow ' + label)));
+  return {
+    content: [geometry, ...colors.content], inputs: [...inputs, ...colors.inputs],
+    initial: [...dimensions.map(([key]) => String(value[key])), ...colors.initial],
+    read: () => [...inputs.map(input => input.value), ...colors.read()],
+    write(raw) { inputs.forEach((input, i) => { input.value = raw[i]; }); colors.write(raw.slice(4)); },
+    validate() {
+      for (const input of inputs)
+        if (!input.validity.valid || !Number.isFinite(input.valueAsNumber))
+          return { input, error: 'Enter a finite value in the indicated range.' };
+      const result = colors.validate();
+      if (result.error) return result;
+      const { type, ...color } = result.value;
+      return { value: { type: 'shadow', ...Object.fromEntries(dimensions.map(([key], i) =>
+        [key, inputs[i].valueAsNumber])), color } };
+    }
+  };
+}
+
 function scalarControl(name, definition, model, initial, compactGeometry = false) {
   if (definition.numericFontWeight) return fontWeightControl(name, initial);
   const type = definition.type;
@@ -230,7 +265,7 @@ export function createPropertyControl(name, definition, model, value, prefix) {
   const initial = value ?? definition.defaultValue;
   const hasTokenChoice = definition.tokenType != null && definition.type !== 'TokenReference';
   const directValue = hasTokenChoice && initial?.type === 'token' ? definition.defaultValue : initial;
-  const direct = definition.type === 'Color' ? colorControl(name, directValue, hasTokenChoice) :
+  const direct = definition.type === 'Shadow' ? shadowControl(directValue) : definition.type === 'Color' ? colorControl(name, directValue, hasTokenChoice) :
     scalarControl(name, definition, model, directValue,
       prefix === 'visual-property' && geometryProperties.has(name));
   const control = hasTokenChoice ? createTokenValueControl(name, definition, model, initial, direct, propertyLabel(name)) : direct;

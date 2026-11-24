@@ -115,3 +115,8 @@ p { line-height: 1.6; }
 #user-admin-list { list-style: none; padding: 0; }
 #user-admin-list li { display: flex; gap: 1rem; flex-wrap: wrap; padding: .6rem 0; border-bottom: 1px solid #ccd3df; }
 #user-admin-list input { min-width: auto; }
+
+.shadow-effects { display: grid; gap: .35rem; margin-block: .5rem; }
+.shadow-geometry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .25rem; }
+.shadow-geometry input { min-width: 0; width: 100%; }
+.shadow-effects [hidden] { display: none; }

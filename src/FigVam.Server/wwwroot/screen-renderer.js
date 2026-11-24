@@ -94,8 +94,10 @@ export function renderScreen(model, options) {
     wrapper.dataset.visualNode = id;
     wrapper.dataset.semanticRole = role;
     // Native clipping in Design follows live bounds during a local gesture.
-    place(wrapper, options.preview ? box : { bounds: box.bounds }, boxes.get(node.parentId).bounds);
-    if (!options.preview && value('overflow') === 'Clip') wrapper.style.overflow = 'clip';
+    const parentBox = boxes.get(node.parentId);
+    // A node's own clip is for descendants; only the inherited clip may clip its effect.
+    place(wrapper, { bounds: box.bounds, clip: options.preview ? parentBox.clip : null }, parentBox.bounds);
+    if (value('overflow') === 'Clip') wrapper.style.overflow = 'clip';
     if (value('visible') === false) wrapper.style.visibility = 'hidden';
     const opacityValue = property('opacity');
     const resolvedOpacity = opacityValue?.type === 'token'
@@ -157,6 +159,15 @@ export function renderScreen(model, options) {
     }
     if (!options.preview && surface.matches('input, textarea, button')) surface.tabIndex = -1;
     appearance(surface, property, tokens, theme, box.bounds, report, kind.properties);
+    const shadow = property('shadow');
+    if (shadow?.type === 'shadow') {
+      const { offsetX, offsetY, blurRadius, spreadRadius, color: rgba } = shadow;
+      if ([offsetX, offsetY, blurRadius, spreadRadius].every(Number.isFinite) && rgba) {
+        wrapper.style.borderRadius = role === 'Image' ? '0px' : surface.style.borderRadius;
+        wrapper.style.boxShadow = [offsetX, offsetY, blurRadius, spreadRadius].map(px).join(' ') +
+          ' rgba(' + [rgba.red, rgba.green, rgba.blue, rgba.alpha / 255].join(', ') + ')';
+      }
+    }
     wrapper.append(surface);
     parent.append(wrapper);
     elements.set(id, wrapper);

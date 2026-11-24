@@ -1,4 +1,4 @@
-import { createPropertyControl, propertyLabel } from './node-property-controls.js';
+import { createPropertyControl, propertyLabel, shadowPreset } from './node-property-controls.js';
 
 const canEdit = role => role === 'Owner' || role === 'Editor';
 const sameRaw = (left, right) => JSON.stringify(left) === JSON.stringify(right);
@@ -165,7 +165,7 @@ export function createVisualNodeEditor({
         field.valueSignature = valueSignature;
         function update() {
           const raw = field.read();
-          if (sameRaw(field.baseline, raw)) state.values.delete(name);
+          if (sameRaw(field.baseline, raw) && !(name === 'shadow' && values?.[name] === undefined && state.values.has(name))) state.values.delete(name);
           else state.values.set(name, raw);
           if (state === inspector && (name === 'x' || name === 'y')) {
             if (state.values.has('x') || state.values.has('y')) state.coordinateParentId ??= node.parentId;
@@ -234,7 +234,49 @@ export function createVisualNodeEditor({
         }
       }
       fields.set(name, field);
-      rows.push(field.row);
+      if (name === 'shadow' && prefix === 'visual-property') {
+        let section = container.querySelector(':scope > .shadow-effects');
+        if (!section) {
+          section = document.createElement('section');
+          section.className = 'shadow-effects';
+        }
+        const title = document.createElement('strong');
+        title.textContent = 'Effects';
+        const active = values?.shadow !== undefined || state?.values.has(name);
+        const action = document.createElement('button');
+        action.type = 'button';
+        action.className = 'shadow-action';
+        action.textContent = active ? 'Remove drop shadow' : 'Add drop shadow';
+        action.addEventListener('click', () => {
+          const current = getContext();
+          if (!state || !canEdit(current.documentRole) || operations.has(scopeKey(current)) ||
+              resolvedModelKey !== modelKey) return;
+          if (!active) {
+            const preset = createPropertyControl(name, definition, model, shadowPreset, prefix).baseline;
+            state.values.set(name, preset);
+            render();
+          } else if (current.variantId) {
+            if (model?.overridden?.get(node.id)?.has(name))
+              begin('remove-screen-variant-override', { screenId: current.screen, variantId: current.variantId,
+                nodeId: node.id, property: name, expectedRevision: current.revision }, state);
+            else if (state.values.has(name)) { state.values.delete(name); render(); }
+          } else if (values?.shadow !== undefined) {
+            begin('remove-node-properties', { nodeId: node.id, properties: [name],
+              expectedRevision: current.revision }, state);
+          } else {
+            state.values.delete(name);
+            render();
+          }
+        });
+        action.hidden = !state || Boolean(currentlyInheritedShadow());
+        function currentlyInheritedShadow() {
+          return active && context.variantId && values?.shadow !== undefined &&
+            !model?.overridden?.get(node.id)?.has(name) && !state?.values.has(name);
+        }
+        field.row.hidden = !active;
+        section.replaceChildren(title, field.row, action);
+        rows.push(section);
+      } else rows.push(field.row);
     }
     // Keep the compact geometry rows while retaining input DOM identity between revisions.
     const geometryGroups = [], groupedRows = new Set();
@@ -296,7 +338,9 @@ export function createVisualNodeEditor({
     kindSelect.disabled = parentSelect.disabled = blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
-    for (const field of inspectorFields.values()) field.setDisabled(!editable || Boolean(op && !op.canvas));
+    for (const field of inspectorFields.values()) field.setDisabled(blocked);
+    for (const button of inspectorProperties.querySelectorAll('.shadow-action, .variant-override-reset, .style-override-reset'))
+      button.disabled = blocked;
     const validParent = model?.kinds.size && eligibleParent();
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
     const optionalReady = [...paletteOptionalFields].every(([name, field]) =>
@@ -501,10 +545,14 @@ export function createVisualNodeEditor({
       }
       operations.delete(op.key);
       confirmed = true;
-      op.draft.values.clear();
-      op.draft.coordinateParentId = undefined;
+      if (op.command === 'remove-node-properties' || op.command === 'remove-screen-variant-override') {
+        for (const property of op.body.properties ?? [op.body.property]) op.draft.values.delete(property);
+      } else {
+        op.draft.values.clear();
+        op.draft.coordinateParentId = undefined;
+      }
       op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
-      if (scopeKey(getContext()) === op.key) updateControls();
+      if (scopeKey(getContext()) === op.key) render();
     } catch (error) {
       if (!current() || error.status == null || error.status === 408 || error.status >= 500) op.state = 'uncertain';
       else {
