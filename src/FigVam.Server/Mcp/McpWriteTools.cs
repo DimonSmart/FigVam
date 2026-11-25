@@ -85,7 +85,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     public Task<CallToolResult> DuplicateScreen(Guid screenId, long expectedRevision, Guid? commandId = null, Guid? newScreenId = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new DuplicateScreenCommand(DocumentId, id, screenId, newScreenId ?? Guid.NewGuid(), expectedRevision), Actor, ct));
 
-    [McpServerTool(Name = "create_node"), Description("Create a node with initial properties atomically. Use get_node_schema for supported properties.")]
+    [McpServerTool(Name = "create_node"), Description("Create a node with initial properties atomically. Use get_node_schema for supported properties and their inputSchema.")]
     public Task<CallToolResult> CreateNode(Guid parentId, string kind, Dictionary<string, JsonElement>? properties = null, Guid? commandId = null, Guid? nodeId = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
         {
@@ -98,7 +98,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     public Task<CallToolResult> RenameNode(Guid nodeId, string name, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new SetNodeNameCommand(DocumentId, id, nodeId, name), Actor, ct));
 
-    [McpServerTool(Name = "set_node_properties"), Description("Atomically set only the supplied node properties. Use scalar values, hex colors, tokenId references or shadow objects.")]
+    [McpServerTool(Name = "set_node_properties"), Description("Atomically set only the supplied node properties. Use get_node_schema and its inputSchema for the node kind to construct values.")]
     public Task<CallToolResult> SetNodeProperties(Guid nodeId, Dictionary<string, JsonElement> properties, Guid? expectedParentId = null, long? expectedRevision = null, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
         {
