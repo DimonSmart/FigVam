@@ -15,6 +15,8 @@ test('composite typography and inherited text styles save only on explicit submi
   await open(page);
   const id = page.url().split('/').pop();
   const headers = { Authorization: `Bearer ${bearer}` };
+  await show(page, 'tokens');
+  await page.locator('#new-token-open').click();
   await page.locator('#new-token-name').fill('Heading');
   await page.locator('#new-token-type').selectOption('Typography');
   await expect(page.locator('#new-token-light-typography')).toBeVisible();
@@ -23,6 +25,7 @@ test('composite typography and inherited text styles save only on explicit submi
   await page.getByRole('button', { name: 'Создать токен' }).click();
   await expect(page.locator('#token-detail-title')).toHaveText('Heading');
 
+  await show(page, 'assets');
   await page.locator('#styles-name').fill('text.base');
   await page.locator('input[aria-label="Типографика: переопределить"]').check();
   await page.locator('select[aria-label="Типографика: источник"]').selectOption('alias');
@@ -105,7 +108,9 @@ test('DTCG import is visible and imported typography can be applied to a reusabl
     }
   });
   expect(imported.ok(), await imported.text()).toBeTruthy();
+  await show(page, 'tokens');
   await expect(page.locator('#tokens-list')).toContainText('type.body');
+  await show(page, 'assets');
 
   await page.locator('#styles-name').fill('text.imported');
   await page.locator('input[aria-label="Типографика: переопределить"]').check();
@@ -124,6 +129,8 @@ test('DTCG import is visible and imported typography can be applied to a reusabl
 
 test('inline typography preview resolves nested font-size aliases independently for Light and Dark', async ({ page }) => {
   await open(page);
+  await show(page, 'tokens');
+  await page.locator('#new-token-open').click();
   await page.getByLabel('Имя токена', { exact: true }).fill('Font Size');
   await page.locator('#new-token-type').selectOption('Dimension');
   await page.locator('#new-token-category').selectOption('FontSize');
@@ -132,6 +139,7 @@ test('inline typography preview resolves nested font-size aliases independently 
   await page.getByRole('button', { name: 'Создать токен' }).click();
   await expect(page.locator('#token-detail-title')).toHaveText('Font Size');
 
+  await show(page, 'assets');
   await page.locator('#styles-name').fill('text.inline');
   await page.locator('input[aria-label="Типографика: переопределить"]').check();
   await page.locator('select[aria-label="Размер: источник"]').selectOption('alias');
