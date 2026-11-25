@@ -127,22 +127,22 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [EndpointDescription("Names must be nonblank, at most 256 characters and contain no control characters. Duplicate names are allowed.")]
     public async Task<IActionResult> RenameScreen(Guid documentId, RenameScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new RenameScreenCommand(documentId, request.CommandId, request.ScreenId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("add-page"), EndpointSummary("Add a page")]
-    public async Task<IActionResult> AddPage(Guid documentId, AddPageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddPageCommand(documentId, request.CommandId, request.PageId), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> AddPage(Guid documentId, AddPageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddPageCommand(documentId, request.CommandId, request.PageId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("resize-screen"), EndpointSummary("Set finite, non-negative screen dimensions in logical uiUnits")]
     [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid. Optional updateWidth and updateHeight default to true; a false flag preserves that axis from the current server state. At least one axis must be updated. Children retain their properties.")]
     public async Task<IActionResult> ResizeScreen(Guid documentId, ResizeScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ResizeScreenCommand(documentId, request.CommandId, request.ScreenId, request.Dimensions, request.HistoryGroupId, request.UpdateWidth, request.UpdateHeight), User.GetDocumentActor(), ct));
     [HttpPost("add-screen"), EndpointSummary("Add a screen to a page")]
     [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid.")]
-    public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId, request.Dimensions, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("duplicate-screen"), EndpointSummary("Atomically duplicate a screen, its nodes and variants with new unique IDs")]
     public async Task<IActionResult> DuplicateScreen(Guid documentId, DuplicateScreenRequest request, CancellationToken ct) =>
         Result(await handler.HandleAsync(new DuplicateScreenCommand(documentId, request.CommandId, request.ScreenId,
-            request.NewScreenId, request.ExpectedRevision), User.GetDocumentActor(), ct));
+            request.NewScreenId, request.ExpectedRevision, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("add-node"), EndpointSummary("Atomically add a node with its initial typed properties")]
     [EndpointDescription("Add a node to a screen or container. The properties map accepts names and typed values from the document profile. Image requires an asset property referencing an existing document asset.")]
     public async Task<IActionResult> AddNode(Guid documentId, AddNodeRequest request, CancellationToken ct) =>
         Result(await handler.HandleAsync(new AddNodeCommand(documentId, request.CommandId, request.ParentId, request.NodeId,
-            request.Kind, request.Properties), User.GetDocumentActor(), ct));
+            request.Kind, request.Properties, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("delete-node"), EndpointSummary("Delete a node")]
     public async Task<IActionResult> DeleteNode(Guid documentId, DeleteNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeleteNodeCommand(documentId, request.CommandId, request.NodeId), User.GetDocumentActor(), ct));
     [HttpPost("move-node"), EndpointSummary("Move or reorder a node")]
