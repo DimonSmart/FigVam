@@ -27,7 +27,13 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
 
     private static CallToolResult Result(CommandResult result, string? affected = null)
     {
-        if (!result.Accepted) return Error(result.Code, result.Explanation ?? "The command was rejected.", result.CommandId, result.Revision, result.Property);
+        if (!result.Accepted)
+        {
+            var message = result.Explanation ?? "The command was rejected.";
+            if (result.PropertyPath is { } path) message = $"Property '{path}': {message}";
+            return Error(result.Code, message, result.CommandId, result.Revision,
+                result.PropertyPath ?? result.Property, result.Expected, result.Actual);
+        }
         var data = new Dictionary<string, object?> { ["status"] = result.Code, ["revision"] = result.Revision, ["commandId"] = result.CommandId };
         if (result.PageId is { } page) data["pageId"] = page;
         if (result.ScreenId is { } screen) data["screenId"] = screen;
