@@ -181,16 +181,16 @@ public static class DocumentStructureEditor
             ? n with { Properties = n.Properties.SetItems(properties) } : n).ToArray() };
     }
 
-    public static DocumentStructure AddScreen(DocumentStructure document, Guid pageId, Guid screenId, ScreenDimensions dimensions)
+    public static DocumentStructure AddScreen(DocumentStructure document, Guid pageId, Guid screenId, ScreenDimensions dimensions, string? name = null)
         => document with
         {
             Pages = document.Pages.Select(p => p.Id == pageId
                 ? p with { ScreenIds = p.ScreenIds.Append(screenId).ToArray() } : p).ToArray(),
-            Screens = document.Screens.Append(new ScreenStructure(screenId, [], dimensions)).ToArray()
+            Screens = document.Screens.Append(new ScreenStructure(screenId, [], dimensions) { Name = name }).ToArray()
         };
 
     public static DocumentStructure AddNode(DocumentStructure document, Guid parentId, Guid nodeId, string kind,
-        ImmutableSortedDictionary<string, NodePropertyValue>? properties = null)
+        ImmutableSortedDictionary<string, NodePropertyValue>? properties = null, string? name = null)
         => document with
         {
             Screens = document.Screens.Select(s => s.Id == parentId
@@ -199,6 +199,7 @@ public static class DocumentStructureEditor
                 ? n with { ChildIds = n.ChildIds.Append(nodeId).ToArray() } : n)
                 .Append(new NodeStructure(nodeId, kind, [])
                 {
+                    Name = name ?? "",
                     Properties = properties ?? ImmutableSortedDictionary<string, NodePropertyValue>.Empty
                 }).ToArray()
         };
