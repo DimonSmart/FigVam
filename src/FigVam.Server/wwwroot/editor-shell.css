@@ -746,3 +746,13 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .token-import-form { padding:12px 16px; display:grid; gap:6px; grid-template-columns:repeat(3,minmax(0,1fr)); border-bottom:1px solid var(--ui-border); }
 .token-import-form textarea { width:100%; display:block; }
 @media(max-width:850px) { .token-workspace-grid { grid-template-columns:minmax(110px,150px) minmax(0,1fr); grid-template-rows:minmax(180px,1fr) minmax(220px,1fr); overflow:auto; } .token-details-area { grid-column:1/-1; border-top:1px solid var(--ui-border); } .token-import-form { grid-template-columns:1fr; max-height:35vh; overflow:auto; } }
+
+
+/* Preview theme selection controls the prototype, not the editor chrome. */
+.preview-theme-control { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; font-size: 13px; color: var(--ui-text); }
+.theme-segments { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-bg); }
+.theme-segments > button { display: grid; place-items: center; width: 32px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--ui-muted); }
+.theme-segments > button > svg { width: 18px; height: 18px; }
+.theme-segments > button:hover { background: var(--ui-surface); color: var(--ui-text); }
+.theme-segments > button[aria-pressed="true"] { background: var(--ui-selected); color: var(--ui-accent); }
+.theme-segments > button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }

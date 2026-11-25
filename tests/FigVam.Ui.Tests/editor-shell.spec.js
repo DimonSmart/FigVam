@@ -76,7 +76,13 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   await expect(page.locator('#zoom-level')).toHaveText(zoom);
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(page.locator('#editor-preview')).toBeVisible();
+  const themes = page.getByRole('group', { name: 'Тема', exact: true });
+  await expect(themes.getByRole('button', { name: 'Светлая тема' })).toHaveAttribute('aria-pressed', 'true');
   await page.screenshot({ path: testInfo.outputPath('editor-shell-preview.png') });
+  await themes.getByRole('button', { name: 'Тёмная тема' }).click();
+  await expect(themes.getByRole('button', { name: 'Тёмная тема' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(themes.getByRole('button', { name: 'Светлая тема' })).toHaveAttribute('aria-pressed', 'false');
+  await page.screenshot({ path: testInfo.outputPath('editor-shell-preview-dark.png') });
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await expect(page.locator('#layers [aria-selected=true]')).toHaveAttribute('data-id', selection);
 });

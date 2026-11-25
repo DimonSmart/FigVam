@@ -416,8 +416,21 @@
           <button id="close-preview" type="button">Вернуться в Design</button>
           <button id="preview-back" type="button" disabled>Назад по сценарию</button>
           <button id="preview-reset" type="button">Сбросить Preview</button>
-          <label for="preview-theme">Тема</label>
-          <select id="preview-theme"><option value="Light">Light</option><option value="Dark">Dark</option></select>
+          <div class="preview-theme-control">
+            <span id="preview-theme-label">Тема</span>
+            <div id="preview-theme" class="theme-segments" role="group" aria-labelledby="preview-theme-label">
+              <button type="button" data-theme="Light" aria-pressed="true" aria-label="Светлая тема" title="Светлая тема (Light)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <circle cx="12" cy="12" r="4"></circle><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"></path>
+                </svg>
+              </button>
+              <button type="button" data-theme="Dark" aria-pressed="false" aria-label="Тёмная тема" title="Тёмная тема (Dark)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                  <path d="M20.9 13.35A9 9 0 0 1 10.65 3.1a9 9 0 1 0 10.25 10.25Z"></path>
+                </svg>
+              </button>
+            </div>
+          </div>
         </header>
         <p id="preview-render-status" role="status"></p><button id="preview-render-retry" type="button" hidden>Повторить загрузку Preview</button>
         <ul id="preview-render-diagnostics" aria-label="Диагностика Preview"></ul>

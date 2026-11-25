@@ -158,9 +158,21 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   const preview = `#preview-viewport [data-preview-screen="${screen}"]`;
   await expect(page.locator(preview).locator(visual(input))).toHaveCSS('top', '39px');
   await expectLayout(page, preview, await read(`${layoutPath}?theme=Light`));
-  await page.locator('#preview-theme').selectOption('Dark');
+  const themes = page.getByRole('group', { name: 'Тема', exact: true });
+  const light = themes.getByRole('button', { name: 'Светлая тема', exact: true });
+  const dark = themes.getByRole('button', { name: 'Тёмная тема', exact: true });
+  await expect(light).toHaveAttribute('aria-pressed', 'true');
+  await expect(dark).toHaveAttribute('aria-pressed', 'false');
+  await dark.click();
+  await expect(dark).toHaveAttribute('aria-pressed', 'true');
+  await expect(light).toHaveAttribute('aria-pressed', 'false');
   await expect(page.locator(preview).locator(visual(input))).toHaveCSS('top', '53px');
   await expectLayout(page, preview, await read(`${layoutPath}?theme=Dark`));
+  await light.focus();
+  await page.keyboard.press('Space');
+  await expect(light).toHaveAttribute('aria-pressed', 'true');
+  await expect(dark).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator(preview).locator(visual(input))).toHaveCSS('top', '39px');
   expect(await read('document.json')).toEqual(before);
 
   await page.getByRole('button', { name: 'Вернуться в Design', exact: true }).click();
@@ -226,7 +238,12 @@ test('Design and Preview use the server bounds, clipping, typed styling and loca
   }, clip);
   expect(hits).toEqual([label, undefined]);
   await expectLayout(page, `#preview-viewport ${screenRoot}`, designLayout);
-  await page.locator('#preview-theme').selectOption('Dark');
+  const themes = page.getByRole('group', { name: 'Тема', exact: true });
+  const light = themes.getByRole('button', { name: 'Светлая тема', exact: true });
+  const dark = themes.getByRole('button', { name: 'Тёмная тема', exact: true });
+  await dark.focus();
+  await page.keyboard.press('Enter');
+  await expect(dark).toHaveAttribute('aria-pressed', 'true');
   await expect(preview.locator(`${visual(frame)} > .visual-surface`)).toHaveCSS('background-color', 'rgb(18, 60, 72)');
   const field = preview.getByRole('textbox', { name: 'Поле' });
   await field.focus();
@@ -234,7 +251,9 @@ test('Design and Preview use the server bounds, clipping, typed styling and loca
   await expect(field).toHaveValue(/local/);
   await page.keyboard.press('Tab');
   await expect(preview.getByRole('button', { name: 'Применить' })).toBeFocused();
+  const playbackRequest = page.waitForRequest(req => req.method() === 'POST' && req.url().endsWith('/preview'));
   await page.keyboard.press('Enter');
+  expect((await playbackRequest).postDataJSON().selection.theme).toBe(1);
   await expect(field).toHaveValue('Значение сценария');
   await expect(preview.locator(visual(label))).toHaveText('<em>Другой датасет</em>');
   await expect(preview.locator('em')).toHaveCount(0);
@@ -257,6 +276,8 @@ test('Design and Preview use the server bounds, clipping, typed styling and loca
   await expect(design.locator(visual(input))).toHaveAttribute('data-selected', 'true');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(field).toHaveValue('Пример');
+  await expect(light).toHaveAttribute('aria-pressed', 'true');
+  await expect(dark).toHaveAttribute('aria-pressed', 'false');
   expect(await read('document.json')).toEqual(before);
   expect(await read(`document.json?versionId=${saved.versionId}`)).toEqual(savedSnapshot);
   expect((await read('pages')).revision).toBe(saved.revision);
