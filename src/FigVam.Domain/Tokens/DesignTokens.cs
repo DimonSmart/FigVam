@@ -58,7 +58,9 @@ public sealed record DesignToken(Guid Id, string Name, TokenType Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenCategory? Category = null);
 public sealed record TokenDiagnostic(string Code, Guid TokenId, TokenTheme? Theme, Guid? ReferenceId, string Message, string? Field = null)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Expected { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Actual { get; init; }
 }
 public sealed record TokenResolution(TokenValue? Value, IReadOnlyList<TokenDiagnostic> Diagnostics)

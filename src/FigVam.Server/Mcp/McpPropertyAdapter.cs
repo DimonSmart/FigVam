@@ -113,7 +113,7 @@ public static class McpPropertyAdapter
         catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException or JsonException)
         {
             throw McpPropertyDiagnostics.Explain("INVALID_TOKEN", property, value,
-                McpPropertyContracts.TokenInputSchema(type), e as JsonException);
+                McpPropertyContracts.TokenInputSchema(type), e as JsonException, strictIntegers: true);
         }
     }
 

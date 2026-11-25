@@ -280,8 +280,11 @@ public static class DocumentStructureEditor
 
 public sealed record StructureError(string Code, Guid ObjectId, Guid? ReferenceId, string Message, string? Property = null)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public TokenTheme? TokenTheme { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Expected { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Actual { get; init; }
 }
 

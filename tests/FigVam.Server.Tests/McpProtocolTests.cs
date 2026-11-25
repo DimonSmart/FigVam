@@ -91,6 +91,12 @@ public sealed class McpProtocolTests
         Assert.True(colorAlternatives[1].GetProperty("properties").TryGetProperty("tokenId", out _));
         Assert.True(buttonSchema.GetProperty("textStyle").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("styleId", out _));
         Assert.True(buttonSchema.GetProperty("typography").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("tokenId", out _));
+        var opacitySchema = buttonSchema.GetProperty("opacity").GetProperty("inputSchema").GetProperty("anyOf")[0];
+        Assert.Equal(0, opacitySchema.GetProperty("minimum").GetDouble());
+        Assert.Equal(1, opacitySchema.GetProperty("maximum").GetDouble());
+        var inputSchema = (await Call("get_node_schema", new { kind = "TextInput" })).GetProperty("properties")
+            .GetProperty("inputType").GetProperty("inputSchema");
+        Assert.Equal(new[] { "Text", "Password" }, inputSchema.GetProperty("enum").EnumerateArray().Select(v => v.GetString()).ToArray());
         var imageSchema = (await Call("get_node_schema", new { kind = "Image" })).GetProperty("properties");
         Assert.True(imageSchema.GetProperty("asset").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("assetId", out _));
         foreach (var kind in new[] { "Frame", "Text", "TextInput" })
@@ -190,6 +196,14 @@ public sealed class McpProtocolTests
             "INVALID_TOKEN", "light.fontSize", "String", "Number");
         CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Light", value = new { tokenId = "bad" } }, true),
             "INVALID_TOKEN", "value.tokenId", "Invalid GUID format", "GUID");
+        var integerOverflow = new { fontFamily = "Arial", fontSize = 16, fontWeight = 2147483648L, lineHeight = 1.2 };
+        CheckDiagnostic(await Call("create_token", new { name = "bad.typography.integer", type = "Typography",
+            light = integerOverflow, dark = integerOverflow }, true),
+            "INVALID_TOKEN", "light.fontWeight", "2147483648", "32-bit integer");
+        var decimalInteger = JsonSerializer.Deserialize<JsonElement>("400.0");
+        CheckDiagnostic(await Call("create_token", new { name = "bad.weight.encoding", type = "FontWeight",
+            light = decimalInteger, dark = 400 }, true),
+            "INVALID_TOKEN", "light", "Number not encoded as an integer", "32-bit integer");
         var missingId = Guid.NewGuid();
         var failedNodeId = Guid.NewGuid();
         var rejectedCommandId = Guid.NewGuid();
@@ -201,9 +215,12 @@ public sealed class McpProtocolTests
         await Call("get_node", new { nodeId = failedNodeId }, true);
         CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { fontSize = new { tokenId = colorTokenId } } }, true),
             "INVALID_PROPERTY_VALUE", "fontSize.tokenId", "Incompatible token", "Existing compatible token");
-        CheckDiagnostic(await Call("create_token", new { name = "bad.alias", type = "Color",
+        var failedTokenId = Guid.NewGuid();
+        CheckDiagnostic(await Call("create_token", new { tokenId = failedTokenId, name = "bad.alias", type = "Color",
             light = new { tokenId = missingId }, dark = "#FFFFFF" }, true),
             "INVALID_TOKEN", "light.tokenId", "Missing token", "Existing token");
+        Assert.DoesNotContain((await Call("list_tokens")).GetProperty("items").EnumerateArray(),
+            token => token.GetProperty("id").GetGuid() == failedTokenId);
         CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Dark", value = new { tokenId = missingId } }, true),
             "INVALID_TOKEN", "value.tokenId", "Missing token", "Existing token");
         var invalidTypography = new { fontFamily = "Arial", fontSize = -1, fontWeight = 400, lineHeight = 1.2 };

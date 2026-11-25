@@ -103,7 +103,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 | backgroundColor: "blue" | backgroundColor | #RRGGBB or #RRGGBBAA | Invalid color format |
 | inputType: "Email" | inputType | Text, Password | Unsupported enum value |
 
-Для ссылок и сложных свойств путь содержит вложенное поле (например, backgroundColor.tokenId), для create_token — light или dark, для set_token_value — value. Допустимые формы и ограничения узлов доступны через get_node_schema; существование и совместимость ссылок проверяются доменной валидацией.
+Для ссылок и сложных свойств путь содержит вложенное поле (например, backgroundColor.tokenId), для create_token — light или dark, для set_token_value — value. Допустимые формы и ограничения узлов доступны через get_node_schema; существование и совместимость ссылок проверяются доменной валидацией. Для синтаксически корректной ссылки ошибки различают отсутствующий и несовместимый ресурс; ограничения значений токенов проверяются доменом (например, диапазон opacity 0–1). Диагностика сохранённых отказов команд воспроизводится при повторе commandId.
 
 ## Примеры аргументов tools/call
 

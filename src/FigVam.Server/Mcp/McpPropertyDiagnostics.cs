@@ -13,10 +13,10 @@ internal static class McpPropertyDiagnostics
         path.Length <= 128 && !path.Any(char.IsControl) ? path : "(invalid property name)";
 
     internal static McpContractException Explain(string code, string path, JsonElement value,
-        JsonObject schema, JsonException? exception = null, string? domainReason = null)
+        JsonObject schema, JsonException? exception = null, string? domainReason = null, bool strictIntegers = false)
     {
         path = SafePath(path);
-        var detail = Find(path, value, schema);
+        var detail = Find(path, value, schema, strictIntegers);
         if (detail is not null)
             return new(code, detail.Message, detail.Path, detail.Expected, detail.Actual);
 
@@ -67,7 +67,7 @@ internal static class McpPropertyDiagnostics
         _ => true
     };
 
-    private static Detail? Find(string path, JsonElement value, JsonObject schema)
+    private static Detail? Find(string path, JsonElement value, JsonObject schema, bool strictIntegers)
     {
         Detail Error(string expected, string actual, string? message = null) =>
             new(path, message ?? $"Property '{path}' must be {expected}.", expected, actual);
@@ -80,9 +80,9 @@ internal static class McpPropertyDiagnostics
             if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("tokenId", out _))
             {
                 var reference = matching.FirstOrDefault(s => s["properties"] is JsonObject p && p.ContainsKey("tokenId"));
-                if (reference is not null) return Find(path, value, reference);
+                if (reference is not null) return Find(path, value, reference, strictIntegers);
             }
-            var errors = matching.Select(s => Find(path, value, s)).ToArray();
+            var errors = matching.Select(s => Find(path, value, s, strictIntegers)).ToArray();
             return errors.Any(e => e is null) ? null : errors[0];
         }
         if (!MatchesType(value, schema))
@@ -113,7 +113,7 @@ internal static class McpPropertyDiagnostics
                 }
             foreach (var field in value.EnumerateObject())
                 if (fields[field.Name] is JsonObject fieldSchema &&
-                    Find(SafePath(path + "." + field.Name), field.Value, fieldSchema) is { } error)
+                    Find(SafePath(path + "." + field.Name), field.Value, fieldSchema, strictIntegers) is { } error)
                     return error;
         }
         if (value.ValueKind == JsonValueKind.String)
@@ -145,8 +145,15 @@ internal static class McpPropertyDiagnostics
             if (!value.TryGetDouble(out var number) || !double.IsFinite(number))
                 return Error("Finite number", "Non-finite number");
             var actual = number.ToString(CultureInfo.InvariantCulture);
-            if (Type(schema) == "integer" && number != Math.Truncate(number))
-                return Error("Integer", actual);
+            if (Type(schema) == "integer")
+            {
+                if (number != Math.Truncate(number)) return Error("Integer", actual);
+                // The token wire contracts use Int32, whereas node fontWeight is read as a double.
+                if (strictIntegers && !value.TryGetInt32(out _))
+                    return Error("32-bit integer", number >= int.MinValue && number <= int.MaxValue
+                        ? "Number not encoded as an integer" : actual,
+                        $"Property '{path}' must be a JSON integer between {int.MinValue} and {int.MaxValue}.");
+            }
             static double? Bound(JsonNode? node) => node is null ? null :
                 double.Parse(node.ToJsonString(), CultureInfo.InvariantCulture);
             var min = Bound(schema["minimum"]);
