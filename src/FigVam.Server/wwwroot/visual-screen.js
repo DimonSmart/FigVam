@@ -6,7 +6,12 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   const viewport = element('preview-viewport');
   const openButton = element('open-preview');
   const closeButton = element('close-preview');
-  const themeSelect = element('preview-theme');
+  const themeButtons = [...element('preview-theme').querySelectorAll('button[data-theme]')];
+  let previewTheme = 'Light';
+  function selectTheme(theme) {
+    previewTheme = theme;
+    for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === theme));
+  }
   const backButton = element('preview-back');
   const design = { host: boundary, status: element('design-render-status'), diagnostics: element('design-render-diagnostics'),
     retry: element('design-render-retry') };
@@ -280,7 +285,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     if (isPreview) {
       const size = sizePreview();
       const selection = playback?.selection;
-      const parameters = { previewWidth: size.width, previewHeight: size.height, theme: themeSelect.value };
+      const parameters = { previewWidth: size.width, previewHeight: size.height, theme: previewTheme };
       if (selection?.datasetId) parameters.datasetId = selection.datasetId;
       loadView(preview, [selection?.screenId ?? context.screen.id, ...(playback?.overlays ?? [])], parameters, selection ? selection.variantId : context.variantId);
     } else loadView(design, [context.screen.id], null, context.variantId);
@@ -288,7 +293,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
 
   async function loadView(view, screens, parameters, variantId) {
     const previewMode = view === preview;
-    const theme = previewMode ? themeSelect.value : 'Light';
+    const theme = previewMode ? previewTheme : 'Light';
     const key = JSON.stringify([screens, parameters, variantId, theme, playback?.values]);
     if (view.key === key) return;
     cancelView(view);
@@ -392,7 +397,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     try {
       const body = {
         revision, triggers: next, selection: {
-          screenId: screen.id, variantId: context.variantId, datasetId: null, theme: themeSelect.selectedIndex,
+          screenId: screen.id, variantId: context.variantId, datasetId: null, theme: previewTheme === 'Dark' ? 1 : 0,
           viewport: { width: Math.max(1, size.width), height: Math.max(1, size.height) }
         }
       };
@@ -439,7 +444,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   openButton.addEventListener('click', () => {
     if (!context) return;
     if (design.status.textContent === 'Загрузка экрана…') cancelView(design);
-    themeSelect.value = 'Light';
+    selectTheme('Light');
     backButton.disabled = true;
     showMode(true);
     if (context.variantId) replay([], null);
@@ -451,7 +456,11 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     renderActive();
     openButton.focus();
   });
-  themeSelect.addEventListener('change', renderActive);
+  for (const button of themeButtons) button.addEventListener('click', () => {
+    if (previewTheme === button.dataset.theme) return;
+    selectTheme(button.dataset.theme);
+    renderActive();
+  });
   design.retry.addEventListener('click', renderActive);
   preview.retry.addEventListener('click', renderActive);
   element('preview-reset').addEventListener('click', () => {
