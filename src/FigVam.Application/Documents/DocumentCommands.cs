@@ -7,7 +7,11 @@ using FigVam.Domain.Components;
 namespace FigVam.Application.Documents;
 
 // Constructed by the server's authenticated transport, never deserialized from a command payload.
-public sealed record DocumentActor(string Id);
+public sealed record DocumentActor(string Id)
+{
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string Source { get; init; } = "UI";
+}
 public sealed record RestoreDocumentVersionCommand(Guid DocumentId, Guid CommandId, Guid VersionId);
 public sealed record SetNodeRepeaterCommand(Guid DocumentId, Guid CommandId, Guid NodeId, long ExpectedRevision, NodeRepeater? Repeater);
 public sealed record BindNodeDataCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property, NodeDataBinding Binding);
@@ -64,10 +68,11 @@ public sealed record DocumentState(DocumentStructure Document, long Revision);
 public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code, long? Revision,
     string ActorId, Guid? PageId, DateTimeOffset Timestamp, Guid? ScreenId = null, Guid? NodeId = null, Guid? VersionId = null, string? Explanation = null, string? Property = null, IReadOnlyList<Guid>? AffectedIds = null, IReadOnlyList<TokenImportDiagnostic>? Diagnostics = null)
 {
+    public string Source { get; init; } = "UI";
     public bool Accepted => Code == "ACCEPTED";
     public bool Equals(CommandResult? other) => other is not null &&
         DocumentId == other.DocumentId && CommandId == other.CommandId && Code == other.Code && Revision == other.Revision &&
-        ActorId == other.ActorId && PageId == other.PageId && Timestamp == other.Timestamp && ScreenId == other.ScreenId &&
+        ActorId == other.ActorId && Source == other.Source && PageId == other.PageId && Timestamp == other.Timestamp && ScreenId == other.ScreenId &&
         NodeId == other.NodeId && VersionId == other.VersionId && Explanation == other.Explanation && Property == other.Property &&
         (AffectedIds is null ? other.AffectedIds is null : other.AffectedIds is not null && AffectedIds.SequenceEqual(other.AffectedIds)) &&
         (Diagnostics is null ? other.Diagnostics is null : other.Diagnostics is not null && Diagnostics.SequenceEqual(other.Diagnostics));
@@ -180,6 +185,11 @@ public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind,
     ImmutableSortedDictionary<string, NodePropertyValue>? Properties = null) : DocumentEvent;
 public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null, Guid? HistoryGroupId = null);
 
+public interface IDocumentCommandResultReader
+{
+    Task<CommandResult?> ReadResultAsync(Guid documentId, Guid commandId, DocumentActor actor, CancellationToken cancellationToken = default);
+}
+
 public interface IDocumentCommandJournal
 {
     // The callback, version lookup and result commit share one cross-process document transaction.
@@ -284,7 +294,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(documentId, commandId, code,
             revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [definitionId, variantId, parameterId] : null);
+            AffectedIds: code == "ACCEPTED" ? [definitionId, variantId, parameterId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id)) return Result("FORBIDDEN");
         if (documentId == Guid.Empty || commandId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(documentId, commandId, (state, _, _) =>
@@ -310,7 +320,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.ParameterId] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.ParameterId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -335,7 +345,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.Slot!.Id] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.Slot!.Id] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.DefinitionId == Guid.Empty || command.Slot is null || command.Slot.Id == Guid.Empty) return Result("INVALID_ID");
         if (command.Slot.Name is null) return Result("INVALID_COMPONENT", explanation: "Slot name is required.");
@@ -357,7 +367,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.Variant!.Id] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.Variant!.Id] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.DefinitionId == Guid.Empty || command.Variant is null || command.Variant.Id == Guid.Empty) return Result("INVALID_ID");
         if (command.Variant.ParameterChanges is null) return Result("INVALID_COMPONENT", explanation: "Parameter changes are required.");
@@ -379,7 +389,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: command.NodeId, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.NodeId] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.NodeId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty || command.SlotId == Guid.Empty) return Result("INVALID_ID");
         if (command.ContentNodeIds is null) return Result("INVALID_COMPONENT", explanation: "Content node IDs are required; use an empty list to clear the slot.");
@@ -408,7 +418,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: command.NodeId, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.NodeId] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.NodeId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty || command.VariantId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -446,7 +456,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(documentId, commandId, code,
             revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: nodeId, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [nodeId, parameterId] : null);
+            AffectedIds: code == "ACCEPTED" ? [nodeId, parameterId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, documentId, cancellationToken)) return Result("FORBIDDEN");
         if (documentId == Guid.Empty || commandId == Guid.Empty || nodeId == Guid.Empty || parameterId == Guid.Empty) return Result("INVALID_ID");
         if (!remove && value is null) return Result("INVALID_COMPONENT", explanation: "Override value is required.");
@@ -472,7 +482,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
-            command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation);
+            command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -501,7 +511,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
-            command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: command.NodeId, Explanation: explanation);
+            command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: command.NodeId, Explanation: explanation) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty) return Result("INVALID_ID");
         if (command.ExpectedRevision < 0) return Result("INVALID_REVISION");
@@ -534,7 +544,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: command.NodeId,
-            Explanation: explanation, AffectedIds: code == "ACCEPTED" ? [command.NodeId, command.ParentId] : null);
+            Explanation: explanation, AffectedIds: code == "ACCEPTED" ? [command.NodeId, command.ParentId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty || command.DefinitionId == Guid.Empty || command.ParentId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -566,7 +576,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: command.NodeId,
             Explanation: explanation, Property: command.Property,
-            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.Parameter!.Id, command.NodeId] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.DefinitionId, command.Parameter!.Id, command.NodeId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.DefinitionId == Guid.Empty ||
             command.NodeId == Guid.Empty || command.Parameter is null || command.Parameter.Id == Guid.Empty) return Result("INVALID_ID");
@@ -600,7 +610,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.ComponentId] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.ComponentId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.ComponentId == Guid.Empty || command.RootNodeId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -622,7 +632,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId, command.CommandId, code,
-            revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null);
+            revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.TokenId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -647,7 +657,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code,
-            revision, actor.Id, null, DateTimeOffset.UtcNow, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null);
+            revision, actor.Id, null, DateTimeOffset.UtcNow, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.TokenId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -667,7 +677,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.Token!.Id] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.Token!.Id] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.Token is null || command.Token.Id == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -690,7 +700,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     private async Task<CommandResult> SetMetadataAsync(Guid documentId, Guid commandId, Guid nodeId, string? value, bool semanticKey, DocumentActor actor, CancellationToken ct, Guid? historyGroupId)
     {
         ArgumentNullException.ThrowIfNull(actor);
-        CommandResult Result(string code, long? revision = null) => new(documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: nodeId);
+        CommandResult Result(string code, long? revision = null) => new(documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: nodeId) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, documentId, ct)) return Result("FORBIDDEN");
         if (documentId == Guid.Empty || commandId == Guid.Empty || nodeId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(documentId, commandId, (state, _, _) =>
@@ -712,7 +722,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(
             command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-            NodeId: command.NodeId, Explanation: explanation, Property: command.Property);
+            NodeId: command.NodeId, Explanation: explanation, Property: command.Property) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty)
@@ -740,7 +750,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null, string? property = null) => new(
             command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-            NodeId: command.NodeId, Explanation: explanation, Property: property);
+            NodeId: command.NodeId, Explanation: explanation, Property: property) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty ||
@@ -804,7 +814,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     {
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(
-            documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation);
+            documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, documentId, cancellationToken)) return Result("FORBIDDEN");
         if (documentId == Guid.Empty || commandId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(documentId, commandId, (state, _, history) =>
@@ -831,7 +841,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(
             command.DocumentId, command.CommandId, code, revision, actor.Id, null,
-            DateTimeOffset.UtcNow, VersionId: code == "ACCEPTED" ? command.VersionId : null);
+            DateTimeOffset.UtcNow, VersionId: code == "ACCEPTED" ? command.VersionId : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
             return Result("FORBIDDEN");
@@ -862,7 +872,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, Guid? versionId = null) => new(
             command.DocumentId, command.CommandId, code, revision, actor.Id, null,
-            DateTimeOffset.UtcNow, VersionId: versionId);
+            DateTimeOffset.UtcNow, VersionId: versionId) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
             return Result("FORBIDDEN");
@@ -886,7 +896,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
-        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -902,7 +912,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
-        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, code == "ACCEPTED" ? command.PageId : null, DateTimeOffset.UtcNow);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, code == "ACCEPTED" ? command.PageId : null, DateTimeOffset.UtcNow) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.PageId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -920,7 +930,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
-        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.ScreenId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -941,7 +951,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, code == "ACCEPTED" ? command.PageId : null,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow) { Source = actor.Source };
 
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
@@ -968,7 +978,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     {
         ArgumentNullException.ThrowIfNull(command);
         ArgumentNullException.ThrowIfNull(actor);
-        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null);
+        CommandResult Result(string code, long? revision = null) => new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.ScreenId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
@@ -994,7 +1004,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, code == "ACCEPTED" ? command.PageId : null,
-            DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null);
+            DateTimeOffset.UtcNow, code == "ACCEPTED" ? command.ScreenId : null) { Source = actor.Source };
 
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
@@ -1029,7 +1039,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         CommandResult Result(string code, long? revision = null, StructureError? diagnostic = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
             NodeId: code == "ACCEPTED" || diagnostic is not null ? command.NodeId : null,
-            Explanation: diagnostic?.Message, Property: diagnostic?.Property);
+            Explanation: diagnostic?.Message, Property: diagnostic?.Property) { Source = actor.Source };
 
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
@@ -1074,7 +1084,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-            NodeId: code == "ACCEPTED" ? command.NodeId : null);
+            NodeId: code == "ACCEPTED" ? command.NodeId : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))
             return Result("FORBIDDEN");
@@ -1132,7 +1142,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-            NodeId: code == "ACCEPTED" ? command.NodeId : null);
+            NodeId: code == "ACCEPTED" ? command.NodeId : null) { Source = actor.Source };
 
         if (string.IsNullOrWhiteSpace(actor.Id) ||
             !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken))

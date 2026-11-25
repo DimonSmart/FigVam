@@ -11,11 +11,12 @@ namespace FigVam.Infrastructure.Documents;
 // All server instances must use this same local durable directory. SQLite's file locks,
 // rather than process-local locks or caches, establish the authoritative document stream.
 public sealed partial class SqliteDocumentJournal
-    : IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
+    : IDocumentCommandResultReader, IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
 {
     private const string EventProjection = """
         SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,
-            e.command_id,e.actor_id,r.document,c.payload,p.property,p.value,d.payload
+            e.command_id,e.actor_id,r.document,c.payload,p.property,p.value,d.payload,
+            COALESCE(json_extract(command_result.result, '$.Source'), 'UI')
         FROM events e
         LEFT JOIN screen_events s ON s.revision=e.revision
         LEFT JOIN node_events n ON n.revision=e.revision
@@ -24,6 +25,7 @@ public sealed partial class SqliteDocumentJournal
         LEFT JOIN compensation_events c ON c.revision=e.revision
         LEFT JOIN property_events p ON p.revision=e.revision
         LEFT JOIN payload_events d ON d.revision=e.revision
+        LEFT JOIN results command_result ON command_result.command_id=e.command_id
         """;
     private const int SnapshotInterval = 32;
     private const int MaxReconnectEvents = 100;
@@ -165,7 +167,7 @@ public sealed partial class SqliteDocumentJournal
                 if (payloadBytes > MaxReconnectPayloadBytes)
                     return new DocumentReconnectResult("SNAPSHOT", state.Revision, Snapshot: state);
                 events.Add(new(documentId, ++revision, Guid.Parse(reader.GetString(8)),
-                    reader.GetString(9), reader.GetString(1), payload));
+                    reader.GetString(9), reader.GetString(1), payload) { Source = reader.GetString(15) });
             }
             return revision == state.Revision
                 ? new DocumentReconnectResult("EVENTS", state.Revision, events)
@@ -207,6 +209,16 @@ public sealed partial class SqliteDocumentJournal
                 => new NodeDeleted(subjectId),
             _ => throw new InvalidDataException("Invalid document event type or payload.")
         };
+    }
+
+    public async Task<CommandResult?> ReadResultAsync(Guid documentId, Guid commandId, DocumentActor actor, CancellationToken cancellationToken = default)
+    {
+        if (!await CanEditAsync(actor, documentId, cancellationToken)) return null;
+        using var connection = Open(documentId);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT result FROM results WHERE command_id=$id";
+        command.Parameters.AddWithValue("$id", commandId.ToString());
+        return command.ExecuteScalar() is string original ? JsonSerializer.Deserialize<CommandResult>(original) : null;
     }
 
     public Task<CommandResult> ExecuteAsync(Guid documentId, Guid commandId,

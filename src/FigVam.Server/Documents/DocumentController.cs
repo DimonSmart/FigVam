@@ -1,5 +1,6 @@
 using FigVam.Application.Documents;
 using FigVam.Server.Authentication;
+using FigVam.Server.Mcp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -41,8 +42,11 @@ public sealed class DocumentController(IDocumentAccessService access, IDocumentL
             memberId = users.ResolveMember(memberId) ?? "";
             if (memberId.Length == 0) return BadRequest(ApiErrors.Create(400, "INVALID_MEMBER"));
         }
-        return Result(await access.SetMemberAsync(documentId, memberId,
-            Enum.Parse<DocumentRole>(request.Role), User.GetDocumentActor(), cancellationToken));
+        var role = Enum.Parse<DocumentRole>(request.Role);
+        var result = await access.SetMemberAsync(documentId, memberId, role, User.GetDocumentActor(), cancellationToken);
+        if (result.Accepted && role == DocumentRole.Viewer)
+            await HttpContext.RequestServices.GetRequiredService<McpAccessRegistry>().RevokeAsync(documentId, memberId, CancellationToken.None);
+        return Result(result);
     }
 
     /// <summary>Remove a member. Only an Owner may perform this operation; the last Owner is retained.</summary>
@@ -51,9 +55,13 @@ public sealed class DocumentController(IDocumentAccessService access, IDocumentL
     public async Task<IActionResult> RemoveMember(Guid documentId,
         [System.ComponentModel.DataAnnotations.StringLength(256, MinimumLength = 1)] string memberId,
         CancellationToken cancellationToken)
-        => Result(await access.RemoveMemberAsync(documentId,
-            HttpContext.RequestServices.GetService<FigVamUserStore>()?.ResolveMember(memberId, includeDisabled: true) ?? memberId,
-            User.GetDocumentActor(), cancellationToken));
+        {
+        var resolvedMemberId = HttpContext.RequestServices.GetService<FigVamUserStore>()?.ResolveMember(memberId, includeDisabled: true) ?? memberId;
+        var result = await access.RemoveMemberAsync(documentId, resolvedMemberId, User.GetDocumentActor(), cancellationToken);
+        if (result.Accepted)
+            await HttpContext.RequestServices.GetRequiredService<McpAccessRegistry>().RevokeAsync(documentId, resolvedMemberId, CancellationToken.None);
+        return Result(result);
+    }
 
     private IActionResult Result(DocumentAccessResult result, int acceptedStatus = 200)
     {

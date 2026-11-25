@@ -26,6 +26,8 @@ jobs:
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
+      - name: MCP protocol smoke
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~Mcp
       - name: Server tests
         run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --logger "trx;LogFileName=server-tests.trx" --results-directory TestResults
       - name: Upload failure diagnostics
@@ -63,6 +65,9 @@ jobs:
         run: npx playwright install chromium
       - name: UI test launcher catalog smoke
         run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
+      - name: MCP Login Flow smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test mcp-login-flow.spec.js --workers=1 --trace off
       - name: Home dashboard smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test home.spec.js --trace retain-on-failure

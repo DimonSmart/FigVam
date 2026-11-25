@@ -107,6 +107,11 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   // Move the existing controls rather than recreating them or their event handlers.
   const docMenu = menu('Файл', 'document-menu');
   const shareMenu = menu('Поделиться', 'share-menu');
+  const mcpMenu = menu('MCP-доступ', 'mcp-menu');
+  mcpMenu.id = 'mcp-access-menu';
+  const mcpBody = el('div', 'menu-body');
+  mcpBody.id = 'mcp-access-body';
+  mcpMenu.append(mcpBody);
   const documentActions = el('div', 'menu-body');
   docMenu.append(documentActions);
   const exportSection = byId('export-title').closest('section');
@@ -170,7 +175,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent.trim() === 'Design');
   originalMode?.remove();
   headerEnd.append(leftToggle, rightToggle, undo, redo, mode, preview,
-    presence, byId('connection-status'), shareMenu, docMenu, signOut);
+    presence, byId('connection-status'), shareMenu, mcpMenu, docMenu, signOut);
   header.append(headerEnd);
 
   // Master-detail navigation: document pages/screens above, selected screen's layers below.

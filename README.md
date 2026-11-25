@@ -674,3 +674,7 @@ with isolated storage under its test output directory and an explicitly enabled
 Development token. This isolates the local actor's rate-limit budget while
 retaining production authorization, validation and durable journal behavior.
 Server logs are attached to each result. Browser tests use one worker and no retries.
+
+## MCP-доступ для AI-агентов
+
+В открытом документе Owner или Editor может выдать временный токен в меню **MCP-доступ** и подключить клиент через Streamable HTTP. См. [настройку, инструменты и проверку Login Flow](docs/mcp.md).

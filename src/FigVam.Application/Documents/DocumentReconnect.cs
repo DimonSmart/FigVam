@@ -1,7 +1,10 @@
 namespace FigVam.Application.Documents;
 
 public sealed record CommittedDocumentEvent(Guid DocumentId, long Revision, Guid CommandId,
-    string ActorId, string Type, DocumentEvent Payload);
+    string ActorId, string Type, DocumentEvent Payload)
+{
+    public string Source { get; init; } = "UI";
+}
 
 // Successful reads return either a complete contiguous event suffix or the current snapshot.
 public sealed record DocumentReconnectResult(string Code, long? Revision = null,

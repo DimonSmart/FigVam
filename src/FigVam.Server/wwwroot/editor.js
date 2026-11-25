@@ -1,5 +1,6 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createUserAdmin } from './user-admin.js';
+import { createMcpAccess } from './mcp-access.js';
 import { createApiClient } from './api-client.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
@@ -80,6 +81,8 @@ const request = createApiClient({
   }
 });
 
+const mcpAccess = createMcpAccess({ request, getContext: () => ({ documentId, token, navigationEpoch }) });
+
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
   workspace: {
@@ -135,6 +138,7 @@ const datasets = createDatasets({
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status) {
+  mcpAccess.reset();
   scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
@@ -162,6 +166,7 @@ function message(status = '', error = '') {
 }
 
 function clearSession() {
+  mcpAccess.reset();
   importOperation = null;
   element('import-form').reset();
   element('import-file-name').textContent = 'Файл не выбран';
@@ -300,6 +305,7 @@ async function run(action, work, { create = false, quiet = false } = {}) {
 }
 
 async function loadList(index = 0, cursor = null) {
+  mcpAccess.reset();
   leaveDeletion();
   if (!token) return;
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
@@ -784,6 +790,7 @@ function resetDocumentRename() {
 }
 
 async function openDocument(id) {
+  mcpAccess.reset();
   leaveDeletion();
   if (deletion?.id === id) {
     history.replaceState(null, '', '/');
