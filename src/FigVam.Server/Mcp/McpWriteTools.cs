@@ -61,17 +61,17 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
         return selected!;
     }
 
-    [McpServerTool(Name = "create_page"), Description("Create a page. Rename it separately with rename_page.")]
-    public Task<CallToolResult> CreatePage(Guid? commandId = null, Guid? pageId = null, CancellationToken ct = default) =>
-        Run(commandId, id => handler.HandleAsync(new AddPageCommand(DocumentId, id, pageId ?? Guid.NewGuid()), Actor, ct));
+    [McpServerTool(Name = "create_page"), Description("Create a page with an optional display name.")]
+    public Task<CallToolResult> CreatePage(Guid? commandId = null, Guid? pageId = null, string? name = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new AddPageCommand(DocumentId, id, pageId ?? Guid.NewGuid(), name), Actor, ct));
 
     [McpServerTool(Name = "rename_page"), Description("Rename an existing page.")]
     public Task<CallToolResult> RenamePage(Guid pageId, string name, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new RenamePageCommand(DocumentId, id, pageId, name), Actor, ct));
 
-    [McpServerTool(Name = "create_screen"), Description("Create a screen in a page with dimensions in logical UI units.")]
-    public Task<CallToolResult> CreateScreen(Guid pageId, double width, double height, Guid? commandId = null, Guid? screenId = null, CancellationToken ct = default) =>
-        Run(commandId, id => handler.HandleAsync(new AddScreenCommand(DocumentId, id, pageId, screenId ?? Guid.NewGuid(), new(width, height)), Actor, ct));
+    [McpServerTool(Name = "create_screen"), Description("Create a screen in a page with dimensions in logical UI units and an optional display name.")]
+    public Task<CallToolResult> CreateScreen(Guid pageId, double width, double height, Guid? commandId = null, Guid? screenId = null, string? name = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new AddScreenCommand(DocumentId, id, pageId, screenId ?? Guid.NewGuid(), new(width, height), name), Actor, ct));
 
     [McpServerTool(Name = "rename_screen"), Description("Rename an existing screen.")]
     public Task<CallToolResult> RenameScreen(Guid screenId, string name, Guid? commandId = null, CancellationToken ct = default) =>
@@ -81,17 +81,17 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     public Task<CallToolResult> ResizeScreen(Guid screenId, double width, double height, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new ResizeScreenCommand(DocumentId, id, screenId, new(width, height)), Actor, ct));
 
-    [McpServerTool(Name = "duplicate_screen"), Description("Duplicate a screen and all its children at the expected revision.")]
-    public Task<CallToolResult> DuplicateScreen(Guid screenId, long expectedRevision, Guid? commandId = null, Guid? newScreenId = null, CancellationToken ct = default) =>
-        Run(commandId, id => handler.HandleAsync(new DuplicateScreenCommand(DocumentId, id, screenId, newScreenId ?? Guid.NewGuid(), expectedRevision), Actor, ct));
+    [McpServerTool(Name = "duplicate_screen"), Description("Duplicate a screen and all its children at the expected revision, optionally specifying the new screen name.")]
+    public Task<CallToolResult> DuplicateScreen(Guid screenId, long expectedRevision, Guid? commandId = null, Guid? newScreenId = null, string? name = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new DuplicateScreenCommand(DocumentId, id, screenId, newScreenId ?? Guid.NewGuid(), expectedRevision, name), Actor, ct));
 
-    [McpServerTool(Name = "create_node"), Description("Create a node with initial properties atomically. Use get_node_schema for supported properties and their inputSchema.")]
-    public Task<CallToolResult> CreateNode(Guid parentId, string kind, Dictionary<string, JsonElement>? properties = null, Guid? commandId = null, Guid? nodeId = null, CancellationToken ct = default) =>
+    [McpServerTool(Name = "create_node"), Description("Create a node with an optional display name and initial properties atomically. Use get_node_schema for supported properties and their inputSchema.")]
+    public Task<CallToolResult> CreateNode(Guid parentId, string kind, Dictionary<string, JsonElement>? properties = null, Guid? commandId = null, Guid? nodeId = null, string? name = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
         {
             var state = await State(ct);
             var values = McpPropertyAdapter.ConvertProperties(Profile(state), kind, properties ?? new());
-            return await handler.HandleAsync(new AddNodeCommand(DocumentId, id, parentId, nodeId ?? Guid.NewGuid(), kind, values), Actor, ct);
+            return await handler.HandleAsync(new AddNodeCommand(DocumentId, id, parentId, nodeId ?? Guid.NewGuid(), kind, values, name), Actor, ct);
         });
 
     [McpServerTool(Name = "rename_node"), Description("Set the display name of an existing node.")]
