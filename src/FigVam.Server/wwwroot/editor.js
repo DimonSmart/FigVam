@@ -110,7 +110,7 @@ const documentExport = createDocumentExport({
 
 const tokens = createTokens({
   element, request: (...args) => request(...args),
-  getContext: () => ({ documentId, documentRole, revision, generation }),
+  getContext: () => ({ documentId, documentRole, revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles = createStyles({
@@ -270,7 +270,7 @@ const scenarios = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentRole = role; layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
+  setDocumentRole: role => { documentRole = role; tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
 
@@ -773,7 +773,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   layers.applySnapshot(layerSnapshot, selection);
   const name = header.items[0].name;
   element('document-title').textContent = name; document.title = `${name} — FigVam`;
-  element('token-create').inert = element('token-edit').inert = false;
+  element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
   components.load(); datasets.load(); screenVariants.load();
   diagnostics.refresh();
   scenarios.refresh(screen);
@@ -818,7 +818,7 @@ async function openDocument(id) {
     element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? '' : 'Права на редактирование не определены. Обновите страницу.';
     element('page-edit').hidden = !['Owner', 'Editor'].includes(role);
     element('screen-create').hidden = !['Owner', 'Editor'].includes(role);
-    element('token-create').hidden = !['Owner', 'Editor'].includes(role);
+    tokens.refreshAccess();
     element('dataset-edit').hidden = !['Owner', 'Editor'].includes(role);
     documentHistory.prepare();
     await readPages(signal, 0);

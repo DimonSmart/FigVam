@@ -25,7 +25,7 @@ export function createApiClient({ getToken, onUnauthorized }) {
       const codes = { UNSUPPORTED_PROFILE_VERSION: 'Версия профиля документа несовместима с текущей версией FigVam.', PROFILE_UNAVAILABLE: 'Профиль документа не установлен.', INVALID_PROFILE: 'Профиль документа некорректен.', REVISION_CONFLICT: 'Документ изменился. Обновите страницы и повторите действие.', PAGE_IN_USE: 'Страница используется другими объектами. Удалите ссылки на неё и её содержимое перед удалением.', PAGE_NOT_FOUND: 'Страница больше не существует. Обновите страницы.', PARENT_NOT_FOUND: 'Экран или слой больше не существует.', REVISION_UNAVAILABLE: 'Ревизия больше недоступна.', INVALID_PAGE: 'Не удалось сохранить страницу: проверьте имя и ограничения документа.' };
       const error = new Error(codes[body.code] ?? errors[response.status] ?? 'Сервер не смог выполнить запрос. Повторите позже.');
       error.status = response.status; error.code = body.code;
-      error.detail = body.detail; error.property = body.property;
+      error.detail = body.detail; error.property = body.property; error.diagnostics = body.diagnostics;
       throw error;
     }
     return response;

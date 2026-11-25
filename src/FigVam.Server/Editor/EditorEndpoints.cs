@@ -49,6 +49,7 @@ public static class EditorEndpoints
         MapFile("/screen-variants.js", "screen-variants.js", "text/javascript; charset=utf-8");
         MapFile("/screen-diagnostics.js", "screen-diagnostics.js", "text/javascript; charset=utf-8");
         MapFile("/tokens.js", "tokens.js", "text/javascript; charset=utf-8");
+        MapFile("/token-groups.js", "token-groups.js", "text/javascript; charset=utf-8");
         MapFile("/styles.js", "styles.js", "text/javascript; charset=utf-8");
         MapFile("/session.js", "session.js", "text/javascript; charset=utf-8");
         MapFile("/editor.css", "editor.css", "text/css; charset=utf-8");

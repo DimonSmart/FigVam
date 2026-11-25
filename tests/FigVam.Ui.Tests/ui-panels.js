@@ -3,6 +3,14 @@ const { expect } = require('@playwright/test');
 async function show(page, panel) {
   // Wait for async navigation to finish before testing responsive panel visibility.
   await expect(page.locator('#editor-view')).toBeVisible();
+  if (panel === 'tokens') {
+    await page.locator('#document-mode-tokens').click();
+    await expect(page.locator('#token-workspace')).toBeVisible();
+    return;
+  }
+  if (await page.locator('#token-workspace').isVisible()) {
+    await page.locator('#document-mode-editor').click();
+  }
   const tabs = {
     layers: 'tab-layers', components: 'tab-components', assets: 'tab-assets',
     design: 'tab-design', prototype: 'tab-prototype', diagnostics: 'tab-diagnostics'

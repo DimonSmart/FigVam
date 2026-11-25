@@ -169,12 +169,19 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   mobileSignOut.type = 'button';
   mobileSignOut.addEventListener('click', () => byId('disconnect').click());
   documentActions.append(group('Аккаунт', mobileSignOut));
-  const mode = el('span', 'design-mode', 'Design');
+  const mode = el('div', 'document-mode-switch');
+  const editorMode = el('button', 'editor-tab', 'Редактор');
+  const tokenMode = el('button', 'editor-tab', 'Токены');
+  editorMode.id = 'document-mode-editor'; tokenMode.id = 'document-mode-tokens';
+  for (const button of [editorMode, tokenMode]) button.type = 'button';
+  mode.append(editorMode, tokenMode);
+  mode.setAttribute('role', 'group'); mode.setAttribute('aria-label', 'Режим документа');
+  design.insertBefore(mode, workspace);
   const brand = el('span', 'editor-brand', 'FigVam');
   header.insertBefore(brand, header.firstChild);
   const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent.trim() === 'Design');
   originalMode?.remove();
-  headerEnd.append(leftToggle, rightToggle, undo, redo, mode, preview,
+  headerEnd.append(leftToggle, rightToggle, undo, redo, preview,
     presence, byId('connection-status'), shareMenu, mcpMenu, docMenu, signOut);
   header.append(headerEnd);
 
@@ -312,8 +319,74 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const pngHelp = byId('asset-upload-form').nextElementSibling;
   const assetPanel = group('Изображения', byId('asset-upload-form'), pngHelp, byId('asset-upload-status'),
     byId('asset-upload-error'), byId('asset-upload-retry'));
+  const tokenPage = byId('tokens-title').closest('section');
+  tokenPage.id = 'token-workspace'; tokenPage.classList.add('token-workspace');
+  const tokenHeader = el('div', 'token-workspace-toolbar');
+  const tokenGrid = el('div', 'token-workspace-grid');
+  const tokenGroups = el('nav', 'token-groups'); tokenGroups.id = 'token-groups';
+  tokenGroups.setAttribute('aria-label', 'Группы токенов');
+  const tokenTable = el('div', 'token-table-area');
+  const tokenDetails = el('aside', 'token-details-area');
+  const newToken = el('button', 'primary-action', 'Новый токен'); newToken.id = 'new-token-open'; newToken.type = 'button'; newToken.hidden = true;
+  const search = el('input'); search.id = 'token-search'; search.type = 'search'; search.placeholder = 'Поиск токенов'; search.setAttribute('aria-label', 'Поиск токенов');
+  const typeFilter = el('select'); typeFilter.id = 'token-type-filter'; typeFilter.setAttribute('aria-label', 'Фильтр по типу токена');
+  typeFilter.add(new Option('Все типы', ''));
+  for (const type of ['Color','Spacing','Typography','Geometry','Dimension','Number','FontFamily','FontWeight']) typeFilter.add(new Option(type, type));
+  const exchange = el('div', 'token-exchange');
+  const importButton = el('button', '', 'Импорт'); importButton.id = 'token-import-open'; importButton.type = 'button'; importButton.hidden = true;
+  const exportTheme = el('select'); exportTheme.id = 'token-export-theme'; exportTheme.setAttribute('aria-label', 'Тема экспорта');
+  for (const theme of ['Light','Dark']) exportTheme.add(new Option(theme, theme));
+  const exportButton = el('button', '', 'Экспорт'); exportButton.id = 'token-export'; exportButton.type = 'button'; exportButton.disabled = true;
+  exchange.append(importButton, exportTheme, exportButton);
+  const importForm = el('form', 'token-import-form'); importForm.id = 'token-import-form'; importForm.hidden = true;
+  for (const theme of ['Light','Dark']) {
+    const label = el('label', '', 'DTCG JSON · ' + theme);
+    const field = el('textarea'); field.id = 'token-import-' + theme.toLowerCase(); field.required = true; field.rows = 4; label.append(field);
+    const file = el('input'); file.type = 'file'; file.accept = '.json,application/json';
+    file.id = field.id + '-file'; file.setAttribute('aria-label', 'Файл токенов ' + theme);
+    label.append(file); importForm.append(label);
+  }
+  const mappingLabel = el('label', '', 'Сопоставление типов/категорий (JSON, необязательно)');
+  const mapping = el('textarea'); mapping.id = 'token-import-mapping'; mapping.rows = 3; mapping.placeholder = '{"dimensionTypes":{"space":"Spacing"}}'; mappingLabel.append(mapping);
+  const importSubmit = el('button', '', 'Импортировать токены'); importSubmit.type = 'submit';
+  const importCancel = el('button', '', 'Отмена'); importCancel.type = 'button'; importCancel.addEventListener('click', () => { importForm.hidden = true; });
+  importForm.append(mappingLabel, importSubmit, importCancel);
+  const placeholder = el('p', 'token-placeholder', 'Выберите токен или создайте новый.'); placeholder.id = 'token-placeholder';
+  const tokenDiagnostic = el('p', 'token-invalid'); tokenDiagnostic.id = 'token-detail-diagnostic'; tokenDiagnostic.setAttribute('role','status');
+  byId('token-detail-title').after(tokenDiagnostic);
+  const cancelNew = el('button', '', 'Отмена'); cancelNew.id = 'new-token-cancel'; cancelNew.type = 'button'; byId('token-create').append(cancelNew);
+  const table = el('table', 'token-table'); table.setAttribute('aria-label','Токены документа');
+  const head = table.createTHead().insertRow();
+  for (const name of ['Имя','Тип','Light','Dark','Источник','Usages','Статус']) { const th = el('th', '', name); th.scope = 'col'; head.append(th); }
+  const body = table.createTBody(); body.id = 'tokens-list';
+  byId('tokens-list').remove();
+  tokenHeader.append(byId('tokens-title'), newToken, search, typeFilter, exchange);
+  tokenTable.append(table);
+  tokenDetails.append(placeholder, byId('token-create'), byId('token-detail'));
+  tokenGrid.append(tokenGroups, tokenTable, tokenDetails);
+  const stylesPanel = byId('styles-panel');
+  const status = byId('tokens-status'), error = byId('tokens-error');
+  tokenPage.replaceChildren(tokenHeader, status, error, importForm, tokenGrid);
+  design.append(tokenPage);
+  const openTokens = el('button', '', 'Открыть токены'); openTokens.type = 'button';
+  const openStyles = group('Дизайн-система', openTokens, stylesPanel);
   resources.append(assetPanel, byId('datasets-title').closest('section'),
-    byId('tokens-title').closest('section'), byId('screen-variants-title').closest('section'));
+    openStyles, byId('screen-variants-title').closest('section'));
+  function selectMode(tokens) {
+    workspace.hidden = tokens; tokenPage.hidden = !tokens;
+    editorMode.setAttribute('aria-pressed', String(!tokens)); tokenMode.setAttribute('aria-pressed', String(tokens));
+    for (const control of [leftToggle, rightToggle]) control.hidden = tokens;
+    if (!tokens) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+  editorMode.addEventListener('click', () => selectMode(false));
+  tokenMode.addEventListener('click', () => {
+    if (tokenPage.hidden && byId('tab-prototype')?.getAttribute('aria-selected') === 'true') {
+      if (!beforePrototypeLeave(() => selectMode(true))) return;
+    }
+    selectMode(true);
+  });
+  openTokens.addEventListener('click', () => tokenMode.click());
+  selectMode(false);
   const treeTitle = byId('tree-title');
   treeTitle.classList.add('visually-hidden');
   left.replaceChildren(treeTitle);
