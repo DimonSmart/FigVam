@@ -131,6 +131,14 @@ jobs:
       - name: Build AppHost
         run: dotnet build src/FigVam.AppHost --no-restore
       - name: Install matching Aspire CLI
-        run: dotnet tool install Aspire.Cli --version 13.6.5 --tool-path "$env:RUNNER_TEMP/figvam-aspire"
+        run: |
+          $toolDir = Join-Path $env:RUNNER_TEMP 'figvam-aspire'
+          dotnet tool install Aspire.Cli --version 13.6.5 --tool-path $toolDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $toolDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Aspire MCP tunnel resource lifecycle
-        run: pwsh -NoProfile -File tests/FigVam.Ui.Tests/aspire-tunnel-smoke.ps1 -AspireExecutable "$env:RUNNER_TEMP/figvam-aspire/aspire.exe"
+        run: |
+          $aspire = (Get-Command aspire -CommandType Application -ErrorAction Stop).Source
+          & $aspire --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tests/FigVam.Ui.Tests/aspire-tunnel-smoke.ps1 -AspireExecutable $aspire
