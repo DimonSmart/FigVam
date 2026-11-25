@@ -53,4 +53,65 @@ public sealed class McpAccessRegistryTests
         await registry.RevokeAsync(grant, CancellationToken.None);
         Assert.Same(replacement, registry.Resolve(replacement.Token));
     }
+
+    [Fact]
+    public async Task TunnelGrantIsExclusiveAndRevocationWaitsForItsOwnLease()
+    {
+        var registry = new McpAccessRegistry();
+        var a = Guid.NewGuid();
+        var b = Guid.NewGuid();
+        var direct = registry.Grant(a, "alice");
+        var selected = registry.GrantTunnel(a, "alice")!;
+        Assert.Same(selected, registry.GrantTunnel(a, "alice"));
+        Assert.Null(registry.GrantTunnel(b, "alice"));
+        Assert.Null(registry.GrantTunnel(a, "bob"));
+        Assert.Null(registry.Resolve(selected.Token));
+        Assert.Null(new McpAccessRegistry().GetTunnelGrant());
+
+        await registry.RevokeTunnelAsync(a, "bob", CancellationToken.None);
+        Assert.Same(selected, registry.GetTunnelGrant());
+        using var lease = await registry.EnterAsync(selected, CancellationToken.None);
+        Assert.NotNull(lease);
+        var revoke = registry.RevokeTunnelAsync(a, "alice", CancellationToken.None);
+        Assert.False(revoke.IsCompleted);
+        Assert.Null(registry.GrantTunnel(b, "alice"));
+        lease!.Dispose();
+        await revoke;
+        Assert.Null(await registry.EnterAsync(selected, CancellationToken.None));
+        Assert.Same(direct, registry.Resolve(direct.Token));
+        var replacement = registry.GrantTunnel(b, "bob")!;
+        await registry.RevokeAsync(selected, CancellationToken.None);
+        Assert.Same(replacement, registry.GetTunnelGrant());
+        await registry.RevokeUserAsync("bob", CancellationToken.None);
+        Assert.Null(registry.GetTunnelGrant());
+    }
+
+    [Fact]
+    public async Task TunnelAndDirectRevocationAreIndependentExceptOnRightsLoss()
+    {
+        var registry = new McpAccessRegistry();
+        var doc = Guid.NewGuid();
+        var direct = registry.Grant(doc, "alice");
+        var tunnel = registry.GrantTunnel(doc, "alice");
+        await registry.RevokeDirectAsync(doc, "alice", CancellationToken.None);
+        Assert.Null(registry.Resolve(direct.Token));
+        Assert.Same(tunnel, registry.GetTunnelGrant());
+        direct = registry.Grant(doc, "alice");
+        await registry.RevokeAsync(doc, "alice", CancellationToken.None);
+        Assert.Null(registry.Resolve(direct.Token));
+        Assert.Null(registry.GetTunnelGrant());
+        registry.GrantTunnel(doc, "alice");
+        await registry.RevokeDocumentAsync(doc, CancellationToken.None);
+        Assert.Null(registry.GetTunnelGrant());
+    }
+
+    [Fact]
+    public async Task ConcurrentTunnelSelectionsNeverBindTwoDocuments()
+    {
+        var registry = new McpAccessRegistry();
+        var results = await Task.WhenAll(Enumerable.Range(0, 64)
+            .Select(_ => Task.Run(() => registry.GrantTunnel(Guid.NewGuid(), "alice"))));
+        Assert.Single(results.OfType<McpDocumentGrant>());
+        Assert.Same(results.Single(g => g is not null), registry.GetTunnelGrant());
+    }
 }

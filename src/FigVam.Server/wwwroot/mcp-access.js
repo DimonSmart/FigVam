@@ -32,7 +32,7 @@ export function createMcpAccess({ request, getContext }) {
     menu.open = false;
     clear();
   }
-  async function load(method = 'GET') {
+  async function load(method = 'GET', tunnel = false) {
     clear();
     const context = getContext();
     if (!context.documentId || !menu.open) return;
@@ -41,21 +41,30 @@ export function createMcpAccess({ request, getContext }) {
     current = operation;
     body.append(el('p', 'Загрузка MCP-доступа…'));
     try {
-      const status = await request('/api/v1/documents/' + encodeURIComponent(context.documentId) + '/mcp-access',
-        { method }, operation.signal, () => valid(operation));
+      const path = '/api/v1/documents/' + encodeURIComponent(context.documentId) + '/mcp-access';
+      if (tunnel) {
+        await request(path + '/tunnel', { method }, operation.signal, () => valid(operation));
+        if (!valid(operation)) return;
+      }
+      const status = await request(path, { method: tunnel ? 'GET' : method }, operation.signal, () => valid(operation));
       if (!valid(operation)) return;
       render(status, operation);
     } catch (error) {
       if (!valid(operation) || error.name === 'AbortError') return;
       body.replaceChildren();
-      const alert = el('p', error.code === 'MCP_ENDPOINT_NOT_CONFIGURED' ?
-        'Адрес MCP-сервера не настроен.' : error.message);
+      const errors = {
+        MCP_ENDPOINT_NOT_CONFIGURED: 'Адрес MCP-сервера не настроен.',
+        MCP_TUNNEL_NOT_CONFIGURED: 'Туннель ChatGPT не настроен.',
+        MCP_TUNNEL_IN_USE: 'Другой документ уже разрешён для ChatGPT. Сначала отзовите доступ в нём.'
+      };
+      const alert = el('p', errors[error.code] ?? error.message);
       alert.setAttribute('role', 'alert');
       body.append(alert, button('Обновить', () => load()));
     }
   }
   function render(status, operation) {
     const panel = el('section', '', 'mcp-access-panel');
+    if (status.tunnel?.configured) panel.append(el('strong', 'Прямое MCP-подключение'));
     const state = el('p', status.enabled ? 'Доступ разрешён' : 'Доступ не предоставлен');
     state.setAttribute('role', 'status');
     panel.append(state);
@@ -101,7 +110,26 @@ export function createMcpAccess({ request, getContext }) {
         } } }, null, 2))), feedback,
         el('p', 'Доступ действует до отзыва или перезапуска сервера.'));
     }
-    body.replaceChildren(panel);
+    if (status.tunnel?.configured) {
+      const tunnelPanel = el('section', '', 'mcp-access-panel');
+      tunnelPanel.setAttribute('aria-label', 'ChatGPT Tunnel');
+      tunnelPanel.append(el('strong', 'ChatGPT Tunnel'));
+      const tunnelState = el('p', status.tunnel.enabled ? 'Доступ через ChatGPT разрешён' :
+        status.tunnel.occupied ? 'Другой документ уже разрешён' : 'Доступ через ChatGPT не предоставлен');
+      tunnelState.setAttribute('role', 'status');
+      tunnelPanel.append(tunnelState);
+      if (status.tunnel.enabled) {
+        tunnelPanel.append(button('Отозвать доступ через ChatGPT', () => load('DELETE', true)));
+      } else if (status.tunnel.occupied) {
+        tunnelPanel.append(el('p', 'Сначала отзовите доступ в ранее разрешённом документе.'));
+      } else {
+        tunnelPanel.append(button('Разрешить доступ через ChatGPT', () => load('POST', true)));
+      }
+      tunnelPanel.append(el('p', 'Запуск и остановка туннеля — в Aspire Dashboard (mcp-tunnel). Разрешение действует до отзыва или перезапуска FigVam.'));
+      body.replaceChildren(panel, el('hr'), tunnelPanel);
+    } else {
+      body.replaceChildren(panel);
+    }
   }
   menu.addEventListener('toggle', () => {
     if (menu.open) load();
