@@ -34,3 +34,29 @@ export function visibleTokens(items, group, search, type, typeOf) {
 export function qualifyTokenName(name, group) {
   return group.length && !/[./]/.test(name) ? [...group,name].join('.') : name;
 }
+
+export function tokenNameDiagnostics(items) {
+  const diagnostics = new Map(), byPath = new Map();
+  const key = segments => JSON.stringify(segments);
+  for (const item of items) {
+    const invalid = tokenNameError(item.name, []);
+    if (invalid) diagnostics.set(item.id, invalid);
+    const segments = tokenSegments(item.name).map(s => s.toLowerCase());
+    const k = key(segments);
+    if (!byPath.has(k)) byPath.set(k, []);
+    byPath.get(k).push(item);
+  }
+  for (const item of items) {
+    const segments = tokenSegments(item.name).map(s => s.toLowerCase());
+    const peers = byPath.get(key(segments));
+    if (peers.length > 1 && !diagnostics.has(item.id))
+      diagnostics.set(item.id, 'Конфликт имени токена: ' + peers.find(peer => peer.id !== item.id).name);
+    for (let length = 1; length < segments.length; length++) {
+      for (const parent of byPath.get(key(segments.slice(0,length))) ?? []) {
+        if (!diagnostics.has(item.id)) diagnostics.set(item.id, 'Конфликт токена и группы: ' + parent.name);
+        if (!diagnostics.has(parent.id)) diagnostics.set(parent.id, 'Конфликт токена и группы: ' + item.name);
+      }
+    }
+  }
+  return diagnostics;
+}
