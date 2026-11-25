@@ -69,6 +69,8 @@ internal sealed class ServerProcess : IAsyncDisposable
                 key.StartsWith("ASPNETCORE_Authentication__", StringComparison.OrdinalIgnoreCase) ||
                 key.StartsWith("DOTNET_Authentication__", StringComparison.OrdinalIgnoreCase) ||
                 key.StartsWith("Kestrel__", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("McpTunnel__", StringComparison.OrdinalIgnoreCase) ||
+                key.StartsWith("Mcp__", StringComparison.OrdinalIgnoreCase) ||
                 key is "DOTNET_ENVIRONMENT" or "ASPNETCORE_HTTP_PORTS" or "ASPNETCORE_HTTPS_PORTS")
                 start.Environment.Remove(key);
         start.Environment["ASPNETCORE_URLS"] = $"http://127.0.0.1:{port}";

@@ -67,7 +67,7 @@ jobs:
         run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
       - name: MCP Login Flow smoke
         working-directory: tests/FigVam.Ui.Tests
-        run: npx playwright test mcp-login-flow.spec.js --workers=1 --trace off
+        run: npx playwright test mcp-login-flow.spec.js mcp-tunnel.spec.js --workers=1 --trace off
       - name: Home dashboard smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test home.spec.js --trace retain-on-failure
@@ -114,3 +114,31 @@ jobs:
           path: tests/FigVam.Ui.Tests/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  aspire-tunnel:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build AppHost
+        run: dotnet build src/FigVam.AppHost --no-restore
+      - name: Install matching Aspire CLI
+        run: |
+          $toolDir = Join-Path $env:RUNNER_TEMP 'figvam-aspire'
+          dotnet tool install Aspire.Cli --version 13.6.5 --tool-path $toolDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $toolDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Aspire MCP tunnel resource lifecycle
+        run: |
+          $aspire = (Get-Command aspire -CommandType Application -ErrorAction Stop).Source
+          & $aspire --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tests/FigVam.Ui.Tests/aspire-tunnel-smoke.ps1 -AspireExecutable $aspire

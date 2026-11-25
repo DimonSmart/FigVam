@@ -5,7 +5,7 @@ const path = require('node:path');
 
 const bearer = 'figvam-ui-test-token-only-at-loopback-5397';
 
-async function startServer(testInfo, logName) {
+async function startServer(testInfo, logName, tunnelKey) {
   const project = path.resolve(__dirname, '../../src/FigVam.Server');
   const logPath = testInfo.outputPath(logName);
   const log = createWriteStream(logPath);
@@ -20,6 +20,7 @@ async function startServer(testInfo, logName) {
       Authentication__LocalDevelopment__Enabled: 'true',
       Authentication__LocalDevelopment__Token: bearer,
       Storage__Directory: testInfo.outputPath('storage'),
+      McpTunnel__Key: tunnelKey,
       // An end-to-end editing session can exceed 300 validated GETs/minute.
       RateLimiting__ReadPermitLimit: '3000'
     },
@@ -68,9 +69,10 @@ async function startServer(testInfo, logName) {
 }
 
 const test = base.extend({
+  tunnelKey: ['', { option: true }],
   // Isolate documents, journal and the local actor's rate limit per scenario.
-  server: [async ({}, use, testInfo) => {
-    let instance = await startServer(testInfo, 'server.log');
+  server: [async ({ tunnelKey }, use, testInfo) => {
+    let instance = await startServer(testInfo, 'server.log', tunnelKey);
     let restarts = 0;
     try {
       await use({
@@ -78,7 +80,7 @@ const test = base.extend({
         async restart() {
           await instance.stop();
           instance = null;
-          instance = await startServer(testInfo, `server-restart-${++restarts}.log`);
+          instance = await startServer(testInfo, `server-restart-${++restarts}.log`, tunnelKey);
         }
       });
     } finally {
