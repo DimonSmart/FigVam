@@ -1,4 +1,4 @@
-import { buildTokenGroups, shortTokenName, tokenNameError, visibleTokens, qualifyTokenName } from './token-groups.js';
+import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, visibleTokens, qualifyTokenName } from './token-groups.js';
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText, tokenColorHex } from './token-resolution.js';
 
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
@@ -52,6 +52,15 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   let tokenItems = [], selectedToken = null, tokenUsages = [], tokenLoad = 0, rendered = false;
   const el = element, editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   let group = [], collapsed = new Set(), creating = false, usagesReady = false;
+  let importEpoch = 0;
+  const busy = () => el('token-create').inert;
+  function refreshAccess() {
+    el('new-token-open').hidden = el('token-import-open').hidden = !editable();
+    el('token-export').disabled = !editable();
+    if (!editable()) { creating = false; el('token-import-form').hidden = true; }
+    el('token-edit').hidden = !editable();
+    updateDetailVisibility();
+  }
   const selected = () => tokenItems.find(t => t.id === selectedToken);
   const groupKey = segments => JSON.stringify(segments);
   function updateDetailVisibility() {
@@ -60,7 +69,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-placeholder').hidden = creating || !!selected();
   }
   function beginCreate() {
-    if (!editable()) return;
+    if (!editable() || busy()) return;
     creating = true; el('token-create').reset();
     for (const prefix of ['new-token-light','new-token-dark']) loadTypographyFields(prefix, null);
     updateCategoryOptions();
@@ -72,7 +81,24 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('new-token-cancel').addEventListener('click', () => { creating = false; updateDetailVisibility(); });
   el('token-search').addEventListener('input', () => renderTokens(false));
   el('token-type-filter').addEventListener('change', () => renderTokens(false));
-  el('token-import-open').addEventListener('click', () => { el('token-import-form').hidden = !el('token-import-form').hidden; });
+  el('token-import-open').addEventListener('click', () => {
+    if (editable() && !busy()) el('token-import-form').hidden = !el('token-import-form').hidden;
+  });
+  for (const theme of ['light','dark']) {
+    const field = el('token-import-' + theme), input = el('token-import-' + theme + '-file');
+    let fileLoad = 0;
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0], documentId = getContext().documentId, epoch = importEpoch, load = ++fileLoad;
+      if (!file) return;
+      try {
+        if (file.size > 1024 * 1024) throw new Error('Файл токенов превышает 1 МиБ.');
+        const value = await file.text();
+        if (epoch === importEpoch && load === fileLoad && documentId === getContext().documentId && input.files?.[0] === file) field.value = value;
+      } catch (error) {
+        if (epoch === importEpoch && load === fileLoad && documentId === getContext().documentId) el('tokens-error').textContent = error.message;
+      }
+    });
+  }
   el('token-import-form').addEventListener('submit', event => {
     event.preventDefault();
     try {
@@ -191,7 +217,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
 
   function resetTokens() {
-    tokenLoad++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
+    tokenLoad++; importEpoch++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     el('token-search').value = el('token-type-filter').value = '';
     el('token-groups').replaceChildren(); el('token-import-form').reset(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
@@ -231,10 +257,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   function applySelectedUsages({ selection, usages }) {
     if (selection !== selectedToken) { selectToken(selectedToken); return; }
-    if (!usagesReady || JSON.stringify(tokenUsages) !== JSON.stringify(usages)) { usagesReady = true; tokenUsages = usages; renderTokens(); }
+    if (!usagesReady || JSON.stringify(tokenUsages) !== JSON.stringify(usages)) { usagesReady = true; tokenUsages = usages; renderTokens(true, false); }
   }
   function applyTokens(snapshot) {
-    const before = JSON.stringify([tokenItems, tokenUsages, selectedToken]);
+    const before = JSON.stringify([tokenItems, tokenUsages, selectedToken]), previousItem = JSON.stringify(selected());
     tokenItems = snapshot.items;
     for (const prefix of typographyPrefixes)
       for (const field of typographyFields) updateTypographyField(prefix, field);
@@ -243,7 +269,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     tokenUsages = snapshot.usages; usagesReady = true;
     if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) {
       rendered = true;
-      renderTokens();
+      renderTokens(true, previousItem !== JSON.stringify(selected()));
     }
   }
 
@@ -324,7 +350,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-font-weight-preset').value = typeOf(item) === 'FontWeight'
       ? (['400', '500', '600', '700'].includes(el('token-value').value) ? el('token-value').value : '') : '';
   }
-  function renderTokens(refreshDetail = true) {
+  function renderTokens(refreshDetail = true, refreshEditor = true) {
     const list = el('tokens-list'); list.replaceChildren();
     const tree = buildTokenGroups(tokenItems);
     const groups = el('token-groups'); groups.replaceChildren();
@@ -353,6 +379,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (!active) group = [];
     drawGroup(tree, groups);
     const index = new Map(tokenItems.map(token => [token.id, token]));
+    const nameDiagnostics = tokenNameDiagnostics(tokenItems);
     const search = el('token-search').value;
     for (const item of visibleTokens(tokenItems, group, search, el('token-type-filter').value, typeOf)) {
       const row = list.insertRow(), type = typeOf(item), category = categoryOf(item);
@@ -362,7 +389,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       button.addEventListener('click', () => selectToken(item.id)); row.insertCell().append(button);
       row.dataset.selected = String(item.id === selectedToken);
       row.insertCell().textContent = category ? type + '.' + category : type;
-      const problems = [tokenNameError(item.name, tokenItems, item.id)].filter(Boolean);
+      const problems = [nameDiagnostics.get(item.id)].filter(Boolean);
       const sources = [];
       for (const currentTheme of ['Light','Dark']) {
         const cell = row.insertCell(), expression = item.values?.[currentTheme];
@@ -380,7 +407,14 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         if (alias) {
           const target = document.createElement('button'); target.type = 'button'; target.className = 'token-alias-link';
           target.textContent = '↳ ' + nameOf(expression.tokenId); target.title = value;
-          target.onclick = () => selectToken(expression.tokenId); target.disabled = !index.has(expression.tokenId); cell.append(target, ' · ' + value);
+          target.onclick = () => {
+            if (busy()) return;
+            const item = index.get(expression.tokenId);
+            group = tokenSegments(item.name).slice(0,-1);
+            for (let i = 0; i <= group.length; i++) collapsed.delete(groupKey(group.slice(0,i)));
+            el('token-search').value = ''; el('token-type-filter').value = '';
+            selectToken(expression.tokenId);
+          }; target.disabled = !index.has(expression.tokenId); cell.append(target, ' · ' + value);
         } else cell.append(value);
       }
       row.insertCell().textContent = sources[0] === sources[1] ? sources[0] : 'mixed';
@@ -394,6 +428,12 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (!item || refreshDetail === false) return;
     const theme = el('token-view-theme').value;
     el('token-detail-title').textContent = item.name;
+    const diagnostics = [nameDiagnostics.get(item.id)].filter(Boolean);
+    for (const selectedTheme of ['Light','Dark']) {
+      const resolved = resolveTokenValue({ type: 'token', tokenId: item.id }, index, selectedTheme, item.type, item.category);
+      if (resolved.error) diagnostics.push(selectedTheme + ': ' + resolved.error);
+    }
+    el('token-detail-diagnostic').textContent = diagnostics.join(' · ');
     const expression = item.values[theme];
     const describe = expression => expression?.expression === 'alias'
       ? '↳ ' + nameOf(expression.tokenId) : directText(expression);
@@ -403,8 +443,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     el('token-set').hidden = false;
     el('token-delete').disabled = !usagesReady || tokenUsages.length > 0;
     el('token-delete').title = tokenUsages.length ? 'У токена есть зависимости: ' + tokenUsages.length : 'Удалить токен';
-    el('token-name').value = item.name;
-    setEditorFromTheme();
+    if (refreshEditor) {
+      el('token-name').value = item.name;
+      setEditorFromTheme();
+    }
     const usages = el('token-usages'); usages.replaceChildren();
     usages.previousElementSibling.textContent = 'Использования' + (usagesReady ? ' · ' + tokenUsages.length : ' · загрузка…');
     for (const indirect of [false, true]) {
@@ -437,6 +479,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     }
   }
   async function selectToken(id) {
+    if (busy()) return;
     selectedToken = id; tokenUsages = []; creating = false; usagesReady = false;
     const current = ++tokenLoad, doc = getContext().documentId, revision = getContext().revision;
     renderTokens();
@@ -444,13 +487,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     try {
       const items = await readAllTokenPages(`/api/v1/documents/${encodeURIComponent(doc)}/tokens/${encodeURIComponent(id)}/usages`, revision);
       if (current !== tokenLoad || doc !== getContext().documentId || revision !== getContext().revision) return;
-      tokenUsages = items; usagesReady = true; el('tokens-error').textContent = ''; renderTokens();
+      tokenUsages = items; usagesReady = true; el('tokens-error').textContent = ''; renderTokens(true, false);
     } catch (error) {
       if (current === tokenLoad && doc === getContext().documentId) el('tokens-error').textContent = error.message;
     }
   }
   async function tokenCommand(command, data, selection) {
-    if (!editable()) return;
+    if (!editable() || busy()) return;
     stopLive(); const { signal, current } = startRequest();
     el('token-create').inert = el('token-edit').inert = el('token-import-form').inert = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = 'Сохранение…';
@@ -459,13 +502,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         { method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), ...data }) }, signal);
       if (signal.aborted || current !== getContext().generation) return;
       if (selection) { selectedToken = selection; creating = false; }
-      if (command === 'import-design-tokens') { el('token-import-form').hidden = true; el('token-import-form').reset(); }
+      if (command === 'import-design-tokens') { importEpoch++; el('token-import-form').hidden = true; el('token-import-form').reset(); }
       await readPages(signal);
       if (current === getContext().generation) el('tokens-status').textContent = 'Изменение сохранено.';
     } catch (error) {
       if (error.name !== 'AbortError' && current === getContext().generation)
         el('tokens-error').textContent = error instanceof TypeError || error.status >= 500 ?
-          'Результат неизвестен. Обновите документ перед повтором.' : (error.diagnostics?.map(d => d.path + ': ' + d.message).join('; ') || error.message);
+          'Результат неизвестен. Обновите документ перед повтором.' : (error.diagnostics?.map(d => d.path + ': ' + d.message).join('; ') || error.detail || error.message);
     } finally {
       if (current === getContext().generation) {
         el('token-create').inert = el('token-edit').inert = el('token-import-form').inert = false; startLive();
@@ -546,5 +589,5 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   for (const prefix of typographyPrefixes) loadTypographyFields(prefix, null);
   updateCategoryOptions();
   return { reset: resetTokens, read: readTokens, apply: applyTokens,
-    readSelectedUsages, applySelectedUsages, get items() { return tokenItems; } };
+    readSelectedUsages, applySelectedUsages, refreshAccess, get items() { return tokenItems; } };
 }
