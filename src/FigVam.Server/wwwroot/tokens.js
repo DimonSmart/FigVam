@@ -118,17 +118,18 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     } catch (error) { el('tokens-error').textContent = error.message; }
   });
   el('token-export').addEventListener('click', async () => {
-    const { documentId, revision } = getContext(), theme = el('token-export-theme').value;
+    const { documentId, revision, navigationEpoch } = getContext(), theme = el('token-export-theme').value;
+    const active = () => documentId === getContext().documentId && navigationEpoch === getContext().navigationEpoch;
     if (!editable() || !Number.isSafeInteger(revision)) return;
     el('tokens-error').textContent = '';
     try {
       const result = await request('/api/v1/documents/' + encodeURIComponent(documentId) + '/token-export?theme=' + theme + '&revision=' + revision);
-      if (documentId !== getContext().documentId) return;
+      if (!active()) return;
       if (!result.tokens || result.diagnostics?.length) throw new Error((result.diagnostics ?? []).map(d => d.message).join('; ') || 'Экспорт недоступен.');
       const url = URL.createObjectURL(new Blob([JSON.stringify(result.tokens, null, 2)], { type: 'application/json' }));
       const link = document.createElement('a'); link.href = url; link.download = 'tokens-' + theme.toLowerCase() + '.json';
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) { if (documentId === getContext().documentId) el('tokens-error').textContent = error.message; }
+    } catch (error) { if (active()) el('tokens-error').textContent = error.message; }
   });
   const typeOf = token => normalizedTokenType(token?.type);
   const categoryOf = token => normalizedTokenCategory(token?.category);
@@ -426,7 +427,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const item = selected();
     updateDetailVisibility();
     if (!item || refreshDetail === false) return;
-    const theme = el('token-view-theme').value;
+    el('token-detail-type').textContent = [typeOf(item), categoryOf(item)].filter(Boolean).join(' · ');
     el('token-detail-title').textContent = item.name;
     const diagnostics = [nameDiagnostics.get(item.id)].filter(Boolean);
     for (const selectedTheme of ['Light','Dark']) {
@@ -434,10 +435,16 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       if (resolved.error) diagnostics.push(selectedTheme + ': ' + resolved.error);
     }
     el('token-detail-diagnostic').textContent = diagnostics.join(' · ');
-    const expression = item.values[theme];
-    const describe = expression => expression?.expression === 'alias'
-      ? '↳ ' + nameOf(expression.tokenId) : directText(expression);
-    const pair = `Light: ${describe(item.values.Light)}; Dark: ${describe(item.values.Dark)}`;
+    const describe = currentTheme => {
+      const expression = item.values[currentTheme];
+      if (expression?.expression === 'alias') return '↳ ' + nameOf(expression.tokenId);
+      if (expression?.value?.type === 'typographyFields') {
+        const resolved = resolveTokenValue({type:'token',tokenId:item.id}, index, currentTheme, item.type, item.category);
+        return resolved.error ?? tokenValueText(resolved.value);
+      }
+      return directText(expression);
+    };
+    const pair = `Light: ${describe('Light')}; Dark: ${describe('Dark')}`;
     el('token-values').textContent = categoryOf(item) ? `${typeOf(item)}.${categoryOf(item)} · ${pair}` : pair;
     el('token-edit').hidden = !editable();
     el('token-set').hidden = false;
@@ -536,7 +543,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('token-font-weight-preset').addEventListener('change', () => {
     if (el('token-font-weight-preset').value) el('token-value').value = el('token-font-weight-preset').value;
   });
-  el('token-view-theme').addEventListener('change', renderTokens);
   el('token-theme').addEventListener('change', setEditorFromTheme);
   el('token-mode').addEventListener('change', refreshSetMode);
   el('token-create').addEventListener('submit', event => {
