@@ -818,7 +818,8 @@ async function openDocument(id) {
     element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? '' : 'Права на редактирование не определены. Обновите страницу.';
     element('page-edit').hidden = !['Owner', 'Editor'].includes(role);
     element('screen-create').hidden = !['Owner', 'Editor'].includes(role);
-    element('token-create').hidden = !['Owner', 'Editor'].includes(role);
+    element('new-token-open').hidden = element('token-import-open').hidden = !['Owner', 'Editor'].includes(role);
+    element('token-export').disabled = !['Owner', 'Editor'].includes(role);
     element('dataset-edit').hidden = !['Owner', 'Editor'].includes(role);
     documentHistory.prepare();
     await readPages(signal, 0);
