@@ -269,3 +269,85 @@ test('MCP capture UI fails closed and delivers a PNG from a simulated browser me
   await expect.poll(async () => (await call.raw('render_screen', { screenId })).structuredContent.code).toBe('RENDERER_UNAVAILABLE');
   expect((await call('get_document')).revision).toBe(changed.revision);
 });
+
+
+test('native Chromium Element Capture isolates the actual Login Preview and tracks MCP edits', async ({ request, server }, testInfo) => {
+  test.setTimeout(120000);
+  // A disposable browser on the UI test runner, never an existing user browser.
+  // The Chromium test-only switch auto-accepts the current test tab. Production
+  // always invokes the native picker with an explicit user gesture.
+  const { chromium } = require('@playwright/test');
+  const browser = await chromium.launch({ channel: 'chromium', headless: true,
+    args: ['--auto-accept-this-tab-capture'] });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await signIn(page, server);
+    await page.getByLabel('Имя нового документа').fill('Native Capture Login');
+    await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+    const access = await grant(page);
+    const call = await connect(request, access.endpoint, access.token);
+    const { pageId } = await call('create_page', { name: 'Login' });
+    const { screenId } = await call('create_screen', { pageId, width: 400, height: 300, name: 'Login' });
+    await call('create_node', { parentId: screenId, kind: 'Frame', name: 'Background',
+      properties: { x: 0, y: 0, width: 400, height: 300, backgroundColor: '#16A34A', borderWidth: 0, cornerRadius: 0 } });
+    await call('create_node', { parentId: screenId, kind: 'Text', name: 'Title',
+      properties: { x: 40, y: 25, width: 320, height: 32, text: 'Sign in', fontSize: 24, textColor: '#FFFFFF' } });
+    await call('create_node', { parentId: screenId, kind: 'TextInput', name: 'Email',
+      properties: { x: 40, y: 75, width: 320, height: 40, placeholder: 'Email', backgroundColor: '#FFFFFF' } });
+    const { nodeId } = await call('create_node', { parentId: screenId, kind: 'Button', name: 'Login',
+      properties: { x: 40, y: 160, width: 320, height: 48, text: 'Login', backgroundColor: '#2563EB', cornerRadius: 8,
+        textColor: '#FFFFFF', shadow: { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000060' } } });
+    await show(page, 'layers');
+    await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
+    await expect(page.locator('#screen-boundary')).toContainText('Login');
+    await page.getByRole('button', { name: 'Preview', exact: true }).click();
+    await expect(page.locator('#preview-viewport')).toContainText('Login');
+    const bounds = await page.locator('#preview-viewport').boundingBox();
+    await page.locator('#mcp-access-menu summary').click();
+    const panel = page.getByRole('region', { name: 'Screen Capture' });
+    await panel.getByRole('button', { name: 'Enable screen capture' }).click();
+    await expect(panel.getByRole('status')).toHaveText('Ready', { timeout: 20000 });
+    await page.locator('#mcp-access-menu summary').click();
+
+    const inspect = async (result, name) => {
+      expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+      const image = result.content.find(block => block.type === 'image');
+      expect(image?.mimeType).toBe('image/png');
+      const bytes = Buffer.from(image.data, 'base64');
+      await testInfo.attach(name, { body: bytes, contentType: 'image/png' });
+      const decoded = await page.evaluate(async data => {
+        const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' });
+        const bitmap = await createImageBitmap(blob);
+        const canvas = document.createElement('canvas');
+        canvas.width = bitmap.width; canvas.height = bitmap.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        const pixel = (x, y) => [...ctx.getImageData(Math.floor(x * bitmap.width), Math.floor(y * bitmap.height), 1, 1).data];
+        const info = { width: bitmap.width, height: bitmap.height, background: pixel(.02, .02), button: pixel(.2, .6) };
+        bitmap.close(); return info;
+      }, image.data);
+      expect(decoded.width).toBe(result.structuredContent.width);
+      expect(decoded.height).toBe(result.structuredContent.height);
+      expect(decoded.width).toBeLessThanOrEqual(Math.ceil(bounds.width) + 2);
+      expect(decoded.height).toBeLessThanOrEqual(Math.ceil(bounds.height) + 2);
+      expect(decoded.background[1]).toBeGreaterThan(decoded.background[0] + 45);
+      expect(decoded.background[1]).toBeGreaterThan(decoded.background[2] + 45);
+      return decoded.button;
+    };
+    const firstRevision = (await call('get_document')).revision;
+    const first = await call.raw('render_screen', { screenId, revision: firstRevision });
+    const blue = await inspect(first, 'native-login-before');
+    expect(blue[2]).toBeGreaterThan(blue[0] + 50);
+    const changed = await call('set_node_properties', { nodeId, properties: { backgroundColor: '#DC2626' } });
+    const second = await call.raw('render_screen', { screenId, revision: changed.revision });
+    expect(second.structuredContent.revision).toBe(changed.revision);
+    const red = await inspect(second, 'native-login-after');
+    expect(red[0]).toBeGreaterThan(red[2] + 50);
+    expect((await call('get_document')).revision).toBe(changed.revision);
+    await page.locator('#mcp-access-menu summary').click();
+    await panel.getByRole('button', { name: 'Stop screen capture' }).click();
+    await expect.poll(async () => (await call.raw('render_screen', { screenId })).structuredContent.code).toBe('RENDERER_UNAVAILABLE');
+    expect((await call('get_document')).revision).toBe(changed.revision);
+  } finally { await browser.close(); }
+});
