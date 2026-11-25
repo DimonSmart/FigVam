@@ -45,14 +45,14 @@ public sealed record RemoveComponentVariantParameterChangeCommand(Guid DocumentI
 public sealed record SetComponentParameterDefaultCommand(Guid DocumentId, Guid CommandId, Guid DefinitionId, Guid ParameterId, ComponentValue Value);
 public sealed record AddComponentParameterCommand(Guid DocumentId, Guid CommandId, Guid DefinitionId, ComponentParameter Parameter, Guid NodeId, string Property);
 public sealed record AddComponentDefinitionCommand(Guid DocumentId, Guid CommandId, Guid ComponentId, string Name, string Description, Guid RootNodeId);
-public sealed record AddPageCommand(Guid DocumentId, Guid CommandId, Guid PageId);
+public sealed record AddPageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string? Name = null);
 public sealed record DeletePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, long ExpectedRevision);
 public sealed record DeleteDocumentCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision);
 public sealed record RenameDocumentCommand(Guid DocumentId, Guid CommandId, string Name);
 public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string Name);
 public sealed record RenameScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, string Name);
-public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
-public sealed record DuplicateScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid NewScreenId, long ExpectedRevision);
+public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions, string? Name = null);
+public sealed record DuplicateScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid NewScreenId, long ExpectedRevision, string? Name = null);
 public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions, Guid? HistoryGroupId = null,
     bool UpdateWidth = true, bool UpdateHeight = true);
 public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position, long? ExpectedRevision = null);
@@ -63,7 +63,7 @@ public sealed record SetNodePropertyCommand(Guid DocumentId, Guid CommandId, Gui
 public sealed record SetNodePropertiesCommand(Guid DocumentId, Guid CommandId, Guid NodeId,
     IReadOnlyDictionary<string, NodePropertyValue> Properties, Guid? ExpectedParentId = null, long? ExpectedRevision = null, Guid? HistoryGroupId = null);
 public sealed record AddNodeCommand(Guid DocumentId, Guid CommandId, Guid ParentId, Guid NodeId, string Kind,
-    IReadOnlyDictionary<string, NodePropertyValue>? Properties = null);
+    IReadOnlyDictionary<string, NodePropertyValue>? Properties = null, string? Name = null);
 public sealed record DocumentState(DocumentStructure Document, long Revision);
 public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code, long? Revision,
     string ActorId, Guid? PageId, DateTimeOffset Timestamp, Guid? ScreenId = null, Guid? NodeId = null, Guid? VersionId = null, string? Explanation = null, string? Property = null, IReadOnlyList<Guid>? AffectedIds = null, IReadOnlyList<TokenImportDiagnostic>? Diagnostics = null)
@@ -166,12 +166,12 @@ public sealed record TokenDeleted(Guid TokenId) : DocumentEvent;
 public sealed record StyleUpserted(DesignStyle Style) : DocumentEvent;
 public sealed record StyleDeleted(Guid StyleId) : DocumentEvent;
 public sealed record PageDeleted(Guid PageId) : DocumentEvent;
-public sealed record PageAdded(Guid PageId) : DocumentEvent;
+public sealed record PageAdded(Guid PageId, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null) : DocumentEvent;
 public sealed record DocumentDeleted : DocumentEvent;
 public sealed record DocumentRenamed(string Name) : DocumentEvent;
 public sealed record PageRenamed(Guid PageId, string Name) : DocumentEvent;
 public sealed record ScreenRenamed(Guid ScreenId, string Name) : DocumentEvent;
-public sealed record ScreenAdded(Guid PageId, Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
+public sealed record ScreenAdded(Guid PageId, Guid ScreenId, ScreenDimensions Dimensions, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null) : DocumentEvent;
 public sealed record ScreenDuplicated(Guid ScreenId, DocumentPatch Patch) : DocumentEvent;
 public sealed record ScreenResized(Guid ScreenId, ScreenDimensions Dimensions) : DocumentEvent;
 public sealed record NodeMoved(Guid NodeId, Guid TargetParentId, int Position) : DocumentEvent;
@@ -182,7 +182,8 @@ public sealed record NodePropertySet(Guid NodeId, string Property, NodePropertyV
 public sealed record NodePropertiesSet(Guid NodeId, ImmutableSortedDictionary<string, NodePropertyValue> Properties) : DocumentEvent;
 public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    ImmutableSortedDictionary<string, NodePropertyValue>? Properties = null) : DocumentEvent;
+    ImmutableSortedDictionary<string, NodePropertyValue>? Properties = null,
+     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null) : DocumentEvent;
 public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null, Guid? HistoryGroupId = null);
 
 public interface IDocumentCommandResultReader
@@ -966,11 +967,12 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (document.Assets.Any(a => a.Id == command.PageId) || document.Datasets.Any(d => d.Id == command.PageId) || document.Id == command.PageId || document.Pages.Any(p => p.Id == command.PageId) ||
                 document.Scenarios.Any(s => s.Id == command.PageId) || document.Screens.Any(s => s.Id == command.PageId || s.Variants.Any(v => v.Id == command.PageId)) || document.Nodes.Any(n => n.Id == command.PageId) || document.Tokens.Any(t => t.Id == command.PageId) || document.ComponentDefinitions.Any(d => d.Id == command.PageId || d.Parameters.Any(p => p.Id == command.PageId) || d.Slots.Any(s => s.Id == command.PageId) || d.Variants.Any(v => v.Id == command.PageId)))
                 return new(Result("DUPLICATE_ID"), null);
+            if (command.Name is not null && !PageNameValidator.IsValid(command.Name)) return new(Result("INVALID_PAGE"), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision), new(document with
             {
-                Pages = document.Pages.Append(new PageStructure(command.PageId, [])).ToArray()
-            }, revision), new PageAdded(command.PageId));
+                Pages = document.Pages.Append(new PageStructure(command.PageId, []) { Name = command.Name ?? "Page" }).ToArray()
+            }, revision), new PageAdded(command.PageId, command.Name));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
@@ -1023,10 +1025,11 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
                 document.Scenarios.Any(s => s.Id == command.ScreenId) || document.Screens.Any(s => s.Id == command.ScreenId || s.Variants.Any(v => v.Id == command.ScreenId)) || document.Nodes.Any(n => n.Id == command.ScreenId) || document.Tokens.Any(t => t.Id == command.ScreenId) || document.ComponentDefinitions.Any(d => d.Id == command.ScreenId || d.Parameters.Any(p => p.Id == command.ScreenId) || d.Slots.Any(s => s.Id == command.ScreenId) || d.Variants.Any(v => v.Id == command.ScreenId)))
                 return new(Result("DUPLICATE_ID"), null);
             if (!ScreenDimensions.IsValid(command.Dimensions)) return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
+            if (command.Name is not null && !ScreenNameValidator.IsValid(command.Name)) return new(Result("INVALID_SCREEN_NAME"), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision), new(
-                DocumentStructureEditor.AddScreen(document, page.Id, command.ScreenId, command.Dimensions), revision),
-                new ScreenAdded(command.PageId, command.ScreenId, command.Dimensions));
+                DocumentStructureEditor.AddScreen(document, page.Id, command.ScreenId, command.Dimensions, command.Name), revision),
+                new ScreenAdded(command.PageId, command.ScreenId, command.Dimensions, command.Name));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
@@ -1067,12 +1070,13 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
                 return new(Result("UNSUPPORTED_NODE_KIND"), null);
             var properties = command.Properties is { Count: > 0 }
                 ? command.Properties.ToImmutableSortedDictionary(StringComparer.Ordinal) : null;
-            var updated = DocumentStructureEditor.AddNode(document, command.ParentId, command.NodeId, command.Kind, properties);
+            if (command.Name is not null && !NodeMetadataValidator.IsValidName(command.Name)) return new(Result("INVALID_NODE_METADATA"), null);
+            var updated = DocumentStructureEditor.AddNode(document, command.ParentId, command.NodeId, command.Kind, properties, command.Name);
             if (DocumentStructureValidator.Validate(updated, profile).FirstOrDefault() is { } invalid)
                 return new(Result(NodePropertyDiagnosticCode(invalid, properties), diagnostic: invalid), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision), new(updated, revision),
-                new NodeAdded(command.ParentId, command.NodeId, command.Kind, properties));
+                new NodeAdded(command.ParentId, command.NodeId, command.Kind, properties, command.Name));
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
