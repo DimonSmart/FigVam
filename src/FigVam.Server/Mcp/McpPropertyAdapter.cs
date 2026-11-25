@@ -50,7 +50,7 @@ public static class McpPropertyAdapter
             }
             if (NodePropertyValidator.Validate(profile, kind, name, converted) is { } invalid)
                 throw McpPropertyDiagnostics.Explain(invalid.Code, name, value,
-                    McpPropertyContracts.InputSchema(definition));
+                    McpPropertyContracts.InputSchema(definition), domainReason: invalid.Reason);
             result.Add(name, converted);
         }
         return result;
