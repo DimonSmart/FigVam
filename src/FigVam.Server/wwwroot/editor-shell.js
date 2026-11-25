@@ -341,7 +341,10 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const importForm = el('form', 'token-import-form'); importForm.id = 'token-import-form'; importForm.hidden = true;
   for (const theme of ['Light','Dark']) {
     const label = el('label', '', 'DTCG JSON · ' + theme);
-    const field = el('textarea'); field.id = 'token-import-' + theme.toLowerCase(); field.required = true; field.rows = 4; label.append(field); importForm.append(label);
+    const field = el('textarea'); field.id = 'token-import-' + theme.toLowerCase(); field.required = true; field.rows = 4; label.append(field);
+    const file = el('input'); file.type = 'file'; file.accept = '.json,application/json';
+    file.id = field.id + '-file'; file.setAttribute('aria-label', 'Файл токенов ' + theme);
+    label.append(file); importForm.append(label);
   }
   const mappingLabel = el('label', '', 'Сопоставление типов/категорий (JSON, необязательно)');
   const mapping = el('textarea'); mapping.id = 'token-import-mapping'; mapping.rows = 3; mapping.placeholder = '{"dimensionTypes":{"space":"Spacing"}}'; mappingLabel.append(mapping);
@@ -349,6 +352,8 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const importCancel = el('button', '', 'Отмена'); importCancel.type = 'button'; importCancel.addEventListener('click', () => { importForm.hidden = true; });
   importForm.append(mappingLabel, importSubmit, importCancel);
   const placeholder = el('p', 'token-placeholder', 'Выберите токен или создайте новый.'); placeholder.id = 'token-placeholder';
+  const tokenDiagnostic = el('p', 'token-invalid'); tokenDiagnostic.id = 'token-detail-diagnostic'; tokenDiagnostic.setAttribute('role','status');
+  byId('token-detail-title').after(tokenDiagnostic);
   const cancelNew = el('button', '', 'Отмена'); cancelNew.id = 'new-token-cancel'; cancelNew.type = 'button'; byId('token-create').append(cancelNew);
   const table = el('table', 'token-table'); table.setAttribute('aria-label','Токены документа');
   const head = table.createTHead().insertRow();
