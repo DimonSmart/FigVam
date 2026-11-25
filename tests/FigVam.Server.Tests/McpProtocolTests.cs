@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
 using ModelContextProtocol.Client;
+using ModelContextProtocol.Protocol;
 
 namespace FigVam.Server.Tests;
 
@@ -47,6 +48,11 @@ public sealed class McpProtocolTests
                 .ToDictionary(p => p.Name, p => (object?)p.Value);
             var result = await mcp.CallToolAsync(name, values);
             Assert.Equal(error, result.IsError == true);
+            if (error)
+            {
+                using var errorText = JsonDocument.Parse(Assert.Single(result.Content.OfType<TextContentBlock>()).Text);
+                Assert.Equal(result.StructuredContent!.Value.GetRawText(), errorText.RootElement.GetRawText());
+            }
             return result.StructuredContent!.Value;
         }
         var doc = await Call("get_document");
@@ -134,7 +140,62 @@ public sealed class McpProtocolTests
             { backgroundColor = new { tokenId = colorTokenId, extra = true } } }, true);
         Assert.Equal("INVALID_PROPERTY_TYPE", invalidReference.GetProperty("code").GetString());
         Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
+        void CheckDiagnostic(JsonElement error, string code, string path, string? actual, string? expectedPart = null)
+        {
+            Assert.Equal("REJECTED", error.GetProperty("status").GetString());
+            Assert.Equal(code, error.GetProperty("code").GetString());
+            Assert.Equal(path, error.GetProperty("property").GetString());
+            Assert.Contains(path, error.GetProperty("message").GetString()!);
+            Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("expected").GetString()));
+            if (expectedPart is not null) Assert.Contains(expectedPart, error.GetProperty("expected").GetString()!);
+            if (actual is not null) Assert.Equal(actual, error.GetProperty("actual").GetString());
+            else Assert.False(error.TryGetProperty("actual", out _));
+            Assert.True(error.TryGetProperty("commandId", out _));
+        }
+
+        // All failures are checked through the official MCP client, not only the adapter.
+        foreach (var (kind, json, code, path, actual, expected) in new (string, string, string, string, string?, string?)[]
+        {
+            ("Button", """{"fontSize":"large"}""", "INVALID_PROPERTY_TYPE", "fontSize", "String", "Number"),
+            ("Button", """{"text":123}""", "INVALID_PROPERTY_TYPE", "text", "Number", "String"),
+            ("Button", """{"visible":"true"}""", "INVALID_PROPERTY_TYPE", "visible", "String", "Boolean"),
+            ("Button", """{"backgroundColor":"blue"}""", "INVALID_PROPERTY_TYPE", "backgroundColor", "Invalid color format", "#RRGGBB"),
+            ("TextInput", """{"inputType":"Email"}""", "INVALID_PROPERTY_VALUE", "inputType", "Unsupported enum value", "Text, Password"),
+            ("Button", """{"opacity":1.5}""", "INVALID_PROPERTY_VALUE", "opacity", "1.5", "0 and 1"),
+            ("Text", """{"inputType":"Password"}""", "UNSUPPORTED_PROPERTY", "inputType", null, "Text"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.blurRadius", "Missing", "Number"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blur":24,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.blur", "Unknown property", null),
+            ("Button", """{"shadow":{"offsetX":"bad","offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.offsetX", "String", "Number"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"bad"}}""", "INVALID_PROPERTY_TYPE", "shadow.color", "Invalid color format", "#RRGGBB"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blurRadius":-1,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_VALUE", "shadow.blurRadius", "-1", "0 and 256"),
+            ("Button", """{"backgroundColor":{"tokenId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "backgroundColor.tokenId", "Invalid GUID format", "GUID"),
+            ("Image", """{"asset":{"assetId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "asset.assetId", "Invalid GUID format", "GUID"),
+            ("Button", """{"textStyle":{"styleId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "textStyle.styleId", "Invalid GUID format", "GUID"),
+            ("Button", """{"shadow":null}""", "INVALID_PROPERTY_TYPE", "shadow", "Null", "Object"),
+            ("Button", """{"backgroundColor":123}""", "INVALID_PROPERTY_TYPE", "backgroundColor", "Number", "tokenId"),
+            ("Button", """{"fontWeight":400.5}""", "INVALID_PROPERTY_VALUE", "fontWeight", "400.5", "Integer")
+        })
+        {
+            var properties = JsonSerializer.Deserialize<JsonElement>(json);
+            var rejected = await Call("create_node", new { parentId = screenId, kind, properties }, true);
+            CheckDiagnostic(rejected, code, path, actual, expected);
+        }
+        CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { text = "must not be written", opacity = 2 } }, true),
+            "INVALID_PROPERTY_VALUE", "opacity", "2", "0 and 1");
+        Assert.Equal("Sign in", (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties").GetProperty("text").GetProperty("value").GetString());
+        CheckDiagnostic(await Call("create_token", new { name = "bad.color", type = "Color", light = "#FFFFFF", dark = "secret-value" }, true),
+            "INVALID_TOKEN", "dark", "Invalid color format", "#RRGGBB");
+        var badTypography = new { fontFamily = "Arial", fontSize = "large", fontWeight = 400, lineHeight = 1.2 };
+        CheckDiagnostic(await Call("create_token", new { name = "bad.typography", type = "Typography", light = badTypography, dark = badTypography }, true),
+            "INVALID_TOKEN", "light.fontSize", "String", "Number");
+        CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Light", value = new { tokenId = "bad" } }, true),
+            "INVALID_TOKEN", "value.tokenId", "Invalid GUID format", "GUID");
+        Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("remove_node_properties", new { nodeId, properties = new[] { "backgroundColor" }, expectedRevision = revision });
+        await Call("set_node_properties", new { nodeId, properties = new { fontWeight = 400 } });
+        await Call("set_node_properties", new { nodeId, properties = new { fontWeight = "Bold" } });
+        var typography = new { fontFamily = "Arial", fontSize = 16, fontWeight = 400, lineHeight = 1.2 };
+        await Call("create_token", new { name = "login.typography", type = "Typography", light = typography, dark = typography });
         var tokenId = (await Call("create_token", new { name = "spacing.dialog", type = "Spacing", light = 32, dark = 32 })).GetProperty("tokenId").GetGuid();
         await Call("set_token_value", new { tokenId, theme = "Dark", value = 24 });
         var duplicateRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
