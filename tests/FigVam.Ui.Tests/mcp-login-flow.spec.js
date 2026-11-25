@@ -22,7 +22,7 @@ async function connect(request, endpoint, token) {
   const initialized = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'FigVam UI acceptance', version: '1' } });
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
-  expect((await rpc('tools/list', {})).tools.length).toBe(30);
+  expect((await rpc('tools/list', {})).tools.length).toBe(31);
   return async (name, args = {}) => {
     const result = await rpc('tools/call', { name, arguments: args });
     expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);

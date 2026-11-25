@@ -20,6 +20,9 @@ public sealed class McpDocumentGrant
     public string Token { get; }
     public DateTimeOffset CreatedAt { get; }
     internal SemaphoreSlim Gate { get; } = new(1, 1);
+    private readonly CancellationTokenSource captureRevocation = new();
+    public CancellationToken CaptureRevoked => captureRevocation.Token;
+    internal void CancelCapture() => captureRevocation.Cancel();
 }
 
 public sealed class McpAccessRegistry
@@ -105,6 +108,8 @@ public sealed class McpAccessRegistry
 
     public async Task RevokeAsync(McpDocumentGrant grant, CancellationToken ct)
     {
+        // Cancel rendering before waiting for the existing operation lease. Writes keep their original semantics.
+        grant.CancelCapture();
         using var lease = await EnterAsync(grant, ct);
         if (lease is null) return;
         Remove(grant);
@@ -129,6 +134,7 @@ public sealed class McpAccessRegistry
     // Only call while holding this grant's operation lease.
     internal void Remove(McpDocumentGrant grant)
     {
+        grant.CancelCapture();
         lock (sync)
         {
             if (ReferenceEquals(tunnelGrant, grant))

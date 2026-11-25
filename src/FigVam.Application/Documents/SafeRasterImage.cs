@@ -18,7 +18,17 @@ public static class SafeRasterImage
         catch (EndOfStreamException) { return null; }
     }
 
-    private static DocumentAsset? InspectPng(Guid id, byte[] content)
+    // Canvas PNG encoders may include standard color-space and pixel-density chunks.
+    // Keep the asset upload policy unchanged; validate capture bytes using the same bounded decoder.
+    public static DocumentAsset? InspectCapture(byte[] content)
+    {
+        if (content.Length is < 57 or > DocumentAssetValidator.MaxAssetBytes) return null;
+        try { return InspectPng(Guid.NewGuid(), content, true); }
+        catch (InvalidDataException) { return null; }
+        catch (EndOfStreamException) { return null; }
+    }
+
+    private static DocumentAsset? InspectPng(Guid id, byte[] content, bool capture = false)
     {
         ReadOnlySpan<byte> bytes = content;
         if (!bytes[..8].SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 })) return null;
