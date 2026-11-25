@@ -339,6 +339,12 @@ test('native Chromium Element Capture isolates the actual Login Preview and trac
     const first = await call.raw('render_screen', { screenId, revision: firstRevision });
     const blue = await inspect(first, 'native-login-before');
     expect(blue[2]).toBeGreaterThan(blue[0] + 50);
+    // A second request on the same static DOM must not depend on user motion,
+    // an animation, or a document change to produce a fresh frame.
+    const repeated = await call.raw('render_screen', { screenId, revision: firstRevision });
+    expect(repeated.structuredContent.revision).toBe(firstRevision);
+    const repeatedBlue = await inspect(repeated, 'native-login-static-repeat');
+    expect(repeatedBlue[2]).toBeGreaterThan(repeatedBlue[0] + 50);
     const changed = await call('set_node_properties', { nodeId, properties: { backgroundColor: '#DC2626' } });
     const second = await call.raw('render_screen', { screenId, revision: changed.revision });
     expect(second.structuredContent.revision).toBe(changed.revision);

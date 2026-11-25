@@ -250,6 +250,14 @@ export function createScreenCapture({ request, getContext, onChange }) {
       track.addEventListener('ended', () => { if (current === operation) stop(); }, { once: true });
       const startup = deadline(operation.controller.signal, 8000);
       try {
+        // Tab capture is damage-driven by default: a static Preview may never
+        // produce another frame. Chromium uses the track's minimum frame rate
+        // to request refresh frames even when the captured content is unchanged.
+        // Apply this after consent and before restriction/attaching any consumer.
+        await abortable(startup.signal, (resolve, reject) => {
+          track.applyConstraints({ frameRate: { min: 5 } }).then(resolve, reject);
+        });
+        if (!active(operation)) return;
         const target = await abortable(startup.signal, (resolve, reject) => {
           RestrictionTarget.fromElement(operation.element).then(resolve, reject);
         });
