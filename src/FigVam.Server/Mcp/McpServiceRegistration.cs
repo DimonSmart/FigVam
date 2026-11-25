@@ -32,7 +32,7 @@ public static class McpServiceRegistration
             policy.AddAuthenticationSchemes(Scheme).RequireAuthenticatedUser());
     }
 
-    public static void UseDocumentMcpAccess(this WebApplication app)
+    public static void UseDocumentMcpAuthentication(this WebApplication app)
     {
         app.Use(async (context, next) =>
         {
@@ -58,14 +58,25 @@ public static class McpServiceRegistration
             }
 
             var authentication = await context.AuthenticateAsync(Scheme);
-            if (!authentication.Succeeded || context.Items[GrantKey] is not McpDocumentGrant grant)
+            context.User = authentication.Succeeded ? authentication.Principal! : new ClaimsPrincipal(new ClaimsIdentity());
+            await next(context);
+        });
+    }
+
+    public static void UseDocumentMcpAccess(this WebApplication app)
+    {
+        app.Use(async (context, next) =>
+        {
+            if (!context.Request.Path.StartsWithSegments("/mcp"))
             {
-                // Let the existing rate limiter also count invalid authentication attempts.
-                context.User = new ClaimsPrincipal(new ClaimsIdentity());
                 await next(context);
                 return;
             }
-
+            if (context.Items[GrantKey] is not McpDocumentGrant grant)
+            {
+                await context.ChallengeAsync(Scheme);
+                return;
+            }
             var registry = context.RequestServices.GetRequiredService<McpAccessRegistry>();
             using var lease = await registry.EnterAsync(grant, context.RequestAborted);
             if (lease is null)
@@ -79,7 +90,6 @@ public static class McpServiceRegistration
                 await context.ChallengeAsync(Scheme);
                 return;
             }
-            context.User = authentication.Principal!;
             context.Response.Headers.CacheControl = "no-store";
             await next(context);
         });

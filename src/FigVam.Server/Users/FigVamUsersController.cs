@@ -1,4 +1,5 @@
 using FigVam.Server.Authentication;
+using FigVam.Server.Mcp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.Sqlite;
@@ -48,14 +49,16 @@ public sealed class FigVamUsersController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    public IActionResult Update(string id, UpdateUserRequest request)
+    public async Task<IActionResult> Update(string id, UpdateUserRequest request)
     {
         if (Store is not { } store) return NotFound();
         if (!IsAdmin(store)) return Forbid();
         try
         {
-            return store.Update(id, request.Enabled, request.Admin)
-                ? Ok(new { code = "ACCEPTED" }) : NotFound();
+            if (!store.Update(id, request.Enabled, request.Admin)) return NotFound();
+            if (!request.Enabled)
+                await HttpContext.RequestServices.GetRequiredService<McpAccessRegistry>().RevokeUserAsync(id, CancellationToken.None);
+            return Ok(new { code = "ACCEPTED" });
         }
         catch (InvalidOperationException)
         {

@@ -1,5 +1,6 @@
 using FigVam.Application.Documents;
 using FigVam.Server.Authentication;
+using FigVam.Server.Mcp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -106,7 +107,13 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
         Result(await handler.HandleAsync(new DeleteTokenCommand(documentId, request.CommandId, request.TokenId, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("delete-document"), RequestSizeLimit(4096), EndpointSummary("Delete a document at the expected revision (Owner only)")]
     [EndpointDescription("Requires commandId and nonnegative expectedRevision matching the current draft. Atomically commits a durable tombstone, journal event and next revision before ACK; retains snapshots, assets and saved versions without physical cleanup. The document becomes inaccessible to reads (including historical revisions and versions), writes, exports, presence and subscriptions. Existing subscriptions terminate without further document events. Owners retain only deletion retry authorization: the original commandId returns its original result even after restart; a new deletion command returns DOCUMENT_NOT_FOUND (404). Editor/Viewer/outsider receive FORBIDDEN (403), stale revision REVISION_CONFLICT (409), invalid IDs/revision INVALID_ID/INVALID_REVISION (400). Refusal changes neither model nor revision. Deletion cannot be undone or restored through normal document operations.")]
-    public async Task<IActionResult> DeleteDocument(Guid documentId, DeleteDocumentRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeleteDocumentCommand(documentId, request.CommandId, request.ExpectedRevision), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> DeleteDocument(Guid documentId, DeleteDocumentRequest request, CancellationToken ct)
+    {
+        var result = await handler.HandleAsync(new DeleteDocumentCommand(documentId, request.CommandId, request.ExpectedRevision), User.GetDocumentActor(), ct);
+        if (result.Accepted)
+            await HttpContext.RequestServices.GetRequiredService<McpAccessRegistry>().RevokeDocumentAsync(documentId, CancellationToken.None);
+        return Result(result);
+    }
     [HttpPost("delete-page"), EndpointSummary("Delete a page and its screens and node subtrees at an expected revision")]
     [EndpointDescription("Requires edit permission and expectedRevision matching the current draft. Deletes contained component instances and screen variants. Retained references from pages, scenarios or component definitions cause PAGE_IN_USE (409); remove those references explicitly first. Missing page returns PAGE_NOT_FOUND (404), stale revision REVISION_CONFLICT (409). Refusal preserves the document and revision. Reusing commandId returns its original result. Undo/Redo use the shared safe compensation history.")]
     public async Task<IActionResult> DeletePage(Guid documentId, DeletePageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new DeletePageCommand(documentId, request.CommandId, request.PageId, request.ExpectedRevision), User.GetDocumentActor(), ct));

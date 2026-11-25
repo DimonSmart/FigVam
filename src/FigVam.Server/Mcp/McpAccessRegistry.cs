@@ -82,6 +82,17 @@ public sealed class McpAccessRegistry
         Remove(grant);
     }
 
+    public Task RevokeDocumentAsync(Guid documentId, CancellationToken ct) => RevokeMatchingAsync(g => g.DocumentId == documentId, ct);
+
+    public Task RevokeUserAsync(string userId, CancellationToken ct) => RevokeMatchingAsync(g => g.UserId == userId, ct);
+
+    private async Task RevokeMatchingAsync(Func<McpDocumentGrant, bool> matches, CancellationToken ct)
+    {
+        McpDocumentGrant[] snapshot;
+        lock (sync) snapshot = grants.Values.Where(matches).ToArray();
+        foreach (var grant in snapshot) await RevokeAsync(grant, ct);
+    }
+
     // Only call while holding this grant's operation lease.
     internal void Remove(McpDocumentGrant grant)
     {

@@ -120,9 +120,10 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
 app.UseStatusCodePages(async status =>
     await status.HttpContext.Response.WriteAsJsonAsync(ApiErrors.Create(status.HttpContext.Response.StatusCode)));
 app.UseAuthentication();
-app.UseDocumentMcpAccess();
+app.UseDocumentMcpAuthentication();
 if (googleMode) app.UseGoogleCsrf();
 app.UseRateLimiter();
+app.UseDocumentMcpAccess();
 app.UseAuthorization();
 app.MapDefaultEndpoints();
 app.MapGet("/api/identity", (System.Security.Claims.ClaimsPrincipal user) => user.GetDocumentActor());
