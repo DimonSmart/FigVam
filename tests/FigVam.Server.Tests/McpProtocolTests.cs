@@ -22,8 +22,10 @@ public sealed class McpProtocolTests
         user.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "owner"));
         var documentId = Guid.NewGuid();
         var foreignId = Guid.NewGuid();
-        foreach (var id in new[] { documentId, foreignId })
-            (await user.PostAsJsonAsync("/api/v1/documents", new { documentId = id, name = "MCP test" })).EnsureSuccessStatusCode();
+        (await user.PostAsJsonAsync("/api/v1/documents", new { documentId, name = "MCP test" })).EnsureSuccessStatusCode();
+        using var foreignOwner = server.CreateClient();
+        foreignOwner.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "other-owner"));
+        (await foreignOwner.PostAsJsonAsync("/api/v1/documents", new { documentId = foreignId, name = "Foreign document" })).EnsureSuccessStatusCode();
         var grantPath = $"/api/v1/documents/{documentId}/mcp-access";
         using var grant = await user.PostAsync(grantPath, null);
         grant.EnsureSuccessStatusCode();
@@ -91,7 +93,7 @@ public sealed class McpProtocolTests
         Assert.Equal(updated.GetRawText(), (await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } })).GetRawText());
         await Call("save_version", new { name = "MCP milestone" });
 
-        using var foreignGrant = await user.PostAsync($"/api/v1/documents/{foreignId}/mcp-access", null);
+        using var foreignGrant = await foreignOwner.PostAsync($"/api/v1/documents/{foreignId}/mcp-access", null);
         foreignGrant.EnsureSuccessStatusCode();
         var foreignToken = (await foreignGrant.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
         await using var other = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
@@ -99,7 +101,39 @@ public sealed class McpProtocolTests
             Endpoint = endpoint, TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + foreignToken }
         }));
-        var foreignPage = (await other.CallToolAsync("create_page", new Dictionary<string, object?>())).StructuredContent!.Value.GetProperty("pageId").GetGuid();
+        async Task<JsonElement> ForeignCall(string name, object? args = null)
+        {
+            var values = JsonSerializer.SerializeToElement(args ?? new { }).EnumerateObject().ToDictionary(p => p.Name, p => (object?)p.Value);
+            var result = await other.CallToolAsync(name, values);
+            Assert.False(result.IsError == true);
+            return result.StructuredContent!.Value;
+        }
+        var foreignPage = (await ForeignCall("create_page")).GetProperty("pageId").GetGuid();
+        var foreignScreen = (await ForeignCall("create_screen", new { pageId = foreignPage, width = 800, height = 600 })).GetProperty("screenId").GetGuid();
+        var foreignNode = (await ForeignCall("create_node", new { parentId = foreignScreen, kind = "Frame" })).GetProperty("nodeId").GetGuid();
+        var foreignDesignToken = (await ForeignCall("create_token", new { name = "other.spacing", type = "Spacing", light = 8, dark = 8 })).GetProperty("tokenId").GetGuid();
+        await Call("get_screen", new { screenId = foreignScreen }, true);
+        await Call("get_node", new { nodeId = foreignNode }, true);
+        await Call("delete_node", new { nodeId = foreignNode }, true);
+        await Call("create_node", new { parentId = screenId, kind = "Frame", properties = new { paddingRight = new { tokenId = foreignDesignToken } } }, true);
+        await Call("set_token_value", new { tokenId = foreignDesignToken, theme = "Light", value = 10 }, true);
+        (await foreignOwner.DeleteAsync(grantPath)).EnsureSuccessStatusCode();
+        Assert.Equal(documentId, (await Call("get_document")).GetProperty("documentId").GetGuid());
+
+        // The real UI transport can edit the same document while the MCP connection is open.
+        var root = $"/api/v1/documents/{documentId}";
+        (await user.PostAsJsonAsync(root + "/commands/rename-screen", new { commandId = Guid.NewGuid(), screenId, name = "Changed by UI" })).EnsureSuccessStatusCode();
+        Assert.Equal("Changed by UI", (await Call("get_screen", new { screenId })).GetProperty("items")[0].GetProperty("name").GetString());
+        var history = await user.GetFromJsonAsync<JsonElement>(root + "/reconnect?lastSeenRevision=0");
+        var events = history.GetProperty("events").EnumerateArray().ToArray();
+        Assert.Contains(events, e => e.GetProperty("source").GetString() == "MCP" && e.GetProperty("actorId").GetString() == "owner");
+        Assert.Contains(events, e => e.GetProperty("source").GetString() == "UI" && e.GetProperty("type").GetString() == "RENAME_SCREEN");
+
+        var foreignRevision = (await ForeignCall("get_document")).GetProperty("revision").GetInt64();
+        (await foreignOwner.PostAsJsonAsync($"/api/v1/documents/{foreignId}/commands/delete-document", new { commandId = Guid.NewGuid(), expectedRevision = foreignRevision })).EnsureSuccessStatusCode();
+        using var deletedDocumentAccess = server.CreateClient();
+        deletedDocumentAccess.DefaultRequestHeaders.Authorization = new("Bearer", foreignToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await deletedDocumentAccess.GetAsync("/mcp")).StatusCode);
         await Call("list_screens", new { pageId = foreignPage }, true);
         await Call("create_screen", new { pageId = foreignPage, width = 800, height = 600 }, true);
         using var editor = server.CreateClient();
@@ -119,8 +153,12 @@ public sealed class McpProtocolTests
 
         using var unauthorized = server.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync("/mcp")).StatusCode);
+        unauthorized.DefaultRequestHeaders.Authorization = new("Bearer", "fvm_invalid");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync("/mcp")).StatusCode);
         unauthorized.DefaultRequestHeaders.Authorization = new("Bearer", token);
         Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync(grantPath)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.PostAsync(grantPath, null)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync("/api/v1/documents")).StatusCode);
         using var wrongOrigin = new HttpRequestMessage(HttpMethod.Get, "/mcp");
         wrongOrigin.Headers.Add("Origin", "https://untrusted.example");
         Assert.Equal(HttpStatusCode.Forbidden, (await unauthorized.SendAsync(wrongOrigin)).StatusCode);
@@ -128,6 +166,7 @@ public sealed class McpProtocolTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync("/mcp")).StatusCode);
         var disabled = await user.GetFromJsonAsync<JsonElement>(grantPath);
         Assert.False(disabled.GetProperty("enabled").GetBoolean());
+        Assert.False(server.LogContains(token), "MCP secret appeared in server logs.");
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
             Assert.False(System.Text.Encoding.UTF8.GetString(await File.ReadAllBytesAsync(file)).Contains(token, StringComparison.Ordinal), "MCP secret persisted on disk.");
     }

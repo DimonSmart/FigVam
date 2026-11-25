@@ -25,6 +25,21 @@
 
 Свойства определяются профилем (get_node_schema). Передавайте числа, строки, логические значения, цвета #RRGGBB или #RRGGBBAA, ссылки {"tokenId":"UUID"} и тени {"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}. create_node и set_node_properties применяют свойства атомарно. move_node использует нулевой индекс и ожидаемого родителя. create_scenario и update_scenario принимают event и список actions, MVP поддерживает navigate со screenId. save_version создаёт именованную неизменяемую версию.
 
+## Примеры аргументов tools/call
+
+| Инструмент | Аргументы (UUID — заполнитель) |
+| --- | --- |
+| get_document | {} |
+| list_screens | {"pageId":"UUID","offset":0,"limit":20} |
+| get_screen_tree | {"screenId":"UUID","depth":3} |
+| create_screen | {"pageId":"UUID","width":800,"height":600} |
+| create_node | {"parentId":"UUID","kind":"Frame","properties":{"width":360,"height":400,"backgroundColor":"#FFFFFF"}} |
+| create_token | {"name":"spacing.dialog","type":"Spacing","light":32,"dark":32} |
+| set_node_properties | {"nodeId":"UUID","properties":{"paddingRight":{"tokenId":"UUID"},"shadow":{"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}}} |
+| create_scenario | {"screenId":"UUID","nodeId":"UUID","event":"Click","actions":[{"type":"navigate","screenId":"UUID"}]} |
+
+Для отзыва откройте меню MCP-доступ и нажмите кнопку с корзиной «Отозвать MCP-доступ». Подтверждённый отзыв делает прежний токен недействительным. MVP не предоставляет управление документами, произвольные команды, массовые операции, импорт изображений и OAuth discovery.
+
 ## Проверка
 
 ```sh

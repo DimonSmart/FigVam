@@ -139,6 +139,11 @@ internal sealed class ServerProcess : IAsyncDisposable
             lock (log) log.AppendLine($"[{lifetime.Elapsed}] {stream}: {line}");
     }
 
+    internal bool LogContains(string value)
+    {
+        lock (log) return log.ToString().Contains(value, StringComparison.Ordinal);
+    }
+
     private string Diagnostics()
     {
         lock (log)
