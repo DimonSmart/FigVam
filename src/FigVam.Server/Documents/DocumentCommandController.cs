@@ -29,7 +29,7 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [HttpPost("set-screen-variant-properties"), EndpointSummary("Atomically set multiple node property overrides for a variant at an expected revision")]
     public async Task<IActionResult> SetScreenVariantProperties(Guid documentId, SetScreenVariantPropertiesRequest request, CancellationToken ct) =>
         Result(await handler.HandleAsync(new SetScreenVariantPropertiesCommand(documentId, request.CommandId, request.ScreenId, request.VariantId,
-            request.NodeId, request.Properties, request.ExpectedRevision), User.GetDocumentActor(), ct));
+            request.NodeId, request.Properties, request.ExpectedRevision, request.HistoryGroupId), User.GetDocumentActor(), ct));
     [HttpPost("set-component-variant-parameter-change"), EndpointSummary("Set one typed parameter difference on an existing component variant")]
     public async Task<IActionResult> SetComponentVariantParameterChange(Guid documentId, SetComponentVariantParameterChangeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetComponentVariantParameterChangeCommand(documentId, request.CommandId, request.DefinitionId, request.VariantId, request.ParameterId, request.Value), User.GetDocumentActor(), ct));
     [HttpPost("remove-component-variant-parameter-change"), EndpointSummary("Remove one variant parameter difference to inherit its base variant or parameter default")]
@@ -122,8 +122,8 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [HttpPost("add-page"), EndpointSummary("Add a page")]
     public async Task<IActionResult> AddPage(Guid documentId, AddPageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddPageCommand(documentId, request.CommandId, request.PageId), User.GetDocumentActor(), ct));
     [HttpPost("resize-screen"), EndpointSummary("Set finite, non-negative screen dimensions in logical uiUnits")]
-    [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid. Children retain their properties.")]
-    public async Task<IActionResult> ResizeScreen(Guid documentId, ResizeScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ResizeScreenCommand(documentId, request.CommandId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));
+    [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid. Optional updateWidth and updateHeight default to true; a false flag preserves that axis from the current server state. At least one axis must be updated. Children retain their properties.")]
+    public async Task<IActionResult> ResizeScreen(Guid documentId, ResizeScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ResizeScreenCommand(documentId, request.CommandId, request.ScreenId, request.Dimensions, request.HistoryGroupId, request.UpdateWidth, request.UpdateHeight), User.GetDocumentActor(), ct));
     [HttpPost("add-screen"), EndpointSummary("Add a screen to a page")]
     [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid.")]
     public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));
@@ -141,16 +141,16 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [HttpPost("move-node"), EndpointSummary("Move or reorder a node")]
     public async Task<IActionResult> MoveNode(Guid documentId, MoveNodeRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new MoveNodeCommand(documentId, request.CommandId, request.NodeId, request.ExpectedParentId, request.TargetParentId, request.Position, request.ExpectedRevision), User.GetDocumentActor(), ct));
     [HttpPost("set-node-name"), EndpointSummary("Set a node name without changing its technical ID")]
-    public async Task<IActionResult> SetNodeName(Guid documentId, SetNodeNameRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodeNameCommand(documentId, request.CommandId, request.NodeId, request.Name), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> SetNodeName(Guid documentId, SetNodeNameRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodeNameCommand(documentId, request.CommandId, request.NodeId, request.Name, request.HistoryGroupId), User.GetDocumentActor(), ct));
     [HttpPost("set-node-semantic-key"), EndpointSummary("Set or clear a node semantic key")]
-    public async Task<IActionResult> SetNodeSemanticKey(Guid documentId, SetNodeSemanticKeyRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodeSemanticKeyCommand(documentId, request.CommandId, request.NodeId, request.SemanticKey), User.GetDocumentActor(), ct));
+    public async Task<IActionResult> SetNodeSemanticKey(Guid documentId, SetNodeSemanticKeyRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodeSemanticKeyCommand(documentId, request.CommandId, request.NodeId, request.SemanticKey, request.HistoryGroupId), User.GetDocumentActor(), ct));
     [HttpPost("set-node-property"), EndpointSummary("Set a typed node property")]
     public async Task<IActionResult> SetNodeProperty(Guid documentId, SetNodePropertyRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SetNodePropertyCommand(documentId, request.CommandId, request.NodeId, request.Property, request.Value), User.GetDocumentActor(), ct));
     [HttpPost("set-node-properties"), EndpointSummary("Atomically set one or more typed properties on one node")]
     [EndpointDescription("Supply a nonempty map of property names and typed values from the document profile. Pass expectedParentId for edits based on parent-relative coordinates and expectedRevision for edits based on a document revision.")]
     public async Task<IActionResult> SetNodeProperties(Guid documentId, SetNodePropertiesRequest request, CancellationToken ct) =>
         Result(await handler.HandleAsync(new SetNodePropertiesCommand(documentId, request.CommandId, request.NodeId,
-            request.Properties, request.ExpectedParentId, request.ExpectedRevision), User.GetDocumentActor(), ct));
+            request.Properties, request.ExpectedParentId, request.ExpectedRevision, request.HistoryGroupId), User.GetDocumentActor(), ct));
     [HttpPost("save"), EndpointSummary("Save an immutable document version")]
     public async Task<IActionResult> Save(Guid documentId, SaveDocumentRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SaveDocumentCommand(documentId, request.CommandId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("restore"), EndpointSummary("Restore a saved version as a new revision")]

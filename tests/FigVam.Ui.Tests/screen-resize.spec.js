@@ -24,7 +24,7 @@ test('version errors remain independent of resize errors', async ({ page, reques
   await expect(restore).toBeVisible();
   await page.locator('.document-menu > summary').click();
   await page.getByLabel('Ширина выбранного экрана').fill('-1');
-  await page.getByRole('button', { name: 'Изменить размер' }).click();
+  await page.locator('#resize-width').press('Enter');
   await expect(page.locator('#screen-size-error')).toContainText('неотрицательные');
   await page.route('**/commands/save', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }), { times: 1 });
   await show(page, 'document'); await page.getByRole('button', { name: 'Создать версию' }).click();
@@ -39,17 +39,17 @@ test('edits dimensions and receives a second client resize', async ({ page, cont
   await open(page, id); await open(second, id); await select(page); await select(second);
   await page.getByLabel('Ширина выбранного экрана').fill('800');
   await page.getByLabel('Высота выбранного экрана').fill('600');
-  await page.getByRole('button', { name: 'Изменить размер' }).click();
+  await page.locator('#resize-width').press('Enter');
   await expect(page.locator('#screen-size-saved')).toContainText('800 × 600');
   await expect(second.locator('#screen-size-saved')).toContainText('800 × 600');
   await second.getByLabel('Ширина выбранного экрана').fill('900');
-  await second.getByRole('button', { name: 'Изменить размер' }).click();
+  await second.locator('#resize-width').press('Enter');
   await expect(page.locator('#screen-size-saved')).toContainText('900 × 600');
 });
 test('validates and retries the same uncertain command', async ({ page, request }) => {
   const { id } = await setup(request); await open(page, id); await select(page);
   await page.getByLabel('Ширина выбранного экрана').fill('-1');
-  await page.getByRole('button', { name: 'Изменить размер' }).click();
+  await page.locator('#resize-width').press('Enter');
   await expect(page.locator('#screen-size-error')).toContainText('неотрицательные');
   const bodies = [];
   await page.route('**/commands/resize-screen', async route => {
@@ -58,7 +58,7 @@ test('validates and retries the same uncertain command', async ({ page, request 
     await route.continue();
   });
   await page.getByLabel('Ширина выбранного экрана').fill('700');
-  await page.getByRole('button', { name: 'Изменить размер' }).click();
+  await page.locator('#resize-width').press('Enter');
   await expect(page.locator('#screen-size-saved')).toContainText('640 × 480');
   await page.getByRole('button', { name: 'Повторить команду' }).click();
   await expect(page.locator('#screen-size-saved')).toContainText('700 × 480');
@@ -68,7 +68,7 @@ test('refusal leaves confirmed dimensions unchanged and Viewer sees read-only va
   const { id } = await setup(request); await open(page, id); await select(page);
   await page.route('**/commands/resize-screen', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }));
   await page.getByLabel('Ширина выбранного экрана').fill('999');
-  await page.getByRole('button', { name: 'Изменить размер' }).click();
+  await page.locator('#resize-width').press('Enter');
   await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
   await expect(page.locator('#screen-size-saved')).toContainText('640 × 480');
   const viewer = await context.newPage();
@@ -93,7 +93,7 @@ test('keeps a refusal visible when an overlapping state refresh redraws the scre
     await held;
     await page.route('**/commands/resize-screen', route => route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }));
     await page.getByLabel('Ширина выбранного экрана').fill('999');
-    await page.getByRole('button', { name: 'Изменить размер' }).click();
+    await page.locator('#resize-width').press('Enter');
     await expect(page.locator('#screen-size-error')).toContainText('Нет доступа');
     release();
     await page.unrouteAll({ behavior: 'wait' });
@@ -110,11 +110,25 @@ test('keeps a refusal visible when an overlapping state refresh redraws the scre
 test('retains a local draft while a remote resize updates the confirmed size', async ({ page, context, request }) => {
   const { id } = await setup(request), second = await context.newPage();
   await open(page, id); await open(second, id); await select(page); await select(second);
-  await page.getByLabel('Ширина выбранного экрана').fill('750');
-  await second.getByLabel('Высота выбранного экрана').fill('500');
-  await second.getByRole('button', { name: 'Изменить размер' }).click();
-  await expect(page.locator('#screen-size-saved')).toContainText('640 × 500');
-  await expect(page.getByLabel('Ширина выбранного экрана')).toHaveValue('750');
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const held = new Promise(resolve => { entered = resolve; });
+  await page.route('**/commands/resize-screen', async route => {
+    entered(route.request().postDataJSON()); await gate; await route.continue();
+  });
+  try {
+    await page.getByLabel('Ширина выбранного экрана').fill('750');
+    const body = await held;
+    expect(body).toMatchObject({ dimensions: { width: 750, height: 480 }, updateWidth: true, updateHeight: false });
+    await second.getByLabel('Высота выбранного экрана').fill('500');
+    await second.locator('#resize-height').press('Enter');
+    await expect(page.locator('#screen-size-saved')).toContainText('640 × 500');
+    await expect(page.getByLabel('Ширина выбранного экрана')).toHaveValue('750');
+    await expect(page.getByLabel('Высота выбранного экрана')).toHaveValue('500');
+    release();
+    await expect(page.locator('#screen-size-saved')).toContainText('750 × 500');
+    await expect(second.locator('#screen-size-saved')).toContainText('750 × 500');
+  } finally { release(); }
 });
 test('ignores a delayed resize response after logout', async ({ page, request }) => {
   const { id } = await setup(request); await open(page, id); await select(page);
@@ -123,7 +137,7 @@ test('ignores a delayed resize response after logout', async ({ page, request })
   const held = new Promise(resolve => { entered = resolve; });
   await page.route('**/commands/resize-screen', async route => { const response = await route.fetch(); entered(); await gate; await route.fulfill({ response }).catch(() => {}); });
   await page.getByLabel('Ширина выбранного экрана').fill('710');
-  await page.getByRole('button', { name: 'Изменить размер' }).click(); await held;
+  await page.locator('#resize-width').press('Enter'); await held;
   await page.locator('#editor-signout').click();
   release(); await page.unroute('**/commands/resize-screen');
   await expect(page.locator('#editor-view')).toBeHidden();
@@ -149,7 +163,7 @@ test('delayed resize response does not replace the newly selected screen', async
     await route.fulfill({ response: result }).catch(() => {}); finished();
   });
   await page.getByLabel('Ширина выбранного экрана').fill('710');
-  await page.getByRole('button', { name: 'Изменить размер' }).click(); await held;
+  await page.locator('#resize-width').press('Enter'); await held;
   await page.locator('#screens button[data-screen-id="' + otherScreen + '"]').click();
   await expect(page.locator('#screen-size-saved')).toContainText('320 × 240');
   const delivered = page.waitForResponse(response => response.url().endsWith('/commands/resize-screen'));
@@ -172,7 +186,7 @@ test('delayed resize response does not alter another document', async ({ page, r
     await route.fulfill({ response: result }).catch(() => {}); finished();
   });
   await page.getByLabel('Ширина выбранного экрана').fill('710');
-  await page.getByRole('button', { name: 'Изменить размер' }).click(); await held;
+  await page.locator('#resize-width').press('Enter'); await held;
   await page.getByRole('link', { name: '← Документы' }).click();
   await page.locator(`#document-list a[href="/documents/${second.id}"]`).click();
   await expect(page.locator('#editor-view')).toBeVisible(); await select(page);

@@ -9,7 +9,7 @@ const scopeKey = context => context.screen && Number.isSafeInteger(context.revis
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive
+  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}
 }) {
   const kindSelect = element('visual-kind'), parentSelect = element('visual-parent');
   const paletteProperties = element('visual-required-properties');
@@ -24,6 +24,70 @@ export function createVisualNodeEditor({
   let paletteControlKey = null, inspectorControlKey = null;
   let loadingFocus, uploadDocument;
   const uploads = new Map();
+  const automatic = new Map();
+  let applyTimer;
+
+  // Each entry owns a captured target and validated snapshots, not DOM references.
+  // New input remains editable while a previous snapshot awaits acknowledgement.
+  function scheduleApply(state, name, field, immediate = false, previewOnly = false) {
+    let entry = automatic.get(state);
+    if (!entry) {
+      const current = getContext();
+      entry = { target: { ...current, nodeId: node.id }, fields: new Map(), due: 0, rejected: false };
+      automatic.set(state, entry);
+    }
+    const result = field.validate(false);
+    if (state.values.has(name) && result.value !== undefined && !result.error)
+      entry.fields.set(name, { raw: field.read(), value: result.value });
+    else entry.fields.delete(name);
+    entry.rejected = false;
+    previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
+    entry.due = previewOnly ? Infinity : Date.now() + (immediate ? 0 : 500);
+    planApply();
+  }
+
+  function planApply() {
+    clearTimeout(applyTimer);
+    const current = getContext();
+    const ready = [...automatic.entries()].filter(([state, entry]) =>
+      entry.fields.size && Number.isFinite(entry.due) && !entry.rejected && entry.target.token === current.token &&
+      (entry.target.documentId !== current.documentId || canEdit(current.documentRole)) &&
+      ![...operations.values()].some(op => op.documentId === entry.target.documentId));
+    if (!ready.length) return;
+    applyTimer = setTimeout(pumpApply, Math.max(0, Math.min(...ready.map(([, entry]) => entry.due)) - Date.now()));
+  }
+
+  function pumpApply() {
+    const current = getContext();
+    for (const [state, entry] of automatic) {
+      const target = entry.target;
+      if (!entry.fields.size || entry.rejected || entry.due > Date.now() || target.token !== current.token ||
+          [...operations.values()].some(op => op.documentId === target.documentId)) continue;
+      if (current.documentId === target.documentId && !canEdit(current.documentRole)) continue;
+      const sent = new Map(entry.fields);
+      const properties = Object.fromEntries([...sent].map(([name, item]) => [name, item.value]));
+      const expectedRevision = current.documentId === target.documentId && Number.isSafeInteger(current.revision)
+        ? current.revision : target.revision;
+      const body = target.variantId
+        ? { screenId: target.screen, variantId: target.variantId, nodeId: target.nodeId, expectedRevision, properties }
+        : { nodeId: target.nodeId, properties, expectedParentId: Object.hasOwn(properties, 'x') || Object.hasOwn(properties, 'y') ? state.coordinateParentId : undefined };
+      const key = scopeKey(target);
+      const op = { key, command: target.variantId ? 'set-screen-variant-properties' : 'set-node-properties',
+        state: 'ready', draft: state, documentId: target.documentId, screen: target.screen,
+        selectionId: target.nodeId, body: { commandId: crypto.randomUUID(), ...body }, auto: true, sent };
+      operations.set(key, op);
+      send(op);
+    }
+    // A new edit or completed operation will wake blocked entries; do not spin.
+  }
+
+  function finishApply(state) {
+    const entry = automatic.get(state);
+    if (!entry || entry.rejected) return;
+    if (entry.due === Infinity) return;
+    entry.due = 0;
+    planApply();
+  }
 
   function refresh() {
     if (queued) return;
@@ -165,9 +229,22 @@ export function createVisualNodeEditor({
         field = createPropertyControl(name, definition, model, values?.[name], prefix);
         field.signature = signature;
         field.valueSignature = valueSignature;
-        function update() {
+        function update(event) {
           const raw = field.read();
-          if (sameRaw(field.baseline, raw) && !(name === 'shadow' && !field.hasValue && state.values.has(name))) state.values.delete(name);
+          const automaticField = prefix === 'visual-property';
+          const target = event.target;
+          const discrete = event.type === 'change' && target.matches('select, input[type=checkbox], input[type=color], .token-value-link');
+          // Browsers emit both input and change, including a delayed change on blur.
+          // A no-op must not clear the last acknowledgement or requeue saved values.
+          if (automaticField && sameRaw(field.lastRaw, raw)) {
+            if (discrete && automatic.get(state)?.fields.has(name)) {
+              automatic.get(state).due = 0; planApply();
+            }
+            return;
+          }
+          field.lastRaw = raw;
+          const inFlight = [...operations.values()].find(op => op.auto && op.draft === state)?.sent.has(name);
+          if (sameRaw(field.baseline, raw) && !inFlight && !(name === 'shadow' && !field.hasValue && state.values.has(name))) state.values.delete(name);
           else state.values.set(name, raw);
           if (state === inspector && (name === 'x' || name === 'y')) {
             if (state.values.has('x') || state.values.has('y')) state.coordinateParentId ??= node.parentId;
@@ -175,11 +252,37 @@ export function createVisualNodeEditor({
           }
           state.error = state.status = '';
           field.validate();
+          if (automaticField) {
+            // A native color picker may emit many input events before its change event.
+            if (target.matches('input[type=color]') && event.type === 'input') {
+              scheduleApply(state, name, field, false, true); updateControls(); return;
+            }
+            scheduleApply(state, name, field, discrete);
+          }
           updateControls();
         }
         if (state) {
           field.row.addEventListener('input', update);
           field.row.addEventListener('change', update);
+          if (prefix === 'visual-property') {
+            field.row.addEventListener('focusout', event => {
+              if (!field.row.contains(event.relatedTarget)) finishApply(state);
+            });
+            field.row.addEventListener('keydown', event => {
+              if (event.isComposing) return;
+              if (event.key === 'Enter' && event.target.matches('input:not([type=search])')) {
+                event.preventDefault(); finishApply(state);
+              }
+              if (event.key === 'Escape' && event.target.matches('input, textarea') && !event.target.closest('.token-value-popover')) {
+                const op = [...operations.values()].find(item => item.auto && item.draft === state);
+                if (op?.sent.has(name)) return;
+                state.values.delete(name); automatic.get(state)?.fields.delete(name);
+                const entry = automatic.get(state);
+                if (entry) previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
+                field.write(field.baseline); field.lastRaw = field.read(); field.validate(); state.error = ''; updateControls(); planApply();
+              }
+            });
+          }
         }
       } else if (field.valueSignature !== valueSignature) {
         // Create a detached control for a changed baseline, never replace the live DOM.
@@ -192,6 +295,7 @@ export function createVisualNodeEditor({
         if (!sameRaw(field.read(), value)) field.write(value);
         field.validate();
       } else if (!sameRaw(field.read(), field.baseline)) field.write(field.baseline);
+      field.lastRaw = field.read();
       if (prefix === 'visual-property') {
         const overridden = Boolean(context.variantId && model?.overridden?.get(node?.id)?.has(name));
         field.row.dataset.variantOverride = String(overridden);
@@ -258,6 +362,7 @@ export function createVisualNodeEditor({
             const preset = createPropertyControl(name, definition, model, shadowPreset, prefix).baseline;
             state.values.set(name, preset);
             render();
+            scheduleApply(state, name, inspectorFields.get(name), true);
           } else if (current.variantId) {
             if (model?.overridden?.get(node.id)?.has(name))
               begin('remove-screen-variant-override', { screenId: current.screen, variantId: current.variantId,
@@ -357,7 +462,7 @@ export function createVisualNodeEditor({
     kindSelect.disabled = parentSelect.disabled = blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
-    for (const [name, field] of inspectorFields) field.setDisabled(name === 'shadow' ? blocked : !editable || Boolean(op && !op.canvas));
+    for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(op && !op.canvas && !op.auto));
     for (const button of inspectorProperties.querySelectorAll('.shadow-action, .variant-override-reset, .style-override-reset'))
       button.disabled = blocked;
     const validParent = model?.kinds.size && eligibleParent();
@@ -365,13 +470,11 @@ export function createVisualNodeEditor({
     const optionalReady = [...paletteOptionalFields].every(([name, field]) =>
       !palette?.values.has(name) || field.validate(false).value !== undefined);
     element('visual-add').disabled = blocked || !validParent || !requiredReady || !optionalReady;
-    const save = element('visual-save');
-    save.hidden = !editable;
-    save.disabled = blocked || !inspector?.values.size;
+    const autoEntry = automatic.get(inspector);
     element('visual-properties-reset').hidden = !editable || !inspector?.values.size;
     element('visual-properties-reset').disabled = blocked;
     element('visual-add-retry').hidden = !editable || !adding || op.state !== 'uncertain';
-    element('visual-save-retry').hidden = !editable || !editing || op.state !== 'uncertain';
+    element('visual-save-retry').hidden = !editable || !(editing && op.state === 'uncertain' || autoEntry?.rejected && autoEntry.fields.size);
     element('visual-palette-retry').hidden = element('visual-data-retry').hidden = !loadError;
     element('visual-palette-error').textContent = loadError || palette?.error || '';
     element('visual-inspector-error').textContent = loadError || inspector?.error || '';
@@ -390,7 +493,7 @@ export function createVisualNodeEditor({
     element('visual-palette-status').textContent = adding ?
       operationStatus(op, 'Добавление элемента…') : loading || [palette?.status, paletteStatus].filter(Boolean).join(' ');
     element('visual-inspector-status').textContent = editing ?
-      operationStatus(op, 'Сохранение свойств…') : loading || inspector?.status || '';
+      operationStatus(op, 'Сохранение свойств…') : loading || (autoEntry?.fields.size && !autoEntry.rejected ? 'Сохранение свойств…' : inspector?.status || '');
   }
 
   function operationStatus(op, pending) {
@@ -493,20 +596,13 @@ export function createVisualNodeEditor({
   });
   element('visual-properties-form').addEventListener('submit', event => {
     event.preventDefault();
-    if (!inspector?.values.size || !canEdit(getContext().documentRole)) return;
-    const names = [...inspector.values.keys()].filter(name => inspectorFields.has(name));
-    if (!names.length) return;
-    const properties = readProperties(inspectorFields, names);
-    if (!properties) return;
-    const expectedParentId = Object.hasOwn(properties, 'x') || Object.hasOwn(properties, 'y') ? inspector.coordinateParentId : undefined;
-    const current = getContext();
-    if (current.variantId)
-      begin('set-screen-variant-properties', { screenId: current.screen, variantId: current.variantId,
-        nodeId: node.id, expectedRevision: current.revision, properties }, inspector);
-    else begin('set-node-properties', { nodeId: node.id, properties, expectedParentId }, inspector);
+    finishApply(inspector);
   });
   element('visual-properties-reset').addEventListener('click', () => {
     if (!inspector || operations.has(scopeKey(getContext())) || !canEdit(getContext().documentRole)) return;
+    const entry = automatic.get(inspector);
+    if (entry) previewProperties(entry.target, {});
+    automatic.delete(inspector);
     inspector.values.clear();
     inspector.coordinateParentId = undefined;
     inspector.error = inspector.status = '';
@@ -519,6 +615,9 @@ export function createVisualNodeEditor({
     element(id).addEventListener('click', () => {
       const op = operations.get(scopeKey(getContext()));
       if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) send(op);
+      else if (id === 'visual-save-retry' && automatic.get(inspector)?.rejected) {
+        automatic.get(inspector).rejected = false; finishApply(inspector);
+      }
     });
 
   function begin(command, body, state, canvas = null) {
@@ -538,13 +637,13 @@ export function createVisualNodeEditor({
     const { token, navigationEpoch } = getContext(), adding = op.command === 'add-node';
     const current = () => {
       const view = getContext();
-      return operations.get(op.key) === op && scopeKey(view) === op.key &&
-        view.token === token && view.navigationEpoch === navigationEpoch;
+      return operations.get(op.key) === op && view.token === token &&
+        (op.auto || scopeKey(view) === op.key && view.navigationEpoch === navigationEpoch);
     };
     op.state = 'pending';
     op.draft.error = op.draft.status = '';
     updateControls();
-    stopLive();
+    if (getContext().documentId === op.documentId) stopLive();
     let confirmed = false;
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.documentId)}/commands/${op.command}`, {
@@ -557,8 +656,11 @@ export function createVisualNodeEditor({
       }
       const reveal = adding && op.body.parentId !== op.screen ? [op.body.parentId] : [];
       const selection = adding ? { nodeId: op.body.nodeId, previousId: op.selectionId } : undefined;
-      const synced = await refreshDocument(result.revision, current, reveal, selection);
-      if (!synced) {
+      const view = getContext();
+      const activeDocument = view.documentId === op.documentId && canEdit(view.documentRole);
+      const activeSync = () => current() && getContext().documentId === op.documentId && getContext().navigationEpoch === view.navigationEpoch;
+      const synced = !op.auto || activeDocument ? await refreshDocument(result.revision, op.auto ? activeSync : current, reveal, selection) : true;
+      if (!synced && !op.auto) {
         op.state = 'uncertain';
         return;
       }
@@ -566,12 +668,24 @@ export function createVisualNodeEditor({
       confirmed = true;
       if (op.command === 'remove-node-properties' || op.command === 'remove-screen-variant-override') {
         for (const property of op.body.properties ?? [op.body.property]) op.draft.values.delete(property);
+      } else if (op.auto) {
+        const entry = automatic.get(op.draft);
+        for (const [name, item] of op.sent) {
+          if (sameRaw(op.draft.values.get(name), item.raw)) op.draft.values.delete(name);
+          if (entry && sameRaw(entry.fields.get(name)?.raw, item.raw)) entry.fields.delete(name);
+        }
+        if (!op.draft.values.has('x') && !op.draft.values.has('y')) op.draft.coordinateParentId = undefined;
+        if (entry) {
+          previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
+          entry.target.revision = result.revision;
+        }
+        if (!op.draft.values.size) automatic.delete(op.draft);
       } else {
         op.draft.values.clear();
         op.draft.coordinateParentId = undefined;
       }
       op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
-      if (scopeKey(getContext()) === op.key) render();
+      if (scopeKey(getContext()) === op.key && (!op.auto || resolvedModelKey === modelKey)) render();
     } catch (error) {
       if (!current() || error.status == null || error.status === 408 || error.status >= 500) op.state = 'uncertain';
       else {
@@ -582,12 +696,17 @@ export function createVisualNodeEditor({
         }
         const property = error.property ? `${propertyLabel(error.property)} · ` : '';
         op.draft.error = property + (error.detail || error.message);
+        if (op.auto && automatic.has(op.draft)) {
+          const entry = automatic.get(op.draft);
+          entry.rejected = true; previewProperties(entry.target, {});
+        }
       }
     } finally {
       op.settlePreview?.(confirmed);
       op.settlePreview = null;
       startLive();
       refresh();
+      planApply();
     }
   }
 
@@ -607,6 +726,6 @@ export function createVisualNodeEditor({
   return {
     refresh, editGeometry,
     get editPending() { return operations.has(scopeKey(getContext())); },
-    clear() { operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
+    clear() { clearTimeout(applyTimer); automatic.clear(); operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
   };
 }

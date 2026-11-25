@@ -57,7 +57,6 @@ test('layer tree derives labels and keeps explicit names separate', async ({ pag
   await expect(page.locator('#node-name')).toHaveValue('');
   await show(page, 'design');
   await page.locator('#visual-inspector').getByLabel('Подсказка', { exact: true }).fill('Email address');
-  await page.locator('#visual-inspector').getByRole('button', { name: 'Сохранить свойства' }).click();
   await expect(page.locator('#visual-inspector').getByRole('status')).toHaveText('Свойства сохранены.');
   await expect(caption(inputId)).toHaveText('Email address');
   await expect(caption(inputId)).toHaveAttribute('data-label-source', 'inferred');

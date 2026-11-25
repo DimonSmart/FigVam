@@ -34,10 +34,11 @@ export function createPaddingEditor() {
     button.title = label;
     button.setAttribute('aria-label', 'Перейти к полю: ' + label);
     button.addEventListener('click', () => {
+      const linked = slot.querySelector('.token-value-layout.is-linked');
       const input = slot.querySelector('input[type=number]:not(:disabled)');
-      const target = input && !input.closest('[hidden]') ? input :
+      const target = !linked && input && !input.closest('[hidden]') ? input :
         slot.querySelector('.token-value-link:not(:disabled)');
-      target?.focus();
+      target?.focus({ preventScroll: true });
     });
     diagram.append(button);
   }

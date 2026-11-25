@@ -42,7 +42,6 @@ async function editLayer(page, fields) {
     }
     await inspector.getByLabel(label, { exact: true }).fill(String(value));
   }
-  await inspector.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
   await expect(inspector.getByRole('status')).toHaveText('Свойства сохранены.');
 }
 

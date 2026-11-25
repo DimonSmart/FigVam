@@ -62,7 +62,12 @@ export function createTokenValueControl(name, definition, model, initial, direct
     link.setAttribute('aria-label', readOnly ? 'Просмотреть дизайн-токен' :
       linked ? 'Изменить привязку токена' : 'Привязать токен');
     link.setAttribute('aria-pressed', String(linked));
-    if (!linked) { root.classList.remove('is-invalid'); return; }
+    if (!linked) {
+      root.classList.remove('is-invalid');
+      nameText.textContent = resolvedText.textContent = '';
+      referenceHost.removeAttribute('title');
+      return;
+    }
     const item = model.tokens.get(tokenId);
     const result = resolved();
     nameText.textContent = item?.name ?? 'Удалённый токен · ' + tokenId.slice(0, 8);

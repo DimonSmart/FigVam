@@ -36,6 +36,8 @@ export function createLayers({
   let layerController = null, layerGeneration = 0, layerSelection = null;
   let nodeReadGeneration = 0, nodeMetadata = null;
   const nodeOperations = new Map();
+  const metadataDrafts = new Map();
+  let metadataTimer;
   const nodeDeletions = new Map();
   const nodeMoves = new Map();
   const nodeMoveNotices = new Map();
@@ -57,6 +59,10 @@ export function createLayers({
 
   function selectLayer(item) {
     const changed = layerSelection?.id !== item.id;
+    if (changed && layerSelection && nodeMetadata?.id === layerSelection.id) {
+      const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id));
+      if (drafts?.size === 1) submitNodeMetadata(drafts.keys().next().value);
+    }
     if (changed) layerSelectionEpoch++;
     layerSelection = item;
     if (changed || nodeMetadata?.id !== item.id) loadNodeMetadata();
@@ -94,13 +100,14 @@ export function createLayers({
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole);
     const ready = nodeMetadata?.id === selected.id;
     for (const id of ['node-name', 'node-key']) element(id).readOnly = !editable || !ready || !!op;
-    for (const id of ['node-name-form', 'node-key-form']) element(id).querySelector('button').hidden = !editable;
-    for (const id of ['node-name-form', 'node-key-form']) element(id).querySelector('button').disabled = !ready || !!op;
+    const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id));
     if (ready) {
-      element('node-name').value = editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name;
-      element('node-key').value = (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
+      const name = (editable ? drafts?.get('name') : undefined) ?? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name);
+      const key = (editable ? drafts?.get('key') : undefined) ?? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
+      if (element('node-name').value !== name) element('node-name').value = name;
+      if (element('node-key').value !== key) element('node-key').value = key;
     }
-    else { element('node-name').value = ''; element('node-key').value = ''; }
+    else { element('node-name').value = editable ? drafts?.get('name') ?? '' : ''; element('node-key').value = editable ? drafts?.get('key') ?? '' : ''; }
     element('node-metadata-status').textContent = op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready ? 'Загрузка слоя…' : '');
     element('node-metadata-error').textContent = op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? '');
     element('node-metadata-retry').hidden = !editable || op?.state !== 'uncertain';
@@ -127,17 +134,45 @@ export function createLayers({
   }
   function submitNodeMetadata(kind) {
     const doc = workspace.documentId, screen = workspace.selectedScreen, node = layerSelection?.id;
-    if (!node || !nodeMetadata || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
+    if (!node || nodeMetadata?.id !== node || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
     const key = nodeOperationKey(doc, node); if (nodeOperations.has(key)) return;
-    const value = element(kind === 'name' ? 'node-name' : 'node-key').value;
+    clearTimeout(metadataTimer);
+    const drafts = metadataDrafts.get(key);
+    const value = drafts?.get(kind);
+    if (value === undefined) return;
+    if (value === ((kind === 'name' ? nodeMetadata.name : nodeMetadata.semanticKey) ?? '')) {
+      drafts.delete(kind); return;
+    }
     if (value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value) || (kind === 'key' && value !== '' && !value.trim())) {
       element('node-metadata-error').textContent = 'Проверьте значение: не более 256 символов, без управляющих символов; semantic key не может состоять из пробелов.'; return;
     }
     const op = { kind, body: { commandId: crypto.randomUUID(), nodeId: node, ...(kind === 'name' ? { name: value } : { semanticKey: value === '' ? null : value }) }, state: 'pending' };
     nodeOperations.set(key, op); sendNodeMetadata(doc, screen, node, op);
   }
-  element('node-name-form').addEventListener('submit', e => { e.preventDefault(); submitNodeMetadata('name'); });
-  element('node-key-form').addEventListener('submit', e => { e.preventDefault(); submitNodeMetadata('key'); });
+  for (const [kind, id] of [['name', 'node-name'], ['key', 'node-key']]) {
+    const input = element(id);
+    input.addEventListener('input', () => {
+      if (!layerSelection || nodeMetadata?.id !== layerSelection.id || input.readOnly) return;
+      const key = nodeOperationKey(workspace.documentId, layerSelection.id);
+      if (!metadataDrafts.has(key)) metadataDrafts.set(key, new Map());
+      metadataDrafts.get(key).set(kind, input.value);
+      clearTimeout(metadataTimer);
+      metadataTimer = setTimeout(() => {
+        if (layerSelection && key === nodeOperationKey(workspace.documentId, layerSelection.id)) submitNodeMetadata(kind);
+      }, 500);
+    });
+    input.addEventListener('blur', () => submitNodeMetadata(kind));
+    input.addEventListener('keydown', event => {
+      if (event.isComposing) return;
+      if (event.key === 'Enter') { event.preventDefault(); submitNodeMetadata(kind); }
+      if (event.key === 'Escape' && layerSelection) {
+        clearTimeout(metadataTimer);
+        metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id))?.delete(kind);
+        renderNodeMetadata();
+      }
+    });
+    element(id + '-form').addEventListener('submit', event => { event.preventDefault(); submitNodeMetadata(kind); });
+  }
   element('node-metadata-retry').addEventListener('click', () => {
     const op = layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id));
     if (op?.state === 'uncertain') sendNodeMetadata(workspace.documentId, workspace.selectedScreen, layerSelection.id, op);
@@ -153,6 +188,7 @@ export function createLayers({
       if (!Number.isSafeInteger(result.revision) || result.status !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
       if (!active()) { op.state = 'uncertain'; return; }
       nodeOperations.delete(key);
+      metadataDrafts.get(key)?.delete(op.kind);
       // Keep confirmed values stable while refreshing the same selected layer.
       if (nodeMetadata?.id === node) {
         if (op.kind === 'name') nodeMetadata.name = op.body.name;
@@ -591,7 +627,7 @@ export function createLayers({
   }
 
   function clearCommands() {
-    nodeOperations.clear(); nodeDeletions.clear(); nodeMoves.clear(); nodeMoveNotices.clear();
+    clearTimeout(metadataTimer); metadataDrafts.clear(); nodeOperations.clear(); nodeDeletions.clear(); nodeMoves.clear(); nodeMoveNotices.clear();
   }
 
   return {

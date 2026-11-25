@@ -54,6 +54,7 @@ public sealed partial class SqliteDocumentJournal
             CREATE TABLE IF NOT EXISTS members(actor_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('Owner','Editor','Viewer')));
             CREATE TABLE IF NOT EXISTS command_history(command_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, result TEXT NOT NULL,
                 type TEXT NOT NULL, patch TEXT, status TEXT NOT NULL, history_order INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS command_history_groups(command_id TEXT PRIMARY KEY, group_id TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS compensation_events(revision INTEGER PRIMARY KEY, payload TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS user_versions(version_id TEXT PRIMARY KEY, revision INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL, sha256 BLOB NOT NULL);
             CREATE TABLE IF NOT EXISTS snapshots(revision INTEGER PRIMARY KEY, document TEXT NOT NULL);
@@ -425,6 +426,46 @@ public sealed partial class SqliteDocumentJournal
                     }
                 }
                 var patch = change.Event is DocumentDeleted or VersionSaved or HistoryCompensated ? null : DocumentPatch.Between(previous.Document, next.Document);
+                // Only adjacent, compatible edits from the same actor and editing session
+                // may merge. Preserve every event/result for recovery and idempotency.
+                if (patch is not null && change.HistoryGroupId is { } groupId && groupId != Guid.Empty)
+                {
+                    string? previousCommand = null;
+                    DocumentPatch? previousPatch = null;
+                    using (var lookup = connection.CreateCommand())
+                    {
+                        lookup.Transaction = transaction;
+                        lookup.CommandText = """
+                            SELECT h.command_id,h.patch FROM command_history h
+                            JOIN command_history_groups g ON g.command_id=h.command_id
+                            JOIN events e ON e.command_id=h.command_id
+                            WHERE h.actor_id=$actor AND h.status='ACTIVE' AND h.type=$type
+                              AND g.group_id=$group AND h.history_order=$previous AND e.revision=$previous
+                              AND e.subject_id=$subject
+                            """;
+                        lookup.Parameters.AddWithValue("$actor", change.Result.ActorId);
+                        lookup.Parameters.AddWithValue("$type", eventType);
+                        lookup.Parameters.AddWithValue("$group", groupId.ToString());
+                        lookup.Parameters.AddWithValue("$previous", previous.Revision);
+                        lookup.Parameters.AddWithValue("$subject", subjectId.ToString());
+                        using var reader = lookup.ExecuteReader();
+                        if (reader.Read() && !reader.IsDBNull(1))
+                        {
+                            previousCommand = reader.GetString(0);
+                            previousPatch = JsonSerializer.Deserialize<DocumentPatch>(reader.GetString(1));
+                        }
+                    }
+                    if (previousPatch?.Reverse().Apply(previous.Document) is { } groupStart)
+                    {
+                        patch = DocumentPatch.Between(groupStart, next.Document);
+                        command.CommandText = "UPDATE command_history SET status='GROUPED' WHERE command_id=$grouped AND status='ACTIVE'";
+                        command.Parameters.AddWithValue("$grouped", previousCommand!);
+                        if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Edit history group mismatch.");
+                    }
+                    command.CommandText = "INSERT INTO command_history_groups(command_id,group_id) VALUES($id,$groupId)";
+                    command.Parameters.AddWithValue("$groupId", groupId.ToString());
+                    command.ExecuteNonQuery();
+                }
                 command.CommandText = "INSERT INTO command_history(command_id,actor_id,result,type,patch,status,history_order) VALUES($id,$actor,$historyResult,$type,$patch,$historyStatus,$revision)";
                 command.Parameters.AddWithValue("$historyResult", JsonSerializer.Serialize(change.Result));
                 command.Parameters.AddWithValue("$patch", patch is null ? DBNull.Value : JsonSerializer.Serialize(patch));

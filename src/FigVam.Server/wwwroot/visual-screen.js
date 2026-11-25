@@ -1,4 +1,5 @@
 import { reconcileScreen, renderScreen } from './screen-renderer.js';
+import { resolvePropertyToken } from './token-resolution.js';
 
 export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
   const boundary = element('screen-boundary');
@@ -17,6 +18,55 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   const inputValues = new Map();
   const screenNodes = new Map(), screenScenarios = new Map(), assetUrls = new Map();
   let resources = null, loadedResources = null;
+  const propertyPreviews = new Map();
+  let previewFrame = 0;
+  const previewKey = (documentId, screen, variantId) => JSON.stringify([documentId, screen, variantId ?? null]);
+  const visualProperties = new Set(['visible', 'opacity', 'text', 'textColor', 'textAlignment', 'fontSize', 'fontFamily', 'fontFallback', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wrap', 'enabled', 'placeholder', 'value', 'multiline', 'inputType', 'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius', 'shadow', 'altText', 'fit', 'overflow']);
+
+  function projected(model) {
+    if (!context || !model) return model;
+    const edits = propertyPreviews.get(previewKey(context.documentId, model.screen, context.variantId));
+    if (!edits?.size) return model;
+    const nodes = new Map(model.nodes), boxes = new Map(model.boxes), overrides = new Map(model.overrides);
+    for (const [id, properties] of edits) {
+      const node = nodes.get(id), box = boxes.get(id);
+      if (!node || !box) continue;
+      const definitions = model.kinds.get(node.kind)?.properties ?? {};
+      const appearance = Object.fromEntries(Object.entries(properties).filter(([name]) => visualProperties.has(name)));
+      nodes.set(id, { ...node, properties: { ...node.properties, ...appearance } });
+      overrides.set(id, { ...overrides.get(id), ...appearance });
+      const parent = nodes.get(node.parentId);
+      const parentLayout = parent && (parent.properties.layout ?? model.kinds.get(parent.kind)?.properties.layout?.defaultValue)?.value;
+      // Do not approximate stack/auto-sizing or container geometry: server layout is authoritative.
+      if ((parent && parentLayout !== 'Free') || model.kinds.get(node.kind)?.canContainChildren || !boxes.has(node.parentId)) continue;
+      const parentBounds = boxes.get(node.parentId).bounds, bounds = { ...box.bounds };
+      for (const name of ['x', 'y', 'width', 'height']) {
+        const raw = properties[name];
+        if (!raw) continue;
+        if ((name === 'width' || name === 'height') && (node.properties[name + 'Mode'] ?? definitions[name + 'Mode']?.defaultValue)?.value !== 'Fixed') continue;
+        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, 'Light', definitions[name]).value : raw;
+        if (Number.isFinite(value?.value)) bounds[name] = value.value + (name === 'x' || name === 'y' ? parentBounds[name] : 0);
+      }
+      boxes.set(id, { ...box, bounds });
+    }
+    return { ...model, nodes, boxes, overrides };
+  }
+
+  function setPropertyPreview(target, properties) {
+    const key = previewKey(target.documentId, target.screen, target.variantId);
+    if (!propertyPreviews.has(key)) propertyPreviews.set(key, new Map());
+    const edits = propertyPreviews.get(key);
+    if (Object.keys(properties).length) edits.set(target.nodeId, properties);
+    else edits.delete(target.nodeId);
+    if (!edits.size) propertyPreviews.delete(key);
+    if (previewFrame) return;
+    previewFrame = requestAnimationFrame(() => {
+      previewFrame = 0;
+      if (!context || isPreview || !design.model || design.model.revision !== context.revision) return;
+      const drawing = renderScreen({ ...projected(design.model), theme: 'Light' }, { preview: false, report: () => {} });
+      reconcileScreen(design.host, drawing.root);
+    });
+  }
 
   function cancelView(view) {
     view.controller?.abort();
@@ -268,7 +318,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
           addDiagnostic(diagnostics, `${name} · ${item.property}: ${item.message} (${item.code})`);
         }
         if (!boxes.has(screen)) continue;
-        const drawing = renderScreen({ ...model, theme }, {
+        const drawing = renderScreen({ ...(previewMode ? model : projected(model)), theme }, {
           preview: previewMode, trigger: (id, event) => acceptsInteraction() && trigger(id, event),
           getInput: previewMode ? displayInput : undefined,
           setInput: (id, value) => { if (acceptsInteraction()) inputValues.set(id, value); },
@@ -423,5 +473,5 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
   }).observe(viewport);
-  return { refresh, syncSelection, readDesignModel, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
+  return { refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }

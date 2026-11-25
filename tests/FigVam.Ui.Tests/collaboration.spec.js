@@ -258,7 +258,7 @@ test('two connected inspectors reconcile one structured shadow edit', async ({ p
   const effects = page.locator('.shadow-effects');
   await effects.getByRole('button', { name: 'Add drop shadow' }).click();
   await effects.getByLabel('Drop shadow Blur', { exact: true }).fill('32');
-  await page.locator('#visual-save').click();
+  await expect(page.locator('#visual-inspector').getByRole('status')).toHaveText('Свойства сохранены.');
   const otherEffects = other.locator('.shadow-effects');
   await expect(otherEffects.getByLabel('Drop shadow Blur', { exact: true })).toHaveValue('32');
   await expect(other.locator('#revision')).toHaveText(await page.locator('#revision').textContent());

@@ -89,7 +89,7 @@ function colorControl(name, initial, compact = false) {
   });
   color.addEventListener('input', () => {
     hex.value = color.value;
-    hex.dispatchEvent(new Event('input', { bubbles: true }));
+    // The original color input event bubbles; do not emit a second synthetic event.
   });
   hex.addEventListener('input', () => {
     if (/^#[0-9a-f]{6}$/i.test(hex.value)) color.value = hex.value;
