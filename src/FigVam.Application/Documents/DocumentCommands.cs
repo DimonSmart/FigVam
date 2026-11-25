@@ -184,6 +184,11 @@ public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind,
     ImmutableSortedDictionary<string, NodePropertyValue>? Properties = null) : DocumentEvent;
 public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null, Guid? HistoryGroupId = null);
 
+public interface IDocumentCommandResultReader
+{
+    Task<CommandResult?> ReadResultAsync(Guid documentId, Guid commandId, DocumentActor actor, CancellationToken cancellationToken = default);
+}
+
 public interface IDocumentCommandJournal
 {
     // The callback, version lookup and result commit share one cross-process document transaction.

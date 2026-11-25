@@ -55,9 +55,13 @@ public sealed class DocumentController(IDocumentAccessService access, IDocumentL
     public async Task<IActionResult> RemoveMember(Guid documentId,
         [System.ComponentModel.DataAnnotations.StringLength(256, MinimumLength = 1)] string memberId,
         CancellationToken cancellationToken)
-        => Result(await access.RemoveMemberAsync(documentId,
-            HttpContext.RequestServices.GetService<FigVamUserStore>()?.ResolveMember(memberId, includeDisabled: true) ?? memberId,
-            User.GetDocumentActor(), cancellationToken));
+        {
+        var resolvedMemberId = HttpContext.RequestServices.GetService<FigVamUserStore>()?.ResolveMember(memberId, includeDisabled: true) ?? memberId;
+        var result = await access.RemoveMemberAsync(documentId, resolvedMemberId, User.GetDocumentActor(), cancellationToken);
+        if (result.Accepted)
+            await HttpContext.RequestServices.GetRequiredService<McpAccessRegistry>().RevokeAsync(documentId, resolvedMemberId, CancellationToken.None);
+        return Result(result);
+    }
 
     private IActionResult Result(DocumentAccessResult result, int acceptedStatus = 200)
     {

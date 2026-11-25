@@ -11,7 +11,7 @@ public sealed partial class DocumentCommandHandler
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? detail = null) =>
             new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-                Explanation: detail, AffectedIds: code == "ACCEPTED" ? [command.Style.Id] : null) { Source = actor.Source };
+                Explanation: detail, AffectedIds: code == "ACCEPTED" ? [command.Style.Id] : null) { Source = actor?.Source ?? "UI" };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, ct))
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.Style is null ||
@@ -40,7 +40,7 @@ public sealed partial class DocumentCommandHandler
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? detail = null) =>
             new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-                Explanation: detail, AffectedIds: code == "ACCEPTED" ? [command.StyleId] : null) { Source = actor.Source };
+                Explanation: detail, AffectedIds: code == "ACCEPTED" ? [command.StyleId] : null) { Source = actor?.Source ?? "UI" };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, ct))
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.StyleId == Guid.Empty)
@@ -67,7 +67,7 @@ public sealed partial class DocumentCommandHandler
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? detail = null) =>
             new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-                NodeId: command.NodeId, Explanation: detail) { Source = actor.Source };
+                NodeId: command.NodeId, Explanation: detail) { Source = actor?.Source ?? "UI" };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, ct))
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.NodeId == Guid.Empty)

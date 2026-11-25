@@ -11,7 +11,7 @@ namespace FigVam.Infrastructure.Documents;
 // All server instances must use this same local durable directory. SQLite's file locks,
 // rather than process-local locks or caches, establish the authoritative document stream.
 public sealed partial class SqliteDocumentJournal
-    : IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
+    : IDocumentCommandResultReader, IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
 {
     private const string EventProjection = """
         SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,
@@ -209,6 +209,16 @@ public sealed partial class SqliteDocumentJournal
                 => new NodeDeleted(subjectId),
             _ => throw new InvalidDataException("Invalid document event type or payload.")
         };
+    }
+
+    public async Task<CommandResult?> ReadResultAsync(Guid documentId, Guid commandId, DocumentActor actor, CancellationToken cancellationToken = default)
+    {
+        if (!await CanEditAsync(actor, documentId, cancellationToken)) return null;
+        using var connection = Open(documentId);
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT result FROM results WHERE command_id=$id";
+        command.Parameters.AddWithValue("$id", commandId.ToString());
+        return command.ExecuteScalar() is string original ? JsonSerializer.Deserialize<CommandResult>(original) : null;
     }
 
     public Task<CommandResult> ExecuteAsync(Guid documentId, Guid commandId,

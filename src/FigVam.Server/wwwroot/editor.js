@@ -138,6 +138,7 @@ const datasets = createDatasets({
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status) {
+  mcpAccess.reset();
   scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();

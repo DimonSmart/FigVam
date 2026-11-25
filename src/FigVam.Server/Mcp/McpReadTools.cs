@@ -34,8 +34,14 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     }
 
     [McpServerTool(Name = "get_document"), Description("Read document name, revision and first pages. Use list_pages for more.")]
-    public Task<CallToolResult> GetDocument(CancellationToken ct) =>
-        Read(new("document", Depth: 1, Fields: "name,childCount"), ct);
+    public async Task<CallToolResult> GetDocument(CancellationToken ct)
+    {
+        var doc = await queries.QueryAsync(Grant.DocumentId, new("document", Fields: "name,childCount"), Actor, ct);
+        if (doc.Response is null) return Result(doc.Code, null);
+        var pages = await queries.QueryAsync(Grant.DocumentId, new("pages", Fields: "name,childCount", Revision: doc.Response.Revision), Actor, ct);
+        return Result(pages.Code, pages.Response is null ? null : new { doc.Response.DocumentId, doc.Response.Revision,
+            name = doc.Response.Items[0].Name, pages = pages.Response.Items, pages.Response.Total });
+    }
 
     [McpServerTool(Name = "list_pages"), Description("List pages at a document revision.")]
     public Task<CallToolResult> ListPages(int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
@@ -58,8 +64,8 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         Read(new("children", parentId, offset, limit, Fields: "name,kind,childCount,parentId", Revision: revision), ct);
 
     [McpServerTool(Name = "get_screen_tree"), Description("Read a paginated flat list of screen descendants with parent IDs.")]
-    public Task<CallToolResult> GetScreenTree(Guid screenId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
-        Read(new("nodes", Offset: offset, Limit: limit, Fields: "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision), ct);
+    public Task<CallToolResult> GetScreenTree(Guid screenId, int depth = 3, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
+        Read(new("nodes", Offset: offset, Limit: limit, Fields: "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision, MaxDepth: depth), ct);
 
     [McpServerTool(Name = "list_node_types"), Description("List node kinds supported by the document profile.")]
     public async Task<CallToolResult> ListNodeTypes(CancellationToken ct)

@@ -13,7 +13,7 @@ public interface IDocumentStateReader
 public sealed record DocumentStateReadResult(string Code, DocumentState? State = null);
 
 public sealed record StructureQuery(string Resource, Guid? ObjectId = null, int Offset = 0, int Limit = 50,
-    int Depth = 0, string? Fields = null, Guid? ScreenId = null, string? Kind = null, string? SemanticKey = null, string? NamePrefix = null, long? Revision = null);
+    int Depth = 0, string? Fields = null, Guid? ScreenId = null, string? Kind = null, string? SemanticKey = null, string? NamePrefix = null, long? Revision = null, int? MaxDepth = null);
 public sealed record StructureItem(Guid Id, string Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, NodePropertyValue>? Properties = null,
@@ -107,7 +107,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanReadAsync(actor, documentId, cancellationToken)) return new("FORBIDDEN");
         if (documentId == Guid.Empty || query.ObjectId == Guid.Empty || query.ScreenId == Guid.Empty) return new("INVALID_ID");
         var fields = query.Fields is null ? new HashSet<string>(["kind", "properties", "childCount", "name", "semanticKey", "dataBindings", "repeater", "dimensions"], StringComparer.Ordinal) : query.Fields.Split(',').ToHashSet(StringComparer.Ordinal);
-        if (query.Offset < 0 || query.Limit is < 1 or > 100 || query.Depth is < 0 or > 2 || fields.Any(f => f is not ("kind" or "properties" or "childCount" or "name" or "semanticKey" or "dataBindings" or "repeater" or "dimensions" or "parentId" or "canContainChildren")) || query.Kind?.Length > 256 || query.SemanticKey?.Length > 256 || query.NamePrefix?.Length > 256)
+        if (query.Offset < 0 || query.Limit is < 1 or > 100 || query.Depth is < 0 or > 2 || query.MaxDepth is < 1 or > 100 || fields.Any(f => f is not ("kind" or "properties" or "childCount" or "name" or "semanticKey" or "dataBindings" or "repeater" or "dimensions" or "parentId" or "canContainChildren")) || query.Kind?.Length > 256 || query.SemanticKey?.Length > 256 || query.NamePrefix?.Length > 256)
             return new("INVALID_QUERY");
         if (query.ScreenId is not null && query.Resource != "nodes" || (query.Kind is not null || query.SemanticKey is not null || query.NamePrefix is not null) && query.Resource is not ("nodes" or "children")) return new("INVALID_QUERY");
         if (query.Revision < 0) return new("INVALID_REVISION");
@@ -120,8 +120,13 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         var screens = doc.Screens.ToDictionary(s => s.Id);
         IEnumerable<Guid> Descendants(Guid screenId)
         {
-            var pending = new Stack<Guid>(screens[screenId].ChildIds.Reverse());
-            while (pending.TryPop(out var id)) { yield return id; foreach (var child in nodes[id].ChildIds.Reverse()) pending.Push(child); }
+            var pending = new Stack<(Guid Id, int Depth)>(screens[screenId].ChildIds.Reverse().Select(id => (id, 1)));
+            while (pending.TryPop(out var item))
+            {
+                yield return item.Id;
+                if (query.MaxDepth is null || item.Depth < query.MaxDepth)
+                    foreach (var child in nodes[item.Id].ChildIds.Reverse()) pending.Push((child, item.Depth + 1));
+            }
         }
         if (query.ScreenId is { } screen && !screens.ContainsKey(screen)) return new("SCREEN_NOT_FOUND");
         bool Matches(NodeStructure n) => (query.Kind is null || n.Kind == query.Kind) &&

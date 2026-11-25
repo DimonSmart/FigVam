@@ -11,7 +11,7 @@ namespace FigVam.Server.Mcp;
 
 [McpServerToolType]
 public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentCommandHandler handler,
-    IDocumentStateReader reader, INodeProfile profile)
+    IDocumentStateReader reader, INodeProfile profile, IDocumentCommandResultReader results)
 {
     private McpDocumentGrant Grant => (McpDocumentGrant)accessor.HttpContext!.Items[McpServiceRegistration.GrantKey]!;
     private Guid DocumentId => Grant.DocumentId;
@@ -39,7 +39,12 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     private async Task<CallToolResult> Run(Guid? commandId, Func<Guid, Task<CommandResult>> action, string? affected = null)
     {
         var id = commandId ?? Guid.NewGuid();
-        try { return Result(await action(id), affected); }
+        try
+        {
+            if (commandId is not null && await results.ReadResultAsync(DocumentId, id, Actor) is { } original)
+                return Result(original, affected);
+            return Result(await action(id), affected);
+        }
         catch (McpContractException e) { return Error(e.Code, e.Message, id); }
     }
 

@@ -22,6 +22,7 @@ public static class DocumentServices
         builder.Services.AddSingleton<IDocumentListQuery>(journal);
         builder.Services.AddSingleton<IDocumentAuthorization>(journal);
         builder.Services.AddSingleton<IDocumentCommandJournal>(journal);
+        builder.Services.AddSingleton<IDocumentCommandResultReader>(journal);
         builder.Services.AddSingleton<IDocumentStateReader>(journal);
         builder.Services.AddSingleton<IDocumentEventJournal>(journal);
         builder.Services.AddSingleton<IDocumentReconnectReader, DocumentReconnectReader>();
