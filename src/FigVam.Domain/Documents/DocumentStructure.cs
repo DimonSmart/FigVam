@@ -278,7 +278,12 @@ public static class DocumentStructureEditor
     }
 }
 
-public sealed record StructureError(string Code, Guid ObjectId, Guid? ReferenceId, string Message, string? Property = null);
+public sealed record StructureError(string Code, Guid ObjectId, Guid? ReferenceId, string Message, string? Property = null)
+{
+    public TokenTheme? TokenTheme { get; init; }
+    public string? Expected { get; init; }
+    public string? Actual { get; init; }
+}
 
 public static class DocumentStructureLimits
 {
@@ -335,7 +340,8 @@ public static class DocumentStructureValidator
             if (style is not null) Register(style.Id, "design style");
         var tokens = new DesignTokenResolver(document.Tokens);
         errors.AddRange(DesignTokenValidator.Validate(document.Tokens).Select(e =>
-            new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message, e.Field)));
+            new StructureError(e.Code, e.TokenId, e.ReferenceId, e.Message, e.Field)
+                { TokenTheme = e.Theme, Expected = e.Expected, Actual = e.Actual }));
         errors.AddRange(DesignStyleValidator.Validate(document, profile));
         Register(document.Id, "document");
         foreach (var page in document.Pages) Register(page.Id, "page");
