@@ -88,6 +88,8 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 Все инструменты доступны через tools/list со схемами и описаниями. documentId не передаётся. Для постраничного чтения используйте offset, limit (1–100), revision; дерево по умолчанию ограничено глубиной 3. Ответ содержит структурированные данные; ошибки содержат status REJECTED и code. Изменения возвращают commandId, revision и идентификаторы результата. Для повторной доставки используйте тот же commandId. Перед операциями с expectedRevision прочитайте актуальную ревизию. При конфликте обновите состояние, а не перезаписывайте данные вслепую.
 
+Команды create_page, create_screen, create_node и duplicate_screen принимают необязательный параметр name. Имя — метаданные объекта, а не визуальное свойство. Если имя не передано или равно null, сохраняется прежнее поведение; имя проверяется по тем же правилам, что и при переименовании. Создание и именование выполняются одной атомарной операцией.
+
 Свойства определяются профилем (get_node_schema). В описании каждого свойства поле inputSchema содержит JSON Schema именно для входного значения create_node / set_node_properties, а не для внутреннего формата хранения, возвращаемого get_node. Для составных значений схемы генерируются из тех же типизированных DTO, которые десериализует сервер. anyOf описывает альтернативные формы, например литерал цвета и ссылку на токен. Проверки существования и совместимости ссылок по-прежнему выполняются в контексте документа. В восьмизначных HEX-цветах альфа-канал находится в конце. Передавайте числа, строки, логические значения, цвета #RRGGBB или #RRGGBBAA, ссылки {"tokenId":"UUID"} и тени {"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}. create_node и set_node_properties применяют свойства атомарно. move_node использует нулевой индекс и ожидаемого родителя. create_scenario и update_scenario принимают event и список actions, MVP поддерживает navigate со screenId. save_version создаёт именованную неизменяемую версию.
 
 ## Примеры аргументов tools/call
@@ -97,8 +99,8 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 | get_document | {} |
 | list_screens | {"pageId":"UUID","offset":0,"limit":20} |
 | get_screen_tree | {"screenId":"UUID","depth":3} |
-| create_screen | {"pageId":"UUID","width":800,"height":600} |
-| create_node | {"parentId":"UUID","kind":"Frame","properties":{"width":360,"height":400,"backgroundColor":"#FFFFFF"}} |
+| create_screen | {"pageId":"UUID","width":800,"height":600,"name":"Login"} |
+| create_node | {"parentId":"UUID","kind":"Frame","name":"Authentication card","properties":{"width":360,"height":400,"backgroundColor":"#FFFFFF"}} |
 | create_token | {"name":"spacing.dialog","type":"Spacing","light":32,"dark":32} |
 | set_node_properties | {"nodeId":"UUID","properties":{"paddingRight":{"tokenId":"UUID"},"shadow":{"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}}} |
 | create_scenario | {"screenId":"UUID","nodeId":"UUID","event":"Click","actions":[{"type":"navigate","screenId":"UUID"}]} |
