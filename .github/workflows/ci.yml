@@ -109,27 +109,3 @@ jobs:
           path: tests/FigVam.Ui.Tests/test-results/
           if-no-files-found: ignore
           retention-days: 7
-
-  mcp-locks:
-    runs-on: windows-latest
-    if: github.head_ref == 'feature/document-mcp'
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-      - name: Regenerate package locks for review
-        shell: pwsh
-        run: |
-          dotnet restore FigVam.sln --force-evaluate
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git diff --name-only -- '*packages.lock.json' | ForEach-Object {
-            Write-Output "FIGVAM_LOCK_BEGIN $_"
-            Get-Content -Raw -LiteralPath $_
-            Write-Output "FIGVAM_LOCK_END"
-          }
-      - name: Build with regenerated locks
-        run: dotnet build FigVam.sln --no-restore
-      - name: MCP tests
-        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~Mcp
