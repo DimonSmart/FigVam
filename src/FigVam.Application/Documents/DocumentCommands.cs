@@ -73,12 +73,14 @@ public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code,
     public string? Expected { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? Actual { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? PropertyPath { get; init; }
     public bool Accepted => Code == "ACCEPTED";
     public bool Equals(CommandResult? other) => other is not null &&
         DocumentId == other.DocumentId && CommandId == other.CommandId && Code == other.Code && Revision == other.Revision &&
         ActorId == other.ActorId && Source == other.Source && PageId == other.PageId && Timestamp == other.Timestamp && ScreenId == other.ScreenId &&
         NodeId == other.NodeId && VersionId == other.VersionId && Explanation == other.Explanation && Property == other.Property &&
-        Expected == other.Expected && Actual == other.Actual &&
+        Expected == other.Expected && Actual == other.Actual && PropertyPath == other.PropertyPath &&
         (AffectedIds is null ? other.AffectedIds is null : other.AffectedIds is not null && AffectedIds.SequenceEqual(other.AffectedIds)) &&
         (Diagnostics is null ? other.Diagnostics is null : other.Diagnostics is not null && Diagnostics.SequenceEqual(other.Diagnostics));
     public override int GetHashCode() => HashCode.Combine(DocumentId, CommandId, Code, Revision, ActorId, Timestamp);
@@ -808,12 +810,35 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             var properties = command.Properties.ToImmutableSortedDictionary(StringComparer.Ordinal);
             var updated = DocumentStructureEditor.SetNodeProperties(document, command.NodeId, properties);
             if (DocumentStructureValidator.Validate(updated, profile).FirstOrDefault() is { } invalid)
-                return new(Result(NodePropertyDiagnosticCode(invalid, properties), explanation: invalid.Message,
-                    property: invalid.Property), null);
+                return new(WithReferenceDiagnostic(Result(NodePropertyDiagnosticCode(invalid, properties), explanation: invalid.Message,
+                    property: invalid.Property), invalid, properties), null);
             var next = new DocumentState(updated, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new NodePropertiesSet(command.NodeId, properties), HistoryGroupId: command.HistoryGroupId);
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
+    }
+
+    private static CommandResult WithReferenceDiagnostic(CommandResult result, StructureError error,
+        IReadOnlyDictionary<string, NodePropertyValue>? properties)
+    {
+        if (error.ReferenceId is null || error.Property is not { } property ||
+            error.Code is not ("missing-reference" or "type-mismatch") ||
+            properties?.GetValueOrDefault(property) is not { } value)
+            return result;
+        var (field, resource) = value switch
+        {
+            NodeTokenValue => ("tokenId", "token"),
+            NodeAssetValue => ("assetId", "asset"),
+            NodeStyleValue => ("styleId", "style"),
+            _ => (null, null)
+        };
+        if (field is null) return result;
+        return result with
+        {
+            PropertyPath = $"{property}.{field}",
+            Expected = $"Existing compatible {resource}",
+            Actual = error.Code == "missing-reference" ? $"Missing {resource}" : $"Incompatible {resource}"
+        };
     }
 
     private static string NodePropertyDiagnosticCode(StructureError error,
@@ -1103,7 +1128,8 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (command.Name is not null && !NodeMetadataValidator.IsValidName(command.Name)) return new(Result("INVALID_NODE_METADATA"), null);
             var updated = DocumentStructureEditor.AddNode(document, command.ParentId, command.NodeId, command.Kind, properties, command.Name);
             if (DocumentStructureValidator.Validate(updated, profile).FirstOrDefault() is { } invalid)
-                return new(Result(NodePropertyDiagnosticCode(invalid, properties), diagnostic: invalid), null);
+                return new(WithReferenceDiagnostic(Result(NodePropertyDiagnosticCode(invalid, properties), diagnostic: invalid),
+                    invalid, properties), null);
             var revision = checked(state.Revision + 1);
             return new(Result("ACCEPTED", revision), new(updated, revision),
                 new NodeAdded(command.ParentId, command.NodeId, command.Kind, properties, command.Name));
