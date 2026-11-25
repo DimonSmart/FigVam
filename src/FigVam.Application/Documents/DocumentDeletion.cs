@@ -14,6 +14,8 @@ public sealed partial class DocumentCommandHandler
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty) return Result("INVALID_ID");
         if (command.ExpectedRevision < 0) return Result("INVALID_REVISION");
+        if (journal is IDocumentDeletionJournal catalog)
+            return await catalog.DeleteAsync(command, actor, cancellationToken);
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
@@ -23,4 +25,9 @@ public sealed partial class DocumentCommandHandler
         }, cancellationToken, authorize: async () =>
             await authorization.CanDeleteAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
+}
+
+public interface IDocumentDeletionJournal
+{
+    Task<CommandResult> DeleteAsync(DeleteDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
 }

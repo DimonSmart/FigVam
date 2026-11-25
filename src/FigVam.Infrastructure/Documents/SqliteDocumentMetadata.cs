@@ -1,0 +1,127 @@
+using System.Globalization;
+using FigVam.Application.Documents;
+using FigVam.Domain.Documents;
+using Microsoft.Data.Sqlite;
+
+namespace FigVam.Infrastructure.Documents;
+
+public sealed partial class SqliteDocumentJournal
+{
+    private const int StorageSchemaVersion = 1;
+    private sealed record CatalogMetadata(int Schema, Guid DocumentId, string Name, string ProfileId, int ProfileVersion,
+        long Revision, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt);
+
+    private static void WriteMetadata(SqliteConnection connection, SqliteTransaction transaction,
+        DocumentStructure document, long revision, DateTimeOffset? created, DateTimeOffset? updated)
+        => WriteMetadata(connection, transaction, new(StorageSchemaVersion, document.Id, document.Name, document.Profile.Id,
+            document.Profile.Version, revision, created, updated));
+
+    private static void WriteMetadata(SqliteConnection connection, SqliteTransaction transaction, CatalogMetadata metadata)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            INSERT INTO document_metadata(singleton,schema_version,document_id,name,profile_id,profile_version,revision,created_utc,updated_utc)
+            VALUES(1,$schema,$documentId,$name,$profile,$version,$revision,$created,$updated)
+            ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,document_id=excluded.document_id,name=excluded.name,
+                profile_id=excluded.profile_id,profile_version=excluded.profile_version,revision=excluded.revision,
+                updated_utc=excluded.updated_utc
+            """;
+        command.Parameters.AddWithValue("$schema", metadata.Schema);
+        command.Parameters.AddWithValue("$documentId", metadata.DocumentId.ToString("D"));
+        command.Parameters.AddWithValue("$name", metadata.Name);
+        command.Parameters.AddWithValue("$profile", metadata.ProfileId);
+        command.Parameters.AddWithValue("$version", metadata.ProfileVersion);
+        command.Parameters.AddWithValue("$revision", metadata.Revision);
+        command.Parameters.AddWithValue("$created", (object?)metadata.CreatedAt?.ToString("O") ?? DBNull.Value);
+        command.Parameters.AddWithValue("$updated", (object?)metadata.UpdatedAt?.ToString("O") ?? DBNull.Value);
+        command.ExecuteNonQuery();
+    }
+
+    private static DateTimeOffset? ReadDate(SqliteDataReader reader, int column)
+        => reader.IsDBNull(column) ? null : DateTimeOffset.Parse(reader.GetString(column), CultureInfo.InvariantCulture);
+
+    private static CatalogMetadata? ReadMetadata(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT schema_version,document_id,name,profile_id,profile_version,revision,created_utc,updated_utc FROM document_metadata WHERE singleton=1";
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? new(reader.GetInt32(0), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3),
+            reader.GetInt32(4), reader.GetInt64(5), ReadDate(reader, 6), ReadDate(reader, 7)) : null;
+    }
+
+    // A one-time projection for pre-catalog databases. SQLite extracts scalar JSON fields only;
+    // no DocumentStructure deserialization, validation, asset access or domain event replay.
+    // The last name change may be a rename, restore or undo/redo after the last snapshot.
+    // Historical releases also wrote explicit profile-upgrade events. Project their identity without replaying them.
+    private static CatalogMetadata? ReadLegacyMetadata(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            WITH latest AS (SELECT revision,document FROM snapshots ORDER BY revision DESC LIMIT 1),
+            names AS (
+                SELECT revision,json_extract(document,'$.Name') AS name FROM latest
+                UNION ALL SELECT p.revision,json_extract(p.payload,'$.Name')
+                    FROM payload_events p JOIN events e ON e.revision=p.revision
+                    WHERE e.type='RENAME_DOCUMENT' AND p.revision>(SELECT revision FROM latest)
+                UNION ALL SELECT revision,json_extract(document,'$.Name')
+                    FROM restore_events WHERE revision>(SELECT revision FROM latest)
+                UNION ALL SELECT revision,json_extract(payload,'$.Patch.Name.After')
+                    FROM compensation_events WHERE revision>(SELECT revision FROM latest)
+            ),
+            profiles AS (
+                SELECT revision,json_extract(document,'$.Profile.Id') AS id,json_extract(document,'$.Profile.Version') AS version FROM latest
+                UNION ALL SELECT p.revision,json_extract(p.payload,'$.Profile.Id'),json_extract(p.payload,'$.Profile.Version')
+                    FROM payload_events p JOIN events e ON e.revision=p.revision
+                    WHERE e.type='UPGRADE_PORTABLE_UI_PROFILE' AND p.revision>(SELECT revision FROM latest)
+                UNION ALL SELECT revision,json_extract(document,'$.Profile.Id'),json_extract(document,'$.Profile.Version')
+                    FROM restore_events WHERE revision>(SELECT revision FROM latest)
+            )
+            SELECT json_extract(document,'$.Id'), (SELECT name FROM names WHERE name IS NOT NULL ORDER BY revision DESC LIMIT 1),
+                (SELECT id FROM profiles ORDER BY revision DESC LIMIT 1),
+                (SELECT version FROM profiles ORDER BY revision DESC LIMIT 1),
+                MAX(revision,COALESCE((SELECT MAX(revision) FROM events),0)),
+                (SELECT timestamp FROM events ORDER BY revision DESC LIMIT 1)
+            FROM latest
+            """;
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) return null;
+        // Unknown legacy profile is not silently substituted with the current one.
+        if (reader.IsDBNull(0) || !Guid.TryParse(reader.GetString(0), out var id))
+            throw new InvalidDataException("Missing document identity in legacy metadata.");
+        return new(StorageSchemaVersion, id, reader.IsDBNull(1) ? "Document" : reader.GetString(1),
+            reader.IsDBNull(2) ? "" : reader.GetString(2), reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+            reader.GetInt64(4), null, ReadDate(reader, 5));
+    }
+
+    private static void ValidateCatalogIdentity(Guid id, CatalogMetadata metadata)
+    {
+        if (id != metadata.DocumentId || metadata.Revision < 0)
+            throw new InvalidDataException("Document catalog identity or revision is invalid.");
+    }
+
+    private DocumentListItem CatalogItem(Guid id, DocumentRole role, CatalogMetadata metadata)
+    {
+        ValidateCatalogIdentity(id, metadata);
+        return new(id, metadata.Name, role.ToString())
+        {
+            StorageSchemaVersion = metadata.Schema, ProfileId = metadata.ProfileId,
+            ProfileVersion = metadata.ProfileVersion, CurrentProfileVersion = profile.Identity.Version,
+            Revision = metadata.Revision, CreatedAt = metadata.CreatedAt, UpdatedAt = metadata.UpdatedAt,
+            CompatibilityIssue = metadata.Schema != StorageSchemaVersion ? "UNSUPPORTED_STORAGE_SCHEMA" :
+                PortableUiProfileResolver.Validate(new(metadata.ProfileId, metadata.ProfileVersion), profile)?.Code
+        };
+    }
+
+    private static long? ReadCatalogRevision(SqliteConnection connection, SqliteTransaction transaction)
+    {
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = """
+            SELECT MAX((SELECT MAX(revision) FROM snapshots),COALESCE((SELECT MAX(revision) FROM events),0))
+            """;
+        return command.ExecuteScalar() is long revision ? revision : null;
+    }
+}

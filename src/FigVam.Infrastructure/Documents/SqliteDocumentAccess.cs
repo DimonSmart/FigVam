@@ -57,6 +57,8 @@ public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDoc
             command.Parameters.AddWithValue("$document", JsonSerializer.Serialize(document));
             command.Parameters.AddWithValue("$actor", actor.Id);
             command.ExecuteNonQuery();
+            var now = DateTimeOffset.UtcNow;
+            WriteMetadata(connection, transaction, document, 0, now, now);
             cancellationToken.ThrowIfCancellationRequested();
             transaction.Commit();
             return new DocumentAccessResult("ACCEPTED", id);

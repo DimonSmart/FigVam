@@ -8,6 +8,7 @@ using FigVam.Domain.Preview;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
+using Microsoft.Data.Sqlite;
 
 namespace FigVam.Server.Tests;
 
@@ -153,6 +154,31 @@ public sealed class PortableUiProfileTests : IDisposable
         }
         var created = Guid.NewGuid();
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = created })).StatusCode);
+        // Simulate a database created before catalog metadata was introduced.
+        using (var db = new SqliteConnection($"Data Source={Path.Combine(directory, $"{id:N}.sqlite")};Pooling=False"))
+        {
+            db.Open();
+            using var sql = db.CreateCommand();
+            sql.CommandText = "DROP TABLE document_metadata";
+            sql.ExecuteNonQuery();
+        }
+        var list = (await client.GetFromJsonAsync<DocumentListResponse>("/api/v1/documents"))!;
+        Assert.Equal(2, list.Items.Count);
+        var old = Assert.Single(list.Items, item => item.DocumentId == id);
+        Assert.Equal(7, old.ProfileVersion);
+        Assert.Equal("UNSUPPORTED_PROFILE_VERSION", old.CompatibilityIssue);
+        Assert.Equal(1, old.Revision);
+        Assert.Null(old.CreatedAt);
+        Assert.Null(Assert.Single(list.Items, item => item.DocumentId == created).CompatibilityIssue);
+        await source.SetMemberAsync(id, "viewer", DocumentRole.Viewer, owner);
+        var deletion = new { commandId = Guid.NewGuid(), expectedRevision = old.Revision };
+        client.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "viewer"));
+        Assert.Equal(403, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/delete-document", deletion)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: owner.Id));
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/delete-document", deletion)).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/delete-document", deletion)).StatusCode);
+        Assert.Equal(created, Assert.Single((await client.GetFromJsonAsync<DocumentListResponse>("/api/v1/documents"))!.Items).DocumentId);
+
         var export = await client.GetFromJsonAsync<DocumentJsonExport>($"/api/v1/documents/{created}/document.json", DocumentJsonFormat.CreateOptions());
         Assert.Equal(PortableUiProfileReference.Current, export!.Document.Profile);
         Assert.Empty(export.Document.Nodes);
@@ -163,6 +189,42 @@ public sealed class PortableUiProfileTests : IDisposable
         Assert.Equal(5, metadata.Kinds.Count);
         var input = Assert.Single(metadata.Kinds, kind => kind.Kind == "TextInput");
         Assert.True(input.Properties.ContainsKey("inputType"));
+    }
+
+    [Fact]
+    public async Task LegacyCatalogReportsLastHistoricalProfileUpgradeWithoutReplayingIt()
+    {
+        var id = Guid.NewGuid();
+        var oldProfile = new TestProfile(new("figvam.portable-ui", 2));
+        var source = new SqliteDocumentJournal(directory, oldProfile);
+        Assert.True((await source.CreateAsync(new(id, "Old design"), owner)).Accepted);
+        // This is the event shape emitted by the former upgrade-portable-ui-profile command.
+        using (var db = new SqliteConnection($"Data Source={Path.Combine(directory, $"{id:N}.sqlite")};Pooling=False"))
+        {
+            db.Open();
+            using var sql = db.CreateCommand();
+            sql.CommandText = """
+                DROP TABLE document_metadata;
+                INSERT INTO events(revision,command_id,actor_id,timestamp,type,subject_id)
+                VALUES(1,$command,$actor,$time,'UPGRADE_PORTABLE_UI_PROFILE',$id);
+                INSERT INTO payload_events(revision,payload) VALUES(1,$payload);
+                """;
+            sql.Parameters.AddWithValue("$command", Guid.NewGuid().ToString());
+            sql.Parameters.AddWithValue("$actor", owner.Id);
+            sql.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToString("O"));
+            sql.Parameters.AddWithValue("$id", id.ToString());
+            sql.Parameters.AddWithValue("$payload", """{"payloadType":"PORTABLE_UI_PROFILE_UPGRADED","Profile":{"Id":"figvam.portable-ui","Version":3}}""");
+            sql.ExecuteNonQuery();
+        }
+        var current = new SqliteDocumentJournal(directory, new VisualNodeProfile());
+        var item = Assert.Single((await current.ListAsync(owner)).Items);
+        Assert.Equal(3, item.ProfileVersion);
+        Assert.Equal(1, item.Revision);
+        Assert.Equal("Old design", item.Name);
+        Assert.Equal("UNSUPPORTED_PROFILE_VERSION", item.CompatibilityIssue);
+        Assert.True((await new DocumentCommandHandler(current, current, new VisualNodeProfile())
+            .HandleAsync(new DeleteDocumentCommand(id, Guid.NewGuid(), 1), owner)).Accepted);
+        Assert.Empty((await current.ListAsync(owner)).Items);
     }
 
     [Fact]
