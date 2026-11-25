@@ -51,7 +51,28 @@ test('ChatGPT tunnel can be granted, revoked and switched without copying tokens
   await expect(page.getByLabel('Токен доступа', { exact: true })).toHaveCount(0);
   await menu.click();
 
+  await page.getByRole('link', { name: '← Документы' }).click();
+  await page.getByRole('link', { name: 'Tunnel B', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp('/documents/' + b + '
+  await expect(panel.getByText('Другой документ уже разрешён', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT' })).toHaveCount(0);
+  await page.getByRole('link', { name: '← Документы' }).click();
+  await page.getByRole('link', { name: 'Tunnel A', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp('/documents/' + a + '
+  await panel.getByRole('button', { name: 'Отозвать доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT не предоставлен', { exact: true })).toBeVisible();
+  expect((await call('create_page')).structuredContent.code).toBe('MCP_TUNNEL_ACCESS_REQUIRED');
+
   await page.goto(server.url + '/documents/' + b);
+  await menu.click();
+  await panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT разрешён', { exact: true })).toBeVisible();
+  expect((await call('get_document')).structuredContent.documentId).toBe(b);
+  expect((await call('create_page')).isError).not.toBe(true);
+  await menu.click();
+  await expect(panel).toHaveCount(0);
+});
+));
   await menu.click();
   await expect(panel.getByText('Другой документ уже разрешён', { exact: true })).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT' })).toHaveCount(0);
@@ -61,7 +82,61 @@ test('ChatGPT tunnel can be granted, revoked and switched without copying tokens
   await expect(panel.getByText('Доступ через ChatGPT не предоставлен', { exact: true })).toBeVisible();
   expect((await call('create_page')).structuredContent.code).toBe('MCP_TUNNEL_ACCESS_REQUIRED');
 
+  await page.getByRole('link', { name: '← Документы' }).click();
+  await page.getByRole('link', { name: 'Tunnel B', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp('/documents/' + b + '
+  await panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT разрешён', { exact: true })).toBeVisible();
+  expect((await call('get_document')).structuredContent.documentId).toBe(b);
+  expect((await call('create_page')).isError).not.toBe(true);
+  await menu.click();
+  await expect(panel).toHaveCount(0);
+});
+));
+  await menu.click();
+  await panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT разрешён', { exact: true })).toBeVisible();
+  expect((await call('get_document')).structuredContent.documentId).toBe(b);
+  expect((await call('create_page')).isError).not.toBe(true);
+  await menu.click();
+  await expect(panel).toHaveCount(0);
+});
+));
+  await menu.click();
+  await panel.getByRole('button', { name: 'Отозвать доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT не предоставлен', { exact: true })).toBeVisible();
+  expect((await call('create_page')).structuredContent.code).toBe('MCP_TUNNEL_ACCESS_REQUIRED');
+
   await page.goto(server.url + '/documents/' + b);
+  await menu.click();
+  await panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT разрешён', { exact: true })).toBeVisible();
+  expect((await call('get_document')).structuredContent.documentId).toBe(b);
+  expect((await call('create_page')).isError).not.toBe(true);
+  await menu.click();
+  await expect(panel).toHaveCount(0);
+});
+));
+  await menu.click();
+  await expect(panel.getByText('Другой документ уже разрешён', { exact: true })).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT' })).toHaveCount(0);
+  await page.goto(server.url + '/documents/' + a);
+  await menu.click();
+  await panel.getByRole('button', { name: 'Отозвать доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT не предоставлен', { exact: true })).toBeVisible();
+  expect((await call('create_page')).structuredContent.code).toBe('MCP_TUNNEL_ACCESS_REQUIRED');
+
+  await page.getByRole('link', { name: '← Документы' }).click();
+  await page.getByRole('link', { name: 'Tunnel B', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp('/documents/' + b + '
+  await panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT', exact: true }).click();
+  await expect(panel.getByText('Доступ через ChatGPT разрешён', { exact: true })).toBeVisible();
+  expect((await call('get_document')).structuredContent.documentId).toBe(b);
+  expect((await call('create_page')).isError).not.toBe(true);
+  await menu.click();
+  await expect(panel).toHaveCount(0);
+});
+));
   await menu.click();
   await panel.getByRole('button', { name: 'Разрешить доступ через ChatGPT', exact: true }).click();
   await expect(panel.getByText('Доступ через ChatGPT разрешён', { exact: true })).toBeVisible();

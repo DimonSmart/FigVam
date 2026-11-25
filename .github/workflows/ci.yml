@@ -67,7 +67,7 @@ jobs:
         run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
       - name: MCP Login Flow smoke
         working-directory: tests/FigVam.Ui.Tests
-        run: npx playwright test mcp-login-flow.spec.js --workers=1 --trace off
+        run: npx playwright test mcp-login-flow.spec.js mcp-tunnel.spec.js --workers=1 --trace off
       - name: Home dashboard smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test home.spec.js --trace retain-on-failure

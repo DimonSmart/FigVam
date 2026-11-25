@@ -678,3 +678,7 @@ Server logs are attached to each result. Browser tests use one worker and no ret
 ## MCP-доступ для AI-агентов
 
 В открытом документе Owner или Editor может выдать временный токен в меню **MCP-доступ** и подключить клиент через Streamable HTTP. См. [настройку, инструменты и проверку Login Flow](docs/mcp.md).
+
+### ChatGPT MCP Tunnel
+
+Настройка приватного туннеля, ручной запуск из Aspire Dashboard и разрешение конкретного документа описаны в [docs/mcp.md](docs/mcp.md#chatgpt-через-openai-secure-mcp-tunnel-локальный-aspire).
