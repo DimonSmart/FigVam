@@ -54,6 +54,7 @@ public sealed partial class SqliteDocumentJournal
     // A one-time projection for pre-catalog databases. SQLite extracts scalar JSON fields only;
     // no DocumentStructure deserialization, validation, asset access or domain event replay.
     // The last name change may be a rename, restore or undo/redo after the last snapshot.
+    // Historical releases also wrote explicit profile-upgrade events. Project their identity without replaying them.
     private static CatalogMetadata? ReadLegacyMetadata(SqliteConnection connection, SqliteTransaction transaction)
     {
         using var command = connection.CreateCommand();
@@ -69,9 +70,18 @@ public sealed partial class SqliteDocumentJournal
                     FROM restore_events WHERE revision>(SELECT revision FROM latest)
                 UNION ALL SELECT revision,json_extract(payload,'$.Patch.Name.After')
                     FROM compensation_events WHERE revision>(SELECT revision FROM latest)
+            ),
+            profiles AS (
+                SELECT revision,json_extract(document,'$.Profile.Id') AS id,json_extract(document,'$.Profile.Version') AS version FROM latest
+                UNION ALL SELECT p.revision,json_extract(p.payload,'$.Profile.Id'),json_extract(p.payload,'$.Profile.Version')
+                    FROM payload_events p JOIN events e ON e.revision=p.revision
+                    WHERE e.type='UPGRADE_PORTABLE_UI_PROFILE' AND p.revision>(SELECT revision FROM latest)
+                UNION ALL SELECT revision,json_extract(document,'$.Profile.Id'),json_extract(document,'$.Profile.Version')
+                    FROM restore_events WHERE revision>(SELECT revision FROM latest)
             )
             SELECT json_extract(document,'$.Id'), (SELECT name FROM names WHERE name IS NOT NULL ORDER BY revision DESC LIMIT 1),
-                json_extract(document,'$.Profile.Id'),json_extract(document,'$.Profile.Version'),
+                (SELECT id FROM profiles ORDER BY revision DESC LIMIT 1),
+                (SELECT version FROM profiles ORDER BY revision DESC LIMIT 1),
                 MAX(revision,COALESCE((SELECT MAX(revision) FROM events),0)),
                 (SELECT timestamp FROM events ORDER BY revision DESC LIMIT 1)
             FROM latest

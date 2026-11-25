@@ -192,6 +192,42 @@ public sealed class PortableUiProfileTests : IDisposable
     }
 
     [Fact]
+    public async Task LegacyCatalogReportsLastHistoricalProfileUpgradeWithoutReplayingIt()
+    {
+        var id = Guid.NewGuid();
+        var oldProfile = new TestProfile(new("figvam.portable-ui", 2));
+        var source = new SqliteDocumentJournal(directory, oldProfile);
+        Assert.True((await source.CreateAsync(new(id, "Old design"), owner)).Accepted);
+        // This is the event shape emitted by the former upgrade-portable-ui-profile command.
+        using (var db = new SqliteConnection($"Data Source={Path.Combine(directory, $"{id:N}.sqlite")};Pooling=False"))
+        {
+            db.Open();
+            using var sql = db.CreateCommand();
+            sql.CommandText = """
+                DROP TABLE document_metadata;
+                INSERT INTO events(revision,command_id,actor_id,timestamp,type,subject_id)
+                VALUES(1,$command,$actor,$time,'UPGRADE_PORTABLE_UI_PROFILE',$id);
+                INSERT INTO payload_events(revision,payload) VALUES(1,$payload);
+                """;
+            sql.Parameters.AddWithValue("$command", Guid.NewGuid().ToString());
+            sql.Parameters.AddWithValue("$actor", owner.Id);
+            sql.Parameters.AddWithValue("$time", DateTimeOffset.UtcNow.ToString("O"));
+            sql.Parameters.AddWithValue("$id", id.ToString());
+            sql.Parameters.AddWithValue("$payload", """{"payloadType":"PORTABLE_UI_PROFILE_UPGRADED","Profile":{"Id":"figvam.portable-ui","Version":3}}""");
+            sql.ExecuteNonQuery();
+        }
+        var current = new SqliteDocumentJournal(directory, new VisualNodeProfile());
+        var item = Assert.Single((await current.ListAsync(owner)).Items);
+        Assert.Equal(3, item.ProfileVersion);
+        Assert.Equal(1, item.Revision);
+        Assert.Equal("Old design", item.Name);
+        Assert.Equal("UNSUPPORTED_PROFILE_VERSION", item.CompatibilityIssue);
+        Assert.True((await new DocumentCommandHandler(current, current, new VisualNodeProfile())
+            .HandleAsync(new DeleteDocumentCommand(id, Guid.NewGuid(), 1), owner)).Accepted);
+        Assert.Empty((await current.ListAsync(owner)).Items);
+    }
+
+    [Fact]
     public async Task SchemaAndCurrentProfileAreValidatedAndProfileIsMandatory()
     {
         var bytes = DocumentJsonFormat.Serialize(new(1, 99, null, new(Guid.NewGuid(), [], [], [])));
