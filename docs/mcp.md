@@ -20,6 +20,7 @@
 Один раз создайте приватный туннель в [OpenAI Platform](https://platform.openai.com/settings/organization/tunnels),
 разрешите только своё ChatGPT workspace, скачайте актуальный [tunnel-client](https://github.com/openai/tunnel-client/releases/latest)
 и создайте Runtime API key с Tunnels Read + Use (не admin key). Не запускайте несколько клиентов с одним Tunnel ID.
+AppHost автоматически задаёт `HEALTH_LISTEN_ADDR=127.0.0.1:0`: встроенный HTTP-сервер диагностики tunnel-client получает свободный локальный порт вместо фиксированного 8080.
 
 Из корня репозитория (PowerShell 7):
 

@@ -17,6 +17,7 @@ async function main() {
   assert.equal(env.MCP_EXTRA_HEADERS, 'X-FigVam-Tunnel-Key: env:FIGVAM_TUNNEL_KEY');
   assert.equal(env.MCP_DISCOVERY_EXTRA_HEADERS, env.MCP_EXTRA_HEADERS);
   assert.equal(env.MCP_OAUTH_DISCOVERY, 'disabled');
+  assert.equal(env.HEALTH_LISTEN_ADDR, '127.0.0.1:0');
 
   let id = 0, version;
   async function rpc(method, params, notification = false) {

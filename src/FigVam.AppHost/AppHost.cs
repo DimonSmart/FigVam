@@ -29,6 +29,8 @@ if (builder.ExecutionContext.IsRunMode && !string.IsNullOrWhiteSpace(tunnelId))
     builder.AddExecutable("mcp-tunnel", executable, builder.AppHostDirectory, "run")
         .WithExplicitStart()
         .WaitFor(server)
+        // Let the OS assign a free loopback port for the client health server.
+        .WithEnvironment("HEALTH_LISTEN_ADDR", "127.0.0.1:0")
         .WithEnvironment("CONTROL_PLANE_API_KEY", apiKey)
         .WithEnvironment("CONTROL_PLANE_TUNNEL_ID", tunnelId)
         .WithEnvironment("MCP_SERVER_URL", endpoint)
