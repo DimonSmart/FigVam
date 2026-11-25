@@ -141,13 +141,15 @@ test('designs two linked login screens and previews invalid password through UI'
   await saveProperties(page, { X: 220, Y: 100, 'Ширина': 360, 'Высота': 400,
     'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#E2E8F0', 'Радиус углов': 16 });
   // The dialog uses Free layout: child coordinates below are relative to its padded content.
-  await show(page, 'assets');
+  await show(page, 'tokens');
+  await page.locator('#new-token-open').click();
   await page.getByLabel('Имя токена', { exact: true }).fill('spacing.dialog');
   await page.getByLabel('Тип токена').selectOption('Spacing');
   await page.getByLabel('Light', { exact: true }).fill('32');
   await page.getByLabel('Dark', { exact: true }).fill('32');
   await page.getByRole('button', { name: 'Создать токен' }).click();
   await expect(page.locator('#token-values')).toHaveText('Light: 32; Dark: 32');
+  await show(page, 'layers');
   await selectLayer(page, frame);
   const padding = page.locator('#visual-inspector .padding-editor');
   await padding.getByLabel('Отступ сверху', { exact: true }).fill('24');
