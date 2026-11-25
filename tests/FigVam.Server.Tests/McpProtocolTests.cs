@@ -208,6 +208,21 @@ public sealed class McpProtocolTests
         Assert.Contains(events, e => e.GetProperty("source").GetString() == "MCP" && e.GetProperty("actorId").GetString() == "owner");
         Assert.Contains(events, e => e.GetProperty("source").GetString() == "UI" && e.GetProperty("type").GetString() == "RENAME_SCREEN");
 
+        // REST uses the same atomic creation contract, visible immediately through MCP.
+        var restPageId = Guid.NewGuid();
+        var restScreenId = Guid.NewGuid();
+        var restNodeId = Guid.NewGuid();
+        var restCopyId = Guid.NewGuid();
+        (await user.PostAsJsonAsync(root + "/commands/add-page", new { commandId = Guid.NewGuid(), pageId = restPageId, name = "REST page" })).EnsureSuccessStatusCode();
+        (await user.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = restPageId, screenId = restScreenId, dimensions = new { width = 800, height = 600 }, name = "REST screen" })).EnsureSuccessStatusCode();
+        (await user.PostAsJsonAsync(root + "/commands/add-node", new { commandId = Guid.NewGuid(), parentId = restScreenId, nodeId = restNodeId, kind = "Frame", name = "REST frame" })).EnsureSuccessStatusCode();
+        var restRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        (await user.PostAsJsonAsync(root + "/commands/duplicate-screen", new { commandId = Guid.NewGuid(), screenId = restScreenId, newScreenId = restCopyId, expectedRevision = restRevision, name = "REST copy" })).EnsureSuccessStatusCode();
+        Assert.Equal("REST page", (await Call("list_pages")).GetProperty("items").EnumerateArray().Single(p => p.GetProperty("id").GetGuid() == restPageId).GetProperty("name").GetString());
+        Assert.Equal("REST screen", (await Call("get_screen", new { screenId = restScreenId })).GetProperty("items")[0].GetProperty("name").GetString());
+        Assert.Equal("REST frame", (await Call("get_node", new { nodeId = restNodeId })).GetProperty("items")[0].GetProperty("name").GetString());
+        Assert.Equal("REST copy", (await Call("get_screen", new { screenId = restCopyId })).GetProperty("items")[0].GetProperty("name").GetString());
+
         var foreignRevision = (await ForeignCall("get_document")).GetProperty("revision").GetInt64();
         (await foreignOwner.PostAsJsonAsync($"/api/v1/documents/{foreignId}/commands/delete-document", new { commandId = Guid.NewGuid(), expectedRevision = foreignRevision })).EnsureSuccessStatusCode();
         using var deletedDocumentAccess = server.CreateClient();
