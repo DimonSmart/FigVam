@@ -190,12 +190,44 @@ public sealed class McpProtocolTests
             "INVALID_TOKEN", "light.fontSize", "String", "Number");
         CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Light", value = new { tokenId = "bad" } }, true),
             "INVALID_TOKEN", "value.tokenId", "Invalid GUID format", "GUID");
+        var missingId = Guid.NewGuid();
+        var failedNodeId = Guid.NewGuid();
+        var rejectedCommandId = Guid.NewGuid();
+        var missingReferenceArguments = new { parentId = screenId, kind = "Button", nodeId = failedNodeId,
+            commandId = rejectedCommandId, properties = new { backgroundColor = new { tokenId = missingId } } };
+        var missingReference = await Call("create_node", missingReferenceArguments, true);
+        CheckDiagnostic(missingReference, "TOKEN_NOT_FOUND", "backgroundColor.tokenId", "Missing token", "Existing compatible token");
+        Assert.Equal(missingReference.GetRawText(), (await Call("create_node", missingReferenceArguments, true)).GetRawText());
+        await Call("get_node", new { nodeId = failedNodeId }, true);
+        CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { fontSize = new { tokenId = colorTokenId } } }, true),
+            "INVALID_PROPERTY_VALUE", "fontSize.tokenId", "Incompatible token", "Existing compatible token");
+        CheckDiagnostic(await Call("create_token", new { name = "bad.alias", type = "Color",
+            light = new { tokenId = missingId }, dark = "#FFFFFF" }, true),
+            "INVALID_TOKEN", "light.tokenId", "Missing token", "Existing token");
+        CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Dark", value = new { tokenId = missingId } }, true),
+            "INVALID_TOKEN", "value.tokenId", "Missing token", "Existing token");
+        var invalidTypography = new { fontFamily = "Arial", fontSize = -1, fontWeight = 400, lineHeight = 1.2 };
+        CheckDiagnostic(await Call("create_token", new { name = "bad.typography.range", type = "Typography",
+            light = invalidTypography, dark = invalidTypography }, true),
+            "INVALID_TOKEN", "light.fontSize", "-1", "greater than 0");
+        CheckDiagnostic(await Call("create_token", new { name = "bad.opacity", type = "Number", category = "Opacity",
+            light = 0.5, dark = 1.5 }, true),
+            "INVALID_TOKEN", "dark", "1.5", "0 and 1");
+        var secret = new string('s', 5200);
+        var longText = await Call("set_node_properties", new { nodeId, properties = new { text = secret } }, true);
+        CheckDiagnostic(longText, "INVALID_PROPERTY_VALUE", "text", "String with length 5200", "4096");
+        Assert.DoesNotContain(secret, longText.GetRawText());
         Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("remove_node_properties", new { nodeId, properties = new[] { "backgroundColor" }, expectedRevision = revision });
         await Call("set_node_properties", new { nodeId, properties = new { fontWeight = 400 } });
         await Call("set_node_properties", new { nodeId, properties = new { fontWeight = "Bold" } });
         var typography = new { fontFamily = "Arial", fontSize = 16, fontWeight = 400, lineHeight = 1.2 };
-        await Call("create_token", new { name = "login.typography", type = "Typography", light = typography, dark = typography });
+        var typographyId = (await Call("create_token", new { name = "login.typography", type = "Typography",
+            light = typography, dark = typography })).GetProperty("tokenId").GetGuid();
+        var beforeInvalidTypography = (await Call("get_document")).GetProperty("revision").GetInt64();
+        CheckDiagnostic(await Call("set_token_value", new { tokenId = typographyId, theme = "Dark", value = invalidTypography }, true),
+            "INVALID_TOKEN", "value.fontSize", "-1", "greater than 0");
+        Assert.Equal(beforeInvalidTypography, (await Call("get_document")).GetProperty("revision").GetInt64());
         var tokenId = (await Call("create_token", new { name = "spacing.dialog", type = "Spacing", light = 32, dark = 32 })).GetProperty("tokenId").GetGuid();
         await Call("set_token_value", new { tokenId, theme = "Dark", value = 24 });
         var duplicateRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
