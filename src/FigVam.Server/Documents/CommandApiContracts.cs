@@ -14,15 +14,16 @@ public sealed class RenamePageRequest { public required Guid CommandId { get; in
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RenameScreenRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } [Required, StringLength(256, MinimumLength = 1)] public required string Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class AddPageRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } }
+public sealed class AddPageRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } [StringLength(256)] public string? Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class AddScreenRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
+public sealed class AddScreenRequest { public required Guid CommandId { get; init; } public required Guid PageId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } [StringLength(256)] public string? Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DuplicateScreenRequest
 {
     public required Guid CommandId { get; init; }
     public required Guid ScreenId { get; init; }
     public required Guid NewScreenId { get; init; }
+    [StringLength(256)] public string? Name { get; init; }
     [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
@@ -39,6 +40,7 @@ public sealed class AddNodeRequest
     public required Guid NodeId { get; init; }
     [Required, StringLength(256, MinimumLength = 1)] public required string Kind { get; init; }
     public IReadOnlyDictionary<string, NodePropertyValue>? Properties { get; init; }
+    [StringLength(256)] public string? Name { get; init; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class DeleteNodeRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } }
