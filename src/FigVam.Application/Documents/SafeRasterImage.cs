@@ -63,7 +63,9 @@ public static class SafeRasterImage
                 if (!hasData || size != 0 || offset + 12 != bytes.Length) return null;
                 ended = true;
             }
-            else return null;
+            else if (!capture || width == 0 || hasData || !(type.SequenceEqual("sRGB"u8) && size == 1 ||
+                type.SequenceEqual("gAMA"u8) && size == 4 || type.SequenceEqual("cHRM"u8) && size == 32 ||
+                type.SequenceEqual("pHYs"u8) && size == 9)) return null;
             offset += size + 12;
         }
         if (!ended || compressed.Length < 6) return null;
