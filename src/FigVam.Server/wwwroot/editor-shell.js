@@ -175,11 +175,13 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   editorMode.id = 'document-mode-editor'; tokenMode.id = 'document-mode-tokens';
   for (const button of [editorMode, tokenMode]) button.type = 'button';
   mode.append(editorMode, tokenMode);
+  mode.setAttribute('role', 'group'); mode.setAttribute('aria-label', 'Режим документа');
+  design.insertBefore(mode, workspace);
   const brand = el('span', 'editor-brand', 'FigVam');
   header.insertBefore(brand, header.firstChild);
   const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent.trim() === 'Design');
   originalMode?.remove();
-  headerEnd.append(leftToggle, rightToggle, undo, redo, mode, preview,
+  headerEnd.append(leftToggle, rightToggle, undo, redo, preview,
     presence, byId('connection-status'), shareMenu, mcpMenu, docMenu, signOut);
   header.append(headerEnd);
 
