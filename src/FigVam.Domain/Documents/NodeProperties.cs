@@ -33,7 +33,12 @@ public sealed record NodeShadowValue(
     [property: JsonRequired] double OffsetY,
     [property: JsonRequired] double BlurRadius,
     [property: JsonRequired] double SpreadRadius,
-    [property: JsonRequired] NodeColorValue Color) : NodePropertyValue;
+    [property: JsonRequired] NodeColorValue Color) : NodePropertyValue
+{
+    public const double MaxOffset = 1024;
+    public const double MaxBlurRadius = 256;
+    public const double MaxSpreadRadius = 256;
+}
 public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color, StyleReference, Shadow }
 
 // The profile supplies target-specific restrictions and their diagnostic reasons.
@@ -89,8 +94,10 @@ public static class NodePropertyValidator
             return new("INVALID_PROPERTY_TYPE", $"Property '{property}' requires {expected}.");
         }
         if (value is NodeShadowValue shadow &&
-            (!InRange(shadow.OffsetX, -1024, 1024) || !InRange(shadow.OffsetY, -1024, 1024) ||
-             !InRange(shadow.BlurRadius, 0, 256) || !InRange(shadow.SpreadRadius, -256, 256) ||
+            (!InRange(shadow.OffsetX, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset) ||
+             !InRange(shadow.OffsetY, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset) ||
+             !InRange(shadow.BlurRadius, 0, NodeShadowValue.MaxBlurRadius) ||
+             !InRange(shadow.SpreadRadius, -NodeShadowValue.MaxSpreadRadius, NodeShadowValue.MaxSpreadRadius) ||
              shadow.Color is null))
             return new("INVALID_PROPERTY_VALUE", "Shadow requires finite offsets in [-1024, 1024], blur in [0, 256], spread in [-256, 256] and a color.");
         if (value is NodeEnumValue item && definition.EnumValues?.Contains(item.Value) != true)

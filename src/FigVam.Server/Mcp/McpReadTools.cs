@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using FigVam.Application.Documents;
 using ModelContextProtocol.Protocol;
@@ -14,11 +15,17 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     private McpDocumentGrant Grant => (McpDocumentGrant)accessor.HttpContext!.Items[McpServiceRegistration.GrantKey]!;
     private DocumentActor Actor => new(Grant.UserId);
 
+    private static readonly JsonSerializerOptions ResponseOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new JsonStringEnumConverter() }
+    };
+
     internal static CallToolResult Result(string code, object? response)
     {
         var failed = response is null;
         var value = JsonSerializer.SerializeToElement(response ?? new { status = "REJECTED", code, message = "The document operation was rejected." },
-            new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, Converters = { new JsonStringEnumConverter() } });
+            ResponseOptions);
         if (value.GetRawText().Length > 256 * 1024)
             {
             var small = JsonSerializer.SerializeToElement(new { status = "REJECTED", code = "RESULT_TOO_LARGE", message = "Request a smaller page." });
@@ -74,13 +81,19 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response is null ? null : new { r.Response.Revision, kinds = r.Response.Kinds.Select(k => k.Kind) });
     }
 
-    [McpServerTool(Name = "get_node_schema"), Description("Read the supported properties and constraints for a node kind.")]
+    [McpServerTool(Name = "get_node_schema"), Description("Read supported properties, constraints and JSON input schemas for create_node and set_node_properties.")]
     public async Task<CallToolResult> GetNodeSchema(string kind, CancellationToken ct)
     {
         var r = await queries.ReadProfileAsync(Grant.DocumentId, null, Actor, ct);
         if (r.Response is null) return Result(r.Code, null);
         var definition = r.Response.Kinds.FirstOrDefault(k => k.Kind == kind);
-        return Result(definition is null ? "UNSUPPORTED_NODE_KIND" : "OK", definition);
+        if (definition is null) return Result("UNSUPPORTED_NODE_KIND", null);
+        // Preserve the profile metadata and append the MCP input contract, not the storage JSON shape.
+        var response = JsonSerializer.SerializeToNode(definition, ResponseOptions)!.AsObject();
+        var properties = response["properties"]!.AsObject();
+        foreach (var (name, property) in definition.Properties)
+            properties[name]!.AsObject()["inputSchema"] = McpPropertyContracts.InputSchema(property);
+        return Result("OK", response);
     }
 
     [McpServerTool(Name = "list_tokens"), Description("List design tokens and Light/Dark values.")]
