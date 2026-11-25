@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Schema;
 using System.Text.Json.Serialization;
 using FigVam.Domain.Documents;
+using FigVam.Domain.Tokens;
 
 namespace FigVam.Server.Mcp;
 
@@ -68,7 +69,10 @@ internal static class McpPropertyContracts
         var schema = Schema<T>();
         // The document validator also checks that the ID exists and matches the required type.
         foreach (var property in schema["properties"]!.AsObject())
-            property.Value!["not"] = new JsonObject { ["const"] = Guid.Empty.ToString() };
+        {
+            property.Value!["format"] = "uuid";
+            property.Value["not"] = new JsonObject { ["const"] = Guid.Empty.ToString() };
+        }
         return schema;
     }
 
@@ -87,6 +91,20 @@ internal static class McpPropertyContracts
         Range(properties["blurRadius"]!, 0, NodeShadowValue.MaxBlurRadius);
         Range(properties["spreadRadius"]!, -NodeShadowValue.MaxSpreadRadius, NodeShadowValue.MaxSpreadRadius);
         return schema;
+    }
+
+    internal static JsonObject TokenInputSchema(TokenType type)
+    {
+        var literal = type switch
+        {
+            TokenType.Color => ColorSchema(),
+            TokenType.Spacing or TokenType.Geometry or TokenType.Dimension or TokenType.Number => Schema<double>(),
+            TokenType.FontFamily => Schema<string>(),
+            TokenType.FontWeight => Schema<int>(),
+            TokenType.Typography => Schema<McpTypographyInput>(),
+            _ => throw new ArgumentOutOfRangeException(nameof(type))
+        };
+        return new JsonObject { ["anyOf"] = new JsonArray(literal, ReferenceSchema<McpTokenReferenceInput>()) };
     }
 
     internal static JsonObject InputSchema(NodePropertyDefinition definition)

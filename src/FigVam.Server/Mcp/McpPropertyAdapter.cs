@@ -5,9 +5,13 @@ using FigVam.Domain.Tokens;
 
 namespace FigVam.Server.Mcp;
 
-public sealed class McpContractException(string code, string message) : Exception(message)
+public sealed class McpContractException(string code, string message,
+    string? property = null, string? expected = null, string? actual = null) : Exception(message)
 {
     public string Code { get; } = code;
+    public string? Property { get; } = property;
+    public string? Expected { get; } = expected;
+    public string? Actual { get; } = actual;
 }
 
 public static class McpPropertyAdapter
@@ -20,7 +24,8 @@ public static class McpPropertyAdapter
         foreach (var (name, value) in properties)
         {
             var definition = profile.GetProperty(kind, name) ??
-                throw new McpContractException("UNSUPPORTED_PROPERTY", $"Property '{name}' is not supported by '{kind}'.");
+                throw new McpContractException("UNSUPPORTED_PROPERTY", $"Property '{McpPropertyDiagnostics.SafePath(name)}' is not supported by node kind '{kind}'.",
+                    McpPropertyDiagnostics.SafePath(name), $"A property supported by {kind}");
             NodePropertyValue converted;
             try
             {
@@ -40,10 +45,12 @@ public static class McpPropertyAdapter
             }
             catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException or JsonException)
             {
-                throw new McpContractException("INVALID_PROPERTY_TYPE", $"Invalid value for '{name}'.");
+                throw McpPropertyDiagnostics.Explain("INVALID_PROPERTY_TYPE", name, value,
+                    McpPropertyContracts.InputSchema(definition), e as JsonException);
             }
             if (NodePropertyValidator.Validate(profile, kind, name, converted) is { } invalid)
-                throw new McpContractException(invalid.Code, invalid.Reason);
+                throw McpPropertyDiagnostics.Explain(invalid.Code, name, value,
+                    McpPropertyContracts.InputSchema(definition), domainReason: invalid.Reason);
             result.Add(name, converted);
         }
         return result;
@@ -84,7 +91,7 @@ public static class McpPropertyAdapter
         return new(input.FontFamily, input.FontSize, input.FontWeight, input.LineHeight, input.LetterSpacing);
     }
 
-    public static TokenExpression Token(TokenType type, JsonElement value)
+    public static TokenExpression Token(TokenType type, JsonElement value, string property = "value")
     {
         try
         {
@@ -105,7 +112,8 @@ public static class McpPropertyAdapter
         }
         catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException or JsonException)
         {
-            throw new McpContractException("INVALID_TOKEN", "Value does not match the token type.");
+            throw McpPropertyDiagnostics.Explain("INVALID_TOKEN", property, value,
+                McpPropertyContracts.TokenInputSchema(type), e as JsonException, strictIntegers: true);
         }
     }
 

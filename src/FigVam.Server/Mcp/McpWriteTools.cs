@@ -17,16 +17,23 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     private Guid DocumentId => Grant.DocumentId;
     private DocumentActor Actor => new(Grant.UserId) { Source = "MCP" };
 
-    private static CallToolResult Error(string code, string message, Guid? commandId = null, long? revision = null)
+    private static CallToolResult Error(string code, string message, Guid? commandId = null, long? revision = null,
+        string? property = null, string? expected = null, string? actual = null)
     {
-        var json = JsonSerializer.SerializeToElement(new { status = "REJECTED", code, message, commandId, revision },
+        var json = JsonSerializer.SerializeToElement(new { status = "REJECTED", code, message, commandId, revision, property, expected, actual },
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull });
         return new CallToolResult { IsError = true, StructuredContent = json, Content = [new TextContentBlock { Text = json.GetRawText() }] };
     }
 
     private static CallToolResult Result(CommandResult result, string? affected = null)
     {
-        if (!result.Accepted) return Error(result.Code, result.Explanation ?? "The command was rejected.", result.CommandId, result.Revision);
+        if (!result.Accepted)
+        {
+            var message = result.Explanation ?? "The command was rejected.";
+            if (result.PropertyPath is { } path) message = $"Property '{path}': {message}";
+            return Error(result.Code, message, result.CommandId, result.Revision,
+                result.PropertyPath ?? result.Property, result.Expected, result.Actual);
+        }
         var data = new Dictionary<string, object?> { ["status"] = result.Code, ["revision"] = result.Revision, ["commandId"] = result.CommandId };
         if (result.PageId is { } page) data["pageId"] = page;
         if (result.ScreenId is { } screen) data["screenId"] = screen;
@@ -45,7 +52,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
                 return Result(original, affected);
             return Result(await action(id), affected);
         }
-        catch (McpContractException e) { return Error(e.Code, e.Message, id); }
+        catch (McpContractException e) { return Error(e.Code, e.Message, id, property: e.Property, expected: e.Expected, actual: e.Actual); }
     }
 
     private async Task<DocumentState> State(CancellationToken ct)
@@ -138,8 +145,8 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
             }
             var values = new Dictionary<TokenTheme, TokenExpression>
             {
-                [TokenTheme.Light] = McpPropertyAdapter.Token(tokenType, light),
-                [TokenTheme.Dark] = McpPropertyAdapter.Token(tokenType, dark)
+                [TokenTheme.Light] = McpPropertyAdapter.Token(tokenType, light, "light"),
+                [TokenTheme.Dark] = McpPropertyAdapter.Token(tokenType, dark, "dark")
             };
             return handler.HandleAsync(new AddTokenCommand(DocumentId, id, new(tokenId ?? Guid.NewGuid(), name, tokenType, values, tokenCategory)), Actor, ct);
         }, "tokenId");
