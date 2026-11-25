@@ -710,3 +710,12 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .mcp-access-panel label { display: grid; gap: 4px; }
 .mcp-access-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .mcp-access-panel p { margin: 0; overflow-wrap: anywhere; }
+
+/* Preview theme selection controls the prototype, not the editor chrome. */
+.preview-theme-control { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; font-size: 13px; color: var(--ui-text); }
+.theme-segments { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--ui-border); border-radius: var(--ui-radius); background: var(--ui-bg); }
+.theme-segments > button { display: grid; place-items: center; width: 32px; height: 26px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--ui-muted); }
+.theme-segments > button > svg { width: 18px; height: 18px; }
+.theme-segments > button:hover { background: var(--ui-surface); color: var(--ui-text); }
+.theme-segments > button[aria-pressed="true"] { background: var(--ui-selected); color: var(--ui-accent); }
+.theme-segments > button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
