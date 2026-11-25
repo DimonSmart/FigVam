@@ -27,8 +27,9 @@ public sealed partial class DocumentCommandHandler
             if (page is null) return new(Result("PAGE_NOT_FOUND"), null);
             if (state.Document.Screens.Any(s => s.Id == command.NewScreenId))
                 return new(Result("DUPLICATE_ID"), null);
+            if (command.Name is not null && !ScreenNameValidator.IsValid(command.Name)) return new(Result("INVALID_SCREEN_NAME"), null);
             if (!ScreenDuplication.TryCopy(state.Document, source, page.Id, command.NewScreenId,
-                    out var updated, out var reason))
+                    out var updated, out var reason, command.Name))
                 return new(Result("INVALID_SCREEN_STRUCTURE", detail: reason), null);
             if (DocumentStructureValidator.Validate(updated!, profile).FirstOrDefault() is { } error)
                 return new(Result(error.Code == "duplicate-id" ? "DUPLICATE_ID" : error.Code, detail: error.Message), null);
@@ -47,7 +48,7 @@ public sealed partial class DocumentCommandHandler
 internal static class ScreenDuplication
 {
     public static bool TryCopy(DocumentStructure document, ScreenStructure source, Guid pageId, Guid screenId,
-        out DocumentStructure? copy, out string? reason)
+        out DocumentStructure? copy, out string? reason, string? name = null)
     {
         copy = null;
         reason = null;
@@ -92,11 +93,11 @@ internal static class ScreenDuplication
 
             var variants = source.Variants.Select(variant => new ScreenVariant(Guid.NewGuid(), variant.Name,
                 variant.Overrides.Select(item => item with { NodeId = Local(item.NodeId) }).ToArray())).ToArray();
-            var title = source.Name is { Length: > 0 } name ? name : "Screen";
+            var title = source.Name is { Length: > 0 } sourceName ? sourceName : "Screen";
             const int maxBaseLength = 249;
             var screen = source with
             {
-                Id = screenId, Name = title[..Math.Min(title.Length, maxBaseLength)] + " (copy)",
+                Id = screenId, Name = name ?? (title[..Math.Min(title.Length, maxBaseLength)] + " (copy)"),
                 ChildIds = source.ChildIds.Select(Local).ToArray(), Variants = variants
             };
             var instances = document.ComponentInstances.Where(i => reachable.Contains(i.NodeId)).Select(instance =>
