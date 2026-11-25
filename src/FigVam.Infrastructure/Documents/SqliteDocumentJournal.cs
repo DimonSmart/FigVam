@@ -455,9 +455,9 @@ public sealed partial class SqliteDocumentJournal
                             previousPatch = JsonSerializer.Deserialize<DocumentPatch>(reader.GetString(1));
                         }
                     }
-                    if (previousPatch?.Reverse().Apply(previous.Document) is { } original)
+                    if (previousPatch?.Reverse().Apply(previous.Document) is { } groupStart)
                     {
-                        patch = DocumentPatch.Between(original, next.Document);
+                        patch = DocumentPatch.Between(groupStart, next.Document);
                         command.CommandText = "UPDATE command_history SET status='GROUPED' WHERE command_id=$grouped AND status='ACTIVE'";
                         command.Parameters.AddWithValue("$grouped", previousCommand!);
                         if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Edit history group mismatch.");
