@@ -795,7 +795,8 @@ public sealed partial class SqliteDocumentJournal
                         document = DocumentStructureEditor.DeletePage(document, page.PageId);
                         break;
                     case PageAdded page:
-                        document = document with { Pages = document.Pages.Append(new PageStructure(page.PageId, [])).ToArray() };
+                        if (page.Name is not null && !PageNameValidator.IsValid(page.Name)) throw new InvalidDataException("Invalid page name in creation event.");
+                        document = document with { Pages = document.Pages.Append(new PageStructure(page.PageId, []) { Name = page.Name ?? "Page" }).ToArray() };
                         break;
                     case ScreenRenamed screen:
                         if (!document.Screens.Any(s => s.Id == screen.ScreenId) || !ScreenNameValidator.IsValid(screen.Name)) throw new InvalidDataException("Invalid screen rename event.");
@@ -806,18 +807,20 @@ public sealed partial class SqliteDocumentJournal
                         document = document with { Screens = document.Screens.Select(s => s.Id == screen.ScreenId ? s with { Dimensions = screen.Dimensions } : s).ToArray() };
                         break;
                     case ScreenAdded screen:
+                        if (screen.Name is not null && !ScreenNameValidator.IsValid(screen.Name)) throw new InvalidDataException("Invalid screen name in creation event.");
                         if (!document.Pages.Any(p => p.Id == screen.PageId))
                             throw new InvalidDataException("Screen event references a missing page.");
-                        document = DocumentStructureEditor.AddScreen(document, screen.PageId, screen.ScreenId, screen.Dimensions);
+                        document = DocumentStructureEditor.AddScreen(document, screen.PageId, screen.ScreenId, screen.Dimensions, screen.Name);
                         break;
                     case ScreenDuplicated duplicate:
                         document = duplicate.Patch.Apply(document)
                             ?? throw new InvalidDataException("Screen duplication preconditions failed during recovery.");
                         break;
                     case NodeAdded node:
+                        if (node.Name is not null && !NodeMetadataValidator.IsValidName(node.Name)) throw new InvalidDataException("Invalid node name in creation event.");
                         if (!document.Screens.Any(s => s.Id == node.ParentId) && !document.Nodes.Any(n => n.Id == node.ParentId))
                             throw new InvalidDataException("Node event references a missing parent.");
-                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind, node.Properties);
+                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind, node.Properties, node.Name);
                         if (node.Properties is not null) Validate(document);
                         break;
                     case NodeNameSet name:
