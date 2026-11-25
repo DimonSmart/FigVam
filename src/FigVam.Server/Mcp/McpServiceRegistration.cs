@@ -101,8 +101,9 @@ public static class McpServiceRegistration
         var value = configuration["Mcp:PublicEndpoint"];
         if (string.IsNullOrWhiteSpace(value) && configuration["Authentication:Mode"] is "Local" or "Test")
         {
-            var urls = configuration["urls"]?.Split(';', StringSplitOptions.RemoveEmptyEntries);
-            if (urls is { Length: 1 } && Uri.TryCreate(urls[0], UriKind.Absolute, out var listen) && listen.IsLoopback)
+            var server = services.GetRequiredService<Microsoft.AspNetCore.Hosting.Server.IServer>();
+            var urls = server.Features.Get<Microsoft.AspNetCore.Hosting.Server.Features.IServerAddressesFeature>()?.Addresses.ToArray();
+            if (urls is { Length: 1 } && Uri.TryCreate(urls[0], UriKind.Absolute, out var listen) && listen.IsLoopback && listen.Port != 0)
                 value = new Uri(listen, "/mcp").AbsoluteUri;
         }
         if (!Uri.TryCreate(value, UriKind.Absolute, out var endpoint) ||

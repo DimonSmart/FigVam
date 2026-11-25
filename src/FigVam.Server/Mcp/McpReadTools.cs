@@ -18,7 +18,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     {
         var failed = response is null;
         var value = JsonSerializer.SerializeToElement(response ?? new { status = "REJECTED", code, message = "The document operation was rejected." },
-            new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull });
+            new JsonSerializerOptions(JsonSerializerDefaults.Web) { DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull, Converters = { new JsonStringEnumConverter() } });
         if (value.GetRawText().Length > 256 * 1024)
             {
             var small = JsonSerializer.SerializeToElement(new { status = "REJECTED", code = "RESULT_TOO_LARGE", message = "Request a smaller page." });
