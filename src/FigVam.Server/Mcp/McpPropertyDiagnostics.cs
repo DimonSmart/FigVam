@@ -41,7 +41,8 @@ internal static class McpPropertyDiagnostics
     private static string Expected(JsonObject schema)
     {
         if (schema["anyOf"] is JsonArray choices)
-            return string.Join(" or ", choices.OfType<JsonObject>().Select(Expected));
+            return string.Join(" or ", choices.OfType<JsonObject>().Select(s =>
+                s["pattern"]?.GetValue<string>() == McpPropertyContracts.ColorPattern ? "Hex color" : Expected(s)));
         if (schema["pattern"]?.GetValue<string>() == McpPropertyContracts.ColorPattern)
             return "#RRGGBB or #RRGGBBAA";
         if (schema["format"]?.GetValue<string>() == "uuid") return "GUID";
@@ -76,6 +77,11 @@ internal static class McpPropertyDiagnostics
             var matching = alternatives.OfType<JsonObject>().Where(s => MatchesType(value, s)).ToArray();
             if (matching.Length == 0)
                 return Error(Expected(schema), Actual(value));
+            if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("tokenId", out _))
+            {
+                var reference = matching.FirstOrDefault(s => s["properties"] is JsonObject p && p.ContainsKey("tokenId"));
+                if (reference is not null) return Find(path, value, reference);
+            }
             var errors = matching.Select(s => Find(path, value, s)).ToArray();
             return errors.Any(e => e is null) ? null : errors[0];
         }
@@ -122,7 +128,7 @@ internal static class McpPropertyDiagnostics
             }
             if (schema["enum"] is JsonArray options && !options.Any(v => v!.GetValue<string>() == str))
                 return Error(Expected(schema), "Unsupported enum value", $"Property '{path}' must be one of: {Expected(schema)}.");
-            if (schema["maxLength"] is JsonValue maxLength && str.Length > maxLength.GetValue<int>())
+            if (schema["maxLength"] is JsonValue maxLength && str.Length > int.Parse(maxLength.ToJsonString(), CultureInfo.InvariantCulture))
                 return Error($"String with maximum length {maxLength}", $"String with length {str.Length}");
             if (schema["pattern"] is JsonValue pattern)
             {
@@ -141,8 +147,10 @@ internal static class McpPropertyDiagnostics
             var actual = number.ToString(CultureInfo.InvariantCulture);
             if (Type(schema) == "integer" && number != Math.Truncate(number))
                 return Error("Integer", actual);
-            var min = schema["minimum"]?.GetValue<double>();
-            var max = schema["maximum"]?.GetValue<double>();
+            static double? Bound(JsonNode? node) => node is null ? null :
+                double.Parse(node.ToJsonString(), CultureInfo.InvariantCulture);
+            var min = Bound(schema["minimum"]);
+            var max = Bound(schema["maximum"]);
             if (number < min || number > max)
             {
                 var range = min is not null && max is not null
