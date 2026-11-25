@@ -114,3 +114,23 @@ jobs:
           path: tests/FigVam.Ui.Tests/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  aspire-tunnel:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build AppHost
+        run: dotnet build src/FigVam.AppHost --no-restore
+      - name: Install matching Aspire CLI
+        run: dotnet tool install Aspire.Cli --version 13.6.5 --tool-path "$env:RUNNER_TEMP/figvam-aspire"
+      - name: Aspire MCP tunnel resource lifecycle
+        run: pwsh -NoProfile -File tests/FigVam.Ui.Tests/aspire-tunnel-smoke.ps1 -AspireExecutable "$env:RUNNER_TEMP/figvam-aspire/aspire.exe"
