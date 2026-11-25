@@ -736,7 +736,9 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   await page.getByRole('button', { name: 'Отменить действие', exact: true }).click();
   await expect(input('Right')).toHaveValue('32');
   await page.getByRole('button', { name: 'Повторить действие', exact: true }).click();
+  await expect(rightSlot.locator('.token-value-reference')).toBeVisible();
   await expect(rightSlot.locator('.token-value-name')).toHaveText(tokenName);
+  await expect.poll(async () => (await properties()).paddingRight).toEqual({ type: 'token', tokenId });
   await editor.locator('.padding-editor-side[data-side=right]').click();
   await expect(rightSlot.getByRole('button', { name: 'Изменить привязку токена' })).toBeFocused();
   await rightSlot.getByRole('button', { name: 'Изменить привязку токена' }).click();

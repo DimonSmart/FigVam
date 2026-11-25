@@ -122,8 +122,8 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     [HttpPost("add-page"), EndpointSummary("Add a page")]
     public async Task<IActionResult> AddPage(Guid documentId, AddPageRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddPageCommand(documentId, request.CommandId, request.PageId), User.GetDocumentActor(), ct));
     [HttpPost("resize-screen"), EndpointSummary("Set finite, non-negative screen dimensions in logical uiUnits")]
-    [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid. Children retain their properties.")]
-    public async Task<IActionResult> ResizeScreen(Guid documentId, ResizeScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ResizeScreenCommand(documentId, request.CommandId, request.ScreenId, request.Dimensions, request.HistoryGroupId), User.GetDocumentActor(), ct));
+    [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid. Optional updateWidth and updateHeight default to true; a false flag preserves that axis from the current server state. At least one axis must be updated. Children retain their properties.")]
+    public async Task<IActionResult> ResizeScreen(Guid documentId, ResizeScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new ResizeScreenCommand(documentId, request.CommandId, request.ScreenId, request.Dimensions, request.HistoryGroupId, request.UpdateWidth, request.UpdateHeight), User.GetDocumentActor(), ct));
     [HttpPost("add-screen"), EndpointSummary("Add a screen to a page")]
     [EndpointDescription("dimensions requires width and height in logical uiUnits. Both must be finite and non-negative; zero is valid.")]
     public async Task<IActionResult> AddScreen(Guid documentId, AddScreenRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new AddScreenCommand(documentId, request.CommandId, request.PageId, request.ScreenId, request.Dimensions), User.GetDocumentActor(), ct));

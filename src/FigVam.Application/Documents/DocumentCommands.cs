@@ -49,7 +49,8 @@ public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid Pag
 public sealed record RenameScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, string Name);
 public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record DuplicateScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid NewScreenId, long ExpectedRevision);
-public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions, Guid? HistoryGroupId = null);
+public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions, Guid? HistoryGroupId = null,
+    bool UpdateWidth = true, bool UpdateHeight = true);
 public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position, long? ExpectedRevision = null);
 public sealed record DeleteNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId);
 public sealed record SetNodeNameCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Name, Guid? HistoryGroupId = null);
@@ -973,11 +974,16 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
-            if (!state.Document.Screens.Any(s => s.Id == command.ScreenId)) return new(Result("SCREEN_NOT_FOUND"), null);
-            if (!ScreenDimensions.IsValid(command.Dimensions)) return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
-            var document = state.Document with { Screens = state.Document.Screens.Select(s => s.Id == command.ScreenId ? s with { Dimensions = command.Dimensions } : s).ToArray() };
+            var screen = state.Document.Screens.FirstOrDefault(s => s.Id == command.ScreenId);
+            if (screen is null) return new(Result("SCREEN_NOT_FOUND"), null);
+            if (!ScreenDimensions.IsValid(command.Dimensions) || (!command.UpdateWidth && !command.UpdateHeight))
+                return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
+            var dimensions = new ScreenDimensions(
+                command.UpdateWidth ? command.Dimensions.Width : screen.Dimensions.Width,
+                command.UpdateHeight ? command.Dimensions.Height : screen.Dimensions.Height);
+            var document = state.Document with { Screens = state.Document.Screens.Select(s => s.Id == command.ScreenId ? s with { Dimensions = dimensions } : s).ToArray() };
             var next = new DocumentState(document, checked(state.Revision + 1));
-            return new(Result("ACCEPTED", next.Revision), next, new ScreenResized(command.ScreenId, command.Dimensions), HistoryGroupId: command.HistoryGroupId);
+            return new(Result("ACCEPTED", next.Revision), next, new ScreenResized(command.ScreenId, dimensions), HistoryGroupId: command.HistoryGroupId);
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
 

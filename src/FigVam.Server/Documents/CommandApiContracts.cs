@@ -28,6 +28,8 @@ public sealed class DuplicateScreenRequest
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class ResizeScreenRequest {
     public Guid? HistoryGroupId { get; init; }
+    public bool UpdateWidth { get; init; } = true;
+    public bool UpdateHeight { get; init; } = true;
  public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class AddNodeRequest

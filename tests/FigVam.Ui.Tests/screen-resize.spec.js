@@ -110,11 +110,25 @@ test('keeps a refusal visible when an overlapping state refresh redraws the scre
 test('retains a local draft while a remote resize updates the confirmed size', async ({ page, context, request }) => {
   const { id } = await setup(request), second = await context.newPage();
   await open(page, id); await open(second, id); await select(page); await select(second);
-  await page.getByLabel('Ширина выбранного экрана').fill('750');
-  await second.getByLabel('Высота выбранного экрана').fill('500');
-  await second.locator('#resize-width').press('Enter');
-  await expect(page.locator('#screen-size-saved')).toContainText('640 × 500');
-  await expect(page.getByLabel('Ширина выбранного экрана')).toHaveValue('750');
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const held = new Promise(resolve => { entered = resolve; });
+  await page.route('**/commands/resize-screen', async route => {
+    entered(route.request().postDataJSON()); await gate; await route.continue();
+  });
+  try {
+    await page.getByLabel('Ширина выбранного экрана').fill('750');
+    const body = await held;
+    expect(body).toMatchObject({ dimensions: { width: 750, height: 480 }, updateWidth: true, updateHeight: false });
+    await second.getByLabel('Высота выбранного экрана').fill('500');
+    await second.locator('#resize-height').press('Enter');
+    await expect(page.locator('#screen-size-saved')).toContainText('640 × 500');
+    await expect(page.getByLabel('Ширина выбранного экрана')).toHaveValue('750');
+    await expect(page.getByLabel('Высота выбранного экрана')).toHaveValue('500');
+    release();
+    await expect(page.locator('#screen-size-saved')).toContainText('750 × 500');
+    await expect(second.locator('#screen-size-saved')).toContainText('750 × 500');
+  } finally { release(); }
 });
 test('ignores a delayed resize response after logout', async ({ page, request }) => {
   const { id } = await setup(request); await open(page, id); await select(page);

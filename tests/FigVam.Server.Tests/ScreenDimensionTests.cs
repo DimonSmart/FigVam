@@ -64,6 +64,24 @@ public sealed class ScreenDimensionTests : IDisposable
     }
 
     [Fact]
+    public async Task ConcurrentAxisUpdatesPreserveTheOtherActorsDimensionAndRetryIsIdempotent()
+    {
+        await Seed(); await Create(new(640, 480));
+        var width = new ResizeScreenCommand(doc, Guid.NewGuid(), screen, new(750, 480), UpdateHeight: false);
+        var height = new ResizeScreenCommand(doc, Guid.NewGuid(), screen, new(640, 500), UpdateWidth: false);
+        Assert.True((await Handler().HandleAsync(height, bob)).Accepted);
+        var result = await Handler().HandleAsync(width, alice);
+        Assert.True(result.Accepted);
+        Assert.Equal(new(750, 500), await Current());
+        Assert.Equal(result, await Handler().HandleAsync(width, alice));
+        Assert.Equal(new(750, 500), await Current());
+        Assert.Equal("INVALID_SCREEN_DIMENSIONS", (await Handler().HandleAsync(width with
+        { CommandId = Guid.NewGuid(), UpdateWidth = false }, alice)).Code);
+        Assert.True((await Handler().HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), alice)).Accepted);
+        Assert.Equal(new(640, 500), await Current());
+    }
+
+    [Fact]
     public async Task RevisionReadsEventsHistorySavedVersionsAndRecoveryPreserveDimensions()
     {
         await Seed(); await Create();
