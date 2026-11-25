@@ -36,7 +36,7 @@ try {
     Copy-Item (Join-Path $PSScriptRoot 'tunnel-probe.cjs') $probe
     $env:Storage__Directory = $storage
     $env:McpTunnel__TunnelId = 'tunnel_test'
-    $env:McpTunnel__Executable = (Get-Command node.exe -CommandType Application).Source
+    $env:McpTunnel__Executable = (Get-Command node.exe -CommandType Application | Select-Object -First 1).Source
     [Environment]::SetEnvironmentVariable('Parameters__openai-tunnel-api-key', 'figvam-fake-runtime-api-key')
 
     # The CLI exercises the same resource start/stop commands as Dashboard.
