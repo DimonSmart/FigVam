@@ -59,13 +59,72 @@ public sealed class McpProtocolTests
         var screenId = (await Call("create_screen", new { pageId, width = 800, height = 600 })).GetProperty("screenId").GetGuid();
         await Call("rename_screen", new { screenId, name = "Login" });
         await Call("resize_screen", new { screenId, width = 810, height = 610 });
-        var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Button", properties = new { text = "Login", width = 120, height = 40, backgroundColor = "#2563EB" } })).GetProperty("nodeId").GetGuid();
+        // Discover the exact MCP input shape, then use it to create and edit a real shadow.
+        var buttonSchema = (await Call("get_node_schema", new { kind = "Button" })).GetProperty("properties");
+        var shadowSchema = buttonSchema.GetProperty("shadow").GetProperty("inputSchema");
+        Assert.Equal("object", shadowSchema.GetProperty("type").GetString());
+        Assert.False(shadowSchema.GetProperty("additionalProperties").GetBoolean());
+        Assert.Equal(new[] { "blurRadius", "color", "offsetX", "offsetY", "spreadRadius" },
+            shadowSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()!).Order(StringComparer.Ordinal).ToArray());
+        var shadowProperties = shadowSchema.GetProperty("properties");
+        Assert.Equal(5, shadowProperties.EnumerateObject().Count());
+        Assert.Equal("number", shadowProperties.GetProperty("blurRadius").GetProperty("type").GetString());
+        Assert.Equal(0, shadowProperties.GetProperty("blurRadius").GetProperty("minimum").GetDouble());
+        Assert.Equal(256, shadowProperties.GetProperty("blurRadius").GetProperty("maximum").GetDouble());
+        Assert.Equal("string", shadowProperties.GetProperty("color").GetProperty("type").GetString());
+        Assert.Matches(shadowProperties.GetProperty("color").GetProperty("pattern").GetString()!, "#0F172A1C");
+        Assert.DoesNotMatch(shadowProperties.GetProperty("color").GetProperty("pattern").GetString()!, "#xyz");
+        var colorAlternatives = buttonSchema.GetProperty("backgroundColor").GetProperty("inputSchema").GetProperty("anyOf");
+        Assert.Equal("string", colorAlternatives[0].GetProperty("type").GetString());
+        Assert.True(colorAlternatives[1].GetProperty("properties").TryGetProperty("tokenId", out _));
+        Assert.True(buttonSchema.GetProperty("textStyle").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("styleId", out _));
+        Assert.True(buttonSchema.GetProperty("typography").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("tokenId", out _));
+        var imageSchema = (await Call("get_node_schema", new { kind = "Image" })).GetProperty("properties");
+        Assert.True(imageSchema.GetProperty("asset").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("assetId", out _));
+        foreach (var kind in new[] { "Frame", "Text", "TextInput" })
+            Assert.All((await Call("get_node_schema", new { kind })).GetProperty("properties").EnumerateObject(),
+                p => Assert.True(p.Value.TryGetProperty("inputSchema", out _), p.Name));
+
+        var initialShadow = new { offsetX = 0, offsetY = 8, blurRadius = 24, spreadRadius = 0, color = "#0F172A1C" };
+        var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Button", properties = new
+            { text = "Login", width = 120, height = 40, backgroundColor = "#2563EB", shadow = initialShadow } })).GetProperty("nodeId").GetGuid();
+        var storedShadow = (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties").GetProperty("shadow");
+        Assert.Equal(28, storedShadow.GetProperty("color").GetProperty("alpha").GetInt32());
+        Assert.Equal(15, storedShadow.GetProperty("color").GetProperty("red").GetInt32());
+        await Call("set_node_properties", new { nodeId, properties = new
+            { shadow = new { offsetX = 0, offsetY = 3, blurRadius = 8, spreadRadius = 0, color = "#2563EB" } } });
+        var colorTokenId = (await Call("create_token", new { name = "login.primary", type = "Color", light = "#2563EB", dark = "#60A5FA" })).GetProperty("tokenId").GetGuid();
+        await Call("set_node_properties", new { nodeId, properties = new { backgroundColor = new { tokenId = colorTokenId } } });
+        var storedProperties = (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties");
+        Assert.Equal(255, storedProperties.GetProperty("shadow").GetProperty("color").GetProperty("alpha").GetInt32());
+        Assert.Equal(colorTokenId, storedProperties.GetProperty("backgroundColor").GetProperty("tokenId").GetGuid());
         await Call("rename_node", new { nodeId, name = "Login button" });
         var updateCommandId = Guid.NewGuid();
         var updated = await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } });
         var revision = updated.GetProperty("revision").GetInt64();
         await Call("set_node_properties", new { nodeId, expectedRevision = revision - 1, properties = new { text = "stale" } }, true);
         await Call("set_node_properties", new { nodeId, properties = new { text = "invalid", width = "bad" } }, true);
+        foreach (var invalidShadow in new[]
+        {
+            """{"offsetX":0,"offsetY":8,"blur":24,"spreadRadius":0,"color":"#0F172A1C"}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C","type":"shadow"}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":15,"green":23,"blue":42,"alpha":28}}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":null}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":"24","spreadRadius":0,"color":"#0F172A1C"}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#xyz"}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C","offsetX":0}"""
+        })
+        {
+            var rejected = await Call("set_node_properties", new { nodeId, properties = new
+                { text = "must not be written", shadow = JsonSerializer.Deserialize<JsonElement>(invalidShadow) } }, true);
+            Assert.Equal("INVALID_PROPERTY_TYPE", rejected.GetProperty("code").GetString());
+        }
+        var outOfRange = await Call("set_node_properties", new { nodeId, properties = new
+            { shadow = new { offsetX = 0, offsetY = 8, blurRadius = 257, spreadRadius = 0, color = "#0F172A1C" } } }, true);
+        Assert.Equal("INVALID_PROPERTY_VALUE", outOfRange.GetProperty("code").GetString());
+        var invalidReference = await Call("set_node_properties", new { nodeId, properties = new
+            { backgroundColor = new { tokenId = colorTokenId, extra = true } } }, true);
+        Assert.Equal("INVALID_PROPERTY_TYPE", invalidReference.GetProperty("code").GetString());
         Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("remove_node_properties", new { nodeId, properties = new[] { "backgroundColor" }, expectedRevision = revision });
         var tokenId = (await Call("create_token", new { name = "spacing.dialog", type = "Spacing", light = 32, dark = 32 })).GetProperty("tokenId").GetGuid();
