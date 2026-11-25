@@ -49,14 +49,14 @@ public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid Pag
 public sealed record RenameScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, string Name);
 public sealed record AddScreenCommand(Guid DocumentId, Guid CommandId, Guid PageId, Guid ScreenId, ScreenDimensions Dimensions);
 public sealed record DuplicateScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid NewScreenId, long ExpectedRevision);
-public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions);
+public sealed record ResizeScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, ScreenDimensions Dimensions, Guid? HistoryGroupId = null);
 public sealed record MoveNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId, Guid ExpectedParentId, Guid TargetParentId, int Position, long? ExpectedRevision = null);
 public sealed record DeleteNodeCommand(Guid DocumentId, Guid CommandId, Guid NodeId);
-public sealed record SetNodeNameCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Name);
-public sealed record SetNodeSemanticKeyCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string? SemanticKey);
+public sealed record SetNodeNameCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Name, Guid? HistoryGroupId = null);
+public sealed record SetNodeSemanticKeyCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string? SemanticKey, Guid? HistoryGroupId = null);
 public sealed record SetNodePropertyCommand(Guid DocumentId, Guid CommandId, Guid NodeId, string Property, NodePropertyValue Value);
 public sealed record SetNodePropertiesCommand(Guid DocumentId, Guid CommandId, Guid NodeId,
-    IReadOnlyDictionary<string, NodePropertyValue> Properties, Guid? ExpectedParentId = null, long? ExpectedRevision = null);
+    IReadOnlyDictionary<string, NodePropertyValue> Properties, Guid? ExpectedParentId = null, long? ExpectedRevision = null, Guid? HistoryGroupId = null);
 public sealed record AddNodeCommand(Guid DocumentId, Guid CommandId, Guid ParentId, Guid NodeId, string Kind,
     IReadOnlyDictionary<string, NodePropertyValue>? Properties = null);
 public sealed record DocumentState(DocumentStructure Document, long Revision);
@@ -177,7 +177,7 @@ public sealed record NodePropertiesSet(Guid NodeId, ImmutableSortedDictionary<st
 public sealed record NodeAdded(Guid ParentId, Guid NodeId, string Kind,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     ImmutableSortedDictionary<string, NodePropertyValue>? Properties = null) : DocumentEvent;
-public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null);
+public sealed record DocumentChange(CommandResult Result, DocumentState? State, DocumentEvent? Event = null, SavedDocumentVersion? Version = null, DocumentAssetContent? AssetContent = null, Guid? HistoryGroupId = null);
 
 public interface IDocumentCommandJournal
 {
@@ -682,11 +682,11 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
     }
 
     public Task<CommandResult> HandleAsync(SetNodeNameCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
-        => SetMetadataAsync(command.DocumentId, command.CommandId, command.NodeId, command.Name, false, actor, cancellationToken);
+        => SetMetadataAsync(command.DocumentId, command.CommandId, command.NodeId, command.Name, false, actor, cancellationToken, command.HistoryGroupId);
     public Task<CommandResult> HandleAsync(SetNodeSemanticKeyCommand command, DocumentActor actor, CancellationToken cancellationToken = default)
-        => SetMetadataAsync(command.DocumentId, command.CommandId, command.NodeId, command.SemanticKey, true, actor, cancellationToken);
+        => SetMetadataAsync(command.DocumentId, command.CommandId, command.NodeId, command.SemanticKey, true, actor, cancellationToken, command.HistoryGroupId);
 
-    private async Task<CommandResult> SetMetadataAsync(Guid documentId, Guid commandId, Guid nodeId, string? value, bool semanticKey, DocumentActor actor, CancellationToken ct)
+    private async Task<CommandResult> SetMetadataAsync(Guid documentId, Guid commandId, Guid nodeId, string? value, bool semanticKey, DocumentActor actor, CancellationToken ct, Guid? historyGroupId)
     {
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null) => new(documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, NodeId: nodeId);
@@ -701,7 +701,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
                 return new(Result("INVALID_NODE_METADATA"), null);
             var updated = semanticKey ? node with { SemanticKey = value } : node with { Name = value! };
             var next = new DocumentState(state.Document with { Nodes = state.Document.Nodes.Select(n => n.Id == nodeId ? updated : n).ToArray() }, checked(state.Revision + 1));
-            return new(Result("ACCEPTED", next.Revision), next, semanticKey ? new NodeSemanticKeySet(nodeId, value) : new NodeNameSet(nodeId, value!));
+            return new(Result("ACCEPTED", next.Revision), next, semanticKey ? new NodeSemanticKeySet(nodeId, value) : new NodeNameSet(nodeId, value!), HistoryGroupId: historyGroupId);
         }, ct, authorize: async () => await authorization.CanEditAsync(actor, documentId, ct) ? null : Result("FORBIDDEN"));
     }
 
@@ -769,7 +769,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
                 return new(Result(NodePropertyDiagnosticCode(invalid, properties), explanation: invalid.Message,
                     property: invalid.Property), null);
             var next = new DocumentState(updated, checked(state.Revision + 1));
-            return new(Result("ACCEPTED", next.Revision), next, new NodePropertiesSet(command.NodeId, properties));
+            return new(Result("ACCEPTED", next.Revision), next, new NodePropertiesSet(command.NodeId, properties), HistoryGroupId: command.HistoryGroupId);
         }, cancellationToken, authorize: async () =>
             await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
@@ -977,7 +977,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             if (!ScreenDimensions.IsValid(command.Dimensions)) return new(Result("INVALID_SCREEN_DIMENSIONS"), null);
             var document = state.Document with { Screens = state.Document.Screens.Select(s => s.Id == command.ScreenId ? s with { Dimensions = command.Dimensions } : s).ToArray() };
             var next = new DocumentState(document, checked(state.Revision + 1));
-            return new(Result("ACCEPTED", next.Revision), next, new ScreenResized(command.ScreenId, command.Dimensions));
+            return new(Result("ACCEPTED", next.Revision), next, new ScreenResized(command.ScreenId, command.Dimensions), HistoryGroupId: command.HistoryGroupId);
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
 

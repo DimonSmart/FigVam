@@ -37,6 +37,33 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     private async Task<DocumentStructure> Document() => (await Journal().ReadAsync(id))!.Document;
 
     [Fact]
+    public async Task AutomaticEditsAreGroupedDurablyWithoutChangingAcknowledgementsOrForeignHistory()
+    {
+        await Seed();
+        var node = Guid.NewGuid();
+        await Add(node);
+        var group = Guid.NewGuid();
+        var first = new SetNodeNameCommand(id, Guid.NewGuid(), node, "First", group);
+        var second = first with { CommandId = Guid.NewGuid(), Name = "Second" };
+        var result = await Handler().HandleAsync(first, alice);
+        Assert.True(result.Accepted);
+        Assert.True((await Handler().HandleAsync(second, alice)).Accepted);
+        Assert.Equal(result, await Handler().HandleAsync(first, alice));
+        Assert.Equal("Second", Assert.Single((await Document()).Nodes).Name);
+        Assert.True((await Undo()).Accepted);
+        Assert.Equal("", Assert.Single((await Document()).Nodes).Name);
+        Assert.True((await Redo()).Accepted);
+        Assert.Equal("Second", Assert.Single((await Document()).Nodes).Name);
+        var third = first with { CommandId = Guid.NewGuid(), Name = "Third" };
+        Assert.True((await Handler().HandleAsync(third, alice)).Accepted);
+        Assert.True((await Handler().HandleAsync(new SetNodeNameCommand(id, Guid.NewGuid(), node, "Foreign"), bob)).Accepted);
+        Assert.True((await Handler().HandleAsync(first with { CommandId = Guid.NewGuid(), Name = "Fourth" }, alice)).Accepted);
+        Assert.True((await Undo()).Accepted);
+        Assert.Equal("Foreign", Assert.Single((await Document()).Nodes).Name);
+        Assert.Equal("UNDO_NOT_APPLICABLE", (await Undo()).Code);
+    }
+
+    [Fact]
     public async Task DocumentRenameIsDurableIdempotentAndSafelyCompensated()
     {
         await Seed();

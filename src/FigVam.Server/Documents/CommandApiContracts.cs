@@ -26,7 +26,9 @@ public sealed class DuplicateScreenRequest
     [Range(0, long.MaxValue)] public required long ExpectedRevision { get; init; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class ResizeScreenRequest { public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
+public sealed class ResizeScreenRequest {
+    public Guid? HistoryGroupId { get; init; }
+ public required Guid CommandId { get; init; } public required Guid ScreenId { get; init; } [Required] public required ScreenDimensions Dimensions { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class AddNodeRequest
 {
@@ -45,6 +47,8 @@ public sealed class SetNodePropertyRequest { public required Guid CommandId { ge
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SetNodePropertiesRequest
 {
+    public Guid? HistoryGroupId { get; init; }
+
     public required Guid CommandId { get; init; }
     public required Guid NodeId { get; init; }
     [Required] public required IReadOnlyDictionary<string, NodePropertyValue> Properties { get; init; }
@@ -60,9 +64,13 @@ public sealed class HistoryCommandRequest { public required Guid CommandId { get
 public sealed record CommandResponse(string Status, Guid DocumentId, Guid CommandId, long Revision, Guid? PageId, Guid? ScreenId, Guid? NodeId, Guid? VersionId, IReadOnlyList<Guid> AffectedIds);
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class SetNodeNameRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } [StringLength(256)] public required string Name { get; init; } }
+public sealed class SetNodeNameRequest {
+    public Guid? HistoryGroupId { get; init; }
+ public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } [StringLength(256)] public required string Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class SetNodeSemanticKeyRequest { public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } [StringLength(256, MinimumLength = 1)] public required string? SemanticKey { get; init; } }
+public sealed class SetNodeSemanticKeyRequest {
+    public Guid? HistoryGroupId { get; init; }
+ public required Guid CommandId { get; init; } public required Guid NodeId { get; init; } [StringLength(256, MinimumLength = 1)] public required string? SemanticKey { get; init; } }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class AddComponentDefinitionRequest
@@ -351,6 +359,8 @@ public sealed class RemoveScreenVariantOverrideRequest { public required Guid Co
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SetScreenVariantPropertiesRequest
 {
+    public Guid? HistoryGroupId { get; init; }
+
     public required Guid CommandId { get; init; }
     public required Guid ScreenId { get; init; }
     public required Guid VariantId { get; init; }

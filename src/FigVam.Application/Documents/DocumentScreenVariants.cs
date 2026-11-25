@@ -6,7 +6,7 @@ public sealed record AddScreenVariantCommand(Guid DocumentId, Guid CommandId, Gu
 public sealed record SetScreenVariantOverrideCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId, Guid NodeId, string Property, NodePropertyValue Value);
 public sealed record RemoveScreenVariantOverrideCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId, Guid NodeId, string Property, long? ExpectedRevision = null);
 public sealed record SetScreenVariantPropertiesCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, Guid VariantId,
-    Guid NodeId, IReadOnlyDictionary<string, NodePropertyValue> Properties, long ExpectedRevision);
+    Guid NodeId, IReadOnlyDictionary<string, NodePropertyValue> Properties, long ExpectedRevision, Guid? HistoryGroupId = null);
 public sealed record ScreenVariantChanged(Guid ScreenId, ScreenVariant Variant, string Operation) : DocumentEvent;
 
 public sealed partial class DocumentCommandHandler
@@ -18,11 +18,11 @@ public sealed partial class DocumentCommandHandler
     public Task<CommandResult> HandleAsync(RemoveScreenVariantOverrideCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
         => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, c.Property, null, "REMOVE_SCREEN_VARIANT_OVERRIDE", actor, cancellationToken, c.ExpectedRevision);
     public Task<CommandResult> HandleAsync(SetScreenVariantPropertiesCommand c, DocumentActor actor, CancellationToken cancellationToken = default)
-        => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, null, null, "SET_SCREEN_VARIANT_PROPERTIES", actor, cancellationToken, c.ExpectedRevision, c.Properties);
+        => ChangeScreenVariant(c.DocumentId, c.CommandId, c.ScreenId, c.VariantId, null, c.NodeId, null, null, "SET_SCREEN_VARIANT_PROPERTIES", actor, cancellationToken, c.ExpectedRevision, c.Properties, c.HistoryGroupId);
 
     private async Task<CommandResult> ChangeScreenVariant(Guid documentId, Guid commandId, Guid screenId, Guid variantId,
         string? name, Guid? nodeId, string? property, NodePropertyValue? value, string operation, DocumentActor actor, CancellationToken ct,
-        long? expectedRevision = null, IReadOnlyDictionary<string, NodePropertyValue>? properties = null)
+        long? expectedRevision = null, IReadOnlyDictionary<string, NodePropertyValue>? properties = null, Guid? historyGroupId = null)
     {
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(documentId, commandId, code, revision,
             actor.Id, null, DateTimeOffset.UtcNow, ScreenId: screenId, NodeId: nodeId, Explanation: explanation, Property: property,
@@ -70,7 +70,7 @@ public sealed partial class DocumentCommandHandler
             if (DocumentStructureValidator.Validate(changed, profile).FirstOrDefault() is { } invalid)
                 return new(Result(invalid.Code == "duplicate-id" ? "DUPLICATE_ID" : invalid.Code, explanation: invalid.Message), null);
             var next = new DocumentState(changed, checked(state.Revision + 1));
-            return new(Result("ACCEPTED", next.Revision), next, new ScreenVariantChanged(screenId, variant, operation));
+            return new(Result("ACCEPTED", next.Revision), next, new ScreenVariantChanged(screenId, variant, operation), HistoryGroupId: historyGroupId);
         }, ct, authorize: async () => await authorization.CanEditAsync(actor, documentId, ct) ? null : Result("FORBIDDEN"));
     }
 }
