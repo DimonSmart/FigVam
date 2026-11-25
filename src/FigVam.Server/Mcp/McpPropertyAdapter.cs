@@ -38,7 +38,7 @@ public static class McpPropertyAdapter
                     _ => throw new FormatException()
                 };
             }
-            catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException)
+            catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException or JsonException)
             {
                 throw new McpContractException("INVALID_PROPERTY_TYPE", $"Invalid value for '{name}'.");
             }
@@ -51,25 +51,37 @@ public static class McpPropertyAdapter
 
     private static Guid? Reference(JsonElement value, string name)
     {
-        if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out var id)) return null;
-        if (value.EnumerateObject().Count() != 1 || !id.TryGetGuid(out var parsed)) throw new FormatException();
-        return parsed;
+        if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out _)) return null;
+        return name switch
+        {
+            "tokenId" => McpPropertyContracts.Read<McpTokenReferenceInput>(value).TokenId,
+            "assetId" => McpPropertyContracts.Read<McpAssetReferenceInput>(value).AssetId,
+            "styleId" => McpPropertyContracts.Read<McpStyleReferenceInput>(value).StyleId,
+            _ => throw new ArgumentOutOfRangeException(nameof(name))
+        };
     }
 
-    public static NodeColorValue Color(JsonElement value)
+    public static NodeColorValue Color(JsonElement value) => Color(value.GetString());
+
+    private static NodeColorValue Color(string? text)
     {
-        var text = value.GetString();
-        if (text is null || text.Length is not (7 or 9) || text[0] != '#') throw new FormatException();
+        if (text is null || text.Length is not (7 or 9) ||
+            !System.Text.RegularExpressions.Regex.IsMatch(text, McpPropertyContracts.ColorPattern))
+            throw new FormatException("Expected a #RRGGBB or #RRGGBBAA color.");
         byte Part(int offset) => byte.Parse(text.AsSpan(offset, 2), NumberStyles.AllowHexSpecifier, CultureInfo.InvariantCulture);
         return new(Part(1), Part(3), Part(5), text.Length == 9 ? Part(7) : (byte)255);
     }
 
     private static NodeShadowValue Shadow(JsonElement value)
     {
-        if (value.ValueKind != JsonValueKind.Object || value.EnumerateObject().Count() != 5) throw new FormatException();
-        return new(value.GetProperty("offsetX").GetDouble(), value.GetProperty("offsetY").GetDouble(),
-            value.GetProperty("blurRadius").GetDouble(), value.GetProperty("spreadRadius").GetDouble(),
-            Color(value.GetProperty("color")));
+        var input = McpPropertyContracts.Read<McpShadowInput>(value);
+        return new(input.OffsetX, input.OffsetY, input.BlurRadius, input.SpreadRadius, Color(input.Color));
+    }
+
+    private static TypographyValue Typography(JsonElement value)
+    {
+        var input = McpPropertyContracts.Read<McpTypographyInput>(value);
+        return new(input.FontFamily, input.FontSize, input.FontWeight, input.LineHeight, input.LetterSpacing);
     }
 
     public static TokenExpression Token(TokenType type, JsonElement value)
@@ -86,15 +98,12 @@ public static class McpPropertyAdapter
                 TokenType.Number => new NumberValue(value.GetDouble()),
                 TokenType.FontFamily => new FontFamilyValue(value.GetString() ?? throw new FormatException()),
                 TokenType.FontWeight => new FontWeightValue(value.GetInt32()),
-                TokenType.Typography => new TypographyValue(value.GetProperty("fontFamily").GetString()!,
-                    value.GetProperty("fontSize").GetDouble(), value.GetProperty("fontWeight").GetInt32(),
-                    value.GetProperty("lineHeight").GetDouble(),
-                    value.TryGetProperty("letterSpacing", out var spacing) ? spacing.GetDouble() : 0),
+                TokenType.Typography => Typography(value),
                 _ => throw new FormatException()
             };
             return new LiteralTokenValue(literal);
         }
-        catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException)
+        catch (Exception e) when (e is InvalidOperationException or FormatException or KeyNotFoundException or JsonException)
         {
             throw new McpContractException("INVALID_TOKEN", "Value does not match the token type.");
         }
