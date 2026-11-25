@@ -56,7 +56,11 @@ public sealed record TokenAlias([property: JsonRequired] Guid TokenId) : TokenEx
 public sealed record DesignToken(Guid Id, string Name, TokenType Type,
     IReadOnlyDictionary<TokenTheme, TokenExpression> Values,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] TokenCategory? Category = null);
-public sealed record TokenDiagnostic(string Code, Guid TokenId, TokenTheme? Theme, Guid? ReferenceId, string Message, string? Field = null);
+public sealed record TokenDiagnostic(string Code, Guid TokenId, TokenTheme? Theme, Guid? ReferenceId, string Message, string? Field = null)
+{
+    public string? Expected { get; init; }
+    public string? Actual { get; init; }
+}
 public sealed record TokenResolution(TokenValue? Value, IReadOnlyList<TokenDiagnostic> Diagnostics)
 {
     public bool IsSuccess => Diagnostics.Count == 0;
@@ -96,15 +100,18 @@ public static class DesignTokenValidator
             {
                 if (literal.Value is TypographyFieldsValue fields && token.Type == TokenType.Typography)
                     ValidateTypographyFields(token, theme, fields, byId, errors);
-                else if (!Matches(token, literal.Value))
-                    errors.Add(new("type-mismatch", token.Id, theme, null, "Literal value does not match token type."));
+                else if (LiteralIssue(token, literal.Value) is { } issue)
+                    errors.Add(new("type-mismatch", token.Id, theme, null, issue.Message, issue.Field)
+                        { Expected = issue.Expected, Actual = issue.Actual });
             }
             else if (expression is TokenAlias alias)
             {
                 if (!byId.TryGetValue(alias.TokenId, out var target))
-                    errors.Add(new("missing-reference", token.Id, theme, alias.TokenId, "Alias target does not exist."));
+                    errors.Add(new("missing-reference", token.Id, theme, alias.TokenId, "Alias target does not exist.")
+                        { Expected = "Existing token", Actual = "Missing token" });
                 else if (!Compatible(token, target))
-                    errors.Add(new("type-mismatch", token.Id, theme, alias.TokenId, "Alias target has a different type."));
+                    errors.Add(new("type-mismatch", token.Id, theme, alias.TokenId, "Alias target has a different type.")
+                        { Expected = $"Compatible {token.Type} token", Actual = $"Incompatible {target.Type} token" });
             }
             else if (expression is not LiteralTokenValue)
                 errors.Add(new("invalid-expression", token.Id, theme, null, "Unknown token expression."));
@@ -178,36 +185,72 @@ public static class DesignTokenValidator
         _ => category is null
     };
 
-    internal static bool Matches(DesignToken token, TokenValue? value)
+    internal static bool Matches(DesignToken token, TokenValue? value) => LiteralIssue(token, value) is null;
+
+    internal static bool Matches(TokenType type, TokenValue? value) => LiteralIssue(type, value) is null;
+
+    // Both the boolean domain checks and detailed diagnostics use these same constraints.
+    private sealed record ValueIssue(string? Field, string Message, string Expected, string Actual);
+
+    private static ValueIssue? NumberIssue(double number, double? minimum = null, double? maximum = null,
+        string? field = null, bool exclusiveMinimum = false)
     {
-        if (!ValidCategory(token.Type, token.Category) || !Matches(token.Type, value)) return false;
-        return (token.Type, token.Category, value) switch
+        string Number(double value) => value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        if (!double.IsFinite(number))
+            return new(field, "Value must be a finite number.", "Finite number", "Non-finite number");
+        if (minimum is { } min && (number < min || exclusiveMinimum && number == min) ||
+            maximum is { } max && number > max)
         {
-            (TokenType.Dimension, TokenCategory.FontSize, DimensionValue v) => v.Value is >= 1 and <= 1024,
-            (TokenType.Dimension, TokenCategory.LetterSpacing, DimensionValue v) => v.Value is >= -100 and <= 100,
-            (TokenType.Dimension, _, DimensionValue v) => v.Value is >= 0 and <= 1_000_000,
-            (TokenType.Number, TokenCategory.LineHeight, NumberValue v) => v.Value is >= 0.1 and <= 10,
-            (TokenType.Number, TokenCategory.Opacity, NumberValue v) => v.Value is >= 0 and <= 1,
-            _ => true
-        };
+            var range = minimum is { } lo && maximum is { } hi
+                ? $"between {Number(lo)} and {Number(hi)}"
+                : minimum is { } lower ? $"{(exclusiveMinimum ? "greater than" : "at least")} {Number(lower)}"
+                : $"at most {Number(maximum!.Value)}";
+            return new(field, $"Value must be {range}.", $"Number {range}", Number(number));
+        }
+        return null;
     }
 
-    internal static bool Matches(TokenType type, TokenValue? value) => (type, value) switch
+    private static ValueIssue? LiteralIssue(DesignToken token, TokenValue? value)
     {
-        (TokenType.Color, ColorValue) => true,
-        (TokenType.Spacing, SpacingValue spacing) => double.IsFinite(spacing.Value),
-        (TokenType.Geometry, GeometryValue geometry) => double.IsFinite(geometry.Radius) && geometry.Radius >= 0,
-        (TokenType.Dimension, DimensionValue dimension) => double.IsFinite(dimension.Value),
-        (TokenType.Number, NumberValue number) => double.IsFinite(number.Value),
+        if (!ValidCategory(token.Type, token.Category))
+            return new(null, "Token category does not match its type.", "Compatible token category", "Unsupported category");
+        return LiteralIssue(token.Type, value) ?? ((token.Type, token.Category, value) switch
+        {
+            (TokenType.Dimension, TokenCategory.FontSize, DimensionValue v) => NumberIssue(v.Value, 1, 1024),
+            (TokenType.Dimension, TokenCategory.LetterSpacing, DimensionValue v) => NumberIssue(v.Value, -100, 100),
+            (TokenType.Dimension, _, DimensionValue v) => NumberIssue(v.Value, 0, 1_000_000),
+            (TokenType.Number, TokenCategory.LineHeight, NumberValue v) => NumberIssue(v.Value, 0.1, 10),
+            (TokenType.Number, TokenCategory.Opacity, NumberValue v) => NumberIssue(v.Value, 0, 1),
+            _ => null
+        });
+    }
+
+    private static ValueIssue? LiteralIssue(TokenType type, TokenValue? value) => (type, value) switch
+    {
+        (TokenType.Color, ColorValue) => null,
+        (TokenType.Spacing, SpacingValue spacing) => NumberIssue(spacing.Value),
+        (TokenType.Geometry, GeometryValue geometry) => NumberIssue(geometry.Radius, 0),
+        (TokenType.Dimension, DimensionValue dimension) => NumberIssue(dimension.Value),
+        (TokenType.Number, NumberValue number) => NumberIssue(number.Value),
         (TokenType.FontFamily, FontFamilyValue family) => family.Value is { Length: > 0 and <= 128 } &&
-            System.Text.RegularExpressions.Regex.IsMatch(family.Value, @"^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant),
-        (TokenType.FontWeight, FontWeightValue weight) => weight.Value is >= 1 and <= 1000,
-        (TokenType.Typography, TypographyValue typography) => !string.IsNullOrWhiteSpace(typography.FontFamily) &&
-            typography.FontFamily.Length <= 256 && double.IsFinite(typography.FontSize) && typography.FontSize > 0 &&
-            typography.FontWeight is >= 1 and <= 1000 && double.IsFinite(typography.LineHeight) && typography.LineHeight > 0 &&
-            double.IsFinite(typography.LetterSpacing) && typography.LetterSpacing is >= -100 and <= 100,
-        _ => false
+            System.Text.RegularExpressions.Regex.IsMatch(family.Value, @"^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)
+                ? null : new(null, "Font family must be a valid name of 1 to 128 characters.",
+                    "Font family name (1 to 128 characters)", "Invalid font family"),
+        (TokenType.FontWeight, FontWeightValue weight) => NumberIssue(weight.Value, 1, 1000),
+        (TokenType.Typography, TypographyValue typography) => TypographyIssue(typography),
+        _ => new(null, "Literal value does not match token type.", type.ToString(), "Incompatible literal")
     };
+
+    private static ValueIssue? TypographyIssue(TypographyValue typography)
+    {
+        if (string.IsNullOrWhiteSpace(typography.FontFamily) || typography.FontFamily.Length > 256)
+            return new("fontFamily", "Font family must be nonblank and at most 256 characters.",
+                "Nonblank string with maximum length 256", "Invalid font family");
+        return NumberIssue(typography.FontSize, 0, field: "fontSize", exclusiveMinimum: true)
+            ?? NumberIssue(typography.FontWeight, 1, 1000, "fontWeight")
+            ?? NumberIssue(typography.LineHeight, 0, field: "lineHeight", exclusiveMinimum: true)
+            ?? NumberIssue(typography.LetterSpacing, -100, 100, "letterSpacing");
+    }
 }
 
 internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
