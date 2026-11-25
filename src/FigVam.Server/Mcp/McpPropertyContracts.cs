@@ -69,7 +69,10 @@ internal static class McpPropertyContracts
         var schema = Schema<T>();
         // The document validator also checks that the ID exists and matches the required type.
         foreach (var property in schema["properties"]!.AsObject())
-            property.Value!["not"] = new JsonObject { ["const"] = Guid.Empty.ToString() };
+        {
+            property.Value!["format"] = "uuid";
+            property.Value["not"] = new JsonObject { ["const"] = Guid.Empty.ToString() };
+        }
         return schema;
     }
 
