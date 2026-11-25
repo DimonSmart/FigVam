@@ -92,6 +92,19 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 Свойства определяются профилем (get_node_schema). В описании каждого свойства поле inputSchema содержит JSON Schema именно для входного значения create_node / set_node_properties, а не для внутреннего формата хранения, возвращаемого get_node. Для составных значений схемы генерируются из тех же типизированных DTO, которые десериализует сервер. anyOf описывает альтернативные формы, например литерал цвета и ссылку на токен. Проверки существования и совместимости ссылок по-прежнему выполняются в контексте документа. В восьмизначных HEX-цветах альфа-канал находится в конце. Передавайте числа, строки, логические значения, цвета #RRGGBB или #RRGGBBAA, ссылки {"tokenId":"UUID"} и тени {"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}. create_node и set_node_properties применяют свойства атомарно. move_node использует нулевой индекс и ожидаемого родителя. create_scenario и update_scenario принимают event и список actions, MVP поддерживает navigate со screenId. save_version создаёт именованную неизменяемую версию.
 
+## Property validation errors
+
+Для create_node, set_node_properties, create_token и set_token_value ошибки сохраняют существующие status, code, message, commandId и revision (если доступны). Дополнительные поля: property — путь во входном запросе, expected — ожидаемый тип, формат или ограничение, actual — фактический тип или краткое описание нарушения. Необязательные поля отсутствуют, если информация недоступна. StructuredContent и TextContent содержат одинаковую диагностику; IsError остаётся true. Возвращается первая ошибка, без частичного применения команды. Содержимое строковых значений не включается в диагностику.
+
+| Некорректный ввод | property | expected | actual |
+| --- | --- | --- | --- |
+| fontSize: "large" | fontSize | Number (или ссылка на токен) | String |
+| Тень без blurRadius | shadow.blurRadius | Number | Missing |
+| backgroundColor: "blue" | backgroundColor | #RRGGBB or #RRGGBBAA | Invalid color format |
+| inputType: "Email" | inputType | Text, Password | Unsupported enum value |
+
+Для ссылок и сложных свойств путь содержит вложенное поле (например, backgroundColor.tokenId), для create_token — light или dark, для set_token_value — value. Допустимые формы и ограничения узлов доступны через get_node_schema; существование и совместимость ссылок проверяются доменной валидацией.
+
 ## Примеры аргументов tools/call
 
 | Инструмент | Аргументы (UUID — заполнитель) |
