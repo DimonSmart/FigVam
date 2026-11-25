@@ -21,6 +21,7 @@ function Invoke-Aspire([string[]]$Arguments) {
 function Wait-Probe {
     for ($i = 0; $i -lt 60; $i++) {
         if (Test-Path $report) { return Get-Content $report -Raw | ConvertFrom-Json }
+        if (Test-Path ($report + '.error')) { throw (Get-Content ($report + '.error') -Raw) }
         Start-Sleep -Seconds 1
     }
     throw 'The tunnel executable did not complete its MCP probe.'
@@ -68,9 +69,18 @@ try {
     if ($third.keyFingerprint -eq $first.keyFingerprint) { throw 'AppHost reused its transport credential.' }
     Write-Host 'AppHost restart rotated transport credentials; discovery and access checks passed.'
 }
+catch {
+    if ($started) {
+        Write-Host 'Tunnel resource logs:'
+        & $AspireExecutable logs mcp-tunnel --tail 40 --apphost $apphost --non-interactive
+        Write-Host 'Server resource logs:'
+        & $AspireExecutable logs server --tail 40 --apphost $apphost --non-interactive
+    }
+    throw
+}
 finally {
     if ($started) { & $AspireExecutable stop --apphost $apphost --non-interactive }
-    Remove-Item $probe, $report, ($report + '.tmp') -Force -ErrorAction SilentlyContinue
+    Remove-Item $probe, $report, ($report + '.tmp'), ($report + '.error') -Force -ErrorAction SilentlyContinue
     Remove-Item $storage -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item Env:Storage__Directory, Env:McpTunnel__TunnelId, Env:McpTunnel__Executable -ErrorAction SilentlyContinue
     [Environment]::SetEnvironmentVariable('Parameters__openai-tunnel-api-key', $null)

@@ -40,8 +40,18 @@ async function main() {
     assert.ok(message && !message.error, 'MCP ' + method + ' failed');
     return message.result;
   }
-  version = (await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {},
-    clientInfo: { name: 'Aspire tunnel probe', version: '1' } })).protocolVersion;
+  const init = { protocolVersion: '2025-11-25', capabilities: {},
+    clientInfo: { name: 'Aspire tunnel probe', version: '1' } };
+  // A Running process can precede Kestrel's listener becoming reachable.
+  for (let attempt = 0; ; attempt++) {
+    try {
+      version = (await rpc('initialize', init)).protocolVersion;
+      break;
+    } catch (error) {
+      if (attempt === 14) throw error;
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
   await rpc('notifications/initialized', {}, true);
   assert.equal((await rpc('tools/list', {})).tools.length, 30);
   const denied = await rpc('tools/call', { name: 'get_document', arguments: {} });
@@ -58,6 +68,10 @@ async function main() {
 }
 main().catch(error => {
   // Avoid printing credentials or request bodies.
-  console.error('Tunnel probe failed:', error.message);
+  let message = error.message;
+  for (const secret of [process.env.FIGVAM_TUNNEL_KEY, process.env.CONTROL_PLANE_API_KEY])
+    if (secret) message = message.replaceAll(secret, '[redacted]');
+  console.error('Tunnel probe failed:', message);
+  fs.writeFileSync(path.join(__dirname, 'tunnel-probe-report.json.error'), message);
   process.exitCode = 1;
 });
