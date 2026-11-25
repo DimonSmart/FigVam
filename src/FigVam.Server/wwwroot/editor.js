@@ -177,7 +177,7 @@ function clearSession() {
   element('home-users').hidden = true;
   selectHomeView('documents');
   documentHistory.clearCommands(); screenResize.clear(); documentHistory.reset();
-  visualNodeEditor.clear();
+  visualNodeEditor.clear(); visualScreens.clearPropertyPreviews();
   cancelRequest();
   element('token').value = '';
   element('document-name').value = '';
@@ -573,6 +573,7 @@ const visualScreens = createVisualScreens({
 });
 const visualNodeEditor = createVisualNodeEditor({
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
+  previewProperties: visualScreens.setPropertyPreview,
   getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen,
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {

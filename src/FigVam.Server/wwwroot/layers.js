@@ -59,6 +59,10 @@ export function createLayers({
 
   function selectLayer(item) {
     const changed = layerSelection?.id !== item.id;
+    if (changed && layerSelection && nodeMetadata?.id === layerSelection.id) {
+      const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id));
+      if (drafts?.size === 1) submitNodeMetadata(drafts.keys().next().value);
+    }
     if (changed) layerSelectionEpoch++;
     layerSelection = item;
     if (changed || nodeMetadata?.id !== item.id) loadNodeMetadata();
@@ -98,12 +102,12 @@ export function createLayers({
     for (const id of ['node-name', 'node-key']) element(id).readOnly = !editable || !ready || !!op;
     const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id));
     if (ready) {
-      const name = (editable && drafts?.get('name')) ?? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name);
-      const key = (editable && drafts?.get('key')) ?? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
+      const name = (editable ? drafts?.get('name') : undefined) ?? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name);
+      const key = (editable ? drafts?.get('key') : undefined) ?? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
       if (element('node-name').value !== name) element('node-name').value = name;
       if (element('node-key').value !== key) element('node-key').value = key;
     }
-    else { element('node-name').value = ''; element('node-key').value = ''; }
+    else { element('node-name').value = editable ? drafts?.get('name') ?? '' : ''; element('node-key').value = editable ? drafts?.get('key') ?? '' : ''; }
     element('node-metadata-status').textContent = op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready ? 'Загрузка слоя…' : '');
     element('node-metadata-error').textContent = op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? '');
     element('node-metadata-retry').hidden = !editable || op?.state !== 'uncertain';

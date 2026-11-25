@@ -9,7 +9,7 @@ const scopeKey = context => context.screen && Number.isSafeInteger(context.revis
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive
+  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}
 }) {
   const kindSelect = element('visual-kind'), parentSelect = element('visual-parent');
   const paletteProperties = element('visual-required-properties');
@@ -29,7 +29,7 @@ export function createVisualNodeEditor({
 
   // Each entry owns a captured target and validated snapshots, not DOM references.
   // New input remains editable while a previous snapshot awaits acknowledgement.
-  function scheduleApply(state, name, field, immediate = false) {
+  function scheduleApply(state, name, field, immediate = false, previewOnly = false) {
     let entry = automatic.get(state);
     if (!entry) {
       const current = getContext();
@@ -41,7 +41,8 @@ export function createVisualNodeEditor({
       entry.fields.set(name, { raw: field.read(), value: result.value });
     else entry.fields.delete(name);
     entry.rejected = false;
-    entry.due = Date.now() + (immediate ? 0 : 500);
+    previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
+    entry.due = previewOnly ? Infinity : Date.now() + (immediate ? 0 : 500);
     planApply();
   }
 
@@ -49,7 +50,7 @@ export function createVisualNodeEditor({
     clearTimeout(applyTimer);
     const current = getContext();
     const ready = [...automatic.entries()].filter(([state, entry]) =>
-      entry.fields.size && !entry.rejected && entry.target.token === current.token &&
+      entry.fields.size && Number.isFinite(entry.due) && !entry.rejected && entry.target.token === current.token &&
       (entry.target.documentId !== current.documentId || canEdit(current.documentRole)) &&
       ![...operations.values()].some(op => op.documentId === entry.target.documentId));
     if (!ready.length) return;
@@ -83,6 +84,7 @@ export function createVisualNodeEditor({
   function finishApply(state) {
     const entry = automatic.get(state);
     if (!entry || entry.rejected) return;
+    if (entry.due === Infinity) return;
     entry.due = 0;
     planApply();
   }
@@ -243,7 +245,9 @@ export function createVisualNodeEditor({
             const target = event.target;
             const discrete = event.type === 'change' && (target.matches('select, input[type=checkbox], input[type=color], .token-value-link'));
             // A native color picker may emit many input events before its change event.
-            if (target.matches('input[type=color]') && event.type === 'input') return;
+            if (target.matches('input[type=color]') && event.type === 'input') {
+              scheduleApply(state, name, field, false, true); return;
+            }
             scheduleApply(state, name, field, discrete);
           }
         }
@@ -263,6 +267,8 @@ export function createVisualNodeEditor({
                 const op = [...operations.values()].find(item => item.auto && item.draft === state);
                 if (op?.sent.has(name)) return;
                 state.values.delete(name); automatic.get(state)?.fields.delete(name);
+                const entry = automatic.get(state);
+                if (entry) previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
                 field.write(field.baseline); field.validate(); state.error = ''; updateControls(); planApply();
               }
             });
@@ -583,6 +589,8 @@ export function createVisualNodeEditor({
   });
   element('visual-properties-reset').addEventListener('click', () => {
     if (!inspector || operations.has(scopeKey(getContext())) || !canEdit(getContext().documentRole)) return;
+    const entry = automatic.get(inspector);
+    if (entry) previewProperties(entry.target, {});
     automatic.delete(inspector);
     inspector.values.clear();
     inspector.coordinateParentId = undefined;
@@ -656,8 +664,11 @@ export function createVisualNodeEditor({
           if (entry && sameRaw(entry.fields.get(name)?.raw, item.raw)) entry.fields.delete(name);
         }
         if (!op.draft.values.has('x') && !op.draft.values.has('y')) op.draft.coordinateParentId = undefined;
+        if (entry) {
+          previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
+          entry.target.revision = result.revision;
+        }
         if (!op.draft.values.size) automatic.delete(op.draft);
-        else if (entry) entry.target.revision = result.revision;
       } else {
         op.draft.values.clear();
         op.draft.coordinateParentId = undefined;
@@ -674,7 +685,10 @@ export function createVisualNodeEditor({
         }
         const property = error.property ? `${propertyLabel(error.property)} · ` : '';
         op.draft.error = property + (error.detail || error.message);
-        if (op.auto && automatic.has(op.draft)) automatic.get(op.draft).rejected = true;
+        if (op.auto && automatic.has(op.draft)) {
+          const entry = automatic.get(op.draft);
+          entry.rejected = true; previewProperties(entry.target, {});
+        }
       }
     } finally {
       op.settlePreview?.(confirmed);
