@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -15,6 +14,8 @@ public sealed class McpProtocolTests
     {
         using var key = RSA.Create(2048);
         var config = ServerTestIdentity.Production(key);
+        var directory = Path.Combine(Path.GetTempPath(), "figvam-mcp-" + Guid.NewGuid().ToString("N"));
+        config["Storage__Directory"] = directory;
         await using var server = new ServerProcess(config);
         await server.WaitUntilReadyAsync();
         using var user = server.CreateClient();
@@ -26,7 +27,7 @@ public sealed class McpProtocolTests
         var grantPath = $"/api/v1/documents/{documentId}/mcp-access";
         using var grant = await user.PostAsync(grantPath, null);
         grant.EnsureSuccessStatusCode();
-        Assert.True(grant.Headers.CacheControl?.NoStore);
+        Assert.True(grant.Headers.CacheControl?.NoStore == true);
         var access = await grant.Content.ReadFromJsonAsync<JsonElement>();
         var token = access.GetProperty("token").GetString()!;
         var endpoint = new Uri(access.GetProperty("endpoint").GetString()!);
@@ -58,7 +59,8 @@ public sealed class McpProtocolTests
         await Call("resize_screen", new { screenId, width = 810, height = 610 });
         var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Button", properties = new { text = "Login", width = 120, height = 40, backgroundColor = "#2563EB" } })).GetProperty("nodeId").GetGuid();
         await Call("rename_node", new { nodeId, name = "Login button" });
-        var updated = await Call("set_node_properties", new { nodeId, properties = new { text = "Sign in" } });
+        var updateCommandId = Guid.NewGuid();
+        var updated = await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } });
         var revision = updated.GetProperty("revision").GetInt64();
         await Call("set_node_properties", new { nodeId, expectedRevision = revision - 1, properties = new { text = "stale" } }, true);
         await Call("set_node_properties", new { nodeId, properties = new { text = "invalid", width = "bad" } }, true);
@@ -84,7 +86,9 @@ public sealed class McpProtocolTests
         await Call("get_node_schema", new { kind = "Button" });
         await Call("list_tokens");
         await Call("get_screen_layout", new { screenId });
+        await Call("move_node", new { nodeId, expectedParentId = screenId, targetParentId = screenId, position = 0 });
         await Call("delete_node", new { nodeId });
+        Assert.Equal(updated.GetRawText(), (await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } })).GetRawText());
         await Call("save_version", new { name = "MCP milestone" });
 
         using var foreignGrant = await user.PostAsync($"/api/v1/documents/{foreignId}/mcp-access", null);
@@ -98,6 +102,21 @@ public sealed class McpProtocolTests
         var foreignPage = (await other.CallToolAsync("create_page", new Dictionary<string, object?>())).StructuredContent!.Value.GetProperty("pageId").GetGuid();
         await Call("list_screens", new { pageId = foreignPage }, true);
         await Call("create_screen", new { pageId = foreignPage, width = 800, height = 600 }, true);
+        using var editor = server.CreateClient();
+        editor.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "editor"));
+        var members = $"/api/v1/documents/{documentId}/members";
+        (await user.PutAsJsonAsync(members, new { memberId = "editor", role = "Viewer" })).EnsureSuccessStatusCode();
+        Assert.Equal(HttpStatusCode.Forbidden, (await editor.PostAsync(grantPath, null)).StatusCode);
+        (await user.PutAsJsonAsync(members, new { memberId = "editor", role = "Editor" })).EnsureSuccessStatusCode();
+        using var editorGrant = await editor.PostAsync(grantPath, null);
+        editorGrant.EnsureSuccessStatusCode();
+        var editorToken = (await editorGrant.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("token").GetString()!;
+        (await user.PutAsJsonAsync(members, new { memberId = "editor", role = "Viewer" })).EnsureSuccessStatusCode();
+        (await user.PutAsJsonAsync(members, new { memberId = "editor", role = "Editor" })).EnsureSuccessStatusCode();
+        using var lostRights = server.CreateClient();
+        lostRights.DefaultRequestHeaders.Authorization = new("Bearer", editorToken);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await lostRights.GetAsync("/mcp")).StatusCode);
+
         using var unauthorized = server.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync("/mcp")).StatusCode);
         unauthorized.DefaultRequestHeaders.Authorization = new("Bearer", token);
@@ -109,5 +128,7 @@ public sealed class McpProtocolTests
         Assert.Equal(HttpStatusCode.Unauthorized, (await unauthorized.GetAsync("/mcp")).StatusCode);
         var disabled = await user.GetFromJsonAsync<JsonElement>(grantPath);
         Assert.False(disabled.GetProperty("enabled").GetBoolean());
+        foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
+            Assert.False(System.Text.Encoding.UTF8.GetString(await File.ReadAllBytesAsync(file)).Contains(token, StringComparison.Ordinal), "MCP secret persisted on disk.");
     }
 }

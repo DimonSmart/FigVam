@@ -44,6 +44,15 @@ async function grant(page) {
   await expect(secret).toHaveAttribute('type', 'password');
   const token = await secret.inputValue();
   const endpoint = await page.getByLabel('Адрес MCP-сервера').inputValue();
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'Копировать токен', exact: true }).click();
+  await expect.poll(async () => (await page.evaluate(() => navigator.clipboard.readText())) === token).toBe(true);
+  await page.getByRole('button', { name: 'Копировать конфигурацию MCP' }).click();
+  await expect.poll(async () => {
+    try { const config = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+      return config.mcpServers.figvam.url === endpoint && config.mcpServers.figvam.headers.Authorization === 'Bearer ' + token;
+    } catch { return false; }
+  }).toBe(true);
   await page.getByRole('button', { name: 'Показать', exact: true }).click();
   await expect(secret).toHaveAttribute('type', 'text');
   await page.getByRole('button', { name: 'Скрыть', exact: true }).click();

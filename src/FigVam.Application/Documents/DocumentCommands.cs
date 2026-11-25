@@ -9,6 +9,7 @@ namespace FigVam.Application.Documents;
 // Constructed by the server's authenticated transport, never deserialized from a command payload.
 public sealed record DocumentActor(string Id)
 {
+    [System.Text.Json.Serialization.JsonIgnore]
     public string Source { get; init; } = "UI";
 }
 public sealed record RestoreDocumentVersionCommand(Guid DocumentId, Guid CommandId, Guid VersionId);
