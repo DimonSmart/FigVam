@@ -5,6 +5,8 @@ using FigVam.Server.Authentication;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore;
+using ModelContextProtocol.Protocol;
+using System.Text.Json;
 using ModelContextProtocol.Server;
 
 namespace FigVam.Server.Mcp;
@@ -13,15 +15,29 @@ public static class McpServiceRegistration
 {
     public const string Scheme = "FigVamMcp";
     internal static readonly object GrantKey = new();
+    internal static readonly object TunnelKey = new();
 
     public static void AddDocumentMcp(this WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<McpAccessRegistry>();
+        builder.Services.AddSingleton(McpTunnelCredential.Create(builder.Configuration, builder.Environment));
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddAuthentication()
             .AddScheme<AuthenticationSchemeOptions, McpBearerHandler>(Scheme, _ => { });
         builder.Services.AddMcpServer()
             .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
+            .WithRequestFilters(filters => filters.AddCallToolFilter(next => async (context, ct) =>
+            {
+                // The gateway may discover static tool schemas without a document. No tool may run without an admitted grant.
+                var http = context.Services?.GetService<IHttpContextAccessor>()?.HttpContext;
+                if (http?.Items[GrantKey] is not McpDocumentGrant)
+                {
+                    var data = JsonSerializer.SerializeToElement(new { status = "REJECTED", code = "MCP_TUNNEL_ACCESS_REQUIRED",
+                        message = "Open the intended document in FigVam and explicitly allow ChatGPT tunnel access." });
+                    return new CallToolResult { IsError = true, StructuredContent = data, Content = [new TextContentBlock { Text = data.GetRawText() }] };
+                }
+                return await next(context, ct);
+            }))
             .WithTools<McpReadTools>()
             .WithTools<McpWriteTools>();
     }
@@ -74,7 +90,13 @@ public static class McpServiceRegistration
             }
             if (context.Items[GrantKey] is not McpDocumentGrant grant)
             {
-                await context.ChallengeAsync(Scheme);
+                if (context.Items.ContainsKey(TunnelKey))
+                {
+                    // Metadata/initialization remain available after revoke; the tool filter denies all document operations.
+                    context.Response.Headers.CacheControl = "no-store";
+                    await next(context);
+                }
+                else await context.ChallengeAsync(Scheme);
                 return;
             }
             var registry = context.RequestServices.GetRequiredService<McpAccessRegistry>();
@@ -126,10 +148,21 @@ public static class McpServiceRegistration
 }
 
 public sealed class McpBearerHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger,
-    UrlEncoder encoder, McpAccessRegistry registry) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
+    UrlEncoder encoder, McpAccessRegistry registry, McpTunnelCredential tunnel) : AuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
 {
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
+        if (Request.Headers.TryGetValue(McpTunnelCredential.Header, out var serviceKey))
+        {
+            if (serviceKey.Count != 1 || !tunnel.Matches(Context, serviceKey[0]) || Request.Headers.Authorization.Count != 0)
+                return Task.FromResult(AuthenticateResult.NoResult());
+            Context.Items[McpServiceRegistration.TunnelKey] = true;
+            var selected = registry.GetTunnelGrant();
+            if (selected is not null) Context.Items[McpServiceRegistration.GrantKey] = selected;
+            var principal = new ClaimsPrincipal(selected is null ? new ClaimsIdentity(Scheme.Name) :
+                new ClaimsIdentity([new Claim("sub", selected.UserId)], Scheme.Name));
+            return Task.FromResult(AuthenticateResult.Success(new AuthenticationTicket(principal, Scheme.Name)));
+        }
         var header = Request.Headers.Authorization;
         if (header.Count != 1 || header[0] is not { } value ||
             !value.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ||

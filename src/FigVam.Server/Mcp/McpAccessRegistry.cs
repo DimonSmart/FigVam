@@ -27,6 +27,30 @@ public sealed class McpAccessRegistry
     private readonly object sync = new();
     private readonly Dictionary<(Guid, string), McpDocumentGrant> grants = new();
     private readonly Dictionary<string, McpDocumentGrant> tokens = new(StringComparer.Ordinal);
+    private McpDocumentGrant? tunnelGrant;
+
+    public McpDocumentGrant? GetTunnelGrant()
+    {
+        lock (sync) return tunnelGrant;
+    }
+
+    // Exactly one explicit selection, independent of direct client grants.
+    public McpDocumentGrant? GrantTunnel(Guid documentId, string userId)
+    {
+        lock (sync)
+        {
+            if (tunnelGrant is not null)
+                return tunnelGrant.DocumentId == documentId && tunnelGrant.UserId == userId ? tunnelGrant : null;
+            return tunnelGrant = new McpDocumentGrant(documentId, userId);
+        }
+    }
+
+    public async Task RevokeTunnelAsync(Guid documentId, string userId, CancellationToken ct)
+    {
+        var grant = GetTunnelGrant();
+        if (grant is not null && grant.DocumentId == documentId && grant.UserId == userId)
+            await RevokeAsync(grant, ct);
+    }
 
     private static string Fingerprint(string token) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
@@ -62,14 +86,18 @@ public sealed class McpAccessRegistry
         await grant.Gate.WaitAsync(ct);
         lock (sync)
         {
-            if (ReferenceEquals(grants.GetValueOrDefault((grant.DocumentId, grant.UserId)), grant))
+            if (ReferenceEquals(tunnelGrant, grant) || ReferenceEquals(grants.GetValueOrDefault((grant.DocumentId, grant.UserId)), grant))
                 return new Lease(grant.Gate);
         }
         grant.Gate.Release();
         return null;
     }
 
-    public async Task RevokeAsync(Guid documentId, string userId, CancellationToken ct)
+    // Membership changes revoke both kinds of access. The direct UI uses RevokeDirectAsync.
+    public Task RevokeAsync(Guid documentId, string userId, CancellationToken ct) =>
+        RevokeMatchingAsync(g => g.DocumentId == documentId && g.UserId == userId, ct);
+
+    public async Task RevokeDirectAsync(Guid documentId, string userId, CancellationToken ct)
     {
         var grant = GetStatus(documentId, userId);
         if (grant is not null) await RevokeAsync(grant, ct);
@@ -89,7 +117,12 @@ public sealed class McpAccessRegistry
     private async Task RevokeMatchingAsync(Func<McpDocumentGrant, bool> matches, CancellationToken ct)
     {
         McpDocumentGrant[] snapshot;
-        lock (sync) snapshot = grants.Values.Where(matches).ToArray();
+        lock (sync)
+        {
+            var active = grants.Values.AsEnumerable();
+            if (tunnelGrant is { } tunnel) active = active.Append(tunnel);
+            snapshot = active.Where(matches).ToArray();
+        }
         foreach (var grant in snapshot) await RevokeAsync(grant, ct);
     }
 
@@ -98,6 +131,11 @@ public sealed class McpAccessRegistry
     {
         lock (sync)
         {
+            if (ReferenceEquals(tunnelGrant, grant))
+            {
+                tunnelGrant = null;
+                return;
+            }
             if (!ReferenceEquals(grants.GetValueOrDefault((grant.DocumentId, grant.UserId)), grant))
                 return;
             grants.Remove((grant.DocumentId, grant.UserId));
