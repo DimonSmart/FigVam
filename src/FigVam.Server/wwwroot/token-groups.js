@@ -1,7 +1,7 @@
 export const tokenSegments = name => String(name).split(/[./]/);
 export function tokenNameError(name, items, excludeId = null) {
   const parts = tokenSegments(name).map(s => s.toLowerCase());
-  if (!name.trim() || name.length > 256 || parts.some(s => !s.trim())) return 'Имя должно содержать непустые сегменты (до 256 символов).';
+  if (!name.trim() || name.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(name) || parts.some(s => !s.trim())) return 'Имя должно содержать непустые сегменты (до 256 символов).';
   for (const item of items) {
     if (item.id === excludeId) continue;
     const other = tokenSegments(item.name).map(s => s.toLowerCase());
