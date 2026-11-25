@@ -128,6 +128,7 @@ public sealed class McpAccessRegistry
             if (tunnelGrant is { } tunnel) active = active.Append(tunnel);
             snapshot = active.Where(matches).ToArray();
         }
+        foreach (var grant in snapshot) grant.CancelCapture();
         foreach (var grant in snapshot) await RevokeAsync(grant, ct);
     }
 

@@ -354,6 +354,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (previewMode) {
         activeScenarios = models.at(-1).scenarios;
         view.captureStamp = shown && models.length === 1 ? { screenId: models[0].screen, revision: models[0].revision } : null;
+        onDesignChange();
       }
       else {
         design.model = shown ? models[0] : null;
@@ -392,6 +393,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (!view.host.hasChildNodes()) view.diagnostics.replaceChildren();
       view.status.textContent = `Не удалось показать экран. ${error.message}`;
       view.retry.hidden = false;
+      if (previewMode) onDesignChange();
     }
   }
 
