@@ -13,7 +13,7 @@ internal static class McpPropertyDiagnostics
         path.Length <= 128 && !path.Any(char.IsControl) ? path : "(invalid property name)";
 
     internal static McpContractException Explain(string code, string path, JsonElement value,
-        JsonObject schema, JsonException? exception = null)
+        JsonObject schema, JsonException? exception = null, string? domainReason = null)
     {
         path = SafePath(path);
         var detail = Find(path, value, schema);
@@ -23,7 +23,7 @@ internal static class McpPropertyDiagnostics
         // Never return the serializer's exception message or raw user strings.
         if (exception?.Path is { Length: > 1 } jsonPath && jsonPath.StartsWith("$."))
             path = SafePath(path + jsonPath[1..]);
-        return new(code, $"Property '{path}' violates its declared contract.",
+        return new(code, domainReason ?? $"Property '{path}' violates its declared contract.",
             path, Expected(schema), Actual(value));
     }
 
