@@ -9,13 +9,14 @@ const el = (tag, cls, text) => {
 
 // A reusable property control. It exposes the same read/write/validate contract as
 // literal controls so the inspector and the creation palette share draft handling.
-export function createTokenValueControl(name, definition, model, initial, direct, label) {
+export function createTokenValueControl(name, definition, model, initial, direct, label, displayLabel = label) {
   const literalType = definition.type.toLowerCase();
   const theme = 'Light'; // Design and inspector always display the Light theme.
   const compatible = [...model.tokens.values()].filter(
     token => compatibleToken(token, definition));
   const root = el('div', 'token-value-layout');
-  const caption = el('span', 'token-value-label', label);
+  const caption = el('span', 'token-value-label', displayLabel);
+  if (displayLabel !== label) caption.title = label;
   const editor = el('div', 'token-value-editor');
   const directHost = el('div', 'token-value-direct');
   if (definition.type === 'Number') {

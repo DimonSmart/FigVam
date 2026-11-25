@@ -18,6 +18,7 @@ const labels = {
 
 export const propertyLabel = name => Object.hasOwn(labels, name) ? labels[name] : name;
 const geometryProperties = new Set(['x', 'y', 'width', 'height']);
+const compactGeometryLabel = name => name === 'width' ? 'W' : name === 'height' ? 'H' : propertyLabel(name);
 
 function tokenChoices(tokens, expected) {
   return [...tokens.values()]
@@ -248,7 +249,8 @@ function scalarControl(name, definition, model, initial, compactGeometry = false
     return { value: { type: type === 'TokenReference' ? 'token' : type === 'StyleReference' ? 'style' : type.toLowerCase(), [referenceKey ?? 'value']: value } };
   }
   return {
-    content: [labeled(propertyLabel(name), input)],
+    content: [labeled(compactGeometry ? compactGeometryLabel(name) : propertyLabel(name), input,
+      compactGeometry ? propertyLabel(name) : undefined)],
     inputs: [input], initial: initial?.[referenceKey ?? 'value'] ?? (type === 'Boolean' ? false : ''),
     read, validate,
     write(value, preserveInput = false) {
@@ -265,15 +267,16 @@ export function createPropertyControl(name, definition, model, value, prefix) {
   const initial = value ?? definition.defaultValue;
   const hasTokenChoice = definition.tokenType != null && definition.type !== 'TokenReference';
   const directValue = hasTokenChoice && initial?.type === 'token' ? definition.defaultValue : initial;
+  const compactGeometry = prefix === 'visual-property' && geometryProperties.has(name) && definition.type === 'Number';
   const direct = definition.type === 'Shadow' ? shadowControl(directValue) : definition.type === 'Color' ? colorControl(name, directValue, hasTokenChoice) :
     scalarControl(name, definition, model, directValue,
-      prefix === 'visual-property' && geometryProperties.has(name));
-  const control = hasTokenChoice ? createTokenValueControl(name, definition, model, initial, direct, propertyLabel(name)) : direct;
+      compactGeometry);
+  const control = hasTokenChoice ? createTokenValueControl(name, definition, model, initial, direct, propertyLabel(name),
+    compactGeometry ? compactGeometryLabel(name) : propertyLabel(name)) : direct;
   const row = document.createElement('div'), feedback = document.createElement('p');
   row.className = 'node-property';
   if (hasTokenChoice) row.classList.add('node-property--token');
-  if (prefix === 'visual-property' && geometryProperties.has(name) && definition.type === 'Number')
-    row.classList.add('node-property--geometry');
+  if (compactGeometry) row.classList.add('node-property--geometry');
   feedback.id = `${prefix}-${name}-validation`;
   feedback.className = 'node-property-error';
   feedback.setAttribute('aria-live', 'polite');

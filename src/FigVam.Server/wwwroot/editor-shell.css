@@ -486,6 +486,19 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   align-items: center; gap: 6px; min-width: 0;
 }
 .app-shell .token-value-label { color: var(--ui-muted); font-size: 12px; overflow-wrap: anywhere; }
+/* Geometry shares each row between two properties; don't reserve a full label column for W/H. */
+.app-shell #visual-inspector .node-geometry-row .node-property--token .token-value-layout {
+  grid-template-columns: max-content minmax(0, 1fr); gap: 5px;
+}
+.app-shell #visual-inspector .node-geometry-row .token-value-direct {
+  flex: 1 1 0; min-width: 0;
+}
+.app-shell #visual-inspector .node-geometry-row .token-value-direct > input[type=number] {
+  width: 0; box-sizing: border-box;
+}
+.app-shell #visual-properties-form .node-geometry-row .token-value-link {
+  flex: 0 0 24px; width: 24px; min-width: 24px; padding: 2px; box-sizing: border-box;
+}
 .app-shell .token-value-editor { display: flex; align-items: stretch; min-width: 0; }
 .app-shell .token-value-direct { flex: 1; display: flex; min-width: 0; align-items: center; }
 .app-shell .token-value-direct > input { flex: 1; min-width: 0; width: 100%; margin: 0; border-radius: 6px 0 0 6px; }
