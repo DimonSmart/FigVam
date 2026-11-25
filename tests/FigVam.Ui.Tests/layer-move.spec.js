@@ -104,13 +104,24 @@ test('drag across siblings, preserve selection and focus, synchronize canvas and
   await layerRow(page, secondId).press('Meta+ArrowUp');
   await expect.poll(order).toEqual([frameId, secondId, firstId]);
   expect(await children(request, base, screenId)).toEqual([frameId, secondId, firstId]);
-  await page.reload();
-  const auth = page.getByLabel('Bearer-токен', { exact: true });
-  if (await auth.isVisible()) {
-    await auth.fill(bearer);
-    await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  // Bearer credentials are deliberately memory-only. The auth form is hidden
+  // until /api/auth/config completes, so an immediate isVisible() after reload
+  // can skip the required sign-in on a busy CI runner.
+  let releaseConfig;
+  const configGate = new Promise(resolve => { releaseConfig = resolve; });
+  await page.route('**/api/auth/config', async route => {
+    await configGate;
+    await route.continue();
+  }, { times: 1 });
+  try {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expect(page.getByLabel('Bearer-токен', { exact: true })).toBeHidden();
+  } finally {
+    releaseConfig();
   }
-  await page.locator('#screens button').first().click();
+  await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
+  await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
+  await page.locator(`#screens .screen-select[data-screen-id="${screenId}"]`).click();
   await expect.poll(order).toEqual([frameId, secondId, firstId]);
 });
 
