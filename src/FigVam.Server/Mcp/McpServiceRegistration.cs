@@ -20,6 +20,8 @@ public static class McpServiceRegistration
     public static void AddDocumentMcp(this WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<McpAccessRegistry>();
+        builder.Services.AddSingleton<ScreenCaptureService>();
+        builder.Services.AddSingleton<IScreenCaptureService>(sp => sp.GetRequiredService<ScreenCaptureService>());
         builder.Services.AddSingleton(McpTunnelCredential.Create(builder.Configuration, builder.Environment));
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddAuthentication()
@@ -39,6 +41,7 @@ public static class McpServiceRegistration
                 return await next(context, ct);
             }))
             .WithTools<McpReadTools>()
+            .WithTools<McpRenderTools>()
             .WithTools<McpWriteTools>();
     }
 

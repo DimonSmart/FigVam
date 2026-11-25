@@ -11,7 +11,7 @@ public static class EditorEndpoints
                 context.Response.Headers.CacheControl = "no-store";
                 context.Response.Headers.XContentTypeOptions = "nosniff";
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
-                context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+                context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
                 return Results.File(Path.Combine(AppContext.BaseDirectory, "wwwroot", name), contentType);
             }).AllowAnonymous().DisableRateLimiting().ExcludeFromDescription();
         }
@@ -20,6 +20,7 @@ public static class EditorEndpoints
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
         MapFile("/mcp-access.js", "mcp-access.js", "text/javascript; charset=utf-8");
+        MapFile("/screen-capture.js", "screen-capture.js", "text/javascript; charset=utf-8");
         MapFile("/editor-shell.js", "editor-shell.js", "text/javascript; charset=utf-8");
         MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
         MapFile("/user-admin.js", "user-admin.js", "text/javascript; charset=utf-8");

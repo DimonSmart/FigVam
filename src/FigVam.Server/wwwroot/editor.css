@@ -70,7 +70,7 @@ p { line-height: 1.6; }
 #screen-boundary [data-selected=true] > .visual-surface { outline: 2px solid #214da6; outline-offset: -2px; }
 #screen-boundary [data-canvas-editable] > .visual-surface { cursor: move; }
 .canvas-resize-handle { position: absolute; right: 0; bottom: 0; width: min(100%, calc(12px / var(--canvas-scale))); height: min(100%, calc(12px / var(--canvas-scale))); background: #214da6; box-shadow: inset 0 0 0 1px white; pointer-events: auto; cursor: nwse-resize; }
-#preview-viewport { position: relative; min-height: 1px; overflow: hidden; margin-inline: auto; background: white; }
+#preview-viewport { isolation: isolate; transform-style: flat; position: relative; min-height: 1px; overflow: hidden; margin-inline: auto; background: white; }
 .preview-screen { position: absolute; left: 0; top: 0; background: white; }
 .preview-screen + .preview-screen { background: transparent; }
 :is(#design-render-status, #preview-render-status, #design-render-diagnostics, #preview-render-diagnostics):empty { display: none; }

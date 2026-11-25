@@ -40,7 +40,7 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(30, tools.Count);
+        Assert.Equal(31, tools.Count);
         async Task<JsonElement> Call(string name, object? args = null, bool error = false)
         {
             var values = JsonSerializer.SerializeToElement(args ?? new { }).EnumerateObject()

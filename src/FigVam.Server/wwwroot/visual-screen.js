@@ -1,7 +1,7 @@
 import { reconcileScreen, renderScreen } from './screen-renderer.js';
 import { resolvePropertyToken } from './token-resolution.js';
 
-export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
+export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange, onPreviewMode = () => {} }) {
   const boundary = element('screen-boundary');
   const viewport = element('preview-viewport');
   const openButton = element('open-preview');
@@ -76,6 +76,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   function cancelView(view) {
     view.controller?.abort();
     view.key = null;
+    view.captureStamp = null;
   }
 
   function resetView(view) {
@@ -92,6 +93,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     element('editor-design').hidden = next;
     element('editor-preview').hidden = !next;
     onDesignChange();
+    onPreviewMode(next);
     if (!next) {
       playbackRequest?.abort();
       playbackRequest = null;
@@ -349,7 +351,11 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       else view.host.replaceChildren(content);
       view.diagnostics.replaceChildren(diagnostics);
       view.status.textContent = shown ? '' : 'Геометрию экрана не удалось рассчитать.';
-      if (previewMode) activeScenarios = models.at(-1).scenarios;
+      if (previewMode) {
+        activeScenarios = models.at(-1).scenarios;
+        view.captureStamp = shown && models.length === 1 ? { screenId: models[0].screen, revision: models[0].revision } : null;
+        onDesignChange();
+      }
       else {
         design.model = shown ? models[0] : null;
         syncSelection();
@@ -383,9 +389,11 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (!current() || error.name === 'AbortError') return;
       if (error.status === 403) { closeInaccessibleDocument(403); return; }
       view.key = null;
+      view.captureStamp = null;
       if (!view.host.hasChildNodes()) view.diagnostics.replaceChildren();
       view.status.textContent = `Не удалось показать экран. ${error.message}`;
       view.retry.hidden = false;
+      if (previewMode) onDesignChange();
     }
   }
 
@@ -482,5 +490,12 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
   }).observe(viewport);
-  return { refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
+  function captureView() {
+    if (!isPreview || !context || playback?.overlays?.length) return null;
+    const screenId = playback?.selection?.screenId ?? context.screen.id;
+    const stamp = preview.captureStamp;
+    return { element: viewport, screenId, revision: context.revision,
+      stamp: stamp?.screenId === screenId && stamp.revision === context.revision ? stamp : null };
+  }
+  return { captureView, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }

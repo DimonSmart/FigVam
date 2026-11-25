@@ -81,7 +81,8 @@ const request = createApiClient({
   }
 });
 
-const mcpAccess = createMcpAccess({ request, getContext: () => ({ documentId, token, navigationEpoch }) });
+const mcpAccess = createMcpAccess({ request, getContext: () => ({ documentId, token, navigationEpoch,
+  captureView: visualScreens.captureView() }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
@@ -631,7 +632,8 @@ const canvasViewport = createCanvasViewport({
   setPresenceCursor: presence.setCursor
 });
 const visualScreens = createVisualScreens({
-  element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
+  element, request, closeInaccessibleDocument, onDesignChange: () => { canvasNodes.sync(); mcpAccess.sync(); },
+  onPreviewMode: next => mcpAccess.setPreview(next),
   getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
