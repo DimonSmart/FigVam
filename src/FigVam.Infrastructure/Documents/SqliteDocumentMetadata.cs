@@ -8,12 +8,12 @@ namespace FigVam.Infrastructure.Documents;
 public sealed partial class SqliteDocumentJournal
 {
     private const int StorageSchemaVersion = 1;
-    private sealed record CatalogMetadata(int Schema, string Name, string ProfileId, int ProfileVersion,
+    private sealed record CatalogMetadata(int Schema, Guid DocumentId, string Name, string ProfileId, int ProfileVersion,
         long Revision, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt);
 
     private static void WriteMetadata(SqliteConnection connection, SqliteTransaction transaction,
         DocumentStructure document, long revision, DateTimeOffset? created, DateTimeOffset? updated)
-        => WriteMetadata(connection, transaction, new(StorageSchemaVersion, document.Name, document.Profile.Id,
+        => WriteMetadata(connection, transaction, new(StorageSchemaVersion, document.Id, document.Name, document.Profile.Id,
             document.Profile.Version, revision, created, updated));
 
     private static void WriteMetadata(SqliteConnection connection, SqliteTransaction transaction, CatalogMetadata metadata)
@@ -21,13 +21,14 @@ public sealed partial class SqliteDocumentJournal
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
-            INSERT INTO document_metadata(singleton,schema_version,name,profile_id,profile_version,revision,created_utc,updated_utc)
-            VALUES(1,$schema,$name,$profile,$version,$revision,$created,$updated)
-            ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,name=excluded.name,
+            INSERT INTO document_metadata(singleton,schema_version,document_id,name,profile_id,profile_version,revision,created_utc,updated_utc)
+            VALUES(1,$schema,$documentId,$name,$profile,$version,$revision,$created,$updated)
+            ON CONFLICT(singleton) DO UPDATE SET schema_version=excluded.schema_version,document_id=excluded.document_id,name=excluded.name,
                 profile_id=excluded.profile_id,profile_version=excluded.profile_version,revision=excluded.revision,
                 updated_utc=excluded.updated_utc
             """;
         command.Parameters.AddWithValue("$schema", metadata.Schema);
+        command.Parameters.AddWithValue("$documentId", metadata.DocumentId.ToString("D"));
         command.Parameters.AddWithValue("$name", metadata.Name);
         command.Parameters.AddWithValue("$profile", metadata.ProfileId);
         command.Parameters.AddWithValue("$version", metadata.ProfileVersion);
@@ -44,10 +45,10 @@ public sealed partial class SqliteDocumentJournal
     {
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT schema_version,name,profile_id,profile_version,revision,created_utc,updated_utc FROM document_metadata WHERE singleton=1";
+        command.CommandText = "SELECT schema_version,document_id,name,profile_id,profile_version,revision,created_utc,updated_utc FROM document_metadata WHERE singleton=1";
         using var reader = command.ExecuteReader();
-        return reader.Read() ? new(reader.GetInt32(0), reader.GetString(1), reader.GetString(2),
-            reader.GetInt32(3), reader.GetInt64(4), ReadDate(reader, 5), ReadDate(reader, 6)) : null;
+        return reader.Read() ? new(reader.GetInt32(0), Guid.Parse(reader.GetString(1)), reader.GetString(2), reader.GetString(3),
+            reader.GetInt32(4), reader.GetInt64(5), ReadDate(reader, 6), ReadDate(reader, 7)) : null;
     }
 
     // A one-time projection for pre-catalog databases. SQLite extracts scalar JSON fields only;
@@ -69,7 +70,7 @@ public sealed partial class SqliteDocumentJournal
                 UNION ALL SELECT revision,json_extract(payload,'$.Patch.Name.After')
                     FROM compensation_events WHERE revision>(SELECT revision FROM latest)
             )
-            SELECT (SELECT name FROM names WHERE name IS NOT NULL ORDER BY revision DESC LIMIT 1),
+            SELECT json_extract(document,'$.Id'), (SELECT name FROM names WHERE name IS NOT NULL ORDER BY revision DESC LIMIT 1),
                 json_extract(document,'$.Profile.Id'),json_extract(document,'$.Profile.Version'),
                 MAX(revision,COALESCE((SELECT MAX(revision) FROM events),0)),
                 (SELECT timestamp FROM events ORDER BY revision DESC LIMIT 1)
@@ -78,13 +79,23 @@ public sealed partial class SqliteDocumentJournal
         using var reader = command.ExecuteReader();
         if (!reader.Read()) return null;
         // Unknown legacy profile is not silently substituted with the current one.
-        return new(StorageSchemaVersion, reader.IsDBNull(0) ? "Document" : reader.GetString(0),
-            reader.IsDBNull(1) ? "" : reader.GetString(1), reader.IsDBNull(2) ? 0 : reader.GetInt32(2),
-            reader.GetInt64(3), null, ReadDate(reader, 4));
+        if (reader.IsDBNull(0) || !Guid.TryParse(reader.GetString(0), out var id))
+            throw new InvalidDataException("Missing document identity in legacy metadata.");
+        return new(StorageSchemaVersion, id, reader.IsDBNull(1) ? "Document" : reader.GetString(1),
+            reader.IsDBNull(2) ? "" : reader.GetString(2), reader.IsDBNull(3) ? 0 : reader.GetInt32(3),
+            reader.GetInt64(4), null, ReadDate(reader, 5));
+    }
+
+    private static void ValidateCatalogIdentity(Guid id, CatalogMetadata metadata)
+    {
+        if (id != metadata.DocumentId || metadata.Revision < 0)
+            throw new InvalidDataException("Document catalog identity or revision is invalid.");
     }
 
     private DocumentListItem CatalogItem(Guid id, DocumentRole role, CatalogMetadata metadata)
-        => new(id, metadata.Name, role.ToString())
+    {
+        ValidateCatalogIdentity(id, metadata);
+        return new(id, metadata.Name, role.ToString())
         {
             StorageSchemaVersion = metadata.Schema, ProfileId = metadata.ProfileId,
             ProfileVersion = metadata.ProfileVersion, CurrentProfileVersion = profile.Identity.Version,
@@ -92,6 +103,7 @@ public sealed partial class SqliteDocumentJournal
             CompatibilityIssue = metadata.Schema != StorageSchemaVersion ? "UNSUPPORTED_STORAGE_SCHEMA" :
                 PortableUiProfileResolver.Validate(new(metadata.ProfileId, metadata.ProfileVersion), profile)?.Code
         };
+    }
 
     private static long? ReadCatalogRevision(SqliteConnection connection, SqliteTransaction transaction)
     {

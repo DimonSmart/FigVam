@@ -33,6 +33,7 @@ public sealed partial class SqliteDocumentJournal : IDocumentListQuery
             return new DocumentListResponse(items, null);
         }, cancellationToken);
     }
+
     private DocumentListItem? ReadCatalogItem(Guid id, string actorId)
     {
         DocumentRole? role = null;
@@ -42,36 +43,49 @@ public sealed partial class SqliteDocumentJournal : IDocumentListQuery
             using var connection = Open(id);
             using (var transaction = connection.BeginTransaction(deferred: true))
             {
+                if (IsDeleted(connection, transaction)) return null;
                 role = ReadRole(connection, transaction, actorId);
-                if (role is null || IsDeleted(connection, transaction)) return null;
-                if (ReadMetadata(connection, transaction) is { } existing)
-                    return CatalogItem(id, role.Value, existing);
+                if (role is null) return null;
+                try
+                {
+                    if (ReadMetadata(connection, transaction) is { } existing)
+                        return CatalogItem(id, role.Value, existing);
+                }
+                catch (Exception error) when (IsCatalogReadError(error))
+                {
+                    revision = ReadCatalogRevision(connection, transaction);
+                    throw;
+                }
             }
             // Recheck authorization and tombstone under the writer lock before lazy backfill.
+            role = null;
             using var migration = connection.BeginTransaction(deferred: false);
+            if (IsDeleted(connection, migration)) return null;
             role = ReadRole(connection, migration, actorId);
-            if (role is null || IsDeleted(connection, migration)) return null;
+            if (role is null) return null;
             revision = ReadCatalogRevision(connection, migration);
             var metadata = ReadMetadata(connection, migration);
             if (metadata is null)
             {
                 metadata = ReadLegacyMetadata(connection, migration);
                 if (metadata is null) return null;
+                ValidateCatalogIdentity(id, metadata);
                 WriteMetadata(connection, migration, metadata);
             }
             migration.Commit();
             return CatalogItem(id, role.Value, metadata);
         }
-        catch (SqliteException error) when (error.SqliteErrorCode is 1 or 11 or 26)
+        catch (Exception error) when (IsCatalogReadError(error))
         {
-            // Never expose a file whose membership could not be established.
-            return role is null ? null : UnreadableCatalogItem(id, role.Value, revision);
-        }
-        catch (FormatException)
-        {
+            System.Diagnostics.Trace.TraceWarning("Could not read document catalog metadata for {0}: {1}", id, error.GetType().Name);
+            // Never expose a file whose membership and deletion status could not be established.
             return role is null ? null : UnreadableCatalogItem(id, role.Value, revision);
         }
     }
+
+    private static bool IsCatalogReadError(Exception error) =>
+        error is FormatException or InvalidCastException or OverflowException or InvalidDataException ||
+        error is SqliteException { SqliteErrorCode: 1 or 10 or 11 or 14 or 26 };
 
     private DocumentListItem UnreadableCatalogItem(Guid id, DocumentRole role, long? revision)
         => new(id, id.ToString(), role.ToString())

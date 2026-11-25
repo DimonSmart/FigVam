@@ -47,35 +47,35 @@ public sealed partial class SqliteDocumentJournal
         }.ToString());
         try
         {
-        connection.Open();
-        using var command = connection.CreateCommand();
-        command.CommandText = """
-            PRAGMA synchronous=FULL;
-            CREATE TABLE IF NOT EXISTS document_deletion(singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS asset_content(sha256 TEXT PRIMARY KEY, content BLOB NOT NULL);
-            CREATE TABLE IF NOT EXISTS members(actor_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('Owner','Editor','Viewer')));
-            CREATE TABLE IF NOT EXISTS command_history(command_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, result TEXT NOT NULL,
-                type TEXT NOT NULL, patch TEXT, status TEXT NOT NULL, history_order INTEGER NOT NULL);
-            CREATE TABLE IF NOT EXISTS command_history_groups(command_id TEXT PRIMARY KEY, group_id TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS compensation_events(revision INTEGER PRIMARY KEY, payload TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS user_versions(version_id TEXT PRIMARY KEY, revision INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL, sha256 BLOB NOT NULL);
-            CREATE TABLE IF NOT EXISTS snapshots(revision INTEGER PRIMARY KEY, document TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS document_metadata(
-                singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL,
-                name TEXT NOT NULL, profile_id TEXT NOT NULL, profile_version INTEGER NOT NULL,
-                revision INTEGER NOT NULL, created_utc TEXT, updated_utc TEXT);
-            CREATE TABLE IF NOT EXISTS results(command_id TEXT PRIMARY KEY, result TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS events(revision INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE,
-                actor_id TEXT NOT NULL, timestamp TEXT NOT NULL, type TEXT NOT NULL, subject_id TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS screen_events(revision INTEGER PRIMARY KEY, screen_id TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS node_events(revision INTEGER PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS restore_events(revision INTEGER PRIMARY KEY, document TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS payload_events(revision INTEGER PRIMARY KEY, payload TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS property_events(revision INTEGER PRIMARY KEY, property TEXT NOT NULL, value TEXT NOT NULL);
-            CREATE TABLE IF NOT EXISTS move_events(revision INTEGER PRIMARY KEY, parent_id TEXT NOT NULL, position INTEGER NOT NULL);
-            """;
-        command.ExecuteNonQuery();
-        return connection;
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                PRAGMA synchronous=FULL;
+                CREATE TABLE IF NOT EXISTS document_deletion(singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS asset_content(sha256 TEXT PRIMARY KEY, content BLOB NOT NULL);
+                CREATE TABLE IF NOT EXISTS members(actor_id TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('Owner','Editor','Viewer')));
+                CREATE TABLE IF NOT EXISTS command_history(command_id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, result TEXT NOT NULL,
+                    type TEXT NOT NULL, patch TEXT, status TEXT NOT NULL, history_order INTEGER NOT NULL);
+                CREATE TABLE IF NOT EXISTS command_history_groups(command_id TEXT PRIMARY KEY, group_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS compensation_events(revision INTEGER PRIMARY KEY, payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS user_versions(version_id TEXT PRIMARY KEY, revision INTEGER NOT NULL UNIQUE, payload TEXT NOT NULL, sha256 BLOB NOT NULL);
+                CREATE TABLE IF NOT EXISTS snapshots(revision INTEGER PRIMARY KEY, document TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS document_metadata(
+                    singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL,
+                    document_id TEXT NOT NULL, name TEXT NOT NULL, profile_id TEXT NOT NULL, profile_version INTEGER NOT NULL,
+                    revision INTEGER NOT NULL, created_utc TEXT, updated_utc TEXT);
+                CREATE TABLE IF NOT EXISTS results(command_id TEXT PRIMARY KEY, result TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS events(revision INTEGER PRIMARY KEY, command_id TEXT NOT NULL UNIQUE,
+                    actor_id TEXT NOT NULL, timestamp TEXT NOT NULL, type TEXT NOT NULL, subject_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS screen_events(revision INTEGER PRIMARY KEY, screen_id TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS node_events(revision INTEGER PRIMARY KEY, node_id TEXT NOT NULL, kind TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS restore_events(revision INTEGER PRIMARY KEY, document TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS payload_events(revision INTEGER PRIMARY KEY, payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS property_events(revision INTEGER PRIMARY KEY, property TEXT NOT NULL, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS move_events(revision INTEGER PRIMARY KEY, parent_id TEXT NOT NULL, position INTEGER NOT NULL);
+                """;
+            command.ExecuteNonQuery();
+            return connection;
         }
         catch { connection.Dispose(); throw; }
     }

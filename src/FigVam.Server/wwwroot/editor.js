@@ -345,10 +345,16 @@ async function loadList(index = 0, cursor = null) {
       role.className = 'document-role';
       role.textContent = { Owner: 'Владелец', Editor: 'Редактор', Viewer: 'Просмотр' }[item.role] ?? item.role;
       details.append(link, role);
-      if (item.profileVersion != null) {
+      const versions = [
+        item.profileVersion > 0 ? `Профиль: v${item.profileVersion}` : '',
+        item.storageSchemaVersion != null ? `Хранилище: v${item.storageSchemaVersion}` : '',
+        item.revision != null ? `Ревизия: ${item.revision}` : ''
+      ].filter(Boolean);
+      if (versions.length) {
         const version = document.createElement('span');
         version.className = 'document-role';
-        version.textContent = `Профиль: v${item.profileVersion}`;
+        version.textContent = versions.join(' · ');
+        if (item.profileId) version.title = item.profileId;
         details.append(version);
       }
       if (item.compatibilityIssue) {
@@ -359,7 +365,7 @@ async function loadList(index = 0, cursor = null) {
           : ({ PROFILE_UNAVAILABLE: 'Профиль не установлен', INVALID_PROFILE: 'Некорректный профиль',
                UNSUPPORTED_STORAGE_SCHEMA: 'Несовместимый формат хранения', METADATA_UNAVAILABLE: 'Метаданные недоступны' }[item.compatibilityIssue] ?? 'Документ недоступен');
         details.append(warning);
-        if (item.role === 'Owner' && Number.isSafeInteger(item.revision)) {
+        if (item.role === 'Owner' && Number.isSafeInteger(item.revision) && item.revision >= 0) {
           const remove = document.createElement('button');
           remove.type = 'button';
           remove.className = 'document-catalog-delete';
@@ -377,12 +383,15 @@ async function loadList(index = 0, cursor = null) {
               if (result.code !== 'ACCEPTED' || result.commandId?.toLowerCase() !== JSON.parse(body).commandId.toLowerCase() ||
                   result.documentId?.toLowerCase() !== item.documentId.toLowerCase() || result.revision !== item.revision + 1)
                 throw new TypeError('Некорректное подтверждение');
-              await loadList();
+              const loading = loadList(), listEpoch = navigationEpoch;
+              await loading;
+              if (token && listEpoch === navigationEpoch) message('Документ удалён.');
             } catch (error) {
               if (epoch !== navigationEpoch || !token) return;
-              if (error.status === 409 || error.status === 404 || error.status === 403) {
-                await loadList();
-                message('', error.message);
+              if ([400, 403, 404, 409].includes(error.status)) {
+                const loading = loadList(), listEpoch = navigationEpoch;
+                await loading;
+                if (token && listEpoch === navigationEpoch) message('', error.message);
               } else {
                 message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
                 remove.disabled = false;

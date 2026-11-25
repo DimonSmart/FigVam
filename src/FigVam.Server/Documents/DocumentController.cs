@@ -16,6 +16,7 @@ public sealed class DocumentController(IDocumentAccessService access, IDocumentL
     /// <summary>List documents accessible to the authenticated actor, ordered by document ID.</summary>
     [HttpGet, ProducesResponseType<DocumentListResponse>(200)]
     [EndpointSummary("List accessible documents")]
+    [EndpointDescription("Reads catalog metadata independently of document contents. Incompatible documents remain visible with their stored profile and compatibility issue. Legacy timestamps may be unknown; unreadable metadata is reported when membership can be verified. Only owners can delete documents using the revision-checked delete command.")]
     public async Task<ActionResult<DocumentListResponse>> List(
         [FromQuery, System.ComponentModel.DataAnnotations.Range(1, 100)] int limit = 50,
         [FromQuery] Guid? cursor = null, CancellationToken cancellationToken = default)

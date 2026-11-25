@@ -119,7 +119,7 @@ test('incompatible documents remain visible and only owners can delete without o
       currentProfileVersion: 5, compatibilityIssue: 'UNSUPPORTED_PROFILE_VERSION', revision: 3 }] : []),
     { documentId: viewer, name: 'Shared old design', role: 'Viewer', profileVersion: 2,
       currentProfileVersion: 5, compatibilityIssue: 'UNSUPPORTED_PROFILE_VERSION', revision: 0 }
-  ], nextCursor: null } } }));
+  ], nextCursor: null } }));
   await page.route('**/commands/delete-document', async route => {
     const body = route.request().postDataJSON();
     expect(route.request().url()).toContain(old);

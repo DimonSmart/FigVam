@@ -6,6 +6,7 @@ using FigVam.Domain.Documents;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
+using Microsoft.Data.Sqlite;
 using static FigVam.Server.Tests.ServerTestIdentity;
 
 namespace FigVam.Server.Tests;
@@ -43,6 +44,51 @@ public sealed class DocumentListTests
             Assert.Empty((await store.ListAsync(viewer, 1, first.NextCursor)).Items);
             Assert.Empty((await store.ListAsync(new("outsider"))).Items);
             await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => store.ListAsync(owner, 101));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public async Task CatalogReadsWithoutDocumentParsingAndIsolatesUnreadableLegacyFiles()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "figvam-catalog-" + Guid.NewGuid());
+        try
+        {
+            var profile = new EmptyNodeProfile();
+            var store = new SqliteDocumentJournal(directory, profile);
+            var owner = new DocumentActor("owner");
+            var normal = Guid.NewGuid(); var legacy = Guid.NewGuid(); var damaged = Guid.NewGuid();
+            foreach (var id in new[] { normal, legacy, damaged })
+                Assert.True((await store.CreateAsync(new(id, "Initial"), owner)).Accepted);
+            var handler = new DocumentCommandHandler(store, store, profile);
+            Assert.True((await handler.HandleAsync(new RenameDocumentCommand(legacy, Guid.NewGuid(), "Renamed"), owner)).Accepted);
+            Assert.True((await handler.HandleAsync(new UndoDocumentCommand(legacy, Guid.NewGuid()), owner)).Accepted);
+            Assert.True((await handler.HandleAsync(new RedoDocumentCommand(legacy, Guid.NewGuid()), owner)).Accepted);
+            void Sql(Guid id, string statement)
+            {
+                using var db = new SqliteConnection($"Data Source={Path.Combine(directory, $"{id:N}.sqlite")};Pooling=False");
+                db.Open(); using var cmd = db.CreateCommand(); cmd.CommandText = statement; cmd.ExecuteNonQuery();
+            }
+            Sql(legacy, "DROP TABLE document_metadata");
+            Sql(normal, "UPDATE snapshots SET document='not JSON'");
+            Sql(damaged, "DROP TABLE document_metadata; UPDATE snapshots SET document='not JSON'");
+            File.WriteAllText(Path.Combine(directory, $"{Guid.NewGuid():N}.sqlite"), "not a SQLite database");
+            var items = (await new SqliteDocumentJournal(directory, profile).ListAsync(owner)).Items;
+            Assert.Equal(3, items.Count);
+            Assert.Equal("Initial", Assert.Single(items, i => i.DocumentId == normal).Name);
+            var restored = Assert.Single(items, i => i.DocumentId == legacy);
+            Assert.Equal("Renamed", restored.Name); Assert.Equal(3, restored.Revision);
+            Assert.Null(restored.CreatedAt); Assert.NotNull(restored.UpdatedAt);
+            // The legacy projection is durable; even a damaged snapshot is no longer needed by the list.
+            Sql(legacy, "UPDATE snapshots SET document='not JSON'");
+            var broken = Assert.Single(items, i => i.DocumentId == damaged);
+            Assert.Equal("METADATA_UNAVAILABLE", broken.CompatibilityIssue);
+            Assert.Equal(0, broken.Revision);
+            Assert.Empty((await store.ListAsync(new("outsider"))).Items);
+            Assert.True((await handler.HandleAsync(new DeleteDocumentCommand(damaged, Guid.NewGuid(), 0), owner)).Accepted);
+            var remaining = (await store.ListAsync(owner)).Items;
+            Assert.Equal(2, remaining.Count);
+            Assert.Equal("Renamed", Assert.Single(remaining, i => i.DocumentId == legacy).Name);
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
