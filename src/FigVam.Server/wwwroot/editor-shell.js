@@ -219,14 +219,37 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
-  for (const current of [pageOptions, screenOptions]) {
+  const navigatorMenus = [[pageOptions, pageMenuBody], [screenOptions, screenMenuBody]];
+  function positionNavigatorMenu(menu, body) {
+    if (!menu.open || !body.getClientRects().length) return;
+    const anchor = menu.querySelector('summary').getBoundingClientRect();
+    const margin = 8, gap = 6;
+    const below = Math.max(0, window.innerHeight - anchor.bottom - gap - margin);
+    const above = Math.max(0, anchor.top - gap - margin);
+    body.style.maxHeight = '';
+    const openAbove = body.offsetHeight > below && above > below;
+    body.style.maxHeight = `${openAbove ? above : below}px`;
+    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - body.offsetWidth - margin));
+    const top = openAbove ? anchor.top - gap - body.offsetHeight : anchor.bottom + gap;
+    body.style.left = `${left}px`;
+    body.style.top = `${top}px`;
+  }
+  function positionNavigatorMenus() {
+    for (const [menu, body] of navigatorMenus) positionNavigatorMenu(menu, body);
+  }
+  for (const [current, body] of navigatorMenus) {
     current.addEventListener('toggle', () => {
       if (!current.open) return;
-      for (const other of [pageOptions, screenOptions]) {
+      for (const [other] of navigatorMenus) {
         if (other !== current) other.open = false;
       }
+      positionNavigatorMenu(current, body);
     });
   }
+  // The toolbar can become visible again when switching tabs or opening a collapsed sidebar.
+  const navigatorObserver = new ResizeObserver(positionNavigatorMenus);
+  navigatorObserver.observe(navigatorToolbar);
+  window.addEventListener('resize', positionNavigatorMenus);
   const screensList = byId('screens');
   pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
   byId('pages').setAttribute('aria-label', 'Страницы и экраны');

@@ -120,6 +120,41 @@ test('screen presets initialize dimensions, follow manual edits, and reset toget
   await expect(page.locator('#screens button').first()).toContainText('1440 × 900');
 });
 
+for (const viewport of [{ width: 1200, height: 800 }, { width: 390, height: 500 }]) {
+  test(`navigator menus are not clipped at ${viewport.width}px`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await openEditor(page);
+    if (viewport.width <= 1050)
+      await page.getByRole('button', { name: 'Показать или скрыть слои' }).click();
+    await page.getByRole('button', { name: 'Создать страницу', exact: true }).click();
+
+    async function expectUnclipped(selector) {
+      const popup = page.locator(selector);
+      await expect(popup).toBeVisible();
+      await expect.poll(() => popup.evaluate(element => {
+        const { left, right, top, bottom } = element.getBoundingClientRect();
+        const points = [[left + 4, top + 4], [right - 4, top + 4],
+          [left + 4, bottom - 4], [right - 4, bottom - 4]];
+        return left >= 0 && top >= 0 && right <= innerWidth && bottom <= innerHeight &&
+          points.every(([x, y]) => element.contains(document.elementFromPoint(x, y)));
+      })).toBe(true);
+    }
+
+    await expectUnclipped('.screen-options-body');
+    await page.getByLabel('Типовой размер экрана').selectOption('390x844');
+    await expect(page.getByLabel('Ширина экрана')).toHaveValue('390');
+    await expect(page.getByLabel('Высота экрана')).toHaveValue('844');
+    await page.locator('#screen-create button[type=submit]').click();
+    await expect(page.locator('#screens .screen-select')).toHaveCount(1);
+
+    await page.locator('.page-options > summary').click();
+    await expectUnclipped('.navigator-page-menu');
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.navigator-page-menu')).toBeHidden();
+    await expect(page.locator('.page-options > summary')).toBeFocused();
+  });
+}
+
 test('narrow editor keeps full page unscrolled and panels accessible', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openEditor(page);
