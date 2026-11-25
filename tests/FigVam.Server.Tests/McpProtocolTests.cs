@@ -52,11 +52,17 @@ public sealed class McpProtocolTests
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
         var commandId = Guid.NewGuid();
-        var page = await Call("create_page", new { commandId });
+        var page = await Call("create_page", new { commandId, name = "Login Prototype" });
+        Assert.Equal(doc.GetProperty("revision").GetInt64() + 1, page.GetProperty("revision").GetInt64());
         Assert.Equal(page.GetRawText(), (await Call("create_page", new { commandId })).GetRawText());
         var pageId = page.GetProperty("pageId").GetGuid();
+        Assert.Equal("Login Prototype", (await Call("list_pages")).GetProperty("items").EnumerateArray().Single(p => p.GetProperty("id").GetGuid() == pageId).GetProperty("name").GetString());
         await Call("rename_page", new { pageId, name = "Login" });
-        var screenId = (await Call("create_screen", new { pageId, width = 800, height = 600 })).GetProperty("screenId").GetGuid();
+        var screenRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        var screenResult = await Call("create_screen", new { pageId, width = 800, height = 600, name = "Sign in" });
+        Assert.Equal(screenRevision + 1, screenResult.GetProperty("revision").GetInt64());
+        var screenId = screenResult.GetProperty("screenId").GetGuid();
+        Assert.Equal("Sign in", (await Call("get_screen", new { screenId })).GetProperty("items")[0].GetProperty("name").GetString());
         await Call("rename_screen", new { screenId, name = "Login" });
         await Call("resize_screen", new { screenId, width = 810, height = 610 });
         // Discover the exact MCP input shape, then use it to create and edit a real shadow.
@@ -86,9 +92,11 @@ public sealed class McpProtocolTests
                 p => Assert.True(p.Value.TryGetProperty("inputSchema", out _), p.Name));
 
         var initialShadow = new { offsetX = 0, offsetY = 8, blurRadius = 24, spreadRadius = 0, color = "#0F172A1C" };
-        var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Button", properties = new
+        var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Button", name = "Primary action", properties = new
             { text = "Login", width = 120, height = 40, backgroundColor = "#2563EB", shadow = initialShadow } })).GetProperty("nodeId").GetGuid();
-        var storedShadow = (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties").GetProperty("shadow");
+        var createdNode = (await Call("get_node", new { nodeId })).GetProperty("items")[0];
+        Assert.Equal("Primary action", createdNode.GetProperty("name").GetString());
+        var storedShadow = createdNode.GetProperty("properties").GetProperty("shadow");
         Assert.Equal(28, storedShadow.GetProperty("color").GetProperty("alpha").GetInt32());
         Assert.Equal(15, storedShadow.GetProperty("color").GetProperty("red").GetInt32());
         await Call("set_node_properties", new { nodeId, properties = new
@@ -129,8 +137,20 @@ public sealed class McpProtocolTests
         await Call("remove_node_properties", new { nodeId, properties = new[] { "backgroundColor" }, expectedRevision = revision });
         var tokenId = (await Call("create_token", new { name = "spacing.dialog", type = "Spacing", light = 32, dark = 32 })).GetProperty("tokenId").GetGuid();
         await Call("set_token_value", new { tokenId, theme = "Dark", value = 24 });
-        var duplicate = await Call("duplicate_screen", new { screenId, expectedRevision = (await Call("get_document")).GetProperty("revision").GetInt64() });
+        var duplicateRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        var invalidPage = await Call("create_page", new { name = " " }, true);
+        Assert.Equal("INVALID_PAGE", invalidPage.GetProperty("code").GetString());
+        var invalidScreen = await Call("create_screen", new { pageId, width = 800, height = 600, name = "" }, true);
+        Assert.Equal("INVALID_SCREEN_NAME", invalidScreen.GetProperty("code").GetString());
+        var invalidNode = await Call("create_node", new { parentId = screenId, kind = "Button", name = new string('x', 257), properties = new { text = "Never created" } }, true);
+        Assert.Equal("INVALID_NODE_METADATA", invalidNode.GetProperty("code").GetString());
+        var invalidDuplicate = await Call("duplicate_screen", new { screenId, expectedRevision = duplicateRevision, name = " " }, true);
+        Assert.Equal("INVALID_SCREEN_NAME", invalidDuplicate.GetProperty("code").GetString());
+        Assert.Equal(duplicateRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
+        var duplicate = await Call("duplicate_screen", new { screenId, expectedRevision = duplicateRevision, name = "Login Error" });
+        Assert.Equal(duplicateRevision + 1, duplicate.GetProperty("revision").GetInt64());
         var target = duplicate.GetProperty("screenId").GetGuid();
+        Assert.Equal("Login Error", (await Call("get_screen", new { screenId = target })).GetProperty("items")[0].GetProperty("name").GetString());
         var actions = new[] { new { type = "navigate", screenId = target } };
         var scenario = await Call("create_scenario", new { screenId, nodeId, @event = "Click", actions });
         var scenarioId = scenario.GetProperty("scenarioId").GetGuid();
@@ -187,6 +207,21 @@ public sealed class McpProtocolTests
         var events = history.GetProperty("events").EnumerateArray().ToArray();
         Assert.Contains(events, e => e.GetProperty("source").GetString() == "MCP" && e.GetProperty("actorId").GetString() == "owner");
         Assert.Contains(events, e => e.GetProperty("source").GetString() == "UI" && e.GetProperty("type").GetString() == "RENAME_SCREEN");
+
+        // REST uses the same atomic creation contract, visible immediately through MCP.
+        var restPageId = Guid.NewGuid();
+        var restScreenId = Guid.NewGuid();
+        var restNodeId = Guid.NewGuid();
+        var restCopyId = Guid.NewGuid();
+        (await user.PostAsJsonAsync(root + "/commands/add-page", new { commandId = Guid.NewGuid(), pageId = restPageId, name = "REST page" })).EnsureSuccessStatusCode();
+        (await user.PostAsJsonAsync(root + "/commands/add-screen", new { commandId = Guid.NewGuid(), pageId = restPageId, screenId = restScreenId, dimensions = new { width = 800, height = 600 }, name = "REST screen" })).EnsureSuccessStatusCode();
+        (await user.PostAsJsonAsync(root + "/commands/add-node", new { commandId = Guid.NewGuid(), parentId = restScreenId, nodeId = restNodeId, kind = "Frame", name = "REST frame" })).EnsureSuccessStatusCode();
+        var restRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        (await user.PostAsJsonAsync(root + "/commands/duplicate-screen", new { commandId = Guid.NewGuid(), screenId = restScreenId, newScreenId = restCopyId, expectedRevision = restRevision, name = "REST copy" })).EnsureSuccessStatusCode();
+        Assert.Equal("REST page", (await Call("list_pages")).GetProperty("items").EnumerateArray().Single(p => p.GetProperty("id").GetGuid() == restPageId).GetProperty("name").GetString());
+        Assert.Equal("REST screen", (await Call("get_screen", new { screenId = restScreenId })).GetProperty("items")[0].GetProperty("name").GetString());
+        Assert.Equal("REST frame", (await Call("get_node", new { nodeId = restNodeId })).GetProperty("items")[0].GetProperty("name").GetString());
+        Assert.Equal("REST copy", (await Call("get_screen", new { screenId = restCopyId })).GetProperty("items")[0].GetProperty("name").GetString());
 
         var foreignRevision = (await ForeignCall("get_document")).GetProperty("revision").GetInt64();
         (await foreignOwner.PostAsJsonAsync($"/api/v1/documents/{foreignId}/commands/delete-document", new { commandId = Guid.NewGuid(), expectedRevision = foreignRevision })).EnsureSuccessStatusCode();

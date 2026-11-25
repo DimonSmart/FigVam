@@ -197,18 +197,36 @@ public sealed partial class SqliteDocumentJournal
             "SAVE_VERSION" when reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
                 => new VersionSaved(subjectId),
             "ADD_PAGE" when reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
-                => new PageAdded(subjectId),
+                => reader.IsDBNull(14) ? new PageAdded(subjectId)
+                    : JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is PageAdded page && page.PageId == subjectId
+                        ? page : throw new InvalidDataException("Invalid page creation payload."),
             "ADD_NODE" when reader.IsDBNull(3) && !reader.IsDBNull(4) && !reader.IsDBNull(5) && reader.IsDBNull(6)
-                => new NodeAdded(subjectId, Guid.Parse(reader.GetString(4)), reader.GetString(5),
-                    reader.IsDBNull(14) ? null
-                        : JsonSerializer.Deserialize<ImmutableSortedDictionary<string, NodePropertyValue>>(reader.GetString(14))
-                            ?? throw new InvalidDataException("Missing initial node properties.")),
+                => ReadNodeAdded(reader, subjectId),
             "MOVE_NODE" when reader.IsDBNull(3) && reader.IsDBNull(4) && !reader.IsDBNull(6) && !reader.IsDBNull(7)
                 => new NodeMoved(subjectId, Guid.Parse(reader.GetString(6)), reader.GetInt32(7)),
             "DELETE_NODE" when reader.IsDBNull(3) && reader.IsDBNull(4) && reader.IsDBNull(6)
                 => new NodeDeleted(subjectId),
             _ => throw new InvalidDataException("Invalid document event type or payload.")
         };
+    }
+
+    private static NodeAdded ReadNodeAdded(SqliteDataReader reader, Guid parentId)
+    {
+        var nodeId = Guid.Parse(reader.GetString(4));
+        var kind = reader.GetString(5);
+        if (reader.IsDBNull(14)) return new(parentId, nodeId, kind);
+        var payload = reader.GetString(14);
+        using var json = JsonDocument.Parse(payload);
+        // Legacy node events stored only their property map. New named events use the
+        // same polymorphic event payload as the other metadata-bearing events.
+        if (json.RootElement.TryGetProperty("payloadType", out var discriminator) &&
+            discriminator.ValueKind == JsonValueKind.String)
+            return JsonSerializer.Deserialize<DocumentEvent>(payload) is NodeAdded node &&
+                node.ParentId == parentId && node.NodeId == nodeId && node.Kind == kind
+                ? node : throw new InvalidDataException("Invalid node creation payload.");
+        return new(parentId, nodeId, kind,
+            JsonSerializer.Deserialize<ImmutableSortedDictionary<string, NodePropertyValue>>(payload)
+                ?? throw new InvalidDataException("Missing initial node properties."));
     }
 
     public async Task<CommandResult?> ReadResultAsync(Guid documentId, Guid commandId, DocumentActor actor, CancellationToken cancellationToken = default)
@@ -374,10 +392,10 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is NodeAdded { Properties: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is NodeAdded { Properties: not null } or NodeAdded { Name: not null } or PageAdded { Name: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
-                    command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded added
+                    command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded { Name: null } added
                         ? JsonSerializer.Serialize(added.Properties)
                         : JsonSerializer.Serialize<DocumentEvent>(change.Event));
                     command.ExecuteNonQuery();
@@ -795,7 +813,8 @@ public sealed partial class SqliteDocumentJournal
                         document = DocumentStructureEditor.DeletePage(document, page.PageId);
                         break;
                     case PageAdded page:
-                        document = document with { Pages = document.Pages.Append(new PageStructure(page.PageId, [])).ToArray() };
+                        if (page.Name is not null && !PageNameValidator.IsValid(page.Name)) throw new InvalidDataException("Invalid page name in creation event.");
+                        document = document with { Pages = document.Pages.Append(new PageStructure(page.PageId, []) { Name = page.Name ?? "Page" }).ToArray() };
                         break;
                     case ScreenRenamed screen:
                         if (!document.Screens.Any(s => s.Id == screen.ScreenId) || !ScreenNameValidator.IsValid(screen.Name)) throw new InvalidDataException("Invalid screen rename event.");
@@ -806,18 +825,20 @@ public sealed partial class SqliteDocumentJournal
                         document = document with { Screens = document.Screens.Select(s => s.Id == screen.ScreenId ? s with { Dimensions = screen.Dimensions } : s).ToArray() };
                         break;
                     case ScreenAdded screen:
+                        if (screen.Name is not null && !ScreenNameValidator.IsValid(screen.Name)) throw new InvalidDataException("Invalid screen name in creation event.");
                         if (!document.Pages.Any(p => p.Id == screen.PageId))
                             throw new InvalidDataException("Screen event references a missing page.");
-                        document = DocumentStructureEditor.AddScreen(document, screen.PageId, screen.ScreenId, screen.Dimensions);
+                        document = DocumentStructureEditor.AddScreen(document, screen.PageId, screen.ScreenId, screen.Dimensions, screen.Name);
                         break;
                     case ScreenDuplicated duplicate:
                         document = duplicate.Patch.Apply(document)
                             ?? throw new InvalidDataException("Screen duplication preconditions failed during recovery.");
                         break;
                     case NodeAdded node:
+                        if (node.Name is not null && !NodeMetadataValidator.IsValidName(node.Name)) throw new InvalidDataException("Invalid node name in creation event.");
                         if (!document.Screens.Any(s => s.Id == node.ParentId) && !document.Nodes.Any(n => n.Id == node.ParentId))
                             throw new InvalidDataException("Node event references a missing parent.");
-                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind, node.Properties);
+                        document = DocumentStructureEditor.AddNode(document, node.ParentId, node.NodeId, node.Kind, node.Properties, node.Name);
                         if (node.Properties is not null) Validate(document);
                         break;
                     case NodeNameSet name:
