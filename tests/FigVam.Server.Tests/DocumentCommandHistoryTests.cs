@@ -167,6 +167,59 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     }
 
     [Fact]
+    public async Task NamedCreationReplaysInOneRevisionAndUndoRedoPreservesNames()
+    {
+        await Seed();
+        var namedPage = Guid.NewGuid();
+        var namedScreen = Guid.NewGuid();
+        var namedNode = Guid.NewGuid();
+        var handler = Handler();
+        Assert.Equal("INVALID_PAGE", (await handler.HandleAsync(new AddPageCommand(id, Guid.NewGuid(), namedPage, " "), alice)).Code);
+        Assert.Equal(0, (await Journal().ReadAsync(id))!.Revision);
+
+        var createPage = new AddPageCommand(id, Guid.NewGuid(), namedPage, "Prototype");
+        var pageResult = await handler.HandleAsync(createPage, alice);
+        Assert.True(pageResult.Accepted);
+        Assert.Equal(1, pageResult.Revision);
+        Assert.Equal(pageResult, await Handler().HandleAsync(createPage with { Name = "Ignored retry" }, alice));
+        Assert.Equal("INVALID_SCREEN_NAME", (await Handler().HandleAsync(
+            new AddScreenCommand(id, Guid.NewGuid(), namedPage, namedScreen, new(800, 600), ""), alice)).Code);
+        var screenResult = await Handler().HandleAsync(new AddScreenCommand(id, Guid.NewGuid(), namedPage, namedScreen, new(800, 600), "Login"), alice);
+        Assert.True(screenResult.Accepted);
+        Assert.Equal(2, screenResult.Revision);
+        Assert.Equal("INVALID_NODE_METADATA", (await Handler().HandleAsync(
+            new AddNodeCommand(id, Guid.NewGuid(), namedScreen, namedNode, "container", Name: "bad\nname"), alice)).Code);
+        var nodeResult = await Handler().HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), namedScreen, namedNode, "container", Name: "Card"), alice);
+        Assert.True(nodeResult.Accepted);
+        Assert.Equal(3, nodeResult.Revision);
+
+        var state = await Document();
+        Assert.Equal("Prototype", state.Pages.Single(p => p.Id == namedPage).Name);
+        Assert.Equal("Login", state.Screens.Single(s => s.Id == namedScreen).Name);
+        Assert.Equal("Card", state.Nodes.Single(n => n.Id == namedNode).Name);
+        var events = (await Journal().ReadEventsAsync(id, 0)).Events!;
+        Assert.Equal(3, events.Count);
+        Assert.Equal("Prototype", Assert.IsType<PageAdded>(events[0].Payload).Name);
+        Assert.Equal("Login", Assert.IsType<ScreenAdded>(events[1].Payload).Name);
+        Assert.Equal("Card", Assert.IsType<NodeAdded>(events[2].Payload).Name);
+        Assert.True((await Undo()).Accepted);
+        Assert.DoesNotContain((await Document()).Nodes, n => n.Id == namedNode);
+        Assert.True((await Redo()).Accepted);
+        Assert.Equal("Card", (await Document()).Nodes.Single(n => n.Id == namedNode).Name);
+
+        var duplicateId = Guid.NewGuid();
+        var revision = (await Journal().ReadAsync(id))!.Revision;
+        var duplicate = await Handler().HandleAsync(new DuplicateScreenCommand(id, Guid.NewGuid(), namedScreen, duplicateId, revision, "Login Error"), alice);
+        Assert.True(duplicate.Accepted);
+        Assert.Equal(revision + 1, duplicate.Revision);
+        Assert.Equal("Login Error", (await Document()).Screens.Single(s => s.Id == duplicateId).Name);
+        Assert.True((await Undo()).Accepted);
+        Assert.DoesNotContain((await Document()).Screens, s => s.Id == duplicateId);
+        Assert.True((await Redo()).Accepted);
+        Assert.Equal("Login Error", (await Document()).Screens.Single(s => s.Id == duplicateId).Name);
+    }
+
+    [Fact]
     public async Task ForeignDescendantEditRejectsUndoWithoutRevisionOrHistoryMutationAndRetriesAreStable()
     {
         await Seed();
