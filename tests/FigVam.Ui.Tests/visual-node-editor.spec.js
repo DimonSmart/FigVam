@@ -204,6 +204,36 @@ test('inspector displays geometry in two compact rows without rounding stored va
   await expect(panel.getByLabel('Y', { exact: true })).toHaveValue('61.94');
   await expect(panel.getByLabel('Ширина', { exact: true })).toHaveValue('336.61');
   await expect(panel.getByLabel('Высота', { exact: true })).toHaveValue('91.35');
+  const dimensions = rows.nth(1);
+  await expect(dimensions.locator('.token-value-label')).toHaveText(['W', 'H']);
+  // Check actual layout at both desktop sidebar widths, not just DOM presence.
+  for (const viewportWidth of [1280, 1150]) {
+    await page.setViewportSize({ width: viewportWidth, height: 720 });
+    for (const name of ['width', 'height']) {
+      const input = panel.locator('#visual-property-' + name);
+      const field = input.locator('xpath=ancestor::div[contains(@class,"node-property--geometry")]');
+      const link = field.locator('.token-value-link');
+      await expect(input).toBeVisible();
+      await expect(link).toBeVisible();
+      const bounds = await field.evaluate(row => {
+        const rect = element => element.getBoundingClientRect().toJSON();
+        const input = row.querySelector('input[type=number]');
+        return { field: rect(row), label: rect(row.querySelector('.token-value-label')),
+          input: rect(input), link: rect(row.querySelector('.token-value-link')) };
+      });
+      expect(bounds.input.width).toBeGreaterThanOrEqual(55);
+      expect(bounds.input.left).toBeGreaterThanOrEqual(bounds.label.right - 1);
+      expect(bounds.input.right).toBeLessThanOrEqual(bounds.link.left + 1);
+      expect(bounds.link.right).toBeLessThanOrEqual(bounds.field.right + 1);
+      await input.click();
+      await expect(input).toBeFocused();
+      await link.click();
+      await expect(field.getByRole('dialog')).toBeVisible();
+      await page.keyboard.press('Escape');
+      await expect(field.getByRole('dialog')).toBeHidden();
+    }
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
   const xLabel = panel.locator('label:has(#visual-property-x)');
   expect((await xLabel.boundingBox()).height).toBeLessThanOrEqual(35);
   expect((await readNodes(request, base, screenId))[0].properties.x.value).toBe(geometry.x);
@@ -219,6 +249,12 @@ test('inspector displays geometry in two compact rows without rounding stored va
   expect(properties.y).toEqual(number(geometry.y));
   expect(properties.width).toEqual(number(geometry.width));
   expect(properties.height).toEqual(number(geometry.height));
+  await panel.getByLabel('Ширина', { exact: true }).fill('240.5');
+  await panel.getByLabel('Ширина', { exact: true }).press('Enter');
+  await expect.poll(async () => (await readNodes(request, base, screenId))[0].properties.width).toEqual(number(240.5));
+  await panel.getByLabel('Высота', { exact: true }).fill('105.25');
+  await panel.getByLabel('Высота', { exact: true }).press('Enter');
+  await expect.poll(async () => (await readNodes(request, base, screenId))[0].properties.height).toEqual(number(105.25));
 });
 
 test('retry after a lost acknowledgement reuses the identical atomic edit', async ({ page, request }) => {
