@@ -3,6 +3,7 @@ using FigVam.Server.Authentication;
 using FigVam.Server.Documents;
 using FigVam.Server.Connectors;
 using FigVam.Server.Editor;
+using FigVam.Server.Mcp;
 using Microsoft.AspNetCore.Mvc;
 using System.Threading.RateLimiting;
 using Microsoft.OpenApi;
@@ -24,6 +25,7 @@ catch (Exception exception) when (exception is InvalidOperationException or Argu
 }
 
 builder.AddDocumentServices();
+builder.AddDocumentMcp();
 builder.AddRemoteJsonConnector();
 builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 16 * 1024);
 builder.Services.AddControllers().ConfigureApiBehaviorOptions(options =>
@@ -94,12 +96,12 @@ var readPermitLimit = builder.Environment.IsDevelopment()
     : 300;
 builder.Services.AddRateLimiter(options =>
 {
-    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (string Identity, bool Authenticated, bool Read)>(context =>
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (string Identity, bool Authenticated, bool Read, bool Mcp)>(context =>
     {
         var actor = context.User.FindFirst("sub")?.Value;
         var read = actor is not null && (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method));
         var identity = actor ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        return RateLimitPartition.GetFixedWindowLimiter((Identity: identity, Authenticated: actor is not null, Read: read),
+        return RateLimitPartition.GetFixedWindowLimiter((Identity: identity, Authenticated: actor is not null, Read: read, Mcp: context.Request.Path.StartsWithSegments("/mcp")),
             key => new FixedWindowRateLimiterOptions { PermitLimit = key.Read ? readPermitLimit : 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
     });
     options.RejectionStatusCode = 429;
@@ -118,6 +120,7 @@ app.UseExceptionHandler(handler => handler.Run(async context =>
 app.UseStatusCodePages(async status =>
     await status.HttpContext.Response.WriteAsJsonAsync(ApiErrors.Create(status.HttpContext.Response.StatusCode)));
 app.UseAuthentication();
+app.UseDocumentMcpAccess();
 if (googleMode) app.UseGoogleCsrf();
 app.UseRateLimiter();
 app.UseAuthorization();
@@ -126,6 +129,7 @@ app.MapGet("/api/identity", (System.Security.Claims.ClaimsPrincipal user) => use
 if (googleMode) app.MapGoogleAuth();
 else app.MapGet("/api/auth/config", () => Results.Ok(new { mode = "bearer" })).AllowAnonymous();
 app.MapControllers();
+app.MapDocumentMcp();
 app.MapOpenApi();
 app.MapDocumentSchemas();
 app.MapEditor();
