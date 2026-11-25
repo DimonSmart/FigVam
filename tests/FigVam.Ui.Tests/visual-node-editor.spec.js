@@ -142,6 +142,11 @@ test('inspector applies valid properties automatically, rejects invalid values a
   await panel.getByRole('button', { name: 'Повторить сохранение свойств', exact: true }).click();
   await saved();
   expect(await properties()).toMatchObject({ width: number(224.5) });
+  const acceptedCount = bodies.length;
+  await width.fill('224.5');
+  await width.press('Tab');
+  await saved();
+  expect(bodies).toHaveLength(acceptedCount);
   await panel.getByLabel('X', { exact: true }).fill('24');
   await panel.getByLabel('X', { exact: true }).press('Enter');
   await saved();

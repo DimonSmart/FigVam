@@ -231,6 +231,18 @@ export function createVisualNodeEditor({
         field.valueSignature = valueSignature;
         function update(event) {
           const raw = field.read();
+          const automaticField = prefix === 'visual-property';
+          const target = event.target;
+          const discrete = event.type === 'change' && target.matches('select, input[type=checkbox], input[type=color], .token-value-link');
+          // Browsers emit both input and change, including a delayed change on blur.
+          // A no-op must not clear the last acknowledgement or requeue saved values.
+          if (automaticField && sameRaw(field.lastRaw, raw)) {
+            if (discrete && automatic.get(state)?.fields.has(name)) {
+              automatic.get(state).due = 0; planApply();
+            }
+            return;
+          }
+          field.lastRaw = raw;
           const inFlight = [...operations.values()].find(op => op.auto && op.draft === state)?.sent.has(name);
           if (sameRaw(field.baseline, raw) && !inFlight && !(name === 'shadow' && !field.hasValue && state.values.has(name))) state.values.delete(name);
           else state.values.set(name, raw);
@@ -240,16 +252,14 @@ export function createVisualNodeEditor({
           }
           state.error = state.status = '';
           field.validate();
-          updateControls();
-          if (prefix === 'visual-property') {
-            const target = event.target;
-            const discrete = event.type === 'change' && (target.matches('select, input[type=checkbox], input[type=color], .token-value-link'));
+          if (automaticField) {
             // A native color picker may emit many input events before its change event.
             if (target.matches('input[type=color]') && event.type === 'input') {
-              scheduleApply(state, name, field, false, true); return;
+              scheduleApply(state, name, field, false, true); updateControls(); return;
             }
             scheduleApply(state, name, field, discrete);
           }
+          updateControls();
         }
         if (state) {
           field.row.addEventListener('input', update);
@@ -269,7 +279,7 @@ export function createVisualNodeEditor({
                 state.values.delete(name); automatic.get(state)?.fields.delete(name);
                 const entry = automatic.get(state);
                 if (entry) previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
-                field.write(field.baseline); field.validate(); state.error = ''; updateControls(); planApply();
+                field.write(field.baseline); field.lastRaw = field.read(); field.validate(); state.error = ''; updateControls(); planApply();
               }
             });
           }
@@ -285,6 +295,7 @@ export function createVisualNodeEditor({
         if (!sameRaw(field.read(), value)) field.write(value);
         field.validate();
       } else if (!sameRaw(field.read(), field.baseline)) field.write(field.baseline);
+      field.lastRaw = field.read();
       if (prefix === 'visual-property') {
         const overridden = Boolean(context.variantId && model?.overridden?.get(node?.id)?.has(name));
         field.row.dataset.variantOverride = String(overridden);
