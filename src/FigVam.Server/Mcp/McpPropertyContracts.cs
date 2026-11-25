@@ -77,6 +77,15 @@ internal static class McpPropertyContracts
         var schema = Schema<McpShadowInput>();
         var properties = schema["properties"]!.AsObject();
         properties["color"] = ColorSchema();
+        static void Range(JsonNode node, double minimum, double maximum)
+        {
+            node["minimum"] = minimum;
+            node["maximum"] = maximum;
+        }
+        Range(properties["offsetX"]!, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset);
+        Range(properties["offsetY"]!, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset);
+        Range(properties["blurRadius"]!, 0, NodeShadowValue.MaxBlurRadius);
+        Range(properties["spreadRadius"]!, -NodeShadowValue.MaxSpreadRadius, NodeShadowValue.MaxSpreadRadius);
         return schema;
     }
 
