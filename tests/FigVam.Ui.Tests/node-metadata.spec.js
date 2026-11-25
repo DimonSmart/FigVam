@@ -16,12 +16,12 @@ test('node metadata supports confirmation, lost response retry, deletion and vie
   const documentId=new URL(page.url()).pathname.split('/').at(-1), revision=Number((await page.locator('#revision').textContent()).match(/\d+$/)[0]);
   await route.fulfill({json:{status:'ACCEPTED',documentId,commandId:body.commandId,revision:revision+1}});
  });
- await page.locator('#node-name').fill('Updated'); await page.getByRole('button',{name:'Сохранить имя'}).click(); await expect(page.locator('#node-metadata-error')).toContainText('Результат неизвестен');
+ await page.locator('#node-name').fill('Updated'); await page.locator('#node-name').press('Enter'); await expect(page.locator('#node-metadata-error')).toContainText('Результат неизвестен');
  await expect(page.getByRole('treeitem').first()).toContainText('Original'); await page.locator('#node-metadata-retry').click(); await expect(page.locator('#node-name')).toHaveValue('Updated');
  await expect(page.getByRole('treeitem').first()).toContainText('Updated');
  await expect(page.locator('#node-key')).toBeEditable(); expect(bodies[1]).toEqual(bodies[0]);
- await page.locator('#node-key').fill(''); await page.getByRole('button',{name:'Сохранить semantic key'}).click(); await expect.poll(()=>bodies.length).toBe(3); expect(bodies[2].semanticKey).toBeNull();
- await expect(page.locator('#node-key')).toHaveValue(''); await expect(page.locator('#node-name')).toBeEditable(); await page.locator('#node-name').fill('Gone'); await page.getByRole('button',{name:'Сохранить имя'}).click(); await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.');
+ await page.locator('#node-key').fill(''); await page.locator('#node-key').press('Enter'); await expect.poll(()=>bodies.length).toBe(3); expect(bodies[2].semanticKey).toBeNull();
+ await expect(page.locator('#node-key')).toHaveValue(''); await expect(page.locator('#node-name')).toBeEditable(); await page.locator('#node-name').fill('Gone'); await page.locator('#node-name').press('Enter'); await expect(page.locator('#inspector-selection')).toHaveText('Выберите слой.');
  deleted=false; await page.route('**/api/v1/documents?*',async route=>{const response=await route.fetch(), body=await response.json();body.items=body.items.map(item=>({...item,role:'Viewer'}));await route.fulfill({response,json:body});});
  await page.reload(); await page.getByLabel('Bearer-токен',{exact:true}).fill(bearer); await page.getByRole('button',{name:'Продолжить',exact:true}).click(); await page.getByRole('button',{name:/Экран /}).click(); await page.getByRole('treeitem').first().click(); await expect(page.locator('#node-name')).toHaveValue('Updated'); await expect(page.locator('#node-name')).toHaveAttribute('readonly'); await expect(page.getByRole('button',{name:'Сохранить имя'})).toBeHidden();
 });

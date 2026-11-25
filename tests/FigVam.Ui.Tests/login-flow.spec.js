@@ -93,7 +93,6 @@ async function saveProperties(page, values = {}, toggles = {}, enums = {}, shado
     await effects.getByRole('button', { name: 'Изменить Alpha' }).click();
     await effects.getByLabel('Drop shadow — альфа', { exact: true }).fill(String(shadow.alpha));
   }
-  await inspector.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
   await expect(inspector.getByRole('status')).toHaveText('Свойства сохранены.');
 }
 

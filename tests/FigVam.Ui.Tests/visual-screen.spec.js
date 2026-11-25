@@ -147,7 +147,6 @@ test('the inspector saves a spacing alias and Preview uses each theme’s refere
   await menu.getByRole('button', { name: /Field spacing/ }).click();
   await expect(gap.locator('.token-value-name')).toHaveText('Field spacing');
   await expect(gap.locator('.token-value-resolved')).toContainText('14 px · Light');
-  await inspector.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
   await expect(inspector.getByRole('status')).toHaveText('Свойства сохранены.');
   await expect(design.locator(visual(input))).toHaveCSS('top', '39px');
   await expectLayout(page, '#screen-boundary', await read(layoutPath));

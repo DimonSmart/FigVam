@@ -107,7 +107,7 @@ test('palette uploads an image, rejects invalid content, and creates all five ki
   await expect(page.locator(`[data-visual-node="${image.nodeId}"] img`)).toBeVisible();
 });
 
-test('inspector validates typing, retains rejected changes and atomically saves numbers, text and colors', async ({ page, request }) => {
+test('inspector applies valid properties automatically, rejects invalid values and retries a rejected edit', async ({ page, request }) => {
   const { documentId, screenId, nodeId, tokenId, base } = await seedText(request);
   await page.goto(`/documents/${documentId}`);
   await login(page);
@@ -116,12 +116,12 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   const panel = page.locator('#visual-inspector');
   const width = panel.getByLabel('Ширина', { exact: true });
   const text = panel.getByLabel('Текст', { exact: true });
+  const saved = () => expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
+  const properties = async () => (await readNodes(request, base, screenId))[0].properties;
   const tokenLink = () => panel.locator('.node-property--token').filter({ hasText: 'Цвет текста' })
     .getByRole('button', { name: /Привязать токен|Изменить привязку токена/ });
-  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
+  await expect(panel.getByRole('button', { name: 'Сохранить свойства', exact: true })).toHaveCount(0);
   await expect(width).toHaveValue('160');
-  await expect(panel.getByLabel('Семейство шрифта', { exact: true })).toBeVisible();
-  await expect(panel.getByLabel('Цвет фона', { exact: true })).toHaveCount(0);
   const bodies = [];
   let reject = true;
   await page.route(`**${base}/commands/set-node-properties`, route => {
@@ -132,41 +132,43 @@ test('inspector validates typing, retains rejected changes and atomically saves 
   });
   await width.fill('-1');
   await expect(width).toHaveAttribute('aria-invalid', 'true');
-  await save.click();
-  await expect(width).toBeFocused();
+  await width.press('Enter');
   expect(bodies).toHaveLength(0);
   await width.fill('224.5');
-  await panel.getByLabel('X', { exact: true }).fill('24');
-  await text.fill('Первая строка\nВторая строка');
-  await panel.getByRole('combobox', { name: 'Толщина шрифта' }).selectOption('Bold');
-  await panel.getByRole('checkbox', { name: 'Перенос строк' }).uncheck();
-  await tokenLink().click();
-  await panel.getByRole('dialog', { name: 'Цвет текста — дизайн-токены' }).getByRole('button', { name: /Ink/ }).click();
-  await save.click();
+  await width.press('Enter');
   await expect(panel.getByRole('alert')).toHaveText('Ширина · Тестовый отказ сервера');
   await expect(width).toHaveValue('224.5');
-  await expect(text).toHaveValue('Первая строка\nВторая строка');
-  await expect(panel.locator('.node-property--token').filter({ hasText: 'Цвет текста' })
-    .locator('.token-value-name')).toHaveText('Ink');
-  expect((await readNodes(request, base, screenId))[0].properties).toEqual({});
-  await save.click();
-  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
-  const expected = {
+  expect(await properties()).toEqual({});
+  await panel.getByRole('button', { name: 'Повторить сохранение свойств', exact: true }).click();
+  await saved();
+  expect(await properties()).toMatchObject({ width: number(224.5) });
+  await panel.getByLabel('X', { exact: true }).fill('24');
+  await panel.getByLabel('X', { exact: true }).press('Enter');
+  await saved();
+  await text.fill('Первая строка\nВторая строка');
+  await saved();
+  await panel.getByRole('combobox', { name: 'Толщина шрифта' }).selectOption('Bold');
+  await saved();
+  await panel.getByRole('checkbox', { name: 'Перенос строк' }).uncheck();
+  await saved();
+  await tokenLink().click();
+  await panel.getByRole('dialog', { name: 'Цвет текста — дизайн-токены' }).getByRole('button', { name: /Ink/ }).click();
+  await saved();
+  expect(await properties()).toEqual({
     width: number(224.5), x: number(24), text: { type: 'string', value: 'Первая строка\nВторая строка' },
     textColor: { type: 'token', tokenId }, fontWeight: { type: 'enum', value: 'Bold' },
     wrap: { type: 'boolean', value: false }
-  };
-  expect(bodies[1]).toMatchObject({ nodeId, expectedParentId: screenId, properties: expected });
-  expect((await readNodes(request, base, screenId))[0].properties).toEqual(expected);
+  });
+  expect(bodies.find(body => body.properties.x)).toMatchObject({ nodeId, expectedParentId: screenId });
   await tokenLink().click();
   await panel.getByRole('dialog', { name: 'Цвет текста — дизайн-токены' })
     .getByRole('button', { name: 'Отвязать токен' }).click();
+  await saved();
   await panel.getByLabel('Цвет текста', { exact: true }).fill('#336699');
   await panel.getByRole('button', { name: 'Изменить Alpha' }).click();
   await panel.getByLabel('Цвет текста — альфа', { exact: true }).fill('128');
-  await save.click();
-  await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
-  expect((await readNodes(request, base, screenId))[0].properties.textColor).toEqual(color(51, 102, 153, 128));
+  await saved();
+  expect((await properties()).textColor).toEqual(color(51, 102, 153, 128));
   await expect(page.locator(`[data-visual-node="${nodeId}"] .visual-surface`)).toHaveCSS('color', 'rgba(51, 102, 153, 0.5)');
 });
 
@@ -199,13 +201,10 @@ test('inspector displays geometry in two compact rows without rounding stored va
   await expect(panel.getByLabel('Высота', { exact: true })).toHaveValue('91.35');
   const xLabel = panel.locator('label:has(#visual-property-x)');
   expect((await xLabel.boundingBox()).height).toBeLessThanOrEqual(35);
-  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
-  await expect(save).toBeDisabled();
   expect((await readNodes(request, base, screenId))[0].properties.x.value).toBe(geometry.x);
   await x.fill('70.126');
   await x.press('Tab');
   await expect(x).toHaveValue('70.13');
-  await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   await expect(rows).toHaveCount(2);
   await expect(x).toHaveAttribute('data-geometry-instance', 'retained');
@@ -235,7 +234,6 @@ test('retry after a lost acknowledgement reuses the identical atomic edit', asyn
     else await route.fulfill({ response });
   });
   await text.fill('Сохранить один раз');
-  await panel.getByRole('button', { name: 'Сохранить свойства', exact: true }).click();
   const retry = panel.getByRole('button', { name: 'Повторить сохранение свойств', exact: true });
   await expect(retry).toBeVisible();
   await expect(text).toHaveValue('Сохранить один раз');
@@ -324,7 +322,7 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
 });
 
 
-test('compact numeric control binds, switches and unlinks aliases without auto-saving', async ({ page, request }) => {
+test('compact numeric control binds, switches and unlinks aliases with automatic application', async ({ page, request }) => {
   const { documentId, screenId, base } = await seedText(request);
   const frameId = randomUUID(), spacingId = randomUUID(), aliasId = randomUUID(), alternateId = randomUUID();
   const command = (name, data) => post(request, base + '/commands/' + name, {
@@ -348,11 +346,9 @@ test('compact numeric control binds, switches and unlinks aliases without auto-s
   const row = panel.locator('.node-property--token').filter({
     has: page.locator('.token-value-label', { hasText: 'Между элементами' })
   });
-  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
   const direct = row.getByRole('spinbutton', { name: 'Между элементами' });
   await expect(row.getByText('Источник')).toHaveCount(0);
   await direct.fill('7.5');
-  await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
     .toEqual(number(7.5));
@@ -365,17 +361,12 @@ test('compact numeric control binds, switches and unlinks aliases without auto-s
   await expect(row.locator('.token-value-resolved')).toContainText('12 px · Light');
   await expect(row.getByRole('button', { name: 'Изменить привязку токена' }))
     .toHaveAttribute('aria-pressed', 'true');
-  // A selection only changes the local draft.
-  expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
-    .toEqual(number(7.5));
-  await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
     .toEqual({ type: 'token', tokenId: aliasId });
 
   await row.getByRole('button', { name: 'Изменить привязку токена' }).click();
   await menu.getByRole('button', { name: /space.small/ }).click();
-  await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
     .toEqual({ type: 'token', tokenId: alternateId });
@@ -383,7 +374,6 @@ test('compact numeric control binds, switches and unlinks aliases without auto-s
   await row.getByRole('button', { name: 'Изменить привязку токена' }).click();
   await menu.getByRole('button', { name: 'Отвязать токен' }).click();
   await expect(direct).toHaveValue('4');
-  await save.click();
   await expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   expect((await readNodes(request, base, screenId)).find(node => node.id === frameId).properties.gap)
     .toEqual(number(4));
@@ -587,7 +577,6 @@ test('Effects is optional, edits one typed shadow, resets variants and removes w
   const add = effects.getByRole('button', { name: 'Add drop shadow', exact: true });
   const remove = effects.getByRole('button', { name: 'Remove drop shadow', exact: true });
   const field = label => effects.getByLabel('Drop shadow ' + label, { exact: true });
-  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
   const saved = () => expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   const properties = async () => (await readNodes(request, base, screenId)).find(node => node.id === frameId).properties;
   const typedShadow = { type: 'shadow', offsetX: -4, offsetY: 12, blurRadius: 24, spreadRadius: -3,
@@ -598,14 +587,14 @@ test('Effects is optional, edits one typed shadow, resets variants and removes w
   await expect(effects.getByLabel('Drop shadow', { exact: true })).toHaveValue('#000000');
   await effects.getByRole('button', { name: 'Изменить Alpha' }).click();
   await expect(effects.getByLabel('Drop shadow — альфа', { exact: true })).toHaveValue('38');
-  expect((await properties()).shadow).toBeUndefined();
+  await saved();
+  expect((await properties()).shadow).toBeDefined();
   await field('Blur').fill('-1');
   await expect(field('Blur')).toHaveAttribute('aria-invalid', 'true');
   for (const [label, value] of [['X', -4], ['Y', 12], ['Blur', 24], ['Spread', -3]])
     await field(label).fill(String(value));
   await effects.getByLabel('Drop shadow', { exact: true }).fill('#112233');
   await effects.getByLabel('Drop shadow — альфа', { exact: true }).fill('100');
-  await save.click();
   await saved();
   expect((await properties()).shadow).toEqual(typedShadow);
   await select(nodeId);
@@ -617,7 +606,6 @@ test('Effects is optional, edits one typed shadow, resets variants and removes w
   await show(page, 'design');
   await expect(field('Blur')).toHaveValue('24');
   await field('Blur').fill('48');
-  await save.click();
   await saved();
   await expect(effects.getByRole('button', { name: 'Reset Override' })).toBeVisible();
   expect((await properties()).shadow).toEqual(typedShadow);
@@ -633,11 +621,11 @@ test('Effects is optional, edits one typed shadow, resets variants and removes w
   await show(page, 'design');
   const width = panel.getByLabel('Ширина', { exact: true });
   await width.fill('321');
+  await saved();
   await remove.click();
   await expect(add).toBeVisible();
   await expect(width).toHaveValue('321');
-  expect((await properties()).shadow).toBeUndefined();
-  await save.click();
+  await expect.poll(async () => (await properties()).shadow).toBeUndefined();
   await saved();
   expect((await properties()).width).toEqual(number(321));
 });
@@ -685,7 +673,6 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   const panel = page.locator('#visual-inspector');
   const editor = panel.locator('.padding-editor');
   const gap = panel.locator('.padding-gap-row');
-  const save = panel.getByRole('button', { name: 'Сохранить свойства', exact: true });
   const saved = () => expect(panel.getByRole('status')).toHaveText('Свойства сохранены.');
   const sides = [['top', 'Top', 24], ['right', 'Right', 32], ['bottom', 'Bottom', 16], ['left', 'Left', 32]];
   const input = side => panel.locator('#visual-property-padding' + side);
@@ -728,7 +715,6 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   await expect(input('Top')).toBeFocused();
   await expect(input('Top')).toHaveAttribute('data-instance', 'retained');
   await expect(input('Top')).toHaveValue('24');
-  await save.click();
   await saved();
   for (const [, name, value] of sides)
     expect((await properties())['padding' + name]).toEqual(number(value));
@@ -740,7 +726,6 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   await expect(rightSlot.locator('.token-value-name')).toHaveText(tokenName);
   await expect(rightSlot.locator('.token-value-reference')).toHaveAttribute('title', /32/);
   expect(await editor.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-  await save.click();
   await saved();
   expect((await properties()).paddingRight).toEqual({ type: 'token', tokenId });
   await page.getByRole('button', { name: 'Отменить действие', exact: true }).click();
@@ -752,14 +737,12 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   await rightSlot.getByRole('button', { name: 'Изменить привязку токена' }).click();
   await rightSlot.getByRole('button', { name: 'Отвязать токен' }).click();
   await expect(input('Right')).toHaveValue('32');
-  await save.click();
   await saved();
 
   await show(page, 'assets');
   await page.locator('#screen-variants-list [data-variant-id="' + variantId + '"]').click();
   await show(page, 'design');
   await input('Bottom').fill('20');
-  await save.click();
   await saved();
   await expect(slot('bottom').locator('.node-property')).toHaveAttribute('data-variant-override', 'true');
   expect((await properties()).paddingBottom).toEqual(number(16));
@@ -773,6 +756,7 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   for (const [, name, value] of sides) await expect(input(name)).toHaveValue(String(value));
   await expect(gap.getByRole('spinbutton')).toHaveValue('12');
   await panel.locator('#visual-property-layout').selectOption('Vertical');
+  await saved();
   await expect(gap.locator('.padding-gap-icon')).toHaveCSS('flex-direction', 'column');
   await panel.locator('#visual-property-layout').selectOption('Horizontal');
   await expect(gap.locator('.padding-gap-icon')).toHaveCSS('flex-direction', 'row');
@@ -797,4 +781,38 @@ test('padding editor preserves missing token feedback and read-only controls', a
       linkEnabled: !root.querySelector('#test-padding-paddingTop-1').disabled };
   });
   expect(result).toEqual({ invalid: true, invalidLink: 'true', disabled: true, linkEnabled: true });
+});
+
+test('automatic inspector preserves a newer edit during a delayed acknowledgement and applies it to the original node', async ({ page, request }) => {
+  const { documentId, screenId, nodeId, base } = await seedText(request);
+  const other = randomUUID();
+  await post(request, base + '/commands/add-node', { commandId: randomUUID(), nodeId: other, parentId: screenId, kind: 'Text' });
+  await page.goto('/documents/' + documentId);
+  await login(page);
+  await page.locator('#screens button').first().click();
+  await page.locator('[role=treeitem][data-id="' + nodeId + '"]').press('Enter');
+  const panel = page.locator('#visual-inspector');
+  const field = panel.getByLabel('Текст', { exact: true });
+  const bodies = [];
+  let release, entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const held = new Promise(resolve => { entered = resolve; });
+  await page.route('**' + base + '/commands/set-node-properties', async route => {
+    bodies.push(route.request().postDataJSON());
+    if (bodies.length === 1) {
+      const response = await route.fetch(); entered(); await gate; await route.fulfill({ response });
+    } else await route.continue();
+  });
+  try {
+    await field.fill('First');
+    await expect(page.locator('[data-visual-node="' + nodeId + '"] .visual-surface')).toHaveText('First');
+    await held;
+    await expect(field).toBeEditable();
+    await field.fill('Second');
+    await page.locator('[role=treeitem][data-id="' + other + '"]').press('Enter');
+    release();
+    await expect.poll(async () => (await readNodes(request, base, screenId)).find(node => node.id === nodeId).properties.text?.value).toBe('Second');
+    expect(bodies.map(body => body.nodeId)).toEqual([nodeId, nodeId]);
+    expect((await readNodes(request, base, screenId)).find(node => node.id === other).properties.text).toBeUndefined();
+  } finally { release(); }
 });

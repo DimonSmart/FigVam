@@ -211,13 +211,14 @@ test('pans separately, blocks direct stack geometry edits and supports keyboard 
   expect((await layout()).revision).toBe(original.revision + 3);
 });
 
-test('keeps canvas nodes, layers and unsaved inspector fields alive after a local move', async ({ page, request }) => {
+test('keeps canvas nodes, layers and inspector fields alive after an automatic edit and local move', async ({ page, request }) => {
   const { child, cover, path } = await openCanvas(page, request);
   const node = page.locator(visual(child));
   await node.locator('.visual-surface').click();
   const draft = page.locator('#visual-property-text');
   await expect(draft).toBeVisible();
-  await draft.fill('Неотправленный текст');
+  await draft.fill('Изменённый текст');
+  await expect(page.locator('#visual-inspector-status')).toHaveText('Свойства сохранены.');
   await page.evaluate(({ child, cover }) => {
     window.__stableEditor = {
       moved: document.querySelector(`[data-visual-node="${child}"]`),
@@ -249,7 +250,7 @@ test('keeps canvas nodes, layers and unsaved inspector fields alive after a loca
     };
   })).toEqual({
     moved: true, neighbor: true, layer: true, width: true, text: true,
-    draft: 'Неотправленный текст', boundary: true
+    draft: 'Изменённый текст', boundary: true
   });
 });
 
@@ -259,7 +260,8 @@ test('reconciles a remote property change without destroying the active inspecto
   await node.locator('.visual-surface').click();
   const draft = page.locator('#visual-property-text');
   await expect(draft).toBeVisible();
-  await draft.fill('Локальный черновик');
+  await draft.fill('Локальное изменение');
+  await expect(page.locator('#visual-inspector-status')).toHaveText('Свойства сохранены.');
   await page.evaluate(({ child, cover }) => {
     window.__remoteStable = {
       selected: document.querySelector(`[data-visual-node="${child}"]`),
@@ -286,7 +288,7 @@ test('reconciles a remote property change without destroying the active inspecto
     };
   })).toEqual({
     selected: true, neighbor: true, layer: true, field: true, width: true,
-    draft: 'Локальный черновик'
+    draft: 'Локальное изменение'
   });
 });
 
