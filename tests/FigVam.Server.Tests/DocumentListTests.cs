@@ -28,10 +28,16 @@ public sealed class DocumentListTests
             var handler = new DocumentCommandHandler(store, store, new EmptyNodeProfile());
             Assert.True((await handler.HandleAsync(new RenameDocumentCommand(ids[0], Guid.NewGuid(), "Current"), owner)).Accepted);
             var first = await store.ListAsync(viewer, 1);
-            Assert.Equal(new DocumentListItem(ids[0], "Current", "Viewer"), Assert.Single(first.Items));
+            var firstItem = Assert.Single(first.Items);
+            Assert.Equal((ids[0], "Current", "Viewer"), (firstItem.DocumentId, firstItem.Name, firstItem.Role));
+            Assert.Equal(1, firstItem.Revision);
+            Assert.Null(firstItem.CompatibilityIssue);
+            Assert.Equal(PortableUiProfileReference.Current.Version, firstItem.ProfileVersion);
+            Assert.NotNull(firstItem.CreatedAt); Assert.NotNull(firstItem.UpdatedAt);
             Assert.Equal(ids[0], first.NextCursor);
             var second = await store.ListAsync(viewer, 1, first.NextCursor);
-            Assert.Equal(new DocumentListItem(ids[2], "Initial", "Editor"), Assert.Single(second.Items));
+            var secondItem = Assert.Single(second.Items);
+            Assert.Equal((ids[2], "Initial", "Editor"), (secondItem.DocumentId, secondItem.Name, secondItem.Role));
             Assert.Null(second.NextCursor);
             await store.RemoveMemberAsync(ids[2], viewer.Id, owner);
             Assert.Empty((await store.ListAsync(viewer, 1, first.NextCursor)).Items);

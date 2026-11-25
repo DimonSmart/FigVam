@@ -185,3 +185,6 @@ body:has(#documents-view:not([hidden])) .feedback #retry { padding: 7px 11px; fo
 @media (prefers-reduced-motion: reduce) {
   #documents-view #document-list li { transition: none; }
 }
+#documents-view .document-unavailable-name { color: #273449; font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+#documents-view .document-compatibility { color: #a14c08; font-size: 12px; overflow-wrap: anywhere; }
+#documents-view .document-catalog-delete { justify-self: start; max-width: 100%; }

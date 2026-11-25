@@ -335,14 +335,63 @@ async function loadList(index = 0, cursor = null) {
       art.innerHTML = '<div class="document-art-window"><div class="document-art-content"><div class="document-art-rail"></div><div class="document-art-lines"><span></span><span></span><span></span></div></div></div>';
       const details = document.createElement('div');
       details.className = 'document-card-meta';
-      const link = document.createElement('a');
-      link.href = `/documents/${encodeURIComponent(item.documentId)}`;
-      link.dataset.navigation = '';
+      const link = document.createElement(item.compatibilityIssue ? 'span' : 'a');
+      if (!item.compatibilityIssue) {
+        link.href = `/documents/${encodeURIComponent(item.documentId)}`;
+        link.dataset.navigation = '';
+      } else link.className = 'document-unavailable-name';
       link.textContent = item.name;
       const role = document.createElement('span');
       role.className = 'document-role';
       role.textContent = { Owner: 'Владелец', Editor: 'Редактор', Viewer: 'Просмотр' }[item.role] ?? item.role;
       details.append(link, role);
+      if (item.profileVersion != null) {
+        const version = document.createElement('span');
+        version.className = 'document-role';
+        version.textContent = `Профиль: v${item.profileVersion}`;
+        details.append(version);
+      }
+      if (item.compatibilityIssue) {
+        const warning = document.createElement('span');
+        warning.className = 'document-compatibility';
+        warning.textContent = item.compatibilityIssue === 'UNSUPPORTED_PROFILE_VERSION'
+          ? `Несовместимый профиль: v${item.profileVersion} (текущий v${item.currentProfileVersion})`
+          : ({ PROFILE_UNAVAILABLE: 'Профиль не установлен', INVALID_PROFILE: 'Некорректный профиль',
+               UNSUPPORTED_STORAGE_SCHEMA: 'Несовместимый формат хранения', METADATA_UNAVAILABLE: 'Метаданные недоступны' }[item.compatibilityIssue] ?? 'Документ недоступен');
+        details.append(warning);
+        if (item.role === 'Owner' && Number.isSafeInteger(item.revision)) {
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'document-catalog-delete';
+          remove.textContent = 'Удалить документ';
+          remove.setAttribute('aria-label', `Удалить документ «${item.name}»`);
+          let body = null;
+          remove.addEventListener('click', async () => {
+            if (!body && !confirm(`Удалить документ «${item.name}»? Это действие нельзя отменить.`)) return;
+            body ??= JSON.stringify({ commandId: crypto.randomUUID(), expectedRevision: item.revision });
+            remove.disabled = true;
+            const epoch = navigationEpoch;
+            try {
+              const result = await request(`/api/v1/documents/${encodeURIComponent(item.documentId)}/commands/delete-document`, { method: 'POST', body });
+              if (epoch !== navigationEpoch) return;
+              if (result.code !== 'ACCEPTED' || result.commandId?.toLowerCase() !== JSON.parse(body).commandId.toLowerCase() ||
+                  result.documentId?.toLowerCase() !== item.documentId.toLowerCase() || result.revision !== item.revision + 1)
+                throw new TypeError('Некорректное подтверждение');
+              await loadList();
+            } catch (error) {
+              if (epoch !== navigationEpoch || !token) return;
+              if (error.status === 409 || error.status === 404 || error.status === 403) {
+                await loadList();
+                message('', error.message);
+              } else {
+                message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
+                remove.disabled = false;
+              }
+            }
+          });
+          details.append(remove);
+        }
+      }
       row.append(art, details);
       element('document-list').append(row);
     }

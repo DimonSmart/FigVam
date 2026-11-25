@@ -1,4 +1,5 @@
 using FigVam.Application.Documents;
+using Microsoft.Data.Sqlite;
 
 namespace FigVam.Infrastructure.Documents;
 
@@ -24,16 +25,57 @@ public sealed partial class SqliteDocumentJournal : IDocumentListQuery
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var id = Guid.ParseExact(name!, "N");
-                using var connection = Open(id);
-                using var transaction = connection.BeginTransaction(deferred: true);
-                var role = ReadRole(connection, transaction, actor.Id);
-                if (role is null) continue;
-                var state = Recover(connection, transaction, id);
-                if (state is null) continue;
+                var item = ReadCatalogItem(id, actor.Id);
+                if (item is null) continue;
                 if (items.Count == limit) return new DocumentListResponse(items, items[^1].DocumentId);
-                items.Add(new(id, state.Document.Name, role.Value.ToString()));
+                items.Add(item);
             }
             return new DocumentListResponse(items, null);
         }, cancellationToken);
     }
+    private DocumentListItem? ReadCatalogItem(Guid id, string actorId)
+    {
+        DocumentRole? role = null;
+        long? revision = null;
+        try
+        {
+            using var connection = Open(id);
+            using (var transaction = connection.BeginTransaction(deferred: true))
+            {
+                role = ReadRole(connection, transaction, actorId);
+                if (role is null || IsDeleted(connection, transaction)) return null;
+                if (ReadMetadata(connection, transaction) is { } existing)
+                    return CatalogItem(id, role.Value, existing);
+            }
+            // Recheck authorization and tombstone under the writer lock before lazy backfill.
+            using var migration = connection.BeginTransaction(deferred: false);
+            role = ReadRole(connection, migration, actorId);
+            if (role is null || IsDeleted(connection, migration)) return null;
+            revision = ReadCatalogRevision(connection, migration);
+            var metadata = ReadMetadata(connection, migration);
+            if (metadata is null)
+            {
+                metadata = ReadLegacyMetadata(connection, migration);
+                if (metadata is null) return null;
+                WriteMetadata(connection, migration, metadata);
+            }
+            migration.Commit();
+            return CatalogItem(id, role.Value, metadata);
+        }
+        catch (SqliteException error) when (error.SqliteErrorCode is 1 or 11 or 26)
+        {
+            // Never expose a file whose membership could not be established.
+            return role is null ? null : UnreadableCatalogItem(id, role.Value, revision);
+        }
+        catch (FormatException)
+        {
+            return role is null ? null : UnreadableCatalogItem(id, role.Value, revision);
+        }
+    }
+
+    private DocumentListItem UnreadableCatalogItem(Guid id, DocumentRole role, long? revision)
+        => new(id, id.ToString(), role.ToString())
+        {
+            CurrentProfileVersion = profile.Identity.Version, Revision = revision, CompatibilityIssue = "METADATA_UNAVAILABLE"
+        };
 }

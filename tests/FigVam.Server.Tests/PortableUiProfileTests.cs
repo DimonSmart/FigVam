@@ -8,6 +8,7 @@ using FigVam.Domain.Preview;
 using FigVam.Infrastructure.Documents;
 using FigVam.Server.Documents;
 using Json.Schema;
+using Microsoft.Data.Sqlite;
 
 namespace FigVam.Server.Tests;
 
@@ -153,6 +154,31 @@ public sealed class PortableUiProfileTests : IDisposable
         }
         var created = Guid.NewGuid();
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = created })).StatusCode);
+        // Simulate a database created before catalog metadata was introduced.
+        using (var db = new SqliteConnection($"Data Source={Path.Combine(directory, $"{id:N}.sqlite")};Pooling=False"))
+        {
+            db.Open();
+            using var sql = db.CreateCommand();
+            sql.CommandText = "DROP TABLE document_metadata";
+            sql.ExecuteNonQuery();
+        }
+        var list = (await client.GetFromJsonAsync<DocumentListResponse>("/api/v1/documents"))!;
+        Assert.Equal(2, list.Items.Count);
+        var old = Assert.Single(list.Items, item => item.DocumentId == id);
+        Assert.Equal(7, old.ProfileVersion);
+        Assert.Equal("UNSUPPORTED_PROFILE_VERSION", old.CompatibilityIssue);
+        Assert.Equal(1, old.Revision);
+        Assert.Null(old.CreatedAt);
+        Assert.Null(Assert.Single(list.Items, item => item.DocumentId == created).CompatibilityIssue);
+        await source.SetMemberAsync(id, "viewer", DocumentRole.Viewer, owner);
+        var deletion = new { commandId = Guid.NewGuid(), expectedRevision = old.Revision };
+        client.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "viewer"));
+        Assert.Equal(403, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/delete-document", deletion)).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: owner.Id));
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/delete-document", deletion)).StatusCode);
+        Assert.Equal(200, (int)(await client.PostAsJsonAsync($"/api/v1/documents/{id}/commands/delete-document", deletion)).StatusCode);
+        Assert.Equal(created, Assert.Single((await client.GetFromJsonAsync<DocumentListResponse>("/api/v1/documents"))!.Items).DocumentId);
+
         var export = await client.GetFromJsonAsync<DocumentJsonExport>($"/api/v1/documents/{created}/document.json", DocumentJsonFormat.CreateOptions());
         Assert.Equal(PortableUiProfileReference.Current, export!.Document.Profile);
         Assert.Empty(export.Document.Nodes);

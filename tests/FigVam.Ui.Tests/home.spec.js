@@ -109,3 +109,31 @@ test('localized file picker displays selected filename without native button tex
   await expect(page.locator('#import-file-name')).toHaveText('my-design.figvam');
   await expect(page.locator('.home-file-picker')).toBeVisible();
 });
+
+test('incompatible documents remain visible and only owners can delete without opening', async ({ page }) => {
+  const old = '00000000-0000-0000-0000-000000000001';
+  const viewer = '00000000-0000-0000-0000-000000000002';
+  let deleted = false;
+  await page.route('**/api/v1/documents?*', route => route.fulfill({ json: { items: [
+    ...(!deleted ? [{ documentId: old, name: 'Old design', role: 'Owner', profileVersion: 2,
+      currentProfileVersion: 5, compatibilityIssue: 'UNSUPPORTED_PROFILE_VERSION', revision: 3 }] : []),
+    { documentId: viewer, name: 'Shared old design', role: 'Viewer', profileVersion: 2,
+      currentProfileVersion: 5, compatibilityIssue: 'UNSUPPORTED_PROFILE_VERSION', revision: 0 }
+  ], nextCursor: null } } }));
+  await page.route('**/commands/delete-document', async route => {
+    const body = route.request().postDataJSON();
+    expect(route.request().url()).toContain(old);
+    expect(body.expectedRevision).toBe(3);
+    deleted = true;
+    await route.fulfill({ json: { code: 'ACCEPTED', documentId: old, commandId: body.commandId, revision: 4 } });
+  });
+  await login(page);
+  await expect(page.getByText('Old design', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Old design', exact: true })).toHaveCount(0);
+  await expect(page.getByText('Несовместимый профиль: v2 (текущий v5)')).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Удалить документ «Shared old design»' })).toHaveCount(0);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Удалить документ «Old design»' }).click();
+  await expect(page.getByText('Old design', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Shared old design', { exact: true })).toBeVisible();
+});
