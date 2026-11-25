@@ -50,6 +50,7 @@ export function createVisualNodeEditor({
     const current = getContext();
     const ready = [...automatic.entries()].filter(([state, entry]) =>
       entry.fields.size && !entry.rejected && entry.target.token === current.token &&
+      (entry.target.documentId !== current.documentId || canEdit(current.documentRole)) &&
       ![...operations.values()].some(op => op.documentId === entry.target.documentId));
     if (!ready.length) return;
     applyTimer = setTimeout(pumpApply, Math.max(0, Math.min(...ready.map(([, entry]) => entry.due)) - Date.now()));
@@ -83,7 +84,7 @@ export function createVisualNodeEditor({
     const entry = automatic.get(state);
     if (!entry || entry.rejected) return;
     entry.due = 0;
-    pumpApply();
+    planApply();
   }
 
   function refresh() {
@@ -662,7 +663,7 @@ export function createVisualNodeEditor({
         op.draft.coordinateParentId = undefined;
       }
       op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
-      if (scopeKey(getContext()) === op.key) render();
+      if (scopeKey(getContext()) === op.key && (!op.auto || resolvedModelKey === modelKey)) render();
     } catch (error) {
       if (!current() || error.status == null || error.status === 408 || error.status >= 500) op.state = 'uncertain';
       else {

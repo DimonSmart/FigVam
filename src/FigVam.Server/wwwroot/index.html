@@ -264,7 +264,7 @@
           <p id="canvas-edit-status" role="status"></p><p id="canvas-edit-error" role="alert"></p>
           <button id="canvas-edit-retry" type="button" hidden>Повторить неподтверждённую команду</button>
         </section>
-        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><button id="node-delete" type="button" hidden>Удалить слой</button><div id="node-metadata" hidden><p id="node-metadata-status" role="status"></p><p id="node-metadata-error" role="alert"></p><form id="node-name-form"><label>Имя слоя <input id="node-name" maxlength="256"></label><button type="submit">Сохранить имя</button></form><form id="node-key-form"><label>Semantic key <input id="node-key" maxlength="256" aria-describedby="node-key-help"></label><p id="node-key-help">Пустое значение удаляет semantic key.</p><button type="submit">Сохранить semantic key</button></form><button id="node-metadata-retry" type="button" hidden>Повторить неподтверждённую команду</button></div>
+        <aside aria-labelledby="inspector-title"><h2 id="inspector-title">Инспектор</h2><p id="inspector-selection">Выберите слой.</p><button id="node-delete" type="button" hidden>Удалить слой</button><div id="node-metadata" hidden><p id="node-metadata-status" role="status"></p><p id="node-metadata-error" role="alert"></p><form id="node-name-form"><label>Имя слоя <input id="node-name" maxlength="256"></label></form><form id="node-key-form"><label>Semantic key <input id="node-key" maxlength="256" aria-describedby="node-key-help"></label><p id="node-key-help">Пустое значение удаляет semantic key.</p></form><button id="node-metadata-retry" type="button" hidden>Повторить неподтверждённую команду</button></div>
           <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
             <h3 id="visual-inspector-title">Свойства элемента</h3>
             <form id="visual-properties-form" novalidate hidden>
@@ -321,7 +321,6 @@
             <form id="screen-resize" hidden novalidate>
               <label for="resize-width">Ширина выбранного экрана</label><input id="resize-width" type="number" min="0" step="any" required>
               <label for="resize-height">Высота выбранного экрана</label><input id="resize-height" type="number" min="0" step="any" required>
-              <button type="submit">Изменить размер</button>
               <button id="resize-retry" type="button" hidden>Повторить команду</button>
             </form><p id="screen-size-status" role="status" aria-live="polite"></p><p id="screen-size-error" role="alert"></p>
           </section>

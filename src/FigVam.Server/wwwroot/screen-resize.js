@@ -1,6 +1,6 @@
 export function createScreenResize({ element, request, refreshPages, workspace }) {
   const resizeOperations = new Map();
-  let resizeDraftScreen = null, resizeDirty = false, resizeError = null;
+  let resizeDraftScreen = null, resizeDirty = false, resizeError = null, resizeTimer;
 
   function resizeKey(id, screen) { return `${id}:${screen}`; }
   function renderScreenSize() {
@@ -18,14 +18,35 @@ export function createScreenResize({ element, request, refreshPages, workspace }
       element('resize-height').value = operation.body.dimensions.height;
     }
     for (const id of ['resize-width', 'resize-height']) element(id).readOnly = !!operation;
-    form.querySelector('button[type=submit]').disabled = !!operation;
     element('resize-retry').hidden = operation?.state !== 'uncertain';
     element('screen-size-status').textContent = operation?.state === 'pending' ? 'Ожидание подтверждения…' : '';
     element('screen-size-error').textContent = operation?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : resizeError ?? '';
   }
-  for (const id of ['resize-width', 'resize-height']) element(id).addEventListener('input', () => { resizeDirty = true; resizeError = null; element('screen-size-error').textContent = ''; });
-  element('screen-resize').addEventListener('submit', event => {
-    event.preventDefault();
+  for (const id of ['resize-width', 'resize-height']) {
+    const input = element(id);
+    input.addEventListener('input', () => {
+      resizeDirty = true; resizeError = null; element('screen-size-error').textContent = '';
+      clearTimeout(resizeTimer);
+      const screen = workspace.selectedScreen, doc = workspace.documentId;
+      resizeTimer = setTimeout(() => {
+        if (screen === workspace.selectedScreen && doc === workspace.documentId) applyResize();
+      }, 500);
+    });
+    input.addEventListener('keydown', event => {
+      if (event.isComposing) return;
+      if (event.key === 'Enter') { event.preventDefault(); applyResize(); }
+      if (event.key === 'Escape' && !input.readOnly) {
+        clearTimeout(resizeTimer); resizeDirty = false; resizeError = null; renderScreenSize();
+      }
+    });
+  }
+  element('screen-resize').addEventListener('focusout', event => {
+    if (!element('screen-resize').contains(event.relatedTarget)) applyResize();
+  });
+  element('screen-resize').addEventListener('submit', event => { event.preventDefault(); applyResize(); });
+  function applyResize() {
+    clearTimeout(resizeTimer);
+    if (!resizeDirty) return;
     if (!workspace.selectedScreen || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
     const width = element('resize-width').valueAsNumber, height = element('resize-height').valueAsNumber;
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) {
@@ -33,9 +54,11 @@ export function createScreenResize({ element, request, refreshPages, workspace }
     }
     const key = resizeKey(workspace.documentId, workspace.selectedScreen);
     if (resizeOperations.has(key)) return;
+    const saved = workspace.screensItems.find(item => item.id === workspace.selectedScreen)?.dimensions;
+    if (saved?.width === width && saved?.height === height) { resizeDirty = false; return; }
     const operation = { body: { commandId: crypto.randomUUID(), screenId: workspace.selectedScreen, dimensions: { width, height } }, state: 'pending' };
     resizeError = null; resizeOperations.set(key, operation); sendResize(workspace.documentId, workspace.selectedScreen, operation);
-  });
+  }
   element('resize-retry').addEventListener('click', () => {
     const operation = resizeOperations.get(resizeKey(workspace.documentId, workspace.selectedScreen));
     if (operation?.state === 'uncertain') sendResize(workspace.documentId, workspace.selectedScreen, operation);
@@ -60,7 +83,7 @@ export function createScreenResize({ element, request, refreshPages, workspace }
 
   return {
     render: renderScreenSize,
-    resetDraft() { resizeError = null; resizeDraftScreen = null; },
-    clear() { resizeOperations.clear(); resizeDraftScreen = null; resizeDirty = false; resizeError = null; }
+    resetDraft() { clearTimeout(resizeTimer); resizeError = null; resizeDraftScreen = null; },
+    clear() { clearTimeout(resizeTimer); resizeOperations.clear(); resizeDraftScreen = null; resizeDirty = false; resizeError = null; }
   };
 }
