@@ -61,6 +61,7 @@ export function createScreenCapture({ request, getContext, onChange }) {
     if (operation) {
       operation.controller.abort();
       operation.pending?.abort();
+      operation.uploadController?.abort();
       operation.stream?.getTracks().forEach(track => track.stop());
       if (operation.video) {
         operation.video.pause(); operation.video.srcObject = null;
@@ -136,7 +137,11 @@ export function createScreenCapture({ request, getContext, onChange }) {
 
   async function handleCapture(operation, task) {
     if (operation.pending) return;
-    const pending = deadline(operation.controller.signal, 8500);
+    const upload = new AbortController();
+    operation.uploadController = upload;
+    const abortUpload = () => upload.abort();
+    operation.controller.signal.addEventListener('abort', abortUpload, { once: true });
+    const pending = deadline(upload.signal, 8500);
     operation.pending = pending;
     operation.requestId = task.requestId;
     change('Capturing');
@@ -156,12 +161,14 @@ export function createScreenCapture({ request, getContext, onChange }) {
       const query = new URLSearchParams({ screenId: task.screenId, revision: String(task.revision), ...(code ? { code } : {}) });
       await request(operation.base + '/providers/' + operation.providerId + '/results/' + task.requestId + '?' + query,
         { method: 'POST', ...(blob ? { body: blob, headers: { 'Content-Type': 'image/png' } } : {}) },
-        operation.controller.signal, () => active(operation) && operation.requestId === task.requestId);
+        upload.signal, () => active(operation) && operation.requestId === task.requestId);
     } catch (error) {
       // A cancelled/timed-out server request no longer accepts a result.
       if (active(operation) && error.status !== 404 && error.name !== 'AbortError')
         stop('Error', 'Не удалось передать изображение.');
     } finally {
+      operation.controller.signal.removeEventListener('abort', abortUpload);
+      if (operation.uploadController === upload) operation.uploadController = null;
       if (current === operation && operation.pending === pending) {
         operation.pending = null; operation.requestId = null;
         change('Ready');
@@ -172,6 +179,9 @@ export function createScreenCapture({ request, getContext, onChange }) {
   async function connect(operation) {
     const signal = operation.controller.signal;
     let reader;
+    const handshake = setTimeout(() => {
+      if (active(operation) && !operation.providerId) stop('Error', 'Сервер не подтвердил подключение захвата.');
+    }, 10000);
     try {
       const response = await fetch(operation.base + '/providers/' + operation.screenId, {
         method: 'POST', signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
@@ -194,12 +204,14 @@ export function createScreenCapture({ request, getContext, onChange }) {
           const event = JSON.parse(data);
           if (event.code === 'READY') {
             operation.providerId = event.providerId;
+            clearTimeout(handshake);
             change('Ready');
           } else if (event.code === 'CAPTURE') {
             void handleCapture(operation, event.request);
           } else if (event.code === 'CANCEL' && operation.requestId === event.request.requestId) {
             operation.requestId = null;
             operation.pending?.abort();
+            operation.uploadController?.abort();
           }
           sync();
         }
@@ -209,6 +221,7 @@ export function createScreenCapture({ request, getContext, onChange }) {
     } catch (error) {
       if (active(operation)) stop('Error', 'Не удалось подключить захват к серверу.');
     } finally {
+      clearTimeout(handshake);
       if (reader) await reader.cancel().catch(() => {});
     }
   }
@@ -235,19 +248,23 @@ export function createScreenCapture({ request, getContext, onChange }) {
       if (!track || track.getSettings().displaySurface !== 'browser' || typeof track.restrictTo !== 'function')
         throw failure('CAPTURE_FAILED');
       track.addEventListener('ended', () => { if (current === operation) stop(); }, { once: true });
-      const target = await RestrictionTarget.fromElement(operation.element);
-      if (!active(operation)) return;
-      // No video element receives a stream before successful restriction. Never
-      // unrestrict it, and never fall back to full-tab/window/desktop capture.
-      await track.restrictTo(target);
-      if (!active(operation)) return;
-      const video = operation.video = document.createElement('video');
-      video.muted = true; video.playsInline = true;
-      video.srcObject = stream;
-      await video.play();
-      if (!active(operation)) return;
       const startup = deadline(operation.controller.signal, 8000);
-      try { await frame(video, startup.signal); } finally { startup.dispose(); }
+      try {
+        const target = await abortable(startup.signal, (resolve, reject) => {
+          RestrictionTarget.fromElement(operation.element).then(resolve, reject);
+        });
+        if (!active(operation)) return;
+        // No video element receives a stream before successful restriction. Never
+        // unrestrict it, and never fall back to full-tab/window/desktop capture.
+        await abortable(startup.signal, (resolve, reject) => { track.restrictTo(target).then(resolve, reject); });
+        if (!active(operation)) return;
+        const video = operation.video = document.createElement('video');
+        video.muted = true; video.playsInline = true;
+        video.srcObject = stream;
+        await abortable(startup.signal, (resolve, reject) => { video.play().then(resolve, reject); });
+        if (!active(operation)) return;
+        await frame(video, startup.signal);
+      } finally { startup.dispose(); }
       viewFor(operation);
       if (!active(operation)) return;
       void connect(operation);

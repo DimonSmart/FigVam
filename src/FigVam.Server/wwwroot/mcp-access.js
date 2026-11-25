@@ -7,7 +7,7 @@ export function createMcpAccess({ request, getContext }) {
   let current = null;
   const designMenuParent = menu.parentElement;
   const previewHeader = document.querySelector('#editor-preview > header');
-  let capturePanel = null, captureAllowed = false;
+  let capturePanel = null, captureAllowed = false, panelSignature = null;
   const capture = createScreenCapture({ request, getContext, onChange: () => updateCapturePanel() });
 
   const el = (tag, text, className) => {
@@ -33,6 +33,7 @@ export function createMcpAccess({ request, getContext }) {
     controller = null;
     current = null;
     capturePanel = null;
+    panelSignature = null;
     body.replaceChildren();
   }
   function reset() {
@@ -152,6 +153,9 @@ export function createMcpAccess({ request, getContext }) {
     const state = capture.state;
     const ready = state === 'Ready', busy = state === 'Capturing' || state === 'Awaiting permission';
     const view = getContext().captureView;
+    const signature = JSON.stringify([state, captureAllowed, !!view?.stamp, capture.message]);
+    if (signature === panelSignature) return;
+    panelSignature = signature;
     const status = el('p', state === 'Disabled' ? 'Capture disabled' : state);
     status.setAttribute('role', 'status');
     capturePanel.replaceChildren(el('strong', 'Screen Capture'), status,
