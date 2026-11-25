@@ -10,7 +10,7 @@ public sealed partial class DocumentCommandHandler
     {
         CommandResult Result(string code, long? revision = null, Guid? pageId = null, string? detail = null) =>
             new(command.DocumentId, command.CommandId, code, revision, actor.Id, pageId, DateTimeOffset.UtcNow,
-                ScreenId: command.NewScreenId, Explanation: detail);
+                ScreenId: command.NewScreenId, Explanation: detail) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty ||
             command.ScreenId == Guid.Empty || command.NewScreenId == Guid.Empty)

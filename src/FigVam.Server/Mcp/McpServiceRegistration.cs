@@ -22,7 +22,8 @@ public static class McpServiceRegistration
             .AddScheme<AuthenticationSchemeOptions, McpBearerHandler>(Scheme, _ => { });
         builder.Services.AddMcpServer()
             .WithHttpTransport(options => options.SessionMode = HttpServerSessionMode.Stateless)
-            .WithTools<McpReadTools>();
+            .WithTools<McpReadTools>()
+            .WithTools<McpWriteTools>();
     }
 
     public static void MapDocumentMcp(this WebApplication app)

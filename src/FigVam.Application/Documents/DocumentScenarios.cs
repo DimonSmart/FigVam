@@ -19,7 +19,7 @@ public sealed partial class DocumentCommandHandler
 
     private async Task<CommandResult> ChangeScenario(Guid documentId, Guid commandId, Guid id, PreviewScenario? scenario, long? expectedRevision, string operation, DocumentActor actor, CancellationToken ct)
     {
-        CommandResult Result(string code, long? revision = null, string? explanation = null) => new(documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation, AffectedIds: code == "ACCEPTED" ? [id] : null);
+        CommandResult Result(string code, long? revision = null, string? explanation = null) => new(documentId, commandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation, AffectedIds: code == "ACCEPTED" ? [id] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id)) return Result("FORBIDDEN");
         if (documentId == Guid.Empty || commandId == Guid.Empty) return Result("INVALID_ID");
         return await journal.ExecuteAsync(documentId, commandId, (state, _, _) =>
