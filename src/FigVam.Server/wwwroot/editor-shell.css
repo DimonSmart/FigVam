@@ -710,3 +710,38 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .mcp-access-panel label { display: grid; gap: 4px; }
 .mcp-access-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .mcp-access-panel p { margin: 0; overflow-wrap: anywhere; }
+
+/* Document-scoped design-token workspace. */
+.document-mode-switch { display:flex; gap:2px; white-space:nowrap; }
+.app-shell .document-mode-switch button[aria-pressed=true] { background:var(--ui-selected); color:var(--ui-accent); }
+.app-shell .workspace[hidden], .token-workspace[hidden], .token-workspace [hidden] { display:none !important; }
+.token-workspace { flex:1; min-height:0; min-width:0; display:flex; flex-direction:column; overflow:hidden; background:white; }
+.token-workspace-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:8px; padding:12px 16px; border-bottom:1px solid var(--ui-border); }
+.token-workspace-toolbar h2 { font-size:16px; margin:0 auto 0 0; }
+.token-workspace-toolbar input { max-width:240px; flex:1; }
+.token-exchange { display:flex; gap:5px; }
+.token-workspace > #tokens-status, .token-workspace > #tokens-error { margin:4px 16px; }
+.token-workspace > #tokens-error:empty { display:none; }
+.token-workspace-grid { display:grid; grid-template-columns:minmax(150px,220px) minmax(0,1fr) minmax(250px,320px); flex:1; min-height:0; }
+.token-groups, .token-table-area, .token-details-area { overflow:auto; min-width:0; padding:12px; }
+.token-groups { border-right:1px solid var(--ui-border); }
+.token-details-area { border-left:1px solid var(--ui-border); }
+.token-group-row { display:flex; align-items:center; gap:2px; }
+.token-group-row button { border:0; background:transparent; }
+.token-group-select { flex:1; text-align:left; overflow-wrap:anywhere; }
+.token-group-select[aria-pressed=true], .token-table tr[data-selected=true] { background:var(--ui-selected); }
+.token-group-children { padding-left:12px; }
+.token-table { width:100%; border-collapse:collapse; font-size:12px; }
+.token-table th, .token-table td { text-align:left; padding:8px; border-bottom:1px solid var(--ui-border); vertical-align:top; overflow-wrap:anywhere; }
+.token-table th { position:sticky; top:0; background:white; white-space:nowrap; }
+.token-table td button { border:0; background:transparent; text-align:left; padding:0; font-weight:600; overflow-wrap:anywhere; }
+.token-table td .token-alias-link { color:var(--ui-accent); font-weight:400; }
+.token-color-swatch { display:inline-block; width:13px; height:13px; border:1px solid #9aa6b8; border-radius:3px; vertical-align:middle; margin-right:5px; }
+.token-invalid, #tokens-error { color:#a12c3a; }
+.token-details-area form, .token-details-area fieldset { display:grid; gap:7px; margin:8px 0; min-width:0; }
+.token-details-area fieldset { border:1px solid var(--ui-border); border-radius:5px; }
+.token-details-area input, .token-details-area select { max-width:100%; }
+.token-details-area #token-usages { padding-left:16px; overflow-wrap:anywhere; }
+.token-import-form { padding:12px 16px; display:grid; gap:6px; grid-template-columns:repeat(3,minmax(0,1fr)); border-bottom:1px solid var(--ui-border); }
+.token-import-form textarea { width:100%; display:block; }
+@media(max-width:850px) { .token-workspace-grid { grid-template-columns:150px minmax(0,1fr); overflow:auto; } .token-details-area { grid-column:1/-1; border-top:1px solid var(--ui-border); } }
