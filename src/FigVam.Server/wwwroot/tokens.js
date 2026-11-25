@@ -386,7 +386,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const button = document.createElement('button'); button.type = 'button';
       button.textContent = shortTokenName(item.name, search.trim() ? [] : group);
       button.title = item.name; button.setAttribute('aria-pressed', String(item.id === selectedToken));
-      button.addEventListener('click', () => selectToken(item.id)); row.insertCell().append(button);
+      button.addEventListener('click', () => { if (!busy()) selectToken(item.id); }); row.insertCell().append(button);
       row.dataset.selected = String(item.id === selectedToken);
       row.insertCell().textContent = category ? type + '.' + category : type;
       const problems = [nameDiagnostics.get(item.id)].filter(Boolean);
@@ -479,7 +479,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     }
   }
   async function selectToken(id) {
-    if (busy()) return;
     selectedToken = id; tokenUsages = []; creating = false; usagesReady = false;
     const current = ++tokenLoad, doc = getContext().documentId, revision = getContext().revision;
     renderTokens();
@@ -508,7 +507,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     } catch (error) {
       if (error.name !== 'AbortError' && current === getContext().generation)
         el('tokens-error').textContent = error instanceof TypeError || error.status >= 500 ?
-          'Результат неизвестен. Обновите документ перед повтором.' : (error.diagnostics?.map(d => d.path + ': ' + d.message).join('; ') || error.detail || error.message);
+          'Результат неизвестен. Обновите документ перед повтором.' : (error.diagnostics?.map(d => d.path + ': ' + d.message).join('; ') || (error.code === 'INVALID_TOKEN' && error.detail ? error.message + ' ' + error.detail : error.message));
     } finally {
       if (current === getContext().generation) {
         el('token-create').inert = el('token-edit').inert = el('token-import-form').inert = false; startLive();
