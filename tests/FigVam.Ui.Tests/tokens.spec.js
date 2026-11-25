@@ -150,3 +150,36 @@ test('DTCG import and export through the token workspace', async ({ page }) => {
     expect(body.Accent.Button.$value.components[0]).toBe(selected === 'Light' ? 1 : 0);
   }
 });
+
+test('token grouping helpers handle mixed separators, hierarchy, relative names and conflicts', async () => {
+  const { pathToFileURL } = require('node:url');
+  const { resolve } = require('node:path');
+  const { tokenSegments, buildTokenGroups, shortTokenName, visibleTokens, qualifyTokenName, tokenNameError } =
+    await import(pathToFileURL(resolve(__dirname, '../../src/FigVam.Server/wwwroot/token-groups.js')).href);
+  const items = [
+    { id:'1', name:'Accent.Button', type:'Color' },
+    { id:'2', name:'Accent/Border', type:'Color' },
+    { id:'3', name:'Typography.Heading/H1', type:'Typography' },
+    { id:'4', name:'Standalone', type:'Spacing' }
+  ];
+  expect(tokenSegments('Color.Accent/Button')).toEqual(['Color','Accent','Button']);
+  const root = buildTokenGroups(items);
+  expect(root.count).toBe(4);
+  expect(root.children.get('Accent').count).toBe(2);
+  expect(root.children.get('Typography').children.get('Heading').count).toBe(1);
+  expect(shortTokenName('Typography.Heading/H1',['Typography','Heading'])).toBe('H1');
+  expect(qualifyTokenName('Hover',['Accent'])).toBe('Accent.Hover');
+  expect(qualifyTokenName('Other/Hover',['Accent'])).toBe('Other/Hover');
+  expect(tokenNameError('Accent/Button',items)).toContain('Конфликт имени');
+  expect(tokenNameError('Accent',items)).toContain('Конфликт токена и группы');
+  expect(tokenNameError('Accent.Button.More',items)).toContain('Конфликт токена и группы');
+  expect(tokenNameError('Accent..More',items)).toContain('непустые сегменты');
+  expect(tokenNameError('Accent.Button',items,'1')).toBe('');
+  const typeOf = item => item.type;
+  expect(visibleTokens(items,['Accent'],'','Color',typeOf).map(t=>t.id).sort()).toEqual(['1','2']);
+  expect(visibleTokens(items,['Accent'],'heading.h1','Typography',typeOf).map(t=>t.id)).toEqual(['3']);
+  expect(visibleTokens(items,[],'','Spacing',typeOf).map(t=>t.id)).toEqual(['4']);
+  const large = Array.from({length:500},(_,i)=>({id:String(i),name:'Group'+(i%10)+'/Nested.Item'+i,type:'Color'}));
+  expect(buildTokenGroups(large).children.size).toBe(10);
+  expect(visibleTokens(large,['Group1','Nested'],'','Color',typeOf)).toHaveLength(50);
+});
