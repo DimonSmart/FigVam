@@ -42,19 +42,7 @@ public sealed class McpProtocolTests
         }));
         var tools = await mcp.ListToolsAsync();
         Assert.Equal(31, tools.Count);
-        async Task<JsonElement> Call(string name, object? args = null, bool error = false)
-        {
-            var values = JsonSerializer.SerializeToElement(args ?? new { }).EnumerateObject()
-                .ToDictionary(p => p.Name, p => (object?)p.Value);
-            var result = await mcp.CallToolAsync(name, values);
-            Assert.Equal(error, result.IsError == true);
-            if (error)
-            {
-                using var errorText = JsonDocument.Parse(Assert.Single(result.Content.OfType<TextContentBlock>()).Text);
-                Assert.Equal(result.StructuredContent!.Value.GetRawText(), errorText.RootElement.GetRawText());
-            }
-            return result.StructuredContent!.Value;
-        }
+        Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
         var commandId = Guid.NewGuid();
@@ -146,105 +134,7 @@ public sealed class McpProtocolTests
             { backgroundColor = new { tokenId = colorTokenId, extra = true } } }, true);
         Assert.Equal("INVALID_PROPERTY_TYPE", invalidReference.GetProperty("code").GetString());
         Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
-        void CheckDiagnostic(JsonElement error, string code, string path, string? actual, string? expectedPart = null)
-        {
-            Assert.Equal("REJECTED", error.GetProperty("status").GetString());
-            Assert.Equal(code, error.GetProperty("code").GetString());
-            Assert.Equal(path, error.GetProperty("property").GetString());
-            Assert.Contains(path, error.GetProperty("message").GetString()!);
-            Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("expected").GetString()));
-            if (expectedPart is not null) Assert.Contains(expectedPart, error.GetProperty("expected").GetString()!);
-            if (actual is not null) Assert.Equal(actual, error.GetProperty("actual").GetString());
-            else Assert.False(error.TryGetProperty("actual", out _));
-            Assert.True(error.TryGetProperty("commandId", out _));
-        }
-
-        // All failures are checked through the official MCP client, not only the adapter.
-        foreach (var (kind, json, code, path, actual, expected) in new (string, string, string, string, string?, string?)[]
-        {
-            ("Button", """{"fontSize":"large"}""", "INVALID_PROPERTY_TYPE", "fontSize", "String", "Number"),
-            ("Button", """{"text":123}""", "INVALID_PROPERTY_TYPE", "text", "Number", "String"),
-            ("Button", """{"visible":"true"}""", "INVALID_PROPERTY_TYPE", "visible", "String", "Boolean"),
-            ("Button", """{"backgroundColor":"blue"}""", "INVALID_PROPERTY_TYPE", "backgroundColor", "Invalid color format", "#RRGGBB"),
-            ("TextInput", """{"inputType":"Email"}""", "INVALID_PROPERTY_VALUE", "inputType", "Unsupported enum value", "Text, Password"),
-            ("Button", """{"opacity":1.5}""", "INVALID_PROPERTY_VALUE", "opacity", "1.5", "0 and 1"),
-            ("Text", """{"inputType":"Password"}""", "UNSUPPORTED_PROPERTY", "inputType", null, "Text"),
-            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.blurRadius", "Missing", "Number"),
-            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blur":24,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.blur", "Unknown property", null),
-            ("Button", """{"shadow":{"offsetX":"bad","offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.offsetX", "String", "Number"),
-            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"bad"}}""", "INVALID_PROPERTY_TYPE", "shadow.color", "Invalid color format", "#RRGGBB"),
-            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blurRadius":-1,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_VALUE", "shadow.blurRadius", "-1", "0 and 256"),
-            ("Button", """{"backgroundColor":{"tokenId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "backgroundColor.tokenId", "Invalid GUID format", "GUID"),
-            ("Image", """{"asset":{"assetId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "asset.assetId", "Invalid GUID format", "GUID"),
-            ("Button", """{"textStyle":{"styleId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "textStyle.styleId", "Invalid GUID format", "GUID"),
-            ("Button", """{"shadow":null}""", "INVALID_PROPERTY_TYPE", "shadow", "Null", "Object"),
-            ("Button", """{"backgroundColor":123}""", "INVALID_PROPERTY_TYPE", "backgroundColor", "Number", "tokenId"),
-            ("Button", """{"fontWeight":400.5}""", "INVALID_PROPERTY_VALUE", "fontWeight", "400.5", "Integer")
-        })
-        {
-            var properties = JsonSerializer.Deserialize<JsonElement>(json);
-            var rejected = await Call("create_node", new { parentId = screenId, kind, properties }, true);
-            CheckDiagnostic(rejected, code, path, actual, expected);
-        }
-        CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { text = "must not be written", opacity = 2 } }, true),
-            "INVALID_PROPERTY_VALUE", "opacity", "2", "0 and 1");
-        Assert.Equal("Sign in", (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties").GetProperty("text").GetProperty("value").GetString());
-        CheckDiagnostic(await Call("create_token", new { name = "bad.color", type = "Color", light = "#FFFFFF", dark = "secret-value" }, true),
-            "INVALID_TOKEN", "dark", "Invalid color format", "#RRGGBB");
-        var badTypography = new { fontFamily = "Arial", fontSize = "large", fontWeight = 400, lineHeight = 1.2 };
-        CheckDiagnostic(await Call("create_token", new { name = "bad.typography", type = "Typography", light = badTypography, dark = badTypography }, true),
-            "INVALID_TOKEN", "light.fontSize", "String", "Number");
-        CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Light", value = new { tokenId = "bad" } }, true),
-            "INVALID_TOKEN", "value.tokenId", "Invalid GUID format", "GUID");
-        var integerOverflow = new { fontFamily = "Arial", fontSize = 16, fontWeight = 2147483648L, lineHeight = 1.2 };
-        CheckDiagnostic(await Call("create_token", new { name = "bad.typography.integer", type = "Typography",
-            light = integerOverflow, dark = integerOverflow }, true),
-            "INVALID_TOKEN", "light.fontWeight", "2147483648", "32-bit integer");
-        var decimalInteger = JsonSerializer.Deserialize<JsonElement>("400.0");
-        CheckDiagnostic(await Call("create_token", new { name = "bad.weight.encoding", type = "FontWeight",
-            light = decimalInteger, dark = 400 }, true),
-            "INVALID_TOKEN", "light", "Number not encoded as an integer", "32-bit integer");
-        var missingId = Guid.NewGuid();
-        var failedNodeId = Guid.NewGuid();
-        var rejectedCommandId = Guid.NewGuid();
-        var missingReferenceArguments = new { parentId = screenId, kind = "Button", nodeId = failedNodeId,
-            commandId = rejectedCommandId, properties = new { backgroundColor = new { tokenId = missingId } } };
-        var missingReference = await Call("create_node", missingReferenceArguments, true);
-        CheckDiagnostic(missingReference, "TOKEN_NOT_FOUND", "backgroundColor.tokenId", "Missing token", "Existing compatible token");
-        Assert.Equal(missingReference.GetRawText(), (await Call("create_node", missingReferenceArguments, true)).GetRawText());
-        await Call("get_node", new { nodeId = failedNodeId }, true);
-        CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { fontSize = new { tokenId = colorTokenId } } }, true),
-            "INVALID_PROPERTY_VALUE", "fontSize.tokenId", "Incompatible token", "Existing compatible token");
-        var failedTokenId = Guid.NewGuid();
-        CheckDiagnostic(await Call("create_token", new { tokenId = failedTokenId, name = "bad.alias", type = "Color",
-            light = new { tokenId = missingId }, dark = "#FFFFFF" }, true),
-            "INVALID_TOKEN", "light.tokenId", "Missing token", "Existing token");
-        Assert.DoesNotContain((await Call("list_tokens")).GetProperty("items").EnumerateArray(),
-            token => token.GetProperty("id").GetGuid() == failedTokenId);
-        CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Dark", value = new { tokenId = missingId } }, true),
-            "INVALID_TOKEN", "value.tokenId", "Missing token", "Existing token");
-        var invalidTypography = new { fontFamily = "Arial", fontSize = -1, fontWeight = 400, lineHeight = 1.2 };
-        CheckDiagnostic(await Call("create_token", new { name = "bad.typography.range", type = "Typography",
-            light = invalidTypography, dark = invalidTypography }, true),
-            "INVALID_TOKEN", "light.fontSize", "-1", "greater than 0");
-        CheckDiagnostic(await Call("create_token", new { name = "bad.opacity", type = "Number", category = "Opacity",
-            light = 0.5, dark = 1.5 }, true),
-            "INVALID_TOKEN", "dark", "1.5", "0 and 1");
-        var secret = new string('s', 5200);
-        var longText = await Call("set_node_properties", new { nodeId, properties = new { text = secret } }, true);
-        CheckDiagnostic(longText, "INVALID_PROPERTY_VALUE", "text", "String with length 5200", "4096");
-        Assert.DoesNotContain(secret, longText.GetRawText());
-        Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("remove_node_properties", new { nodeId, properties = new[] { "backgroundColor" }, expectedRevision = revision });
-        await Call("set_node_properties", new { nodeId, properties = new { fontWeight = 400 } });
-        await Call("set_node_properties", new { nodeId, properties = new { fontWeight = "Bold" } });
-        var typography = new { fontFamily = "Arial", fontSize = 16, fontWeight = 400, lineHeight = 1.2 };
-        var typographyId = (await Call("create_token", new { name = "login.typography", type = "Typography",
-            light = typography, dark = typography })).GetProperty("tokenId").GetGuid();
-        var beforeInvalidTypography = (await Call("get_document")).GetProperty("revision").GetInt64();
-        CheckDiagnostic(await Call("set_token_value", new { tokenId = typographyId, theme = "Dark", value = invalidTypography }, true),
-            "INVALID_TOKEN", "value.fontSize", "-1", "greater than 0");
-        Assert.Equal(beforeInvalidTypography, (await Call("get_document")).GetProperty("revision").GetInt64());
         var tokenId = (await Call("create_token", new { name = "spacing.dialog", type = "Spacing", light = 32, dark = 32 })).GetProperty("tokenId").GetGuid();
         await Call("set_token_value", new { tokenId, theme = "Dark", value = 24 });
         var duplicateRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
@@ -374,4 +264,148 @@ public sealed class McpProtocolTests
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
             Assert.False(System.Text.Encoding.UTF8.GetString(await File.ReadAllBytesAsync(file)).Contains(token, StringComparison.Ordinal), "MCP secret persisted on disk.");
     }
+
+    [Fact]
+    public async Task PropertyValidationDiagnosticsArePreciseAndAtomicThroughOfficialClient()
+    {
+        using var key = RSA.Create(2048);
+        var config = ServerTestIdentity.Production(key);
+        config["Storage__Directory"] = Path.Combine(Path.GetTempPath(), "figvam-mcp-diagnostics-" + Guid.NewGuid().ToString("N"));
+        await using var server = new ServerProcess(config);
+        await server.WaitUntilReadyAsync();
+        using var user = server.CreateClient();
+        user.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "diagnostics-owner"));
+        var documentId = Guid.NewGuid();
+        (await user.PostAsJsonAsync("/api/v1/documents", new { documentId, name = "MCP diagnostics" })).EnsureSuccessStatusCode();
+        using var grant = await user.PostAsync($"/api/v1/documents/{documentId}/mcp-access", null);
+        grant.EnsureSuccessStatusCode();
+        var access = await grant.Content.ReadFromJsonAsync<JsonElement>();
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(access.GetProperty("endpoint").GetString()!),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
+        }));
+        Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
+        var pageId = (await Call("create_page")).GetProperty("pageId").GetGuid();
+        var screenId = (await Call("create_screen", new { pageId, width = 800, height = 600 })).GetProperty("screenId").GetGuid();
+        var colorTokenId = (await Call("create_token", new { name = "login.primary", type = "Color", light = "#2563EB", dark = "#60A5FA" })).GetProperty("tokenId").GetGuid();
+        var created = await Call("create_node", new { parentId = screenId, kind = "Button", properties = new
+            { text = "Sign in", backgroundColor = new { tokenId = colorTokenId } } });
+        var nodeId = created.GetProperty("nodeId").GetGuid();
+        var revision = created.GetProperty("revision").GetInt64();
+        void CheckDiagnostic(JsonElement error, string code, string path, string? actual, string? expectedPart = null)
+        {
+            Assert.Equal("REJECTED", error.GetProperty("status").GetString());
+            Assert.Equal(code, error.GetProperty("code").GetString());
+            Assert.Equal(path, error.GetProperty("property").GetString());
+            Assert.Contains(path, error.GetProperty("message").GetString()!);
+            Assert.False(string.IsNullOrWhiteSpace(error.GetProperty("expected").GetString()));
+            if (expectedPart is not null) Assert.Contains(expectedPart, error.GetProperty("expected").GetString()!);
+            if (actual is not null) Assert.Equal(actual, error.GetProperty("actual").GetString());
+            else Assert.False(error.TryGetProperty("actual", out _));
+            Assert.True(error.TryGetProperty("commandId", out _));
+        }
+
+        // All failures are checked through the official MCP client, not only the adapter.
+        foreach (var (kind, json, code, path, actual, expected) in new (string, string, string, string, string?, string?)[]
+        {
+            ("Button", """{"fontSize":"large"}""", "INVALID_PROPERTY_TYPE", "fontSize", "String", "Number"),
+            ("Button", """{"text":123}""", "INVALID_PROPERTY_TYPE", "text", "Number", "String"),
+            ("Button", """{"visible":"true"}""", "INVALID_PROPERTY_TYPE", "visible", "String", "Boolean"),
+            ("Button", """{"backgroundColor":"blue"}""", "INVALID_PROPERTY_TYPE", "backgroundColor", "Invalid color format", "#RRGGBB"),
+            ("TextInput", """{"inputType":"Email"}""", "INVALID_PROPERTY_VALUE", "inputType", "Unsupported enum value", "Text, Password"),
+            ("Button", """{"opacity":1.5}""", "INVALID_PROPERTY_VALUE", "opacity", "1.5", "0 and 1"),
+            ("Text", """{"inputType":"Password"}""", "UNSUPPORTED_PROPERTY", "inputType", null, "Text"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.blurRadius", "Missing", "Number"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blur":24,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.blur", "Unknown property", null),
+            ("Button", """{"shadow":{"offsetX":"bad","offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_TYPE", "shadow.offsetX", "String", "Number"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"bad"}}""", "INVALID_PROPERTY_TYPE", "shadow.color", "Invalid color format", "#RRGGBB"),
+            ("Button", """{"shadow":{"offsetX":0,"offsetY":8,"blurRadius":-1,"spreadRadius":0,"color":"#0F172A20"}}""", "INVALID_PROPERTY_VALUE", "shadow.blurRadius", "-1", "0 and 256"),
+            ("Button", """{"backgroundColor":{"tokenId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "backgroundColor.tokenId", "Invalid GUID format", "GUID"),
+            ("Image", """{"asset":{"assetId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "asset.assetId", "Invalid GUID format", "GUID"),
+            ("Button", """{"textStyle":{"styleId":"not-a-guid"}}""", "INVALID_PROPERTY_TYPE", "textStyle.styleId", "Invalid GUID format", "GUID"),
+            ("Button", """{"shadow":null}""", "INVALID_PROPERTY_TYPE", "shadow", "Null", "Object"),
+            ("Button", """{"backgroundColor":123}""", "INVALID_PROPERTY_TYPE", "backgroundColor", "Number", "tokenId"),
+            ("Button", """{"fontWeight":400.5}""", "INVALID_PROPERTY_VALUE", "fontWeight", "400.5", "Integer")
+        })
+        {
+            var properties = JsonSerializer.Deserialize<JsonElement>(json);
+            var rejected = await Call("create_node", new { parentId = screenId, kind, properties }, true);
+            CheckDiagnostic(rejected, code, path, actual, expected);
+        }
+        CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { text = "must not be written", opacity = 2 } }, true),
+            "INVALID_PROPERTY_VALUE", "opacity", "2", "0 and 1");
+        Assert.Equal("Sign in", (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties").GetProperty("text").GetProperty("value").GetString());
+        CheckDiagnostic(await Call("create_token", new { name = "bad.color", type = "Color", light = "#FFFFFF", dark = "secret-value" }, true),
+            "INVALID_TOKEN", "dark", "Invalid color format", "#RRGGBB");
+        var badTypography = new { fontFamily = "Arial", fontSize = "large", fontWeight = 400, lineHeight = 1.2 };
+        CheckDiagnostic(await Call("create_token", new { name = "bad.typography", type = "Typography", light = badTypography, dark = badTypography }, true),
+            "INVALID_TOKEN", "light.fontSize", "String", "Number");
+        CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Light", value = new { tokenId = "bad" } }, true),
+            "INVALID_TOKEN", "value.tokenId", "Invalid GUID format", "GUID");
+        var integerOverflow = new { fontFamily = "Arial", fontSize = 16, fontWeight = 2147483648L, lineHeight = 1.2 };
+        CheckDiagnostic(await Call("create_token", new { name = "bad.typography.integer", type = "Typography",
+            light = integerOverflow, dark = integerOverflow }, true),
+            "INVALID_TOKEN", "light.fontWeight", "2147483648", "32-bit integer");
+        var decimalInteger = JsonSerializer.Deserialize<JsonElement>("400.0");
+        CheckDiagnostic(await Call("create_token", new { name = "bad.weight.encoding", type = "FontWeight",
+            light = decimalInteger, dark = 400 }, true),
+            "INVALID_TOKEN", "light", "Number not encoded as an integer", "32-bit integer");
+        var missingId = Guid.NewGuid();
+        var failedNodeId = Guid.NewGuid();
+        var rejectedCommandId = Guid.NewGuid();
+        var missingReferenceArguments = new { parentId = screenId, kind = "Button", nodeId = failedNodeId,
+            commandId = rejectedCommandId, properties = new { backgroundColor = new { tokenId = missingId } } };
+        var missingReference = await Call("create_node", missingReferenceArguments, true);
+        CheckDiagnostic(missingReference, "TOKEN_NOT_FOUND", "backgroundColor.tokenId", "Missing token", "Existing compatible token");
+        Assert.Equal(missingReference.GetRawText(), (await Call("create_node", missingReferenceArguments, true)).GetRawText());
+        await Call("get_node", new { nodeId = failedNodeId }, true);
+        CheckDiagnostic(await Call("set_node_properties", new { nodeId, properties = new { fontSize = new { tokenId = colorTokenId } } }, true),
+            "INVALID_PROPERTY_VALUE", "fontSize.tokenId", "Incompatible token", "Existing compatible token");
+        var failedTokenId = Guid.NewGuid();
+        CheckDiagnostic(await Call("create_token", new { tokenId = failedTokenId, name = "bad.alias", type = "Color",
+            light = new { tokenId = missingId }, dark = "#FFFFFF" }, true),
+            "INVALID_TOKEN", "light.tokenId", "Missing token", "Existing token");
+        Assert.DoesNotContain((await Call("list_tokens")).GetProperty("items").EnumerateArray(),
+            token => token.GetProperty("id").GetGuid() == failedTokenId);
+        CheckDiagnostic(await Call("set_token_value", new { tokenId = colorTokenId, theme = "Dark", value = new { tokenId = missingId } }, true),
+            "INVALID_TOKEN", "value.tokenId", "Missing token", "Existing token");
+        var invalidTypography = new { fontFamily = "Arial", fontSize = -1, fontWeight = 400, lineHeight = 1.2 };
+        CheckDiagnostic(await Call("create_token", new { name = "bad.typography.range", type = "Typography",
+            light = invalidTypography, dark = invalidTypography }, true),
+            "INVALID_TOKEN", "light.fontSize", "-1", "greater than 0");
+        CheckDiagnostic(await Call("create_token", new { name = "bad.opacity", type = "Number", category = "Opacity",
+            light = 0.5, dark = 1.5 }, true),
+            "INVALID_TOKEN", "dark", "1.5", "0 and 1");
+        var secret = new string('s', 5200);
+        var longText = await Call("set_node_properties", new { nodeId, properties = new { text = secret } }, true);
+        CheckDiagnostic(longText, "INVALID_PROPERTY_VALUE", "text", "String with length 5200", "4096");
+        Assert.DoesNotContain(secret, longText.GetRawText());
+        Assert.Equal(revision, (await Call("get_document")).GetProperty("revision").GetInt64());
+        await Call("set_node_properties", new { nodeId, properties = new { fontWeight = 400 } });
+        await Call("set_node_properties", new { nodeId, properties = new { fontWeight = "Bold" } });
+        var typography = new { fontFamily = "Arial", fontSize = 16, fontWeight = 400, lineHeight = 1.2 };
+        var typographyId = (await Call("create_token", new { name = "login.typography", type = "Typography",
+            light = typography, dark = typography })).GetProperty("tokenId").GetGuid();
+        var beforeInvalidTypography = (await Call("get_document")).GetProperty("revision").GetInt64();
+        CheckDiagnostic(await Call("set_token_value", new { tokenId = typographyId, theme = "Dark", value = invalidTypography }, true),
+            "INVALID_TOKEN", "value.fontSize", "-1", "greater than 0");
+        Assert.Equal(beforeInvalidTypography, (await Call("get_document")).GetProperty("revision").GetInt64());
+    }
+
+    private static async Task<JsonElement> CallAsync(McpClient mcp, string name, object? args, bool error)
+    {
+        var values = JsonSerializer.SerializeToElement(args ?? new { }).EnumerateObject()
+            .ToDictionary(p => p.Name, p => (object?)p.Value);
+        var result = await mcp.CallToolAsync(name, values);
+        Assert.Equal(error, result.IsError == true);
+        if (error)
+        {
+            using var errorText = JsonDocument.Parse(Assert.Single(result.Content.OfType<TextContentBlock>()).Text);
+            Assert.Equal(result.StructuredContent!.Value.GetRawText(), errorText.RootElement.GetRawText());
+        }
+        return result.StructuredContent!.Value;
+    }
+
 }
