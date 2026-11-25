@@ -6,7 +6,7 @@ async function open(page) {
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await page.getByLabel('Имя нового документа').fill('Tokens'); await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
   await show(page, 'tokens');
-  await expect(page.getByRole('heading', { name: 'Токены дизайна' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Дизайн-токены' })).toBeVisible();
 }
 test('creates, renames, updates and follows direct usages', async ({ page, request }) => {
   await open(page); await page.locator('#new-token-open').click(); await page.getByLabel('Имя токена', { exact: true }).fill('Space');
@@ -15,7 +15,7 @@ test('creates, renames, updates and follows direct usages', async ({ page, reque
   await page.getByRole('button', { name: 'Создать токен' }).click(); await expect(page.locator('#token-values')).toHaveText('Light: 8; Dark: 12');
   await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByRole('button', { name: 'Переименовать токен' }).click();
   await expect(page.locator('#token-detail-title')).toHaveText('Gap');
-  await page.getByRole('region', { name: 'Токены дизайна' }).getByLabel('Тема', { exact: true }).selectOption('Dark'); await page.getByLabel('Новое значение').fill('24');
+  await page.getByRole('region', { name: 'Дизайн-токены' }).getByLabel('Тема', { exact: true }).selectOption('Dark'); await page.getByLabel('Новое значение').fill('24');
   await page.getByRole('button', { name: 'Сохранить значение' }).click(); await expect(page.locator('#token-values')).toHaveText('Light: 8; Dark: 24');
   const doc = page.url().split('/').pop(), headers = { Authorization: `Bearer ${bearer}` };
   const tokens = await (await request.get(`/api/v1/documents/${doc}/tokens`, { headers })).json();
@@ -94,6 +94,9 @@ test('group tree, global search, type filter, conflicts and deletion', async ({ 
   await add('Accent.Button','Color','#FF0000');
   await add('Accent/Border','Color','#000000');
   await add('Spacing.Small','Spacing','8');
+  await page.getByRole('button', { name: 'Свернуть все группы', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Accent · 2', exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Раскрыть все группы', exact: true }).click();
   await page.getByRole('button', { name: 'Accent · 2', exact: true }).click();
   const table = page.locator('#tokens-list');
   await expect(table.getByRole('button', {name:'Button',exact:true})).toBeVisible();
@@ -135,7 +138,8 @@ test('DTCG import and export through the token workspace', async ({ page }) => {
   await open(page);
   const theme = red => JSON.stringify({ Accent: { Button: { $type:'color', $value:{colorSpace:'srgb',components:[red,0,0],alpha:1} } } });
   await page.locator('#token-import-open').click();
-  await page.locator('#token-import-light').fill(theme(1));
+  await page.locator('#token-import-light-file').setInputFiles({name:'light.json',mimeType:'application/json',buffer:Buffer.from(theme(1))});
+  await expect(page.locator('#token-import-light')).toHaveValue(theme(1));
   await page.locator('#token-import-dark').fill(theme(0));
   await page.getByRole('button',{name:'Импортировать токены'}).click();
   await expect(page.locator('#tokens-list')).toContainText('Accent.Button');
@@ -154,7 +158,7 @@ test('DTCG import and export through the token workspace', async ({ page }) => {
 test('token grouping helpers handle mixed separators, hierarchy, relative names and conflicts', async () => {
   const { pathToFileURL } = require('node:url');
   const { resolve } = require('node:path');
-  const { tokenSegments, buildTokenGroups, shortTokenName, visibleTokens, qualifyTokenName, tokenNameError } =
+  const { tokenSegments, buildTokenGroups, shortTokenName, visibleTokens, qualifyTokenName, tokenNameError, tokenNameDiagnostics } =
     await import(pathToFileURL(resolve(__dirname, '../../src/FigVam.Server/wwwroot/token-groups.js')).href);
   const items = [
     { id:'1', name:'Accent.Button', type:'Color' },
@@ -175,6 +179,12 @@ test('token grouping helpers handle mixed separators, hierarchy, relative names 
   expect(tokenNameError('Accent.Button.More',items)).toContain('Конфликт токена и группы');
   expect(tokenNameError('Accent..More',items)).toContain('непустые сегменты');
   expect(tokenNameError('Accent.Button',items,'1')).toBe('');
+  expect(tokenNameDiagnostics(items).size).toBe(0);
+  const conflicts = tokenNameDiagnostics([...items, {id:'5',name:'Accent',type:'Color'}, {id:'6',name:'Accent/Button',type:'Color'}]);
+  expect(conflicts.has('1')).toBeTruthy();
+  expect(conflicts.has('2')).toBeTruthy();
+  expect(conflicts.has('5')).toBeTruthy();
+  expect(conflicts.has('6')).toBeTruthy();
   const typeOf = item => item.type;
   expect(visibleTokens(items,['Accent'],'','Color',typeOf).map(t=>t.id).sort()).toEqual(['1','2']);
   expect(visibleTokens(items,['Accent'],'heading.h1','Typography',typeOf).map(t=>t.id)).toEqual(['3']);
@@ -182,4 +192,32 @@ test('token grouping helpers handle mixed separators, hierarchy, relative names 
   const large = Array.from({length:500},(_,i)=>({id:String(i),name:'Group'+(i%10)+'/Nested.Item'+i,type:'Color'}));
   expect(buildTokenGroups(large).children.size).toBe(10);
   expect(visibleTokens(large,['Group1','Nested'],'','Color',typeOf)).toHaveLength(50);
+});
+
+test('hundreds of persisted tokens stay navigable without a domain format change', async ({ page, request }) => {
+  await open(page);
+  const doc = page.url().split('/').pop(), headers = {Authorization: 'Bearer ' + bearer};
+  const data = {};
+  for (let group = 0; group < 10; group++) {
+    data['Group'+group] = {};
+    for (let i = 0; i < 30; i++) data['Group'+group]['Item'+i] = {
+      $type:'color', $value:{colorSpace:'srgb',components:[0,0,0],alpha:1}
+    };
+  }
+  const imported = await request.post('/api/v1/documents/'+doc+'/commands/import-design-tokens',{
+    headers, data:{commandId:randomUUID(),expectedRevision:0,lightJson:JSON.stringify(data),darkJson:JSON.stringify(data),dimensionTypes:{}}
+  });
+  expect(imported.ok(), await imported.text()).toBeTruthy();
+  await expect(page.locator('#tokens-list tr')).toHaveCount(300);
+  await page.getByRole('button',{name:'Group5 · 30',exact:true}).click();
+  await expect(page.locator('#tokens-list tr')).toHaveCount(30);
+  await page.locator('#token-search').fill('Group7.Item19');
+  await expect(page.locator('#tokens-list tr')).toHaveCount(1);
+  await page.getByRole('button',{name:'Group7.Item19',exact:true}).click();
+  await expect(page.locator('#token-values')).toContainText('Light: #000000FF');
+  await page.reload();
+  await page.getByLabel('Bearer-токен', {exact:true}).fill(bearer);
+  await page.getByRole('button',{name:'Продолжить',exact:true}).click();
+  await show(page,'tokens');
+  await expect(page.locator('#tokens-list tr')).toHaveCount(300);
 });
