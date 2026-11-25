@@ -72,6 +72,7 @@ public sealed class ScreenCaptureController(McpAccessRegistry registry, ScreenCa
         }
         catch (OperationCanceledException) { }
         catch (IOException) { }
+        catch (System.Threading.Channels.ChannelClosedException) { }
         finally { captures.Disconnect(provider); }
         return new EmptyResult();
     }
