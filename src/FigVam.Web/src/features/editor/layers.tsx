@@ -1,3 +1,6 @@
+import type { ReactElement } from 'react';
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
@@ -33,6 +36,7 @@ import { createLayerDrag, resolveLayerDrop } from '../../canvas/layer-drag';
 
 import { layerDisplayName } from '../../core/layer-caption';
 export { layerDisplayName };
+const layerKindIcons: Record<string,string> = { Frame: '▣', Container: '▣', Text: 'T', Button: '▭', TextInput: '▤', Image: '▧' };
 
 export function createLayers({
   element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
@@ -51,13 +55,15 @@ export function createLayers({
   let screenContextEpoch = 0;
   let layerRoots:LayerItem[]=[],layerExpanded=new Set<string>(),layerChildren=new Map<string,LayerItem[]>();
   let interactiveNodes=new Set<string>();
+  const tree = element('layers');
+  const treeRoot = createPanelRoot(tree);
 
   function reset() {
     drag.cancel();
     layerController?.abort(); layerController = null; layerGeneration++;
     layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
-    element('layers').replaceChildren();
+    renderLayers();
     element('layers-status').textContent = 'Выберите экран.';
     element('inspector-selection').textContent = 'Выберите слой.';
     nodeReadGeneration++; nodeMetadata = null; renderNodeMetadata();
@@ -81,10 +87,7 @@ export function createLayers({
     if (element('inspector-selection').textContent !== caption)
       element('inspector-selection').textContent = caption;
     renderNodeOrder();
-    for (const row of element('layers').querySelectorAll<HTMLElement>('[role=treeitem]')) {
-      const selected = String(row.dataset.id === item.id);
-      if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
-    }
+    renderLayers();
   }
 
   function nodeOperationKey(doc:string|null,node:string) { return `${doc}:${node}`; }
@@ -395,103 +398,45 @@ export function createLayers({
 
   function renderLayers(focusId?:string) {
     renderNodeDeletion();
-    const tree = element('layers');
-    const old = new Map([...tree.querySelectorAll<HTMLElement>('[role=treeitem]')].map(row => [row.dataset.id, row]));
-
-    function reconcile(parent:HTMLElement,items:LayerItem[]) {
-      const rows:HTMLElement[]=[];
-      for (const [index, item] of items.entries()) {
-        let row = old.get(item.id);
-        if (!row) {
-          row = document.createElement('div');
-          row.setAttribute('role', 'treeitem');
-          row.dataset.id = item.id;
-          row.tabIndex = -1;
-          const label = document.createElement('span');
-          label.className = 'layer-label';
-          row.append(label);
-          label.addEventListener('click', () => {
-            const latest = findLayer(item.id);
-            if (!latest) return;
-            const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) toggleLayer(latest); };
-            if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
-          });
-        }
-        row.setAttribute('aria-posinset', String(index + 1));
-        row.setAttribute('aria-setsize', String(items.length));
-        const selected = String(layerSelection?.id === item.id);
-        if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
-        if (item.childCount) {
-          const expanded = String(layerExpanded.has(item.id));
-          if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
-        } else row.removeAttribute('aria-expanded');
-        const label=row.querySelector<HTMLElement>(':scope > .layer-label');if(!label)throw new Error('Missing layer label');
-        const { text: name, source, origin } = layerDisplayName(item);
-        const expansion = item.childCount ? (layerExpanded.has(item.id) ? '▾' : '▸') : '';
-        const caption = `${expansion}:${name}:${item.kind}:${source}:${origin}`;
-        if (label.dataset.caption !== caption) {
-          const disclosure = document.createElement('span');
-          disclosure.className = 'layer-disclosure';
-          disclosure.setAttribute('aria-hidden', 'true');
-          disclosure.textContent = expansion;
-          const icon = document.createElement('span');
-          icon.className = 'layer-kind-icon';
-          icon.setAttribute('aria-hidden', 'true');
-          icon.title = item.kind;
-          icon.textContent = ({ Frame: '▣', Container: '▣', Text: 'T', Button: '▭',
-            TextInput: '▤', Image: '▧' } as Record<string,string>)[item.kind] ?? '◇';
-          const title = document.createElement('span');
-          title.className = 'layer-name';
-          title.dataset.labelSource = source;
-          title.textContent = name;
-          label.replaceChildren(disclosure, icon, title);
-          label.dataset.caption = caption;
-          label.title = `${name} · ${item.kind} · ${origin}`;
-          row.setAttribute('aria-label', `${name}, ${item.kind}`);
-        }
-        let marker=label.querySelector<HTMLElement>('.layer-interaction');
-        if (interactiveNodes.has(item.id) && !marker) {
-          marker = document.createElement('span');
-          marker.className = 'layer-interaction';
-          marker.textContent = '↗';
-          marker.title = 'Есть взаимодействия';
-          marker.setAttribute('aria-hidden', 'true');
-          label.append(marker);
-        } else if (!interactiveNodes.has(item.id)) marker?.remove();
-        row.setAttribute('aria-label', name + ', ' + item.kind + (interactiveNodes.has(item.id) ? ', есть взаимодействия' : ''));
-        let group=row.querySelector<HTMLElement>(':scope > [role=group]');
-        if (layerExpanded.has(item.id) && item.childCount) {
-          if (!group) {
-            group = document.createElement('div');
-            group.setAttribute('role', 'group');
-            row.append(group);
-          }
-          reconcile(group, layerChildren.get(item.id) || []);
-        } else group?.remove();
-        rows.push(row);
-      }
-      let following:HTMLElement|null=null;
-      for (let index = rows.length - 1; index >= 0; index--) {
-        const row=rows[index];if(!row)continue;
-        if (row.parentNode !== parent || row.nextElementSibling !== following)
-          parent.insertBefore(row, following);
-        following = row;
-      }
-      const expected = new Set(items.map(item => item.id));
-      for (const child of parent.querySelectorAll<HTMLElement>(':scope > *')) {
-        if (child.getAttribute('role') === 'treeitem' && !expected.has(child.dataset.id??''))
-          child.remove();
+    const focusedId = document.activeElement?.closest<HTMLElement>('[role=treeitem]')?.dataset.id;
+    const visible: string[] = [];
+    function collect(items: LayerItem[]) {
+      for (const item of items) {
+        visible.push(item.id);
+        if (item.childCount && layerExpanded.has(item.id)) collect(layerChildren.get(item.id) ?? []);
       }
     }
-
-    const focusedElement = document.activeElement?.closest('[role=treeitem]');
-    reconcile(tree, layerRoots);
-    const rows = [...tree.querySelectorAll<HTMLElement>('[role=treeitem]')];
-    const focused = rows.find(row => row.dataset.id === focusId) ||
-      rows.find(row => row === focusedElement) ||
-      rows.find(row => row.dataset.id === layerSelection?.id) || rows[0];
-    for (const row of rows) row.tabIndex = row === focused ? 0 : -1;
-    if (focused && focusId) focused.focus({ preventScroll: true });
+    collect(layerRoots);
+    const focus = [focusId, focusedId, layerSelection?.id, visible[0]].find(id => id && visible.includes(id));
+    function renderBranch(items: LayerItem[]): ReactElement[] {
+      return items.map((item, index) => {
+        const {text: name, source, origin} = layerDisplayName(item);
+        const expanded = layerExpanded.has(item.id);
+        const interactive = interactiveNodes.has(item.id);
+        return <div key={item.id} role="treeitem" data-id={item.id} tabIndex={focus === item.id ? 0 : -1}
+          aria-posinset={index + 1} aria-setsize={items.length}
+          aria-selected={layerSelection?.id === item.id} aria-expanded={item.childCount ? expanded : undefined}
+          aria-label={name + ', ' + item.kind + (interactive ? ', есть взаимодействия' : '')}>
+          <span className="layer-label" title={name + ' · ' + item.kind + ' · ' + origin} onClick={event => {
+            const latest = findLayer(item.id), row = event.currentTarget.closest<HTMLElement>('[role=treeitem]');
+            if (!latest) return;
+            const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) void toggleLayer(latest); };
+            if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
+          }}>
+            <span className="layer-disclosure" aria-hidden="true">{item.childCount ? (expanded ? '▾' : '▸') : ''}</span>
+            <span className="layer-kind-icon" aria-hidden="true" title={item.kind}>{layerKindIcons[item.kind] ?? '◇'}</span>
+            <span className="layer-name" data-label-source={source}>{name}</span>
+            {interactive && <span className="layer-interaction" title="Есть взаимодействия" aria-hidden="true">↗</span>}
+          </span>
+          {item.childCount > 0 && expanded && <div role="group">{renderBranch(layerChildren.get(item.id) ?? [])}</div>}
+        </div>;
+      });
+    }
+    flushSync(() => treeRoot.render(<>{renderBranch(layerRoots)}</>));
+    if (focusId || (focusedId && focus)) {
+      const row = [...tree.querySelectorAll<HTMLElement>('[role=treeitem]')].find(item => item.dataset.id === focus);
+      if (row && document.activeElement !== row) row.focus({preventScroll: true});
+    }
   }
 
   async function readLayerChildren(base:string,parentId:string,signal:AbortSignal,revision:number|null,isCurrent?:()=>boolean):Promise<LayerItem[]> {
