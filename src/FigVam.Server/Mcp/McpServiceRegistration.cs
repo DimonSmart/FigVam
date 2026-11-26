@@ -21,6 +21,7 @@ public static class McpServiceRegistration
     {
         builder.Services.AddSingleton<McpAccessRegistry>();
         builder.Services.AddSingleton<ScreenCaptureService>();
+        builder.Services.AddSingleton<HeadlessPreviewCapture>();
         builder.Services.AddSingleton<IScreenCaptureService>(sp => sp.GetRequiredService<ScreenCaptureService>());
         builder.Services.AddSingleton(McpTunnelCredential.Create(builder.Configuration, builder.Environment));
         builder.Services.AddHttpContextAccessor();
@@ -43,17 +44,22 @@ public static class McpServiceRegistration
             .WithRequestFilters(filters => filters.AddListToolsFilter(next => async (context, ct) =>
             {
                 var result = await next(context, ct);
-                foreach (var tool in result.Tools.Where(t => t.Name == "render_screen"))
+                foreach (var tool in result.Tools.Where(t => t.Name is "render_screen" or "get_node" or "get_screen_tree" or "simulate_preview"))
                 {
                     var schema = System.Text.Json.Nodes.JsonNode.Parse(tool.InputSchema.GetRawText())!.AsObject();
-                    schema["properties"]!["theme"] = System.Text.Json.Nodes.JsonNode.Parse(
-                        """{"description":"Optional render-only theme; omit to use the current prototype theme.","anyOf":[{"type":"string","enum":["Light","Dark"]},{"type":"null"}]}""");
+                    schema["properties"]!["theme"] = System.Text.Json.Nodes.JsonNode.Parse(tool.Name == "render_screen"
+                        ? """{"description":"Optional render-only theme; omit to use the current prototype theme.","anyOf":[{"type":"string","enum":["Light","Dark"]},{"type":"null"}]}"""
+                        : """{"description":"Theme for this read-only operation.","type":"string","enum":["Light","Dark"],"default":"Light"}""");
+                    if (tool.Name == "simulate_preview")
+                        schema["properties"]!["events"] = System.Text.Json.Nodes.JsonNode.Parse(
+                            """{"type":"array","maxItems":128,"items":{"type":"object","properties":{"nodeId":{"type":"string","format":"uuid"},"event":{"type":"string","enum":["Click","Change","Submit"]},"value":{"description":"Optional demonstration value for Change.","type":["string","null"],"maxLength":4096}},"required":["nodeId","event"]}}""");
                     tool.InputSchema = JsonSerializer.SerializeToElement(schema);
                 }
                 return result;
             }))
             .WithTools<McpReadTools>()
             .WithTools<McpRenderTools>()
+            .WithTools<McpPreviewTools>()
             .WithTools<McpWriteTools>();
     }
 

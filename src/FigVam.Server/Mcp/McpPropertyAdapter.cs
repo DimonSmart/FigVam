@@ -150,6 +150,7 @@ public static class McpPropertyAdapter
                 TokenType.FontFamily => new FontFamilyValue(value.GetString() ?? throw new FormatException()),
                 TokenType.FontWeight => new FontWeightValue(value.GetInt32()),
                 TokenType.Typography => Typography(value),
+                TokenType.Shadow => ShadowToken(value),
                 _ => throw new FormatException()
             };
             return new LiteralTokenValue(literal);
@@ -159,6 +160,12 @@ public static class McpPropertyAdapter
             throw McpPropertyDiagnostics.Explain("INVALID_TOKEN", property, value,
                 McpPropertyContracts.TokenInputSchema(type), e as JsonException, strictIntegers: true);
         }
+    }
+
+    private static ShadowValue ShadowToken(JsonElement value)
+    {
+        var shadow = Shadow(value);
+        return new(shadow.OffsetX, shadow.OffsetY, shadow.BlurRadius, shadow.SpreadRadius, shadow.Color);
     }
 
     private static ColorValue ToTokenColor(NodeColorValue color) => new(color.Red, color.Green, color.Blue, color.Alpha);

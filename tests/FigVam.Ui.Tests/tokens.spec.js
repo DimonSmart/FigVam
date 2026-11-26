@@ -302,7 +302,8 @@ test('type menu filters tree and table together, retains navigation, and reveals
   const all = menu.getByRole('checkbox',{name:'Все типы',exact:true});
   const check = name => menu.getByRole('checkbox',{name,exact:true});
   await expect(all).toBeChecked();
-  await expect(menu.getByRole('checkbox')).toHaveCount(9);
+  await expect(menu.getByRole('checkbox')).toHaveCount(10);
+  await expect(check('Shadow')).toBeChecked();
   await all.uncheck();
   await expect(table).toContainText('Не выбраны типы');
   await expect(tree.getByRole('button',{name:'Все токены',exact:true})).toHaveAttribute('aria-pressed','true');

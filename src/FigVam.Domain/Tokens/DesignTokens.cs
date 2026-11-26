@@ -4,7 +4,7 @@ namespace FigVam.Domain.Tokens;
 
 // Explicit numbers preserve the wire values of documents created before v4.
 public enum TokenType { Color = 0, Spacing = 1, Typography = 2, Geometry = 3,
-    Dimension = 4, Number = 5, FontFamily = 6, FontWeight = 7 }
+    Dimension = 4, Number = 5, FontFamily = 6, FontWeight = 7, Shadow = 8 }
 public enum TokenCategory { Spacing, FontSize, Radius, BorderWidth, Size, LineHeight, Opacity, LetterSpacing }
 public enum TokenTheme { Light, Dark }
 
@@ -18,6 +18,7 @@ public enum TokenTheme { Light, Dark }
 [JsonDerivedType(typeof(NumberValue), "number")]
 [JsonDerivedType(typeof(FontFamilyValue), "fontFamily")]
 [JsonDerivedType(typeof(FontWeightValue), "fontWeight")]
+[JsonDerivedType(typeof(ShadowValue), "shadow")]
 public abstract record TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ColorValue([property: JsonRequired] byte Red, [property: JsonRequired] byte Green, [property: JsonRequired] byte Blue, byte Alpha = 255) : TokenValue;
@@ -43,6 +44,15 @@ public sealed record NumberValue([property: JsonRequired] double Value) : TokenV
 public sealed record FontFamilyValue([property: JsonRequired] string Value) : TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record FontWeightValue([property: JsonRequired] int Value) : TokenValue;
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ShadowValue(
+    [property: JsonRequired] double OffsetX, [property: JsonRequired] double OffsetY,
+    [property: JsonRequired] double BlurRadius, [property: JsonRequired] double SpreadRadius,
+    [property: JsonRequired] FigVam.Domain.Documents.NodeColorValue Color) : TokenValue
+{
+    public FigVam.Domain.Documents.NodeShadowValue ToNodeValue() => new(OffsetX, OffsetY, BlurRadius, SpreadRadius, Color);
+}
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "expression")]
 [JsonDerivedType(typeof(LiteralTokenValue), "literal")]
@@ -266,6 +276,8 @@ public static class DesignTokenValidator
     private static ValueIssue? LiteralIssue(TokenType type, TokenValue? value) => (type, value) switch
     {
         (TokenType.Color, ColorValue) => null,
+        (TokenType.Shadow, ShadowValue shadow) => FigVam.Domain.Documents.NodePropertyValidator.IsValidShadow(shadow.ToNodeValue())
+            ? null : new(null, "Invalid shadow geometry or color.", "Valid shadow", "Invalid shadow"),
         (TokenType.Spacing, SpacingValue spacing) => NumberIssue(spacing.Value),
         (TokenType.Geometry, GeometryValue geometry) => CheckRange(geometry.Radius, type),
         (TokenType.Dimension, DimensionValue dimension) => NumberIssue(dimension.Value),

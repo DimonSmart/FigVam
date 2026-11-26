@@ -130,14 +130,29 @@ public sealed class PreviewSession
         if (errors.Count > 0) throw new InvalidOperationException(string.Join("; ", errors.Select(e => $"{e.Code}: {e.Message}")));
         return Commit(current with { Selection = selection, Overlays = selection.ScreenId == current.Selection.ScreenId ? current.Overlays : Array.AsReadOnly(Array.Empty<Guid>()) });
     }
-    public PreviewSession Trigger(Guid nodeId, PreviewEvent @event)
+    public IReadOnlyList<PreviewScenario> MatchingScenarios(Guid nodeId, PreviewEvent @event)
     {
         if (!Enum.IsDefined(@event)) throw new ArgumentOutOfRangeException(nameof(@event));
         var screenId = current.Overlays.Count > 0 ? current.Overlays[^1] : current.Selection.ScreenId;
         var screen = definition.Screens.Single(s => s.Id == screenId);
         if (!screen.NodeIds.Contains(nodeId)) throw new InvalidOperationException("Event node is not on the active screen.");
-        var scenarios = definition.Scenarios.Where(s => s.ScreenId == screen.Id && s.NodeId == nodeId && s.Event == @event).ToArray();
-        if (scenarios.Length == 0) return this;
+        return definition.Scenarios.Where(s => s.ScreenId == screen.Id && s.NodeId == nodeId && s.Event == @event).ToArray();
+    }
+
+    // Demonstration input is ephemeral and does not add a navigation-history entry.
+    public PreviewSession WithInput(Guid nodeId, string? value)
+    {
+        var screenId = current.Overlays.Count > 0 ? current.Overlays[^1] : current.Selection.ScreenId;
+        if (!definition.Screens.Single(s => s.Id == screenId).NodeIds.Contains(nodeId))
+            throw new InvalidOperationException("Input node is not on the active screen.");
+        if (value?.Length > 4096) throw new InvalidOperationException("Demo values are limited to 4096 characters.");
+        return new(definition, initial, current with { Values = SetValue(current.Values, nodeId, value) }, history);
+    }
+
+    public PreviewSession Trigger(Guid nodeId, PreviewEvent @event)
+    {
+        var scenarios = MatchingScenarios(nodeId, @event);
+        if (scenarios.Count == 0) return this;
         var next = current;
         foreach (var action in scenarios.SelectMany(s => s.Actions))
         {

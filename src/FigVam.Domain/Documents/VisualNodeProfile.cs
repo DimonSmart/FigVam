@@ -95,6 +95,7 @@ public sealed class VisualNodeProfile : INodeProfile
     }).ToArray());
     private static NodePropertyDefinition TokenizedProperty(string name, NodePropertyDefinition old) => name switch
     {
+        "shadow" => old with { TokenType = TokenType.Shadow },
         "width" or "height" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Size },
         "opacity" => old with { TokenType = TokenType.Number, TokenCategory = TokenCategory.Opacity },
         "paddingTop" or "paddingRight" or "paddingBottom" or "paddingLeft" or "gap" => old with

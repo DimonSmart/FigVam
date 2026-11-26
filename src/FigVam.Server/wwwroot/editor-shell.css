@@ -494,6 +494,23 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   align-items: center; gap: 6px; min-width: 0;
 }
 .app-shell .token-value-label { color: var(--ui-muted); font-size: 12px; overflow-wrap: anywhere; }
+/* A shadow is a compound value: keep geometry and color on separate rows.
+   Reserve a distinct column for the token action so it cannot cover Alpha. */
+.app-shell .node-property--token .token-value-layout--shadow,
+.app-shell .token-theme-values .token-value-layout--shadow {
+  grid-template-columns: minmax(0, 1fr); gap: 4px;
+}
+.app-shell .token-value-layout--shadow .token-value-editor { align-items: flex-start; }
+.app-shell .token-value-layout--shadow .token-value-direct {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; min-width: 0;
+}
+.app-shell .token-value-layout--shadow .shadow-geometry > label { min-width: 0; }
+.app-shell #visual-properties-form .token-value-layout--shadow .token-value-link {
+  width: 31px; flex: 0 0 31px;
+}
+.app-shell #visual-properties-form .token-value-layout--shadow .token-color-alpha-button {
+  width: 20px; flex: 0 0 20px;
+}
 /* Geometry shares each row between two properties; don't reserve a full label column for W/H. */
 .app-shell #visual-inspector .node-geometry-row .node-property--token .token-value-layout {
   grid-template-columns: max-content minmax(0, 1fr); gap: 5px;
@@ -578,7 +595,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .token-value-unlink { width: 100%; margin-top: 7px; text-align: left; }
 .app-shell .token-value-empty { color: var(--ui-muted); padding: 5px; }
 @media (max-width: 400px) {
-  .app-shell .node-property--token .token-value-layout { grid-template-columns: minmax(60px, 78px) minmax(0, 1fr); }
+  .app-shell .node-property--token .token-value-layout:not(.token-value-layout--shadow) { grid-template-columns: minmax(60px, 78px) minmax(0, 1fr); }
 }
 
 .app-shell .layer-interaction { margin-left: auto; color: #5368c7; font-size: 13px; flex: none; }

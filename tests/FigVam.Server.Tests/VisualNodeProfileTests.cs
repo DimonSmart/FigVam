@@ -172,13 +172,13 @@ public sealed class VisualNodeProfileTests : IDisposable
         Assert.Equal(NodePropertyType.Shadow, definition.Type);
         Assert.False(definition.Required);
         Assert.Null(definition.DefaultValue);
-        Assert.Null(definition.TokenType);
+        Assert.Equal(TokenType.Shadow, definition.TokenType);
         var shadow = new NodeShadowValue(-3, 12, 32, -2, new(15, 23, 42, 41));
         Assert.Null(NodePropertyValidator.Validate(profile, kind, "shadow", shadow));
         Assert.Equal(shadow, JsonSerializer.Deserialize<NodePropertyValue>(JsonSerializer.Serialize<NodePropertyValue>(shadow)));
         Assert.Equal("UNSUPPORTED_PROPERTY", NodePropertyValidator.Validate(profile, "Text", "shadow", shadow)!.Code);
         Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, kind, "shadow", new NodeStringValue("shadow"))!.Code);
-        Assert.Equal("INVALID_PROPERTY_TYPE", NodePropertyValidator.Validate(profile, kind, "shadow", new NodeTokenValue(Guid.NewGuid()))!.Code);
+        Assert.Null(NodePropertyValidator.Validate(profile, kind, "shadow", new NodeTokenValue(Guid.NewGuid())));
         foreach (var invalid in new[] { shadow with { BlurRadius = -1 }, shadow with { BlurRadius = 257 },
             shadow with { OffsetX = double.NaN }, shadow with { OffsetY = double.PositiveInfinity },
             shadow with { SpreadRadius = double.NegativeInfinity }, shadow with { OffsetX = 1025 },

@@ -1,9 +1,10 @@
 import { splitTokenBundle } from './token-exchange.js';
+import { shadowControl } from './node-property-controls.js';
 import { createTokenValueControl } from './token-value-control.js';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, filteredTokens, tokensInGroup, matchesTokenSearch, qualifyTokenName } from './token-groups.js';
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from './token-resolution.js';
 
-const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
+const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight', 'Shadow'];
 const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
 const allowedCategories = {
   Dimension: ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LetterSpacing'],
@@ -219,7 +220,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   function makeTokenControl(prefix, label, type, category, theme, expression, ownerId, initialText = '') {
     const literal = expression?.expression === 'literal' ? expression.value : null;
     let direct;
-    if (type === 'Typography') {
+    if (type === 'Shadow') {
+      direct = shadowControl(literal);
+      direct.writeResolved = direct.writeResolved.bind(direct);
+    } else if (type === 'Typography') {
       const holder = document.createElement('div'); holder.className = 'token-composite-direct';
       holder.id = prefix + '-typography';
       const children = typographyFields.map(field => {

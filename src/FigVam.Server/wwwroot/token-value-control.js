@@ -15,6 +15,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
   const getCompatible = options.getCompatible ?? (() => [...model.tokens.values()].filter(token => compatibleToken(token, definition)));
   const resolve = id => options.resolve ? options.resolve(id) : resolvePropertyToken({ type: 'token', tokenId: id }, model.tokens, theme, definition);
   const root = el('div', 'token-value-layout');
+  if (definition.type === 'Shadow') root.classList.add('token-value-layout--shadow');
   const caption = el('span', 'token-value-label', displayLabel);
   if (displayLabel !== label) caption.title = label;
   const editor = el('div', 'token-value-editor');

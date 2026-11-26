@@ -167,6 +167,7 @@ internal static class McpPropertyContracts
             TokenType.FontFamily => Schema<string>(),
             TokenType.FontWeight => Schema<int>(),
             TokenType.Typography => FlatTypography(),
+            TokenType.Shadow => ShadowSchema(),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
         if (type == TokenType.FontFamily)
@@ -186,6 +187,22 @@ internal static class McpPropertyContracts
             var required = schema["required"]!.AsArray();
             required.Remove(required.Single(v => v!.GetValue<string>() == "alpha"));
             schema["properties"]!["alpha"]!["default"] = 255;
+            return schema;
+        }
+        if (type == TokenType.Shadow)
+        {
+            var schema = ShadowSchema();
+            schema["required"]!.AsArray().Add(JsonValue.Create("type"));
+            var color = Schema<McpRgbaInput>();
+            var required = color["required"]!.AsArray();
+            required.Remove(required.Single(v => v!.GetValue<string>() == "alpha"));
+            color["properties"]!["alpha"]!["default"] = 255;
+            foreach (var channel in color["properties"]!.AsObject())
+            {
+                channel.Value!["minimum"] = 0;
+                channel.Value["maximum"] = 255;
+            }
+            schema["properties"]!["color"] = color;
             return schema;
         }
         if (type == TokenType.Typography)
@@ -241,6 +258,13 @@ internal static class McpPropertyContracts
         return Choice(CompactTokenLiteral(TokenType.Dimension, TokenCategory.Spacing), ReferenceSchema<McpTokenReferenceInput>());
     }
 
+    internal static JsonObject CompactLiteralSchema(NodePropertyDefinition definition) => definition.Type switch
+    {
+        NodePropertyType.Color => ColorSchema(),
+        NodePropertyType.Shadow => ShadowSchema(),
+        _ => throw new ArgumentOutOfRangeException(nameof(definition))
+    };
+
     internal static JsonObject InputSchema(NodePropertyDefinition definition)
     {
         JsonObject literal = definition.Type switch
@@ -292,7 +316,7 @@ internal static class McpPropertyContracts
             alternatives.Add(TaggedScalar(number, "number"));
         }
         if (definition.TokenType is not null &&
-            definition.Type is NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum)
+            definition.Type is NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum or NodePropertyType.Shadow)
             alternatives.Add(ReferenceSchema<McpTokenReferenceInput>("token"));
 
         return alternatives.Count == 1

@@ -13,7 +13,7 @@ public interface IDocumentStateReader
 public sealed record DocumentStateReadResult(string Code, DocumentState? State = null);
 
 public sealed record StructureQuery(string Resource, Guid? ObjectId = null, int Offset = 0, int Limit = 50,
-    int Depth = 0, string? Fields = null, Guid? ScreenId = null, string? Kind = null, string? SemanticKey = null, string? NamePrefix = null, long? Revision = null, int? MaxDepth = null);
+    int Depth = 0, string? Fields = null, Guid? ScreenId = null, string? Kind = null, string? SemanticKey = null, string? NamePrefix = null, long? Revision = null, int? MaxDepth = null, bool IncludeResolvedProperties = false, TokenTheme Theme = TokenTheme.Light);
 public sealed record StructureItem(Guid Id, string Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, NodePropertyValue>? Properties = null,
@@ -26,7 +26,9 @@ public sealed record StructureItem(Guid Id, string Type,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] NodeRepeater? Repeater = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] ScreenDimensions? Dimensions = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] Guid? ParentId = null,
-    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? CanContainChildren = null);
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] bool? CanContainChildren = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyDictionary<string, NodePropertyValue>? ResolvedProperties = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] IReadOnlyList<LayoutDiagnostic>? ResolutionDiagnostics = null);
 public sealed record StructureResponse(Guid DocumentId, long Revision, IReadOnlyList<StructureItem> Items,
     int Offset, int Limit, int Total);
 public sealed record StructureQueryResult(string Code, StructureResponse? Response = null);
@@ -107,7 +109,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanReadAsync(actor, documentId, cancellationToken)) return new("FORBIDDEN");
         if (documentId == Guid.Empty || query.ObjectId == Guid.Empty || query.ScreenId == Guid.Empty) return new("INVALID_ID");
         var fields = query.Fields is null ? new HashSet<string>(["kind", "properties", "childCount", "name", "semanticKey", "dataBindings", "repeater", "dimensions"], StringComparer.Ordinal) : query.Fields.Split(',').ToHashSet(StringComparer.Ordinal);
-        if (query.Offset < 0 || query.Limit is < 1 or > 100 || query.Depth is < 0 or > 2 || query.MaxDepth is < 1 or > 100 || fields.Any(f => f is not ("kind" or "properties" or "childCount" or "name" or "semanticKey" or "dataBindings" or "repeater" or "dimensions" or "parentId" or "canContainChildren")) || query.Kind?.Length > 256 || query.SemanticKey?.Length > 256 || query.NamePrefix?.Length > 256)
+        if (!Enum.IsDefined(query.Theme) || query.Offset < 0 || query.Limit is < 1 or > 100 || query.Depth is < 0 or > 2 || query.MaxDepth is < 1 or > 100 || fields.Any(f => f is not ("kind" or "properties" or "childCount" or "name" or "semanticKey" or "dataBindings" or "repeater" or "dimensions" or "parentId" or "canContainChildren")) || query.Kind?.Length > 256 || query.SemanticKey?.Length > 256 || query.NamePrefix?.Length > 256)
             return new("INVALID_QUERY");
         if (query.ScreenId is not null && query.Resource != "nodes" || (query.Kind is not null || query.SemanticKey is not null || query.NamePrefix is not null) && query.Resource is not ("nodes" or "children")) return new("INVALID_QUERY");
         if (query.Revision < 0) return new("INVALID_REVISION");
@@ -162,6 +164,7 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
         // Expansion is bounded independently of tree width; use children pagination for larger trees.
         var resultPage = all.Skip(query.Offset).Take(query.Limit).ToArray();
         var budget = 100 - resultPage.Length;
+        var resolver = query.IncludeResolvedProperties ? new DesignStyleResolver(doc, selected!) : null;
         StructureItem Project((Guid Id, string Type) item, int depth)
         {
 
@@ -180,9 +183,36 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
                 children = expanded;
             }
             var node = item.Type == "node" ? nodes[item.Id] : null;
+            Dictionary<string, NodePropertyValue>? resolved = null;
+            IReadOnlyList<LayoutDiagnostic>? resolutionDiagnostics = null;
+            if (node is not null && resolver is not null)
+            {
+                resolved = new(StringComparer.Ordinal);
+                foreach (var (name, definition) in selected!.Kinds.Single(k => k.Kind == node.Kind).Properties)
+                    if (definition.DefaultValue is { } value) resolved[name] = value;
+                try
+                {
+                    foreach (var (name, value) in resolver.EffectiveNode(node, query.Theme))
+                        resolved[name] = value;
+                }
+                catch (DesignStyleException error)
+                {
+                    resolved = null;
+                    resolutionDiagnostics = [new(error.Code, node.Id, error.Field, error.Message)];
+                }
+                var bindingDiagnostics = new List<LayoutDiagnostic>();
+                foreach (var (property, binding) in node.DataBindings)
+                {
+                    var evaluated = NodeDataBindingEvaluator.Evaluate(doc, node, property, binding, selected!);
+                    if (evaluated.Value is { } value && resolved is not null) resolved[property] = value;
+                    if (evaluated.Diagnostic is { } error) bindingDiagnostics.Add(new(error.Code, node.Id, property, error.Message));
+                }
+                if (bindingDiagnostics.Count != 0)
+                    resolutionDiagnostics = [.. resolutionDiagnostics ?? [], .. bindingDiagnostics];
+            }
             return new(item.Id, item.Type, fields.Contains("kind") ? node?.Kind : null, fields.Contains("properties") ? node?.Properties : null, children, fields.Contains("childCount") ? ids.Length : null, children is not null && children.Count < ids.Length ? true : null, fields.Contains("name") ? (item.Type == "document" ? doc.Name : item.Type == "page" ? doc.Pages.First(p => p.Id == item.Id).Name : item.Type == "screen" ? screens[item.Id].Name : node?.Name) : null, fields.Contains("semanticKey") ? node?.SemanticKey : null, fields.Contains("dataBindings") ? node?.DataBindings : null, fields.Contains("repeater") ? node?.Repeater : null, fields.Contains("dimensions") && item.Type == "screen" ? screens[item.Id].Dimensions : null,
                 node is not null && parents?.TryGetValue(node.Id, out var parent) == true ? parent : null,
-                node is not null && fields.Contains("canContainChildren") ? selected!.CanContainChildren(node.Kind) : null);
+                node is not null && fields.Contains("canContainChildren") ? selected!.CanContainChildren(node.Kind) : null, resolved, resolutionDiagnostics);
         }
         return new("OK", new(documentId, state.Revision, resultPage.Select(x => Project(x, query.Depth)).ToArray(), query.Offset, query.Limit, all.Length));
     }

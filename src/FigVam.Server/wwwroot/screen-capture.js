@@ -62,8 +62,15 @@ async function renderPng(request, base, task, theme, signal) {
     assets: new Map(manifest.assets.map(asset => [asset.id, asset])),
     tokens: new Map(tokenList.items.map(token => [token.id, token]))
   };
-  if (!model.boxes.has(screen)) throw fail('CAPTURE_FAILED');
-  const drawing = renderScreen(model, { preview: true, report() {}, trigger() {}, setInput() {} });
+  return renderModelPng(model, width, height,
+    assetId => request.readPng(base + '/assets/' + assetId + '?revision=' + revision, {}, signal), {}, signal);
+}
+
+// Shared renderer for browser-backed MCP capture and server-owned headless Preview.
+export async function renderModelPng(model, width, height, loadAsset, values, signal) {
+  if (!model.boxes.has(model.screen)) throw fail('CAPTURE_FAILED');
+  const drawing = renderScreen(model, { preview: true, report() {}, trigger() {}, setInput() {},
+    getInput: (id, fallback) => Object.hasOwn(values, id) ? (values[id] ?? '') : fallback });
   const host = document.createElement('div');
   host.className = 'preview-screen';
   host.setAttribute('aria-hidden', 'true');
@@ -77,7 +84,7 @@ async function renderPng(request, base, task, theme, signal) {
   const urls = [];
   try {
     await Promise.all(drawing.images.map(async ({ assetId, surface }) => {
-      const blob = await request.readPng(base + '/assets/' + assetId + '?revision=' + revision, {}, signal);
+      const blob = await loadAsset(assetId);
       const url = URL.createObjectURL(blob); urls.push(url);
       surface.src = url; await surface.decode();
       surface.dataset.captureSrc = await dataUrl(blob, signal);

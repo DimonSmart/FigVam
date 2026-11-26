@@ -93,6 +93,11 @@ public sealed class McpScreenCaptureTests
         Assert.Equal("CANCEL", (await provider.Reader.ReadAsync()).Code);
         Assert.False(service.Complete(provider, request.RequestId, screen, 4, image));
 
+        // The 100 ms deadline belongs only to the timeout case. Cancellation
+        // and disconnect must not race that deadline on a busy CI runner.
+        service.Disconnect(provider);
+        service = new ScreenCaptureService();
+        provider = service.Register(doc, "alice", null, default, () => true)!;
         using var ct = new CancellationTokenSource();
         call = service.CaptureAsync(grant, screen, 4, ct.Token);
         await provider.Reader.ReadAsync();
