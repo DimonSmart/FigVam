@@ -359,7 +359,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (activeThemeSave || busy() || !editable() || !pendingThemeValues.size) return;
     const operation = pendingThemeValues.values().next().value;
     pendingThemeValues.delete(operation.theme);
-    if (operation.documentId !== getContext().documentId || operation.tokenId !== selectedToken) {
+    if (operation.documentId !== getContext().documentId || !tokenItems.some(item => item.id === operation.tokenId)) {
       pendingThemeValues.clear(); return;
     }
     activeThemeSave = operation;
@@ -423,7 +423,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     return { selection, usages };
   }
   function applySelectedUsages({ selection, usages }) {
-    if (selection !== selectedToken) { selectToken(selectedToken); return; }
+    if (selection !== selectedToken) { if (selectedToken) selectToken(selectedToken); return; }
     if (!usagesReady || JSON.stringify(tokenUsages) !== JSON.stringify(usages)) { usagesReady = true; tokenUsages = usages; renderTokens(true, false); }
   }
   function applyTokens(snapshot) {
@@ -431,9 +431,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     tokenItems = snapshot.items;
     createControls.forEach(control => control.refresh());
     detailControls.forEach(control => control.refresh());
-    if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
-    if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
-    tokenUsages = snapshot.usages; usagesReady = true;
+    if (selectedToken && selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
+    if (selectedToken && !tokenItems.some(item => item.id === selectedToken)) clearSelection();
+    tokenUsages = selectedToken ? snapshot.usages : []; usagesReady = !!selectedToken;
     if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) {
       rendered = true;
       renderTokens(true, !activeThemeSave && previousItem !== JSON.stringify(selected()));
@@ -491,11 +491,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const index = new Map(tokenItems.map(token => [token.id, token]));
     const nameDiagnostics = tokenNameDiagnostics(tokenItems);
     const displayed = tokensInGroup(filtered, group);
-    if (selectedToken && !displayed.some(item => item.id === selectedToken)) {
-      selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
-      endRename();
-      detailControls.forEach(control => control.dispose()); detailControls = []; el('token-values').replaceChildren();
-    }
+    if (selectedToken && !displayed.some(item => item.id === selectedToken)) clearSelection();
     for (const item of displayed) {
       const row = list.insertRow(), type = typeOf(item), category = categoryOf(item);
       const button = document.createElement('button'); button.type = 'button';
@@ -584,6 +580,12 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (usagesReady && !tokenUsages.length) {
       const li = document.createElement('li'); li.textContent = 'Использований нет.'; usages.append(li);
     }
+  }
+  function clearSelection() {
+    selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
+    // A presentation filter must not discard theme edits already queued for saving.
+    endRename();
+    detailControls.forEach(control => control.dispose()); detailControls = []; el('token-values').replaceChildren();
   }
   function revealToken(item, navigate = false) {
     const hidden = !selectedTypes.has(typeOf(item)) || !matchesTokenSearch(item, el('token-search').value) ||

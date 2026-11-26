@@ -438,3 +438,31 @@ test('combined export never downloads a partial bundle when one theme fails', as
   await expect(page.locator('#tokens-error')).toContainText('Dark export failed');
   expect(downloads).toBe(0);
 });
+
+test('filtering away a selected token does not discard queued edits', async ({page, request}) => {
+  await open(page);
+  await page.locator('#token-menu-open').click(); await page.locator('#new-token-open').click();
+  await page.locator('#new-token-name').fill('Queued');
+  await page.locator('#new-token-type').selectOption('Spacing');
+  await page.getByLabel('Light',{exact:true}).fill('8'); await page.getByLabel('Dark',{exact:true}).fill('12');
+  await page.getByRole('button',{name:'Создать токен'}).click();
+  await expect(page.locator('#token-dark')).toHaveValue('12');
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let first = true;
+  await page.route('**/commands/set-token-value', async route => {
+    if (first) { first = false; await gate; }
+    await route.continue();
+  });
+  try {
+    await page.locator('#token-light').fill('16');
+    await page.locator('#token-dark').fill('24');
+    await page.locator('#token-dark').press('Enter');
+    await page.locator('#token-search').fill('Not found');
+    await expect(page.locator('#token-detail')).toBeHidden();
+  } finally { release(); }
+  await page.locator('#token-search').fill('');
+  const row = page.locator('#tokens-list tr').filter({hasText:'Queued'});
+  await expect(row).toContainText('16 px');
+  await expect(row).toContainText('24 px');
+});
