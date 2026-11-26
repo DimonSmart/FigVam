@@ -94,7 +94,7 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
             Directory.CreateDirectory(directory);
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            foreach (var file in new[] { "screen-capture.js", "render-model.js", "decode.js", "screen-renderer.js", "token-resolution.js", "editor.css", "editor-shell.css", "home.css" })
+            foreach (var file in new[] { "editor.css", "editor-shell.css", "home.css" })
                 File.Copy(Path.Combine(AppContext.BaseDirectory, "wwwroot", file), Path.Combine(directory, file));
             foreach (var chunk in FigVam.Server.Editor.FrontendAssets.Chunks())
                 File.Copy(chunk, Path.Combine(directory, Path.GetFileName(chunk)));

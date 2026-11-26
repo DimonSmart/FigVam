@@ -71,24 +71,24 @@ let selectedScreen: string | null = null, screensOffset = 0, screensTotal = 0, s
 let editingPageName: RenameDraft | null = null, editingScreenName: RenameDraft | null = null;
 let pageExpanded = true;
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
-const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({
-  element, request: (...args: Parameters<ApiClient>) => request(...args), pageSize,
-  getContext: () => ({ documentId, screen: selectedScreen, revision, token, navigationEpoch })
-});
-const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
-  element, request: (...args: Parameters<ApiClient>) => request(...args), refreshPages: () => refreshPages(),
-  workspace: {
-    get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; }, get screensItems() { return screensItems; },
-    get generation() { return generation; }, get token() { return token; }
-  }
-});
-
 const request: ApiClient = createApiClient({
   getToken: () => token,
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
+  }
+});
+
+const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({
+  element, request, pageSize,
+  getContext: () => ({ documentId, screen: selectedScreen, revision, token, navigationEpoch })
+});
+const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
+  element, request, refreshPages: () => refreshPages(),
+  workspace: {
+    get documentId() { return documentId; }, get documentRole() { return documentRole; },
+    get selectedScreen() { return selectedScreen; }, get screensItems() { return screensItems; },
+    get generation() { return generation; }, get token() { return token; }
   }
 });
 
@@ -126,21 +126,21 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 });
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
-  element, request: (...args: Parameters<ApiClient>) => request(...args),
+  element, request,
   getContext: () => ({ documentId, documentRole, revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
-  element, request: (...args: Parameters<ApiClient>) => request(...args), getTokens: () => tokens.items,
+  element, request, getTokens: () => tokens.items,
   getContext: () => ({ documentId, documentRole, revision, generation }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
-  element, request: (...args: Parameters<ApiClient>) => request(...args), pageSize,
+  element, request, pageSize,
   getContext: () => ({ documentId, revision, catalogRevision })
 });
 const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVariants({
-  element, request: (...args: Parameters<ApiClient>) => request(...args), refreshPages: () => refreshPages(),
+  element, request, refreshPages: () => refreshPages(),
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
@@ -150,13 +150,13 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
   }
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
-  element, request: (...args: Parameters<ApiClient>) => request(...args), pageSize,
+  element, request, pageSize,
   getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
-  scenarios.clearDocumentCommands(documentId);
+  if (documentId) scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
   members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingPageName = editingScreenName = null; pageExpanded = true;
@@ -278,8 +278,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
     get documentRole() { return documentRole; },
     get revision() { return revision; },
     get selectedScreen() { return selectedScreen; },
-    get layerSelection() { return layers.selection; },
-    get hasLayers() { return layers.hasLayers; }
+    get layerSelection() { return layers.selection; }
   },
   findLayer: layers.findLayer,
   setInteractiveNodes: layers.setInteractiveNodes,
@@ -528,7 +527,7 @@ function renderPages() {
   const screensList = element('screens');
   const previousInput = document.activeElement instanceof HTMLInputElement && document.activeElement.id === 'page-name-input' ? document.activeElement : null;
   const selection: [number | null, number | null] | null = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
-  if (editingPageName && (!pagesItems.some(item => item.id === editingPageName.id) || !navigatorCanEdit())) editingPageName = null;
+  if (editingPageName && (!pagesItems.some(item => item.id === editingPageName?.id) || !navigatorCanEdit())) editingPageName = null;
   // Preserve the same live screen list (and its handlers) as the selected page changes.
   screensList.remove();
   list.replaceChildren();
@@ -587,7 +586,7 @@ function renderScreens() {
   const focusedScreenId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.screenId : undefined;
   const previousInput = document.activeElement instanceof HTMLInputElement && document.activeElement.id === 'screen-name-input' ? document.activeElement : null;
   const selection: [number | null, number | null] | null = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
-  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName.id) ||
+  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName?.id) ||
       !['Owner', 'Editor'].includes(documentRole ?? ''))) editingScreenName = null;
   list.replaceChildren();
   for (const [index, item] of screensItems.entries()) {
