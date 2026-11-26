@@ -188,13 +188,6 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   // Master-detail navigation: document pages/screens above, selected screen's layers below.
   const pagesGroup = group('Страницы и экраны');
   const pageEdit = byId('page-edit');
-  const pageOptions = menu('⋯', 'inline-menu page-options');
-  pageOptions.querySelector('summary').setAttribute('aria-label', 'Действия страницы');
-  pageOptions.querySelector('summary').title = 'Действия страницы';
-  const pageMenuBody = el('div', 'navigator-page-menu');
-  pageMenuBody.append(byId('page-rename'), byId('page-delete'));
-  pageOptions.append(pageMenuBody);
-  pageEdit.append(pageOptions);
   byId('page-create').classList.add('add-page-action');
   byId('page-create').setAttribute('aria-label', 'Создать страницу');
   byId('page-create').title = 'Создать страницу';
@@ -231,7 +224,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
-  const navigatorMenus = [[pageOptions, pageMenuBody], [screenOptions, screenMenuBody]];
+  const navigatorMenus = [[screenOptions, screenMenuBody]];
   function positionNavigatorMenu(menu, body) {
     if (!menu.open || !body.getClientRects().length) return;
     const anchor = menu.querySelector('summary').getBoundingClientRect();
@@ -513,14 +506,14 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   // Menus are temporary views. Their controls keep their draft values when closed.
   // Close previously open menus before a pointer action; do not close a menu opened by that click.
   document.addEventListener('pointerdown', event => {
-    const clickedMenu = event.target.closest('details.editor-menu, .navigator-toolbar details');
-    for (const details of document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open]')) {
+    const clickedMenu = event.target.closest('details.editor-menu, .navigator-toolbar details, .navigator-context-menu');
+    for (const details of document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')) {
       if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
     }
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    const opened = [...document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open]')];
+    const opened = [...document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')];
     if (!opened.length) return;
     opened[opened.length - 1].open = false;
     opened[opened.length - 1].querySelector('summary')?.focus();

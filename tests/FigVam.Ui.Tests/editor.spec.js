@@ -131,8 +131,8 @@ test('manages pages with keyboard and confirmation, preserving IDs and revision'
     const result = await fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json());
     return result.items[0].id;
   });
-  await show(page, 'page'); await page.getByLabel('Имя выбранной страницы').fill('Главная');
-  await page.getByLabel('Имя выбранной страницы').press('Enter');
+  await page.locator('#pages > li:has(> .page-select[aria-pressed="true"]) > .navigator-rename-action').click(); await page.getByLabel('Имя страницы', { exact: true }).fill('Главная');
+  await page.getByLabel('Имя страницы', { exact: true }).press('Enter');
   await expect(page.locator('#pages > li > .page-select')).toHaveText('Главная');
   const result = await page.evaluate(async () => fetch(`${location.pathname.replace('/documents/', '/api/v1/documents/')}/pages`, {headers: {Authorization: 'Bearer figvam-ui-test-token-only-at-loopback-5397'}}).then(r => r.json()));
   expect(result.items[0].id).toBe(id);
@@ -170,8 +170,8 @@ test('loads all pages into the tree, handles command errors and hides editing fo
     await page.unroute('**/commands/delete-page');
   }
   await page.route('**/commands/rename-page', route => route.abort());
-  await show(page, 'page'); await page.getByLabel('Имя выбранной страницы').fill('Network');
-  await page.getByRole('button', { name: 'Переименовать страницу' }).click();
+  await page.locator('#pages > li:has(> .page-select[aria-pressed="true"]) > .navigator-rename-action').click(); await page.getByLabel('Имя страницы', { exact: true }).fill('Network');
+  await page.getByRole('button', { name: 'Сохранить название страницы' }).click();
   await expect(page.locator('#error')).toContainText('команда могла выполниться');
   await page.unroute('**/commands/rename-page');
   await page.route('**/api/v1/documents?*', async route => {
@@ -182,6 +182,7 @@ test('loads all pages into the tree, handles command errors and hides editing fo
   await page.reload(); await login(page);
   await expect(page.getByText('Только просмотр страниц.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Создать страницу' })).toBeHidden();
+  await expect(page.locator('#pages .navigator-rename-action, #pages .navigator-context-menu')).toHaveCount(0);
   await expect(page.locator('#pages > li > .page-select').first()).toBeVisible();
 });
 
@@ -451,4 +452,39 @@ test('late restore response does not alter another document', async ({ page }) =
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Второй restore'); release();
   await expect(page.locator('#restore-status')).toBeEmpty(); await expect(page.locator('#versions-status')).toContainText('нет');
   await page.getByRole('link', { name: '← Документы' }).click(); await page.getByRole('link', { name: 'Первый restore' }).click(); await expect(page.locator('#restore-status')).toContainText('восстановлена');
+});
+
+test('page row actions are inline and target the row without changing the selection', async ({ page }) => {
+  await page.goto('/'); await login(page);
+  await page.getByLabel('Имя нового документа').fill('Navigator row actions');
+  await page.getByRole('button', { name: 'Создать документ' }).click();
+  await page.getByRole('button', { name: 'Создать страницу' }).click();
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Создать страницу' }).click();
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(2);
+  const selected = page.locator('#pages > li > .page-select[aria-pressed="true"]');
+  const selectedId = await selected.getAttribute('data-page-id');
+  const other = page.locator('#pages > li:has(> .page-select[aria-pressed="false"])');
+  const otherId = await other.locator('.page-select').getAttribute('data-page-id');
+  const originalName = await other.locator('.page-select').textContent();
+  const row = page.locator('#pages > li:has(> [data-page-rename-id="' + otherId + '"])');
+  await expect(page.locator('.navigator-toolbar .page-options')).toHaveCount(0);
+  await row.locator('.navigator-rename-action').click();
+  const input = page.getByLabel('Имя страницы', { exact: true });
+  await expect(input).toBeFocused();
+  await input.fill('Cancelled');
+  await input.press('Escape');
+  await expect(row.locator('.page-select')).toHaveText(originalName);
+  await row.locator('.navigator-rename-action').click();
+  await input.fill('Renamed page');
+  await input.press('Enter');
+  await expect(row.locator('.page-select')).toHaveText('Renamed page');
+  await expect(selected).toHaveAttribute('data-page-id', selectedId);
+  await row.locator('.page-select').click({ button: 'right' });
+  await expect(row.locator('.navigator-context-body')).toBeVisible();
+  await expect(row.locator('.navigator-context-body input')).toHaveCount(1);
+  page.once('dialog', dialog => { expect(dialog.message()).toContain('Renamed page'); return dialog.accept(); });
+  await row.getByRole('button', { name: 'Удалить страницу', exact: true }).click();
+  await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);
+  await expect(selected).toHaveAttribute('data-page-id', selectedId);
 });

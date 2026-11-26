@@ -44,7 +44,7 @@ p { line-height: 1.6; }
 #pages li { margin: .4rem 0; }
 #pages button { width: 100%; text-align: left; overflow-wrap: anywhere; }
 #pages button[aria-pressed=true] { border: 2px solid #214da6; font-weight: 700; }
-#page-edit, #page-rename { display: grid; gap: .6rem; margin-top: 1rem; }
+#page-edit { display: grid; gap: .6rem; margin-top: 1rem; }
 .workspace .pagination { flex-wrap: wrap; }
 
 #screens { padding: 0; list-style: none; }

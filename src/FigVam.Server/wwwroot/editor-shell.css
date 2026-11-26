@@ -118,7 +118,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   border: 0; padding: 0; background: var(--ui-surface);
 }
 .workspace > .layers-sidebar { position: relative; border-right: 1px solid var(--ui-border); }
-.workspace > .layers-sidebar:has(.navigator-toolbar details[open]) { z-index: 15; }
+.workspace > .layers-sidebar:has(.navigator-toolbar details[open], .navigator-context-menu[open]) { z-index: 15; }
 .workspace > .properties-sidebar { border-left: 1px solid var(--ui-border); }
 .workspace.left-collapsed > .layers-sidebar, .workspace.right-collapsed > .properties-sidebar { display: none; }
 .editor-tabs { display: flex; flex: 0 0 42px; min-height: 42px; gap: 0;
@@ -158,13 +158,17 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   min-height: 0; flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
   scrollbar-gutter: stable; padding: 0 2px 4px 0;
 }
-.app-shell .layers-master #pages > .page-tree-item { list-style: none; margin: 0 0 2px; min-width: 0; }
+.app-shell .layers-master #pages > .page-tree-item {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  column-gap: 2px; list-style: none; margin: 0 0 2px; min-width: 0;
+}
+.app-shell .layers-master #pages > .page-tree-item > :is(#screens, .navigator-rename-form) { grid-column: 1 / -1; }
 .app-shell .layers-master #pages .page-select {
-  width: 100%; display: flex; align-items: center; text-align: left;
+  width: 100%; display: block; text-align: left;
   padding: 6px 6px; min-height: 30px; font-weight: 600; min-width: 0;
 }
 .app-shell .layers-master #pages .page-select::before {
-  content: '▸'; flex: 0 0 17px; font-size: 12px; color: var(--ui-muted);
+  content: '▸'; display: inline-block; width: 17px; font-size: 12px; color: var(--ui-muted);
 }
 .app-shell .layers-master #pages .page-select[aria-expanded=true]::before { content: '▾'; }
 .app-shell .layers-master #pages #screens {
@@ -179,7 +183,6 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .navigator-toolbar #page-edit[hidden] { display: none; }
 .app-shell .navigator-toolbar #page-create { width: 30px; min-height: 29px; padding: 0; font-size: 0; }
 .app-shell .navigator-toolbar #page-create::before { content: '+'; font-size: 18px; }
-.app-shell .navigator-toolbar .page-options > summary { min-height: 29px; padding: 5px 8px; }
 .app-shell .navigator-toolbar .screen-options { flex: 0 0 auto; }
 .app-shell .navigator-toolbar .screen-options > summary { min-height: 29px; padding: 5px 7px; }
 .app-shell .navigator-toolbar #page-refresh {
@@ -187,9 +190,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   flex: 0 0 30px; padding: 0; font-size: 0;
 }
 .app-shell .navigator-toolbar #page-refresh::before { content: '↻'; font-size: 17px; }
-.app-shell .navigator-toolbar .page-options[open],
 .app-shell .navigator-toolbar .screen-options[open] { box-shadow: none; background: transparent; padding: 0; border: 0; }
-.app-shell .navigator-toolbar .navigator-page-menu,
 .app-shell .navigator-toolbar .screen-options-body {
   position: fixed; z-index: 22; overflow: auto;
   padding: 10px; background: var(--ui-surface);
@@ -200,8 +201,6 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .navigator-toolbar .screen-options .screen-options-body { width: 240px; }
 .app-shell .navigator-toolbar .inline-menu > :not(summary) { margin: 0; display: none; }
 .app-shell .navigator-toolbar .inline-menu[open] > :not(summary) { display: block; }
-.app-shell .navigator-toolbar #page-rename { display: grid; gap: 6px; }
-.app-shell .navigator-toolbar #page-delete { margin-top: 9px; width: 100%; }
 .app-shell .navigator-toolbar #page-access { display: none; }
 .app-shell .layers-master #page-access { margin-top: 5px; font-size: 11px; }
 .layers-splitter {
@@ -236,28 +235,28 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 
 .app-shell #screens .screen-row { display: flex; align-items: center; min-width: 0; gap: 2px; }
 .app-shell #screens .screen-select { flex: 1 1 auto; min-width: 0; }
-.app-shell #screens .screen-rename-action {
+.app-shell .layers-master .navigator-rename-action {
   flex: 0 0 26px; width: 26px; min-height: 26px; padding: 4px;
   text-align: center; font-size: 17px; line-height: 1; cursor: pointer;
   color: var(--ui-muted); opacity: .65; background: transparent; border-color: transparent;
 }
-.app-shell #screens .screen-rename-action:hover,
-.app-shell #screens .screen-rename-action:focus-visible,
-.app-shell #screens .screen-select[aria-pressed=true] + .screen-rename-action { opacity: 1; color: var(--ui-accent); }
-.app-shell #screens .screen-rename-form { display: flex; flex: 1; min-width: 0; gap: 3px; align-items: center; }
-.app-shell #screens .screen-rename-form input {
+.app-shell .layers-master .navigator-rename-action:hover,
+.app-shell .layers-master .navigator-rename-action:focus-visible,
+.app-shell .layers-master :is(.page-select, .screen-select)[aria-pressed=true] + .navigator-rename-action { opacity: 1; color: var(--ui-accent); }
+.app-shell .layers-master .navigator-rename-form { display: flex; flex: 1; min-width: 0; gap: 3px; align-items: center; }
+.app-shell .layers-master .page-tree-item > .navigator-rename-form { padding-inline-start: 17px; }
+.app-shell .layers-master .navigator-rename-form input {
   flex: 1 1 auto; width: 0; min-width: 0; height: 29px;
   min-height: 29px; padding: 4px 6px; font-size: 12px;
 }
-.app-shell #screens .screen-rename-form button {
+.app-shell .layers-master .navigator-rename-form button {
   width: 25px; flex: 0 0 25px; min-height: 26px; height: 26px;
   padding: 0; text-align: center; font-size: 15px; line-height: 1;
 }
-.app-shell #screens .screen-rename-cancel { color: var(--ui-muted); }
+.app-shell .layers-master .navigator-rename-cancel { color: var(--ui-muted); }
 
 .app-shell #page-edit { display: flex; flex-wrap: wrap; gap: 6px; align-items: start; margin: 6px 0 0; }
 .app-shell #page-create::before { content: '+ '; font-weight: 700; }
-#page-edit > .inline-menu { margin-left: auto; }
 .app-shell #page-access { color: var(--ui-muted); font-size: 11px; }
 .app-shell #page-refresh { font-size: 11px; padding: 3px 7px; }
 .app-shell .inline-menu { position: relative; }
@@ -462,19 +461,27 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   .app-shell .viewport-controls button { font-size: 11px; padding: 4px; }
 }
 
-.app-shell #screens .screen-context-menu { position: relative; flex: 0 0 26px; z-index: 6; }
-.app-shell #screens .screen-context-menu summary {
+.app-shell .layers-master .navigator-context-menu { position: relative; flex: 0 0 26px; z-index: 6; }
+.app-shell .layers-master .navigator-context-menu summary {
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   list-style: none; width: 26px; height: 26px; color: var(--ui-muted); border-radius: 4px;
 }
-.app-shell #screens .screen-context-menu summary::-webkit-details-marker { display: none; }
-.app-shell #screens .screen-context-menu[open] summary { color: var(--ui-accent); background: var(--ui-selected); }
-.app-shell #screens .screen-context-menu input[type="button"] {
-  position: absolute; inset-inline-end: 0; inset-block-start: 27px;
-  width: max-content; min-width: 108px; padding: 6px 12px;
-  background: var(--ui-surface, white); border: 1px solid var(--ui-border, #ccd0db);
-  box-shadow: 0 4px 14px #0002; z-index: 10; text-align: start;
+.app-shell .layers-master .navigator-context-menu summary::-webkit-details-marker { display: none; }
+.app-shell .layers-master .navigator-context-menu summary:hover,
+.app-shell .layers-master .navigator-context-menu summary:focus-visible,
+.app-shell .layers-master .navigator-context-menu[open] summary { color: var(--ui-accent); background: var(--ui-selected); }
+.app-shell .layers-master .navigator-context-body {
+  position: fixed; min-width: 120px; max-width: calc(100vw - 16px); overflow: auto;
+  padding: 4px; border-radius: 6px; background: var(--ui-surface, white);
+  border: 1px solid var(--ui-border); box-shadow: 0 4px 14px #0002; z-index: 22;
 }
+.app-shell .layers-master .navigator-context-body input[type="button"] {
+  display: block; width: 100%; padding: 6px 12px; text-align: start;
+  background: transparent; border-color: transparent; color: inherit;
+}
+.app-shell .layers-master .navigator-context-body input[type="button"]:hover,
+.app-shell .layers-master .navigator-context-body input[type="button"]:focus-visible { background: var(--ui-selected); }
+.app-shell .layers-master .navigator-context-body .navigator-danger-action { color: #b42318; }
 .app-shell #screen-variants-list button[aria-pressed="true"] { font-weight: 650; color: var(--ui-accent); }
 .app-shell #visual-properties [data-variant-override="true"] { border-inline-start: 2px solid var(--ui-accent); padding-inline-start: 5px; }
 .app-shell #visual-properties .variant-override-reset { font-size: 11px; padding: 2px 5px; margin-inline-start: 5px; }
