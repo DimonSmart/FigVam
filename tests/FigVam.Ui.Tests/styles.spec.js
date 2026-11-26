@@ -210,3 +210,39 @@ test('automatic style edits queue newer input during an acknowledgement without 
   await expect(width).toHaveValue('3');
   expect(count).toBe(2);
 });
+
+test('a conflicting automatic style edit does not overwrite a collaborator on blur', async ({ page, request }) => {
+  await open(page);
+  const id = page.url().split('/').pop();
+  const headers = { Authorization: `Bearer ${bearer}` };
+  await page.locator('#styles-type').selectOption('BorderStyle');
+  await page.locator('#styles-name').fill('border.conflict');
+  await page.getByLabel('Радиус углов: переопределить').check();
+  await page.getByRole('button', { name: 'Создать стиль' }).click();
+  await expect(page.locator('#styles-status')).toHaveText('Стиль сохранён.');
+  const read = async () => (await (await request.get(`/api/v1/documents/${id}/styles`, { headers })).json());
+  let release, count = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/commands/upsert-style', async route => {
+    if (++count === 1) await gate;
+    await route.continue();
+  });
+  const radius = page.getByLabel('Радиус углов: значение');
+  await radius.fill('12'); await radius.press('Enter');
+  await expect.poll(() => count).toBe(1);
+  const before = await read(), style = before.items[0];
+  const remote = await request.post(`/api/v1/documents/${id}/commands/upsert-style`, {
+    headers, data: { commandId: require('node:crypto').randomUUID(), expectedRevision: before.revision,
+      style: { ...style, fields: { ...style.fields, cornerRadius: { type: 'number', value: 25 } } } }
+  });
+  expect(remote.ok()).toBeTruthy();
+  release();
+  await expect(page.locator('#styles-error')).toContainText('Документ изменился');
+  await expect(page.locator('#revision')).toContainText(String(before.revision + 1));
+  await radius.press('Tab');
+  await expect(radius).toHaveValue('12');
+  expect((await read()).items[0].fields.cornerRadius.value).toBe(25);
+  expect(count).toBe(1);
+  await radius.fill('18'); await radius.press('Enter');
+  await expect.poll(async () => (await read()).items[0].fields.cornerRadius.value).toBe(18);
+});

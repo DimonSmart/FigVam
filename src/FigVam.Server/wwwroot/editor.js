@@ -456,7 +456,7 @@ function startNavigatorNameEdit(kind, item, name) {
     setNavigatorEditState(other, null);
     renderNavigatorKind(other);
   }
-  setNavigatorEditState(kind, { id: item.id, value: name });
+  setNavigatorEditState(kind, { id: item.id, value: name, original: name });
   renderNavigatorKind(kind);
   const input = element(kind + '-name-input');
   input?.focus();
@@ -470,7 +470,9 @@ function navigatorRenameForm(kind, item, name) {
   input.id = kind + '-name-input';
   input.type = 'text'; input.required = true; input.maxLength = 256; input.autocomplete = 'off';
   input.setAttribute('aria-label', 'Имя ' + noun);
-  input.value = navigatorEditState(kind).value;
+  const state = navigatorEditState(kind);
+  if (state.value === state.original) state.original = state.value = name;
+  input.value = state.value;
   input.addEventListener('input', () => {
     navigatorEditState(kind).value = input.value;
     input.setCustomValidity('');
@@ -841,6 +843,8 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   else renderCanvas();
   layers.applySnapshot(layerSnapshot, selection);
   const name = header.items[0].name;
+  const nameInput = element('rename-document-name');
+  if (nameInput.value === element('document-title').textContent) nameInput.value = name;
   element('document-title').textContent = name; document.title = `${name} — FigVam`;
   element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
   components.load(); datasets.load(); screenVariants.load();

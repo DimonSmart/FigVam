@@ -72,3 +72,13 @@ test('ignores an in-flight response after logout', async ({ page }) => {
   await expect(page).toHaveTitle('FigVam — документы');
   await expect(page.getByRole('heading', { name: 'Открыть рабочее пространство' })).toBeVisible();
 });
+
+test('blur commits a changed document name and Escape discards a draft', async ({ page }) => {
+  await openDocument(page);
+  const name = page.getByLabel('Имя документа', { exact: true });
+  await name.fill('Discarded'); await name.press('Escape');
+  await expect(name).toHaveValue('Original');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Original');
+  await name.fill('Blur rename'); await name.press('Tab');
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText('Blur rename');
+});

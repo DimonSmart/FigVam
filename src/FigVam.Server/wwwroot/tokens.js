@@ -537,6 +537,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     updateDetailVisibility();
     if (!item || refreshDetail === false) return;
     el('token-detail-type').textContent = [typeOf(item), categoryOf(item)].filter(Boolean).join(' · ');
+    if (renaming && el('token-name').value === el('token-detail-title').textContent)
+      el('token-name').value = item.name;
     el('token-detail-title').textContent = item.name;
     const diagnostics = [nameDiagnostics.get(item.id)].filter(Boolean);
     for (const selectedTheme of ['Light','Dark']) {

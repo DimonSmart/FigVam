@@ -56,7 +56,10 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   let styleUsages = [], styleUsageRequest = 0;
   let formId, formSnapshot, timer, activeAuto = null, epoch = 0, rendering = false;
   const drafts = new Map();
-  const equal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const canonical = value => JSON.stringify(value ?? null, (_, item) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(Object.keys(item).sort().map(key => [key, item[key]])) : item);
+  const equal = (a, b) => canonical(a) === canonical(b);
   const fieldValue = (style, key) => key.startsWith('fields.')
     ? style?.fields?.[key.slice(7)] : style?.[key];
   function withValue(style, key, value) {
@@ -469,7 +472,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       style = withValue(style, key, change.value);
     }
     if (!sent.size) {
-      if (!draft.invalid.size) drafts.delete(draft.id);
+      if (!draft.changes.size && !draft.invalid.size) drafts.delete(draft.id);
       schedule(0); return;
     }
     const context = getContext(), startedEpoch = epoch;
@@ -536,10 +539,20 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   form.addEventListener('keydown', event => {
     if (event.isComposing || !selectedId || !event.target.matches('input:not([type=checkbox])')) return;
     if (event.key === 'Enter') { event.preventDefault(); capture(event.target, true); }
-    else if (event.key === 'Escape' && !activeAuto && event.target === el('styles-name')) {
+    else if (event.key === 'Escape' && event.target === el('styles-name')) {
       event.preventDefault(); event.stopPropagation();
-      event.target.value = chosen().name;
-      capture(event.target, true);
+      const draft = drafts.get(selectedId);
+      const sent = activeAuto?.id === selectedId ? activeAuto.sent.get('name') : null;
+      event.target.value = sent?.value ?? chosen().name;
+      if (sent) draft?.changes.set('name', sent);
+      else draft?.changes.delete('name');
+      draft?.invalid.delete('name');
+      event.target.removeAttribute('aria-invalid');
+      if (draft && !draft.invalid.size && !draft.changes.size) {
+        drafts.delete(selectedId);
+        el('styles-error').textContent = '';
+      }
+      renderPreview(draftStyle(chosen(), drafts.get(selectedId)));
     }
   });
 
