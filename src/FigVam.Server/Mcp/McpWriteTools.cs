@@ -138,7 +138,11 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
         {
             var tokenType = EnumName<TokenType>(type);
             var tokenCategory = category is null ? (TokenCategory?)null : EnumName<TokenCategory>(category);
-            if (tokenType == TokenType.Spacing && tokenCategory is null)
+            // Preserve the historical compact Spacing shortcut. A canonical expression
+            // copied from a legacy Spacing token must instead retain its original type.
+            if (tokenType == TokenType.Spacing && tokenCategory is null &&
+                !McpPropertyAdapter.IsCanonicalTokenExpression(light) &&
+                !McpPropertyAdapter.IsCanonicalTokenExpression(dark))
             {
                 tokenType = TokenType.Dimension;
                 tokenCategory = TokenCategory.Spacing;

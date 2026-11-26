@@ -129,12 +129,15 @@ public static class McpPropertyAdapter
         return new(input.FontFamily, input.FontSize, input.FontWeight, input.LineHeight, input.LetterSpacing);
     }
 
+    internal static bool IsCanonicalTokenExpression(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty("expression", out _);
+
     public static TokenExpression Token(TokenType type, JsonElement value, string property = "value")
     {
         try
         {
             // Canonical expressions from list_tokens retain aliases and nested typography fields.
-            if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("expression", out _))
+            if (IsCanonicalTokenExpression(value))
                 return McpPropertyContracts.Read<TokenExpression>(value);
             if (Reference(value, "tokenId", nodeReference: false) is { } token) return new TokenAlias(token);
             TokenValue literal = type switch
