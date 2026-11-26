@@ -1,20 +1,21 @@
-/** Client adapter for DocumentListResponse and DocumentListItem in the server. */
-export interface DocumentListItem {
-  documentId: string;
-  name: string;
-  role: string;
+import type { components } from './schema.generated';
+
+/** Decode the actual JSON response; OpenAPI's number|string also describes accepted request representations. */
+type WireDocumentListItem = components['schemas']['DocumentListItem'];
+type WireDocumentListResponse = components['schemas']['DocumentListResponse'];
+
+export type DocumentListItem = Pick<WireDocumentListItem, 'documentId' | 'name' | 'role'> & {
   storageSchemaVersion: number | null;
   profileId: string | null;
   profileVersion: number | null;
   currentProfileVersion: number | null;
   revision: number | null;
   compatibilityIssue: string | null;
-}
+};
 
-export interface DocumentListResponse {
+export type DocumentListResponse = Pick<WireDocumentListResponse, 'nextCursor'> & {
   items: DocumentListItem[];
-  nextCursor: string | null;
-}
+};
 
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value))

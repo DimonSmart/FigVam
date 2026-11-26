@@ -54,6 +54,9 @@ dotnet test FigVam.sln --no-build --no-restore
 
 ## Локальный запуск
 
+Для сборки frontend требуется Node.js 22 LTS (22.12 или новее) и npm 11. Серверная сборка запускает Vite автоматически; отдельный Node.js сервер в production не нужен. Подробности: [FigVam.Web](src/FigVam.Web/README.md).
+
+
 ```sh
 dotnet run --project src/FigVam.AppHost
 ```

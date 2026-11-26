@@ -7,7 +7,7 @@ describe('token grouping and exchange', () => {
     const items = [{ id: '1', name: 'Color/Primary' }, { id: '2', name: 'Color.Secondary' }];
     const root = buildTokenGroups(items);
     expect(root.children.get('Color')?.count).toBe(2);
-    expect(tokensInGroup(items, ['Color'])).toEqual(items);
+    expect(tokensInGroup(items, ['Color']).map(item => item.name)).toEqual(['Color.Secondary', 'Color/Primary']);
     expect(tokenNameError('color.primary', items)).toContain('Конфликт');
     expect(tokenNameDiagnostics([...items, { id: '3', name: 'Color' }]).size).toBe(3);
   });

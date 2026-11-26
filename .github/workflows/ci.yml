@@ -52,17 +52,14 @@ jobs:
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
-      - name: Generate OpenAPI contracts
+      - name: Verify generated OpenAPI contracts
         working-directory: src/FigVam.Web
-        run: |
-          npm run generate:api -- --no-build
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node -e "const s=require('node:fs').readFileSync('src/api/schema.generated.ts').toString('base64'); for(let i=0;i<s.length;i+=4000) console.log('FIGVAM_SCHEMA:'+s.slice(i,i+4000));"
+        run: npm run generate:api -- --no-build --check
       - name: Verify production publish
         run: |
           dotnet publish src/FigVam.Server --no-restore -c Release -o "$env:RUNNER_TEMP/figvam-publish"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($file in @('auth-client.js', 'api-client.js', 'session.js', 'home-ui.js', 'token-groups.js', 'token-exchange.js', 'canvas-viewport.js', 'index.html')) {
+          foreach ($file in @('auth-client.js', 'api-client.js', 'session.js', 'home-ui.js', 'token-resolution.js', 'token-groups.js', 'token-exchange.js', 'canvas-viewport.js', 'index.html')) {
             if (!(Test-Path (Join-Path "$env:RUNNER_TEMP/figvam-publish/wwwroot" $file))) { throw "Missing published frontend asset: $file" }
           }
       - name: MCP protocol smoke
