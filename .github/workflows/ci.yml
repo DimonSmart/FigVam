@@ -59,9 +59,17 @@ jobs:
         run: |
           dotnet publish src/FigVam.Server --no-restore -c Release -o "$env:RUNNER_TEMP/figvam-publish"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          foreach ($file in @('auth-client.js', 'api-client.js', 'session.js', 'home-ui.js', 'token-resolution.js', 'token-groups.js', 'token-exchange.js', 'canvas-viewport.js', 'index.html')) {
-            if (!(Test-Path (Join-Path "$env:RUNNER_TEMP/figvam-publish/wwwroot" $file))) { throw "Missing published frontend asset: $file" }
+          $published = "$env:RUNNER_TEMP/figvam-publish/wwwroot"
+          if (!(Test-Path (Join-Path $published 'index.html'))) { throw 'Missing published editor shell' }
+          $bundles = @(Get-ChildItem src/FigVam.Web/dist -Filter '*.js' -File)
+          if (!$bundles.Count) { throw 'No generated frontend assets' }
+          foreach ($bundle in $bundles) {
+            $target = Join-Path $published $bundle.Name
+            if (!(Test-Path $target -PathType Leaf)) { throw "Missing published frontend asset: $($bundle.Name)" }
+            if ((Get-FileHash $bundle.FullName).Hash -ne (Get-FileHash $target).Hash) { throw "Published asset differs: $($bundle.Name)" }
           }
+      - name: Verify editor asset routes
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~EditorUiTests
       - name: MCP protocol smoke
         run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~Mcp
       - name: Server tests
@@ -103,6 +111,9 @@ jobs:
         run: npx playwright install chromium
       - name: UI test launcher catalog smoke
         run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
+      - name: Frontend bootstrap smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test frontend-bootstrap.spec.js --workers=1 --trace retain-on-failure
       - name: MCP Login Flow smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test mcp-login-flow.spec.js mcp-tunnel.spec.js --workers=1 --trace off
