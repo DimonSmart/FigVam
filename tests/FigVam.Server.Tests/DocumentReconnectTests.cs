@@ -169,13 +169,25 @@ public sealed class DocumentReconnectTests : IDisposable
     public async Task FiveReadersConvergeWhileIndependentInstancesCommitConcurrently()
     {
         await Seed();
+        using var stop = new CancellationTokenSource();
         var start = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var writers = Enumerable.Range(0, 2).Select(async _ =>
         {
             await start.Task;
             var handler = Handler();
-            for (var i = 0; i < 20; i++)
-                Assert.True((await handler.HandleAsync(new AddPageCommand(documentId, Guid.NewGuid(), Guid.NewGuid()), actor)).Accepted);
+            try
+            {
+                for (var i = 0; i < 20; i++)
+                {
+                    stop.Token.ThrowIfCancellationRequested();
+                    Assert.True((await handler.HandleAsync(new AddPageCommand(documentId, Guid.NewGuid(), Guid.NewGuid()), actor, stop.Token)).Accepted);
+                }
+            }
+            catch
+            {
+                await stop.CancelAsync();
+                throw;
+            }
         }).ToArray();
         var readers = Enumerable.Range(0, 5).Select(async _ =>
         {
@@ -183,23 +195,47 @@ public sealed class DocumentReconnectTests : IDisposable
             var reader = Reader();
             long revision = 0;
             var pages = new List<Guid>();
-            do
+            try
             {
-                var response = await reader.ReadAsync(documentId, revision, actor);
-                Assert.Equal("EVENTS", response.Code);
-                foreach (var item in response.Events!)
+                do
                 {
-                    Assert.Equal(++revision, item.Revision);
-                    pages.Add(Assert.IsType<PageAdded>(item.Payload).PageId);
-                }
-                Assert.Equal(revision, response.Revision);
-                if (revision < 40) await Task.Delay(1);
-            } while (revision < 40);
-            return pages;
+                    stop.Token.ThrowIfCancellationRequested();
+                    var response = await reader.ReadAsync(documentId, revision, actor, stop.Token);
+                    Assert.Equal("EVENTS", response.Code);
+                    foreach (var item in response.Events!)
+                    {
+                        Assert.Equal(++revision, item.Revision);
+                        pages.Add(Assert.IsType<PageAdded>(item.Payload).PageId);
+                    }
+                    Assert.Equal(revision, response.Revision);
+                    // Give competing writers time to acquire SQLite locks between polls.
+                    if (revision < 40) await Task.Delay(50, stop.Token);
+                } while (revision < 40);
+                return pages;
+            }
+            catch
+            {
+                await stop.CancelAsync();
+                throw;
+            }
         }).ToArray();
+        var workers = Task.WhenAll(writers.Concat<Task>(readers));
         start.SetResult();
-        await Task.WhenAll(writers.Concat<Task>(readers)).WaitAsync(TimeSpan.FromSeconds(30));
+        try
+        {
+            // The storage layer alone allows 30 seconds for a single SQLite operation.
+            await workers.WaitAsync(TimeSpan.FromMinutes(2));
+        }
+        finally
+        {
+            await stop.CancelAsync();
+            // WaitAsync does not stop the underlying workers. Drain them before Dispose
+            // removes the database, preserving the original failure or timeout.
+            try { await workers; }
+            catch { }
+        }
         var expected = (await Journal().ReadAsync(documentId))!.Document.Pages.Select(p => p.Id).ToArray();
+        Assert.Equal(40, expected.Length);
         foreach (var reader in readers) Assert.Equal(expected, await reader);
     }
 
