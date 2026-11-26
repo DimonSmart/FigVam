@@ -54,6 +54,7 @@ public static class McpServiceRegistration
             }))
             .WithTools<McpReadTools>()
             .WithTools<McpRenderTools>()
+            .WithTools<McpPreviewTools>()
             .WithTools<McpWriteTools>();
     }
 
