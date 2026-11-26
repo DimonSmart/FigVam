@@ -23,7 +23,7 @@ interface GeometryCommand {nodeId:string;expectedParentId:string;expectedRevisio
 function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected inspector element '+node.id);return node;}
 function propertyValue(value:ResolvableValue|undefined):NodePropertyValue|undefined{
   if(!value)return undefined;
-  switch(value.type){case 'color':case 'shadow':case 'string':case 'enum':case 'number':case 'boolean':case 'asset':case 'style':case 'token':return value;case 'typography':if('value' in value)return value;}
+  switch(value.type){case 'color':case 'shadow':case 'string':case 'enum':case 'boolean':case 'asset':case 'style':case 'token':return value;case 'number':return {type:'number',value:value.value};case 'typography':if('value' in value)return value;}
   return undefined;
 }
 function definitionValue(value:unknown):unknown{return value&&typeof value==='object'&&'value' in value?value.value:undefined;}
@@ -222,7 +222,7 @@ export function createVisualNodeEditor({
     inspectorFields = renderFields(inspectorProperties, definition?.properties, node?.properties,
       editable ? inspector : undefined, 'visual-property', inspectorFields);
     updateControls();
-    const focusId = focus || (loadingFocus?.key === loadedKey ? loadingFocus.id : null);
+    const focusId = focus || (loadingFocus && loadingFocus.key === loadedKey ? loadingFocus.id : null);
     const nextFocus = focusId && element(focusId);
     if (document.activeElement === document.body && nextFocus && !nextFocus.closest('[hidden]') && !('disabled' in nextFocus && nextFocus.disabled))
       nextFocus.focus({ preventScroll: true });
@@ -248,7 +248,7 @@ export function createVisualNodeEditor({
     paletteDetails.hidden = !Object.keys(optional).length;
     paletteOptionalFields = renderFields(paletteOptional, optional, null, palette,
       'visual-optional', paletteOptionalFields);
-    if ([...paletteOptionalFields.keys()].some(name => palette.values.has(name)))
+    if ([...paletteOptionalFields.keys()].some(name => palette?.values.has(name)))
       paletteDetails.open = true;
   }
 
@@ -419,7 +419,7 @@ export function createVisualNodeEditor({
         action.hidden = !state || Boolean(currentlyInheritedShadow());
         function currentlyInheritedShadow() {
           return active && context.variantId && values?.shadow !== undefined &&
-            !model?.overridden?.get(node.id)?.has(name) && !state?.values.has(name);
+            !model?.overridden?.get(node?.id??'')?.has(name) && !state?.values.has(name);
         }
         field.row.hidden = !active;
         reconcileChildren(section, [title, field.row, action]);
@@ -431,7 +431,7 @@ export function createVisualNodeEditor({
     if (prefix === 'visual-property') {
       for(const names of [['x','y'],['width','height']] as const) {
         const children = names.map(name => fields.get(name)?.row)
-          .filter((row):row is HTMLElement=>!!row?.classList.contains('node-property--geometry'));
+          .filter((row):row is HTMLDivElement=>!!row?.classList.contains('node-property--geometry'));
         if (!children.length) continue;
         let group = [...container.querySelectorAll<HTMLElement>(':scope > *')].find(child =>
           child.classList.contains('node-geometry-row') && child.dataset.geometryGroup === names[0]);
@@ -446,7 +446,7 @@ export function createVisualNodeEditor({
       }
     }
     if (prefix === 'visual-property' && paddingProperties.every(name => fields.has(name))) {
-      const paddingRows=paddingProperties.map(name=>fields.get(name)?.row).filter((row):row is HTMLElement=>!!row);
+      const paddingRows:HTMLElement[]=paddingProperties.map(name=>fields.get(name)?.row).filter((row):row is HTMLDivElement=>!!row);
       const padding = container.querySelector<HTMLElement>(':scope > .padding-editor') ?? createPaddingEditor();
       updatePaddingEditor(padding, fields, reconcileChildren);
       // Keep the section at the first padding property's original position.

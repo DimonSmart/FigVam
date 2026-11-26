@@ -52,7 +52,7 @@ export function createPaddingEditor() {
 }
 
 // Keep existing field nodes and their listeners, validation and drafts intact.
-export function updatePaddingEditor(root: HTMLElement, fields: ReadonlyMap<PaddingProperty, Field>, reconcileChildren: Reconcile) {
+export function updatePaddingEditor(root: HTMLElement, fields: {get(name:PaddingProperty):Field|undefined}, reconcileChildren: Reconcile) {
   for (const [side, name, shortLabel, labelText] of sides) {
     const slot = root.querySelector<HTMLElement>('.padding-editor-field[data-side="' + side + '"]');
     const row = fields.get(name)?.row;
