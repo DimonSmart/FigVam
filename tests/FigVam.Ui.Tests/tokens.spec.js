@@ -17,6 +17,9 @@ test('creates, renames, updates and follows direct usages', async ({ page, reque
   await page.getByRole('button', { name: 'Переименовать токен', exact: true }).click();
   await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByLabel('Новое имя токена').press('Enter');
   await expect(page.locator('#token-detail-title')).toHaveText('Gap');
+  await page.getByRole('button', { name: 'Переименовать токен', exact: true }).click();
+  await page.locator('#token-name').fill('Discarded'); await page.locator('#token-name').press('Escape');
+  await expect(page.locator('#token-detail-title')).toHaveText('Gap');
   await page.locator('#token-dark').fill('24'); await page.locator('#token-dark').press('Enter');
   await expect(page.locator('#tokens-list')).toContainText('24 px'); await expect(page.locator('#token-light')).toHaveValue('8');
   const doc = page.url().split('/').pop(), headers = { Authorization: `Bearer ${bearer}` };
@@ -79,11 +82,20 @@ test('creates categorized font-size tokens and multi-level theme aliases with th
   await dark.getByRole('button', { name: 'Изменить привязку токена' }).click();
   await dark.getByRole('button', { name: 'Отвязать токен' }).click();
   await expect(page.locator('#token-dark')).toHaveValue('18');
-  await expect(page.locator('#token-detail')).not.toHaveAttribute('inert','');
+  await expect(page.locator('#tokens-list tr').filter({hasText:'Semantic Size'})).toContainText('18 px');
   await page.locator('#token-dark').fill('20');
   await page.locator('#token-dark').press('Enter');
   await expect(page.locator('#tokens-list')).toContainText('20 px');
   await expect(page.locator('#token-values [data-theme="Light"] .token-value-name')).toHaveText('Body Size');
+  await page.getByRole('button', { name: 'Body Size', exact: true }).click();
+  const light = page.locator('#token-values [data-theme="Light"]');
+  await light.getByRole('button', { name: 'Привязать токен' }).click();
+  await expect(light.getByRole('button', { name: /Semantic Size/ })).toHaveCount(0);
+  await expect(light.getByRole('button', { name: /^Body Size/ })).toHaveCount(0);
+  await light.getByRole('searchbox').press('Escape');
+  const darkBase = page.locator('#token-values [data-theme="Dark"]');
+  await darkBase.getByRole('button', { name: 'Привязать токен' }).click();
+  await expect(darkBase.getByRole('button', { name: /Semantic Size/ })).toBeVisible();
 });
 
 test('group tree, global search, type filter, conflicts and deletion', async ({ page }) => {
@@ -227,4 +239,33 @@ test('hundreds of persisted tokens stay navigable without a domain format change
   await page.getByRole('button',{name:'Продолжить',exact:true}).click();
   await show(page,'tokens');
   await expect(page.locator('#tokens-list tr')).toHaveCount(300);
+});
+
+test('commits both theme drafts without losing the second edit during a save', async ({ page }) => {
+  await open(page);
+  await page.locator('#new-token-open').click();
+  await page.locator('#new-token-name').fill('Independent');
+  await page.locator('#new-token-type').selectOption('Spacing');
+  await page.getByLabel('Light', { exact: true }).fill('8');
+  await page.getByLabel('Dark', { exact: true }).fill('12');
+  await page.getByRole('button', { name: 'Создать токен' }).click();
+  await expect(page.locator('#token-dark')).toHaveValue('12');
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  let first = true;
+  await page.route('**/commands/set-token-value', async route => {
+    if (first) { first = false; await gate; }
+    await route.continue();
+  });
+  try {
+    await page.locator('#token-light').fill('16');
+    await page.locator('#token-dark').fill('24');
+    await page.locator('#token-dark').press('Enter');
+    await expect(page.locator('#token-dark')).toHaveValue('24');
+  } finally { release(); }
+  const row = page.locator('#tokens-list tr').filter({hasText:'Independent'});
+  await expect(row).toContainText('16 px');
+  await expect(row).toContainText('24 px');
+  await expect(page.locator('#token-light')).toHaveValue('16');
+  await expect(page.locator('#token-dark')).toHaveValue('24');
 });

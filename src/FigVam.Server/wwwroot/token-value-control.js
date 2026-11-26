@@ -107,20 +107,22 @@ export function createTokenValueControl(name, definition, model, initial, direct
     choices.replaceChildren();
     const filter = search.value.trim().toLocaleLowerCase();
     const compatible = getCompatible();
-    const options = compatible.filter(token => token.name.toLocaleLowerCase().includes(filter));
-    if (!options.length) choices.append(el('p', 'token-value-empty',
+    const matches = compatible.filter(token => token.name.toLocaleLowerCase().includes(filter));
+    if (!matches.length) choices.append(el('p', 'token-value-empty',
       compatible.length ? 'По запросу токены не найдены.' : 'Нет совместимых токенов.'));
-    for (const token of options) {
+    for (const token of matches) {
       const option = el('button', 'token-value-option');
       option.type = 'button';
       const state = resolve(token.id);
       const text = el('span', 'token-value-option-name', token.name);
       const preview = el('small', 'token-value-option-preview', state.error ?? tokenValueText(state.value));
       option.append(text, preview);
-      option.disabled = readOnly || Boolean(state.error);
+      const invalid = Boolean(options.validateChoices && state.error);
+      option.dataset.invalid = String(invalid);
+      option.disabled = readOnly || invalid;
       option.setAttribute('aria-pressed', String(source === 'token' && token.id === tokenId));
       option.addEventListener('click', () => {
-        if (readOnly || state.error) return;
+        if (readOnly || invalid) return;
         source = 'token';
         tokenId = token.id;
         close(true);
@@ -212,11 +214,11 @@ export function createTokenValueControl(name, definition, model, initial, direct
       // Keep the option nodes stable across search blur and focus changes:
       // replacing them on pointerdown prevents their click handlers from firing.
       if (wasDisabled !== readOnly && !popover.hidden) {
-        renderChoices();
+        for (const option of choices.querySelectorAll('button')) option.disabled = readOnly || option.dataset.invalid === 'true';
         unlink.hidden = source !== 'token' || readOnly;
       }
     },
-    refresh() { direct.refresh?.(); updateView(); if (!popover.hidden) renderChoices(); },
+    refresh() { direct.refresh?.(); updateView(); },
     dispose() { close(); direct.dispose?.(); },
     validate() {
       if (source !== 'token') return direct.validate();

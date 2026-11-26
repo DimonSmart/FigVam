@@ -1,6 +1,6 @@
 import { createTokenValueControl } from './token-value-control.js';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, visibleTokens, qualifyTokenName } from './token-groups.js';
-import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText, tokenColorHex } from './token-resolution.js';
+import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from './token-resolution.js';
 
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
 const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
@@ -55,11 +55,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   let group = [], collapsed = new Set(), creating = false, usagesReady = false;
   let importEpoch = 0;
   let createControls = [], detailControls = [], renaming = false;
+  const pendingThemeValues = new Map();
+  let activeThemeSave = null;
   const busy = () => el('token-create').inert;
   function refreshAccess() {
     el('new-token-open').hidden = el('token-import-open').hidden = !editable();
     el('token-export').disabled = !editable();
-    if (!editable()) { creating = false; el('token-import-form').hidden = true; }
+    if (!editable()) { creating = false; pendingThemeValues.clear(); el('token-import-form').hidden = true; }
     el('token-edit').hidden = !editable();
     if (!editable()) endRename();
     el('token-rename-open').hidden = !editable() || renaming;
@@ -233,7 +235,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const control = createTokenValueControl(prefix, { type, tokenType: type, tokenCategory: category },
       { tokens: tokenIndex() }, expression?.expression === 'alias' ? { type: 'token', tokenId: expression.tokenId } : null,
       direct, label, label, {
-        theme, customDirect: true,
+        theme, customDirect: true, validateChoices: true,
         getToken: id => tokenItems.find(item => item.id === id),
         getCompatible: () => allowedAliases(type, category, ownerId).filter(item => !dependsOn(item.id, ownerId, theme)),
         resolve: id => dependsOn(id, ownerId, theme)
@@ -246,8 +248,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   function typographyPart(value, field) {
     if (value?.type === 'typographyFields') return value[field.name];
-    if (value?.type === 'typography') return literalExpression(field.type, field.category,
-      String(value[field.name] ?? (field.name === 'letterSpacing' ? 0 : field.initial)));
+    if (value?.type === 'typography') return { expression: 'literal', value: {
+      type: { FontFamily: 'fontFamily', Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[field.type],
+      value: value[field.name] ?? (field.name === 'letterSpacing' ? 0 : field.initial)
+    } };
     return null;
   }
   const asExpression = value => value.type === 'token' ? { expression: 'alias', tokenId: value.tokenId } : { expression: 'literal', value };
@@ -267,22 +271,50 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       if (item) {
         control.setDisabled(!editable());
         row.addEventListener('change', () => {
-          if (busy() || !editable() || selectedToken !== item.id) return;
+          if ((busy() && !activeThemeSave) || !editable() || selectedToken !== item.id) return;
           try {
             control.inputs.forEach(input => input.removeAttribute('aria-invalid'));
             const value = readExpression(control);
-            if (JSON.stringify(value) === JSON.stringify(selected()?.values?.[theme])) return;
-            tokenCommand('set-token-value', { tokenId: item.id, theme: index, value });
-          } catch (error) { el('tokens-error').textContent = error.message; }
+            el('tokens-error').textContent = '';
+            queueThemeSave(item.id, theme, index, value);
+          } catch (error) {
+            pendingThemeValues.delete(theme);
+            el('tokens-error').textContent = error.message;
+          }
         });
         row.addEventListener('keydown', event => {
-          if (event.key === 'Enter' && event.target.matches('input:not([type=search]):not([type=color])')) {
+          if (!event.isComposing && event.key === 'Enter' && event.target.matches('input:not([type=search]):not([type=color])')) {
             event.preventDefault(); event.target.blur();
           }
         });
       }
       return control;
     });
+  }
+  // Keep the two theme drafts independent. The existing document command pipeline
+  // remains serialized, but saving Light must not discard an edit made in Dark.
+  function queueThemeSave(tokenId, theme, index, value) {
+    const baseline = activeThemeSave?.tokenId === tokenId && activeThemeSave.theme === theme
+      ? activeThemeSave.value : selected()?.values?.[theme];
+    if (JSON.stringify(value) === JSON.stringify(baseline)) pendingThemeValues.delete(theme);
+    else pendingThemeValues.set(theme, { tokenId, theme, index, value, documentId: getContext().documentId });
+    void flushThemeSaves();
+  }
+  async function flushThemeSaves() {
+    if (activeThemeSave || busy() || !editable() || !pendingThemeValues.size) return;
+    const operation = pendingThemeValues.values().next().value;
+    pendingThemeValues.delete(operation.theme);
+    if (operation.documentId !== getContext().documentId || operation.tokenId !== selectedToken) {
+      pendingThemeValues.clear(); return;
+    }
+    activeThemeSave = operation;
+    const saved = await tokenCommand('set-token-value', {
+      tokenId: operation.tokenId, theme: operation.index, value: operation.value
+    });
+    if (activeThemeSave !== operation) return;
+    activeThemeSave = null;
+    if (!saved) { pendingThemeValues.clear(); return; }
+    void flushThemeSaves();
   }
   function endRename() {
     renaming = false; el('token-rename').hidden = true; el('token-detail-title').hidden = false;
@@ -297,6 +329,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
 
   function resetTokens() {
     tokenLoad++; importEpoch++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
+    pendingThemeValues.clear(); activeThemeSave = null;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     el('token-search').value = el('token-type-filter').value = '';
     el('token-groups').replaceChildren(); el('token-import-form').reset(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
@@ -348,7 +381,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     tokenUsages = snapshot.usages; usagesReady = true;
     if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) {
       rendered = true;
-      renderTokens(true, previousItem !== JSON.stringify(selected()));
+      renderTokens(true, !activeThemeSave && previousItem !== JSON.stringify(selected()));
     }
   }
 
@@ -494,6 +527,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   async function selectToken(id) {
     endRename();
+    pendingThemeValues.clear();
     selectedToken = id; tokenUsages = []; creating = false; usagesReady = false;
     const current = ++tokenLoad, doc = getContext().documentId, revision = getContext().revision;
     renderTokens();
@@ -509,7 +543,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   async function tokenCommand(command, data, selection) {
     if (!editable() || busy()) return;
     stopLive(); const { signal, current } = startRequest();
-    el('token-create').inert = el('token-detail').inert = el('token-import-form').inert = true;
+    el('token-create').inert = el('token-import-form').inert = true;
+    el('token-detail').inert = command !== 'set-token-value';
     el('tokens-error').textContent = ''; el('tokens-status').textContent = 'Сохранение…';
     try {
       await request(`/api/v1/documents/${encodeURIComponent(getContext().documentId)}/commands/${command}`,
