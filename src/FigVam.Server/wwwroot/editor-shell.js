@@ -437,13 +437,14 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   // Creation toolbar submits the original profile-aware add-node form.
   const drawing = el('div', 'drawing-toolbar');
   const drawingLabel = el('span', 'drawing-label', 'Инструменты');
-  drawing.append(drawingLabel);
+  const drawingTools = el('div', 'drawing-tools');
+  drawingTools.append(drawingLabel);
   const selectTool = el('button', 'drawing-tool selected');
   selectTool.type = 'button'; selectTool.title = 'Выбор и перемещение';
   selectTool.setAttribute('aria-label', 'Выбор и перемещение');
   selectTool.append(icon('select'));
   selectTool.addEventListener('click', () => byId('viewport').focus());
-  drawing.append(selectTool);
+  drawingTools.append(selectTool);
   const palette = byId('visual-palette');
   const kindSelect = byId('visual-kind');
   const parentSelect = byId('visual-parent');
@@ -478,9 +479,16 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
       } else addForm.requestSubmit();
     });
     buttons.push([kind, button]);
-    drawing.append(button);
+    drawingTools.append(button);
   }
-  drawing.append(detailed);
+  drawingTools.append(detailed);
+  const themeSlot = el('div', 'drawing-theme-slot');
+  const theme = byId('preview-theme').cloneNode(true);
+  theme.id = 'design-theme';
+  theme.removeAttribute('aria-labelledby');
+  theme.setAttribute('aria-label', 'Тема редактора');
+  themeSlot.append(theme);
+  drawing.append(drawingTools, themeSlot);
   const observer = new MutationObserver(syncTools);
   observer.observe(palette, { attributes: true, attributeFilter: ['hidden'] });
   observer.observe(addForm, { attributes: true, attributeFilter: ['hidden'] });

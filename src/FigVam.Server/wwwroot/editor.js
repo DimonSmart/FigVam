@@ -710,7 +710,7 @@ const canvasViewport = createCanvasViewport({
   setPresenceCursor: presence.setCursor
 });
 const visualScreens = createVisualScreens({
-  element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
+  element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(), onThemeChange: () => visualNodeEditor.refresh(),
   getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
@@ -718,7 +718,7 @@ const visualNodeEditor = createVisualNodeEditor({
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
   getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen,
-    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
+    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token, theme: visualScreens.currentTheme }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {

@@ -263,7 +263,7 @@ function scalarControl(name, definition, model, initial, compactGeometry = false
   };
 }
 
-export function createPropertyControl(name, definition, model, value, prefix) {
+export function createPropertyControl(name, definition, model, value, prefix, theme = 'Light') {
   const initial = value ?? definition.defaultValue;
   const hasTokenChoice = definition.tokenType != null && definition.type !== 'TokenReference';
   const directValue = hasTokenChoice && initial?.type === 'token' ? definition.defaultValue : initial;
@@ -272,7 +272,7 @@ export function createPropertyControl(name, definition, model, value, prefix) {
     scalarControl(name, definition, model, directValue,
       compactGeometry);
   const control = hasTokenChoice ? createTokenValueControl(name, definition, model, initial, direct, propertyLabel(name),
-    compactGeometry ? compactGeometryLabel(name) : propertyLabel(name)) : direct;
+    compactGeometry ? compactGeometryLabel(name) : propertyLabel(name), { theme }) : direct;
   const row = document.createElement('div'), feedback = document.createElement('p');
   row.className = 'node-property';
   if (hasTokenChoice) row.classList.add('node-property--token');
