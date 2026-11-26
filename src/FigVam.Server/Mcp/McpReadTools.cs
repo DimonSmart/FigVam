@@ -68,7 +68,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public Task<CallToolResult> GetScreen(Guid screenId, long? revision = null, CancellationToken ct = default) =>
         Read(new("screen", screenId, Depth: 1, Fields: "name,dimensions,kind,childCount,parentId", Revision: revision), ct);
 
-    [McpServerTool(Name = "get_node"), Description("Read node kind, explicitly assigned properties and child IDs. Set includeResolvedProperties for effective properties and defaults in Light or Dark; this is read-only.")]
+    [McpServerTool(Name = "get_node", ReadOnly = true), Description("Read node kind, explicitly assigned properties and child IDs. Set includeResolvedProperties for effective properties and defaults in Light or Dark; this is read-only.")]
     public Task<CallToolResult> GetNode(Guid nodeId, long? revision = null, bool includeResolvedProperties = false, string theme = "Light", CancellationToken ct = default) =>
         ReadThemed(new("node", nodeId, Depth: 1, Fields: "name,kind,properties,childCount,parentId", Revision: revision, IncludeResolvedProperties: includeResolvedProperties), theme, ct);
 
@@ -76,7 +76,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public Task<CallToolResult> ListChildren(Guid parentId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
         Read(new("children", parentId, offset, limit, Fields: "name,kind,childCount,parentId", Revision: revision), ct);
 
-    [McpServerTool(Name = "get_screen_tree"), Description("Read a paginated flat list of screen descendants with parent IDs. Set includeProperties to return explicitly assigned properties in the same format as get_node. Set includeResolvedProperties independently to return effective properties and defaults for the selected theme. This does not modify the document.")]
+    [McpServerTool(Name = "get_screen_tree", ReadOnly = true), Description("Read a paginated flat list of screen descendants with parent IDs. Set includeProperties to return explicitly assigned properties in the same format as get_node. Set includeResolvedProperties independently to return effective properties and defaults for the selected theme. This does not modify the document.")]
     public Task<CallToolResult> GetScreenTree(Guid screenId, int depth = 3, int offset = 0, int limit = 50, long? revision = null, bool includeProperties = false, bool includeResolvedProperties = false, string theme = "Light", CancellationToken ct = default) =>
         ReadThemed(new("nodes", Offset: offset, Limit: limit, Fields: includeProperties ? "name,kind,childCount,parentId,properties" : "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision, MaxDepth: depth, IncludeResolvedProperties: includeResolvedProperties), theme, ct);
 
@@ -87,7 +87,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response is null ? null : new { r.Response.Revision, kinds = r.Response.Kinds.Select(k => k.Kind) });
     }
 
-    [McpServerTool(Name = "get_node_schema"), Description("Read supported properties, constraints and JSON input schemas for compact and canonical values, including mixed representations in create_node and set_node_properties. Use compact=true for concise metadata and shared value formats; omit it for the full JSON input schemas.")]
+    [McpServerTool(Name = "get_node_schema", ReadOnly = true), Description("Read supported properties, constraints and JSON input schemas for compact and canonical values, including mixed representations in create_node and set_node_properties. Use compact=true for concise metadata and shared value formats; omit it for the full JSON input schemas.")]
     public async Task<CallToolResult> GetNodeSchema(string kind, CancellationToken ct, bool compact = false)
     {
         var r = await queries.ReadProfileAsync(Grant.DocumentId, null, Actor, ct);

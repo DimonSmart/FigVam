@@ -200,6 +200,15 @@ public sealed class DocumentStructureQueries(IDocumentAuthorization authorizatio
                     resolved = null;
                     resolutionDiagnostics = [new(error.Code, node.Id, error.Field, error.Message)];
                 }
+                var bindingDiagnostics = new List<LayoutDiagnostic>();
+                foreach (var (property, binding) in node.DataBindings)
+                {
+                    var evaluated = NodeDataBindingEvaluator.Evaluate(doc, node, property, binding, selected!);
+                    if (evaluated.Value is { } value && resolved is not null) resolved[property] = value;
+                    if (evaluated.Diagnostic is { } error) bindingDiagnostics.Add(new(error.Code, node.Id, property, error.Message));
+                }
+                if (bindingDiagnostics.Count != 0)
+                    resolutionDiagnostics = [.. resolutionDiagnostics ?? [], .. bindingDiagnostics];
             }
             return new(item.Id, item.Type, fields.Contains("kind") ? node?.Kind : null, fields.Contains("properties") ? node?.Properties : null, children, fields.Contains("childCount") ? ids.Length : null, children is not null && children.Count < ids.Length ? true : null, fields.Contains("name") ? (item.Type == "document" ? doc.Name : item.Type == "page" ? doc.Pages.First(p => p.Id == item.Id).Name : item.Type == "screen" ? screens[item.Id].Name : node?.Name) : null, fields.Contains("semanticKey") ? node?.SemanticKey : null, fields.Contains("dataBindings") ? node?.DataBindings : null, fields.Contains("repeater") ? node?.Repeater : null, fields.Contains("dimensions") && item.Type == "screen" ? screens[item.Id].Dimensions : null,
                 node is not null && parents?.TryGetValue(node.Id, out var parent) == true ? parent : null,

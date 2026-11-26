@@ -82,6 +82,9 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
         {
             if (!nodes.TryGetValue(id, out var node)) return true;
             if (node.Kind != "TextInput") return false;
+            // Do not expose a value entered while a variant displayed this node as a password.
+            if (state.Document.Screens.SelectMany(s => s.Variants).SelectMany(v => v.Overrides)
+                .Any(o => o.NodeId == id && o.Property == "inputType" && o.Value is NodeEnumValue { Value: "Password" })) return true;
             try
             {
                 return resolver.EffectiveNode(node, session.Selection.Theme).GetValueOrDefault("inputType") is NodeEnumValue { Value: "Password" };

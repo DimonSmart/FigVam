@@ -28,6 +28,9 @@ async function connect(request, endpoint, token) {
   const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
   expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
   expect(renderSchema.required).not.toContain('theme');
+  for (const name of ['get_node', 'get_screen_tree', 'simulate_preview'])
+    expect(tools.find(t => t.name === name).inputSchema.properties.theme.enum).toEqual(['Light', 'Dark']);
+  expect(tools.find(t => t.name === 'simulate_preview').inputSchema.properties.events.items.properties.event.enum).toEqual(['Click', 'Change', 'Submit']);
   const raw = (name, args = {}) => rpc('tools/call', { name, arguments: args });
   const call = async (name, args = {}) => {
     const result = await raw(name, args);
@@ -392,7 +395,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
   expect(await editorState()).toEqual(previewBefore);
   await page.locator('#preview-theme button[data-theme=Light]').click();
-  await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true);
+  await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true, [220, 38, 38]);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });
   await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#15243A' });
