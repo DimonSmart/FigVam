@@ -349,7 +349,8 @@ test('combined exchange pins both themes, ignores filters and imports atomically
   const theme = (red, size) => ({
     Accent: { Ink: {$type:'color',$value:{colorSpace:'srgb',components:[red,0,0],alpha:1}},
       Alias: {$type:'color',$value:'{Accent.Ink}'} },
-    Size: {$type:'dimension',$value:{value:size,unit:'px'},$extensions:{'org.figvam':{type:'Dimension',category:'FontSize'}}}
+    Size: {$type:'dimension',$value:{value:size,unit:'px'},$extensions:{'org.figvam':{type:'Dimension',category:'FontSize'}}},
+    Body: {$type:'typography',$value:{fontFamily:'Arial',fontSize:'{Size}',fontWeight:400,lineHeight:1.25,letterSpacing:{value:0,unit:'px'}}}
   });
   const bundle = {format:'figvam-tokens',version:1,themes:{Light:theme(1,16),Dark:theme(0,18)}};
   async function importBundle(value) {
@@ -361,7 +362,7 @@ test('combined exchange pins both themes, ignores filters and imports atomically
   }
   await importBundle(bundle);
   await expect(page.locator('#token-import-form')).toBeHidden();
-  await expect(page.locator('#tokens-list tr')).toHaveCount(3);
+  await expect(page.locator('#tokens-list tr')).toHaveCount(4);
   await page.locator('#token-search').fill('Accent.Alias');
   await expect(page.locator('#tokens-list')).toContainText('Accent.Ink');
   await expect(page.locator('#tokens-list')).toContainText('#FF0000FF');
@@ -379,12 +380,15 @@ test('combined exchange pins both themes, ignores filters and imports atomically
     expect(exported.themes[name].Accent.Alias.$value).toBe('{Accent.Ink}');
     expect(exported.themes[name].Size.$extensions['org.figvam'].category).toBe('FontSize');
     expect(exported.themes[name].Size.$value.value).toBe(name==='Light'?16:18);
+    expect(exported.themes[name].Body.$value.fontSize).toBe('{Size}');
   }
   const before = await (await request.get('/api/v1/documents/'+doc+'/tokens',{headers})).json();
-  const invalid = structuredClone(exported);
-  invalid.themes.Dark.Accent.Alias.$value = '{Missing}';
+  const invalid = {format:'figvam-tokens',version:1,themes:{
+    Light:{Broken:{$type:'color',$value:{colorSpace:'srgb',components:[1,0,0],alpha:1}}},
+    Dark:{Broken:{$type:'color',$value:'{Missing}'}}
+  }};
   await importBundle(invalid);
-  await expect(page.locator('#tokens-error')).not.toBeEmpty();
+  await expect(page.locator('#tokens-error')).toContainText('Dark.Broken');
   const after = await (await request.get('/api/v1/documents/'+doc+'/tokens',{headers})).json();
   expect(after.revision).toBe(before.revision); expect(after.items).toEqual(before.items);
   const other = randomUUID();
