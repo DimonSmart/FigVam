@@ -76,7 +76,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   function cancelView(view) {
     view.controller?.abort();
     view.key = null;
-    view.captureStamp = null;
   }
 
   function resetView(view) {
@@ -353,7 +352,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       view.status.textContent = shown ? '' : 'Геометрию экрана не удалось рассчитать.';
       if (previewMode) {
         activeScenarios = models.at(-1).scenarios;
-        view.captureStamp = shown && models.length === 1 ? { screenId: models[0].screen, revision: models[0].revision } : null;
         onDesignChange();
       }
       else {
@@ -490,12 +488,5 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
   }).observe(viewport);
-  function captureView() {
-    if (!isPreview || !context || playback?.overlays?.length) return null;
-    const screenId = playback?.selection?.screenId ?? context.screen.id;
-    const stamp = preview.captureStamp;
-    return { element: viewport, screenId, revision: context.revision,
-      stamp: stamp?.screenId === screenId && stamp.revision === context.revision ? stamp : null };
-  }
-  return { captureView, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
+  return { get currentTheme() { return isPreview ? previewTheme : "Light"; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }

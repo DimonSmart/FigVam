@@ -1,311 +1,222 @@
 import { authHeaders, credentialsMode } from './auth-client.js';
+import { renderScreen } from './screen-renderer.js';
 
+const fail = code => Object.assign(new Error(code), { code });
+const cancelled = () => new DOMException('Cancelled', 'AbortError');
 const maxBytes = 5 * 1024 * 1024;
-const maxDimension = 4096;
-const maxPixels = 4 * 1024 * 1024;
-const supported = () => typeof navigator.mediaDevices?.getDisplayMedia === 'function' &&
-  typeof globalThis.RestrictionTarget?.fromElement === 'function' &&
-  typeof HTMLVideoElement.prototype.requestVideoFrameCallback === 'function';
-const failure = code => Object.assign(new Error(code), { code });
-const cancelled = () => new DOMException('Capture cancelled', 'AbortError');
 
-function abortable(signal, subscribe) {
+async function dataUrl(blob, signal) {
   return new Promise((resolve, reject) => {
-    if (signal.aborted) { reject(cancelled()); return; }
-    let cleanup = () => {};
-    const finish = (fn, value) => {
-      signal.removeEventListener('abort', abort);
-      cleanup();
-      fn(value);
-    };
-    const abort = () => finish(reject, cancelled());
+    if (signal.aborted) return reject(cancelled());
+    const reader = new FileReader();
+    const abort = () => reader.abort();
     signal.addEventListener('abort', abort, { once: true });
-    cleanup = subscribe(value => finish(resolve, value), error => finish(reject, error)) ?? cleanup;
+    reader.onloadend = () => {
+      signal.removeEventListener('abort', abort);
+      if (signal.aborted) reject(cancelled());
+      else if (reader.error || typeof reader.result !== 'string') reject(fail('CAPTURE_FAILED'));
+      else resolve(reader.result);
+    };
+    reader.readAsDataURL(blob);
   });
 }
-const delay = (ms, signal) => abortable(signal, resolve => {
-  const id = setTimeout(resolve, ms); return () => clearTimeout(id);
-});
-const paint = signal => abortable(signal, resolve => {
-  const id = requestAnimationFrame(resolve); return () => cancelAnimationFrame(id);
-});
-const frame = (video, signal) => abortable(signal, resolve => {
-  const id = video.requestVideoFrameCallback((_, metadata) => resolve(metadata));
-  return () => video.cancelVideoFrameCallback(id);
-});
-const deadline = (parent, ms) => {
-  const controller = new AbortController();
-  const abort = () => controller.abort();
-  parent.addEventListener('abort', abort, { once: true });
-  if (parent.aborted) abort();
-  const timer = setTimeout(abort, ms);
-  return { signal: controller.signal, abort, dispose() {
-    clearTimeout(timer); parent.removeEventListener('abort', abort);
-  } };
-};
 
-export function createScreenCapture({ request, getContext, onChange }) {
-  let current = null, state = supported() ? 'Disabled' : 'Unsupported', message = '';
-  function change(next, detail = '') { state = next; message = detail; onChange(); }
-  function sameDocument(operation) {
-    const context = getContext();
-    return context.documentId === operation.documentId && context.token === operation.token &&
-      context.navigationEpoch === operation.navigationEpoch;
+// Use the exact Preview renderer and revision-pinned REST resources. The
+// temporary surface is outside the editor and never receives user input.
+async function renderPng(request, base, task, theme, signal) {
+  const { screenId: screen, revision, width, height } = task;
+  if (!Number.isSafeInteger(width) || !Number.isSafeInteger(height) || width < 1 || height < 1 ||
+      width > 4096 || height > 4096 || width * height > 4 * 1024 * 1024) throw fail('IMAGE_TOO_LARGE');
+  async function read(path, params = {}) {
+    const result = await request(base + '/' + path + '?' + new URLSearchParams({ revision, ...params }), {}, signal);
+    if (result.revision !== revision) throw fail('RENDER_REVISION_MISMATCH');
+    return result;
   }
-  function active(operation) {
-    return current === operation && !operation.controller.signal.aborted && sameDocument(operation);
+  async function pages(path, params, field) {
+    const items = [], overrides = [];
+    let total;
+    do {
+      const page = await read(path, { ...params, offset: items.length, limit: 100 });
+      if (!Array.isArray(page[field]) || !Number.isSafeInteger(page.total) || page.offset !== items.length ||
+          (!page[field].length && items.length < page.total)) throw fail('CAPTURE_FAILED');
+      total = page.total;
+      items.push(...page[field]); overrides.push(...(page.overrides ?? []));
+    } while (items.length < total);
+    return { items, overrides };
   }
-  function stop(next = supported() ? 'Disabled' : 'Unsupported', detail = '') {
-    const operation = current;
-    current = null;
-    if (operation) {
-      operation.controller.abort();
-      operation.pending?.abort();
-      operation.uploadController?.abort();
-      operation.stream?.getTracks().forEach(track => track.stop());
-      if (operation.video) {
-        operation.video.pause(); operation.video.srcObject = null;
-      }
-      if (operation.providerId && sameDocument(operation))
-        request(operation.base + '/providers/' + operation.providerId, { method: 'DELETE' }).catch(() => {});
-    }
-    change(next, detail);
-  }
-
-  function viewFor(operation) {
-    if (!active(operation)) throw cancelled();
-    const view = getContext().captureView;
-    if (!view || view.screenId !== operation.screenId || view.element !== operation.element)
-      throw failure('SCREEN_NOT_DISPLAYED');
-    if (operation.track.readyState !== 'live' || operation.track.muted)
-      throw failure('CAPTURE_FAILED');
-    return view;
-  }
-
-  async function png(operation, revision, signal) {
-    let stamp, view;
-    // The revision comes from the actual committed Preview DOM, not the editor's
-    // last received revision. Wait for collaboration and the existing renderer.
-    while (!signal.aborted) {
-      view = viewFor(operation);
-      if (view.revision > revision) throw failure('RENDER_REVISION_MISMATCH');
-      if (view.stamp?.revision === revision && view.revision === revision) {
-        stamp = view.stamp;
-        const images = [...view.element.querySelectorAll('img[data-asset-id]')];
-        if (images.every(img => img.dataset.loadedAsset === img.dataset.assetId && img.complete && img.naturalWidth > 0)) break;
-      }
-      await delay(50, signal);
-    }
+  const [info, profile, manifest, tokenList, structure] = await Promise.all([
+    read('screens/' + screen, { fields: 'dimensions' }), read('profile'), read('assets'),
+    pages('tokens', {}, 'items'),
+    pages('nodes', { screenId: screen, fields: 'kind,properties,name,parentId,childCount,canContainChildren' }, 'items')
+  ]);
+  const dimensions = info.items[0]?.dimensions;
+  if (!dimensions || Math.ceil(dimensions.width) !== width || Math.ceil(dimensions.height) !== height)
+    throw fail('CAPTURE_FAILED');
+  const layout = await pages('screens/' + screen + '/layout',
+    { previewWidth: dimensions.width, previewHeight: dimensions.height, theme }, 'boxes');
+  const overrides = new Map(layout.overrides.map(item => [item.nodeId, item.properties]));
+  const model = {
+    screen, theme, overrides,
+    nodes: new Map(structure.items.map(node => [node.id, { ...node, properties: { ...node.properties, ...overrides.get(node.id) } }])),
+    boxes: new Map(layout.items.map(box => [box.objectId, box])),
+    kinds: new Map(profile.kinds.map(kind => [kind.kind, kind])),
+    assets: new Map(manifest.assets.map(asset => [asset.id, asset])),
+    tokens: new Map(tokenList.items.map(token => [token.id, token]))
+  };
+  if (!model.boxes.has(screen)) throw fail('CAPTURE_FAILED');
+  const drawing = renderScreen(model, { preview: true, report() {}, trigger() {}, setInput() {} });
+  const host = document.createElement('div');
+  host.className = 'preview-screen';
+  host.setAttribute('aria-hidden', 'true');
+  Object.assign(host.style, { position: 'fixed', left: '-100000px', top: '0', width: width + 'px',
+    height: height + 'px', overflow: 'hidden', pointerEvents: 'none' });
+  host.append(drawing.root);
+  // Append only the isolated surface so CSS and native form controls resolve
+  // just as in Preview. No scroll, focus, zoom or selected screen changes.
+  document.body.append(host);
+  const urls = [];
+  try {
+    await Promise.all(drawing.images.map(async ({ assetId, surface }) => {
+      const blob = await request.readPng(base + '/assets/' + assetId + '?revision=' + revision, {}, signal);
+      const url = URL.createObjectURL(blob); urls.push(url);
+      surface.src = url; await surface.decode();
+      surface.dataset.captureSrc = await dataUrl(blob, signal);
+    }));
+    await document.fonts.ready;
     if (signal.aborted) throw cancelled();
-    const check = () => {
-      const latest = viewFor(operation);
-      if (latest.stamp !== stamp || latest.revision !== revision)
-        throw failure('RENDER_REVISION_MISMATCH');
-      if (signal.aborted) throw cancelled();
-    };
-    await abortable(signal, (resolve, reject) => {
-      Promise.all([document.fonts.ready, ...[...view.element.querySelectorAll('img')].map(img => img.decode())])
-        .then(resolve, reject);
-    });
-    check();
-    await paint(signal);
-    await paint(signal);
-    check();
-    // Do not draw the last buffered frame. Wait for newly presented frames after
-    // the DOM/resource/paint barrier. Hidden/throttled tabs may time out.
-    const first = await frame(operation.video, signal);
-    let next;
-    do { next = await frame(operation.video, signal); } while (next.presentedFrames <= first.presentedFrames);
-    check();
-    const video = operation.video;
-    const width = video.videoWidth, height = video.videoHeight;
-    if (!width || !height) throw failure('CAPTURE_FAILED');
-    if (width > maxDimension || height > maxDimension || width * height > maxPixels) throw failure('IMAGE_TOO_LARGE');
+    const clone = host.cloneNode(true);
+    const originals = [host, ...host.querySelectorAll('*')];
+    const copies = [clone, ...clone.querySelectorAll('*')];
+    // Freeze computed CSS (including native controls), not editor chrome.
+    // SVG image documents cannot reference external stylesheets or blob assets.
+    for (let i = 0; i < originals.length; i++) {
+      const source = originals[i], target = copies[i], computed = getComputedStyle(source);
+      target.removeAttribute('style');
+      for (const name of computed) {
+        if (!name.startsWith('--')) target.style.setProperty(name, computed.getPropertyValue(name));
+      }
+      if (source.matches('input, textarea')) {
+        if (source.tagName === 'INPUT') target.setAttribute('value', source.value);
+        else target.textContent = source.value;
+      }
+      if (source.dataset.captureSrc) {
+        target.setAttribute('src', source.dataset.captureSrc);
+        delete target.dataset.captureSrc;
+      }
+    }
+    Object.assign(clone.style, { position: 'relative', left: '0px', top: '0px', right: 'auto', bottom: 'auto',
+      width: width + 'px', height: height + 'px', margin: '0', overflow: 'hidden' });
+    clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height +
+      '"><foreignObject width="100%" height="100%">' + new XMLSerializer().serializeToString(clone) + '</foreignObject></svg>';
+    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+    urls.push(url);
+    const image = new Image(); image.src = url; await image.decode();
+    if (signal.aborted) throw cancelled();
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = height;
     try {
-      const context = canvas.getContext('2d', { alpha: false });
-      if (!context) throw failure('CAPTURE_FAILED');
-      context.drawImage(video, 0, 0);
-      const blob = await abortable(signal, resolve => { canvas.toBlob(resolve, 'image/png'); });
-      check();
-      if (!blob || blob.type !== 'image/png') throw failure('CAPTURE_FAILED');
-      if (blob.size > maxBytes) throw failure('IMAGE_TOO_LARGE');
-      return blob;
+      const ctx = canvas.getContext('2d', { alpha: false });
+      if (!ctx) throw fail('CAPTURE_FAILED');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(image, 0, 0);
+      const png = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      if (signal.aborted) throw cancelled();
+      if (!png || png.type !== 'image/png') throw fail('CAPTURE_FAILED');
+      if (png.size > maxBytes) throw fail('IMAGE_TOO_LARGE');
+      return png;
     } finally { canvas.width = canvas.height = 0; }
+  } finally {
+    host.remove();
+    for (const url of urls) URL.revokeObjectURL(url);
   }
+}
 
-  async function handleCapture(operation, task) {
-    if (operation.pending) return;
-    const upload = new AbortController();
-    operation.uploadController = upload;
-    const abortUpload = () => upload.abort();
-    operation.controller.signal.addEventListener('abort', abortUpload, { once: true });
-    const pending = deadline(upload.signal, 8500);
+export function createScreenCapture({ request, getContext }) {
+  let current = null, retry = null;
+  const same = operation => {
+    const context = getContext();
+    return context.documentId === operation.documentId && context.token === operation.token &&
+      context.navigationEpoch === operation.navigationEpoch && ['Owner', 'Editor'].includes(context.role);
+  };
+  const active = operation => current === operation && !operation.controller.signal.aborted && same(operation);
+  function stop() {
+    clearTimeout(retry); retry = null;
+    const operation = current; current = null;
+    operation?.controller.abort();
+    operation?.pending?.controller.abort();
+  }
+  async function handle(operation, task) {
+    if (!active(operation) || operation.pending || task.documentId !== operation.documentId) return;
+    const controller = new AbortController();
+    const pending = { id: task.requestId, controller };
     operation.pending = pending;
-    operation.requestId = task.requestId;
-    change('Capturing');
-    let blob, code;
+    const abort = () => controller.abort();
+    operation.controller.signal.addEventListener('abort', abort, { once: true });
+    const timer = setTimeout(abort, 8000);
+    const theme = task.theme ?? getContext().theme ?? 'Light';
+    let png, code;
+    try { png = await renderPng(request, operation.base, task, theme, controller.signal); }
+    catch (error) { code = controller.signal.aborted ? 'CAPTURE_TIMEOUT' : error.code ?? 'CAPTURE_FAILED'; }
+    finally { clearTimeout(timer); }
     try {
-      if (task.documentId !== operation.documentId || task.screenId !== operation.screenId)
-        throw failure('SCREEN_NOT_DISPLAYED');
-      blob = await png(operation, task.revision, pending.signal);
-    } catch (error) {
-      code = error.code && typeof error.code === 'string' ? error.code :
-        pending.signal.aborted ? 'CAPTURE_TIMEOUT' : 'CAPTURE_FAILED';
-    } finally {
-      pending.dispose();
-    }
-    try {
-      if (!active(operation) || operation.requestId !== task.requestId) return;
-      const query = new URLSearchParams({ screenId: task.screenId, revision: String(task.revision), ...(code ? { code } : {}) });
-      await request(operation.base + '/providers/' + operation.providerId + '/results/' + task.requestId + '?' + query,
-        { method: 'POST', ...(blob ? { body: blob, headers: { 'Content-Type': 'image/png' } } : {}) },
-        upload.signal, () => active(operation) && operation.requestId === task.requestId);
-    } catch (error) {
-      // A cancelled/timed-out server request no longer accepts a result.
-      if (active(operation) && error.status !== 404 && error.name !== 'AbortError')
-        stop('Error', 'Не удалось передать изображение.');
-    } finally {
-      operation.controller.signal.removeEventListener('abort', abortUpload);
-      if (operation.uploadController === upload) operation.uploadController = null;
-      if (current === operation && operation.pending === pending) {
-        operation.pending = null; operation.requestId = null;
-        change('Ready');
-      }
+      if (!active(operation) || operation.pending !== pending) return;
+      const query = new URLSearchParams({ screenId: task.screenId, revision: task.revision, theme, ...(code ? { code } : {}) });
+      await request(operation.base + '/screen-capture/providers/' + operation.providerId + '/results/' + task.requestId + '?' + query,
+        { method: 'POST', ...(png ? { body: png, headers: { 'Content-Type': 'image/png' } } : {}) },
+        operation.controller.signal, () => active(operation));
+    } catch { /* Disconnected or expired requests cannot accept results. */ }
+    finally {
+      operation.controller.signal.removeEventListener('abort', abort);
+      if (operation.pending === pending) operation.pending = null;
     }
   }
-
   async function connect(operation) {
-    const signal = operation.controller.signal;
     let reader;
-    const handshake = setTimeout(() => {
-      if (active(operation) && !operation.providerId) stop('Error', 'Сервер не подтвердил подключение захвата.');
-    }, 10000);
     try {
-      const response = await fetch(operation.base + '/providers/' + operation.screenId, {
-        method: 'POST', signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
-        headers: authHeaders(operation.token, 'POST')
+      const response = await fetch(operation.base + '/screen-capture/providers', {
+        method: 'POST', signal: operation.controller.signal, cache: 'no-store', credentials: credentialsMode(),
+        redirect: 'error', headers: authHeaders(operation.token, 'POST')
       });
-      if (!response.ok || !response.headers.get('content-type')?.startsWith('text/event-stream'))
-        throw failure('RENDERER_UNAVAILABLE');
+      if (!response.ok || !response.headers.get('content-type')?.startsWith('text/event-stream')) return;
       reader = response.body.getReader();
       const decoder = new TextDecoder(); let buffer = '';
       while (active(operation)) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        buffer = buffer.replace(/\r\n/g, '\n');
+        const chunk = await reader.read(); if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true }); buffer = buffer.replace(/\r\n/g, '\n');
         let boundary;
         while ((boundary = buffer.indexOf('\n\n')) >= 0) {
           const raw = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
           const data = raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
           if (!data || !active(operation)) continue;
           const event = JSON.parse(data);
-          if (event.code === 'READY') {
-            operation.providerId = event.providerId;
-            clearTimeout(handshake);
-            change('Ready');
-          } else if (event.code === 'CAPTURE') {
-            void handleCapture(operation, event.request);
-          } else if (event.code === 'CANCEL' && operation.requestId === event.request.requestId) {
-            operation.requestId = null;
-            operation.pending?.abort();
-            operation.uploadController?.abort();
+          if (event.code === 'READY') operation.providerId = event.providerId;
+          else if (event.code === 'CAPTURE') void handle(operation, event.request);
+          else if (event.code === 'CANCEL' && operation.pending?.id === event.request.requestId) {
+            operation.pending.controller.abort(); operation.pending = null;
           }
-          sync();
         }
-        if (buffer.length > 65536) throw failure('CAPTURE_FAILED');
+        if (buffer.length > 65536) break;
       }
-      if (active(operation)) stop('Disabled', 'Подключение захвата завершено.');
-    } catch (error) {
-      if (active(operation)) stop('Error', 'Не удалось подключить захват к серверу.');
-    } finally {
-      clearTimeout(handshake);
+    } catch { /* The editor may reconnect without any user action. */ }
+    finally {
       if (reader) await reader.cancel().catch(() => {});
-    }
-  }
-
-  async function enable() {
-    if (current) return;
-    if (!supported()) { change('Unsupported'); return; }
-    const context = getContext(), view = context.captureView;
-    if (!view?.stamp || !view.screenId) { change('Error', 'Откройте экран в Preview и дождитесь его загрузки.'); return; }
-    const operation = { ...context, element: view.element, screenId: view.screenId,
-      base: '/api/v1/documents/' + encodeURIComponent(context.documentId) + '/screen-capture',
-      controller: new AbortController() };
-    current = operation;
-    change('Awaiting permission');
-    try {
-      // This call must run in the original click handler, before any await.
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true, audio: false, preferCurrentTab: true, selfBrowserSurface: 'include',
-        surfaceSwitching: 'exclude', monitorTypeSurfaces: 'exclude'
-      });
-      if (!active(operation)) { stream.getTracks().forEach(track => track.stop()); return; }
-      operation.stream = stream;
-      const track = operation.track = stream.getVideoTracks()[0];
-      if (!track || track.getSettings().displaySurface !== 'browser' || typeof track.restrictTo !== 'function')
-        throw failure('CAPTURE_FAILED');
-      track.addEventListener('ended', () => { if (current === operation) stop(); }, { once: true });
-      const startup = deadline(operation.controller.signal, 8000);
-      try {
-        // Tab capture is damage-driven by default: a static Preview may never
-        // produce another frame. Chromium uses the track's minimum frame rate
-        // to request refresh frames even when the captured content is unchanged.
-        // Apply this after consent and before restriction/attaching any consumer.
-        await abortable(startup.signal, (resolve, reject) => {
-          track.applyConstraints({ frameRate: { min: 5 } }).then(resolve, reject);
-        });
-        if (!active(operation)) return;
-        const target = await abortable(startup.signal, (resolve, reject) => {
-          RestrictionTarget.fromElement(operation.element).then(resolve, reject);
-        });
-        if (!active(operation)) return;
-        // No video element receives a stream before successful restriction. Never
-        // unrestrict it, and never fall back to full-tab/window/desktop capture.
-        await abortable(startup.signal, (resolve, reject) => { track.restrictTo(target).then(resolve, reject); });
-        if (!active(operation)) return;
-        const video = operation.video = document.createElement('video');
-        video.muted = true; video.playsInline = true;
-        video.srcObject = stream;
-        await abortable(startup.signal, (resolve, reject) => { video.play().then(resolve, reject); });
-        if (!active(operation)) return;
-        await frame(video, startup.signal);
-      } finally { startup.dispose(); }
-      viewFor(operation);
-      if (!active(operation)) return;
-      void connect(operation);
-    } catch (error) {
-      if (current === operation) stop('Error', 'Не удалось включить захват. Выберите текущую вкладку FigVam и оставьте Preview открытым.');
-    }
-  }
-
-  async function download() {
-    const operation = current;
-    if (!operation || state !== 'Ready' || operation.pending) return;
-    const pending = deadline(operation.controller.signal, 8500);
-    operation.pending = pending;
-    change('Capturing');
-    try {
-      const blob = await png(operation, viewFor(operation).revision, pending.signal);
-      if (!active(operation)) return;
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a'); link.href = url; link.download = 'figvam-screen.png'; link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {
-      if (active(operation)) message = 'Не удалось получить свежий кадр.';
-    } finally {
-      pending.dispose();
-      if (current === operation) { operation.pending = null; change('Ready', message); }
+      if (current === operation) {
+        stop();
+        if (same(operation)) retry = setTimeout(sync, 1000);
+      }
     }
   }
   function sync() {
-    if (!current) return;
-    const view = getContext().captureView;
-    if (!sameDocument(current) || !view || view.screenId !== current.screenId || view.element !== current.element)
-      stop();
+    if (current && active(current)) return;
+    stop();
+    const context = getContext();
+    if (!context.documentId || !['Owner', 'Editor'].includes(context.role)) return;
+    const operation = { ...context, base: '/api/v1/documents/' + encodeURIComponent(context.documentId),
+      controller: new AbortController() };
+    current = operation;
+    void connect(operation);
   }
-  window.addEventListener('pagehide', () => stop());
-  return { enable, stop, sync, download, get state() { return state; }, get message() { return message; } };
+  window.addEventListener('pagehide', stop);
+  return { stop, sync };
 }

@@ -5,10 +5,7 @@ export function createMcpAccess({ request, getContext }) {
   const body = document.getElementById('mcp-access-body');
   let controller = null;
   let current = null;
-  const designMenuParent = menu.parentElement;
-  const previewHeader = document.querySelector('#editor-preview > header');
-  let capturePanel = null, captureAllowed = false, panelSignature = null;
-  const capture = createScreenCapture({ request, getContext, onChange: () => updateCapturePanel() });
+  const capture = createScreenCapture({ request, getContext });
 
   const el = (tag, text, className) => {
     const node = document.createElement(tag);
@@ -32,18 +29,14 @@ export function createMcpAccess({ request, getContext }) {
     controller?.abort();
     controller = null;
     current = null;
-    capturePanel = null;
-    panelSignature = null;
     body.replaceChildren();
   }
   function reset() {
     capture.stop();
-    setPreview(false);
     menu.open = false;
     clear();
   }
   async function load(method = 'GET', tunnel = false) {
-    if (method === 'DELETE') capture.stop();
     clear();
     const context = getContext();
     if (!context.documentId || !menu.open) return;
@@ -80,7 +73,7 @@ export function createMcpAccess({ request, getContext }) {
     state.setAttribute('role', 'status');
     panel.append(state);
     if (!status.enabled) {
-      panel.append(el('p', 'Разрешите AI-агенту редактировать текущий документ.'),
+      panel.append(el('p', 'Разрешите AI-агенту читать, редактировать и визуально проверять текущий документ.'),
         button('Разрешить', () => load('POST')));
     } else {
       const documentName = el('p', document.getElementById('document-title').textContent);
@@ -141,49 +134,10 @@ export function createMcpAccess({ request, getContext }) {
     } else {
       body.replaceChildren(panel);
     }
-    captureAllowed = status.enabled || status.tunnel?.enabled;
-    if (!captureAllowed) capture.stop();
-    capturePanel = el('section', '', 'mcp-access-panel');
-    capturePanel.setAttribute('aria-label', 'Screen Capture');
-    body.append(el('hr'), capturePanel);
-    updateCapturePanel();
-  }
-  function updateCapturePanel() {
-    if (!capturePanel) return;
-    const state = capture.state;
-    const ready = state === 'Ready', busy = state === 'Capturing' || state === 'Awaiting permission';
-    const view = getContext().captureView;
-    const signature = JSON.stringify([state, captureAllowed, !!view?.stamp, capture.message]);
-    if (signature === panelSignature) return;
-    panelSignature = signature;
-    const status = el('p', state === 'Disabled' ? 'Capture disabled' : state);
-    status.setAttribute('role', 'status');
-    capturePanel.replaceChildren(el('strong', 'Screen Capture'), status,
-      el('p', 'Разрешите AI-агенту получать изображения экрана в Preview. Выберите текущую вкладку FigVam.'));
-    if (state === 'Unsupported') {
-      capturePanel.append(el('p', 'Screen capture is not supported by this browser.'));
-    } else if (ready || busy) {
-      capturePanel.append(button('Stop screen capture', () => capture.stop()));
-      if (ready) capturePanel.append(button('Download PNG', () => capture.download()));
-    } else {
-      const enable = button('Enable screen capture', () => capture.enable());
-      enable.disabled = !captureAllowed || !view?.stamp;
-      capturePanel.append(enable);
-      if (!view?.stamp) capturePanel.append(el('p', 'Откройте экран в Preview.'));
-    }
-    if (capture.message) capturePanel.append(el('p', capture.message));
-  }
-  function setPreview(next) {
-    const parent = next ? previewHeader : designMenuParent;
-    if (menu.parentElement === parent) return;
-    if (!next) capture.stop();
-    menu.open = false;
-    clear();
-    parent.append(menu);
   }
   menu.addEventListener('toggle', () => {
     if (menu.open) load();
     else clear();
   });
-  return { reset, setPreview, sync() { capture.sync(); updateCapturePanel(); } };
+  return { reset, sync: capture.sync };
 }
