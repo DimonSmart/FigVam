@@ -22,6 +22,7 @@ export default defineConfig({
         'document-collaboration': 'src/features/collaboration/document-collaboration.ts',
         'document-export': 'src/features/documents/document-export.ts',
         'node-property-controls': 'src/ui/node-property-controls.ts',
+        styles: 'src/features/styles/styles.ts',
         'token-value-control': 'src/ui/token-value-control.ts',
         'padding-editor': 'src/ui/padding-editor.ts',
         'layer-caption': 'src/core/layer-caption.ts',
