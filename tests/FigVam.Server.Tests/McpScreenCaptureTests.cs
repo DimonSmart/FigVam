@@ -121,6 +121,34 @@ public sealed class McpScreenCaptureTests
     }
 
     [Fact]
+    public async Task SharedProviderReconnectsDuringAnAutonomousCapture()
+    {
+        var registry = new McpAccessRegistry();
+        var service = new ScreenCaptureService();
+        var doc = Guid.NewGuid(); var screen = Guid.NewGuid();
+        var grant = registry.Grant(doc, "alice");
+        var old = service.Register(doc, "alice", null, default, () => true, reconnectable: true)!;
+        service.Disconnect(old);
+        var call = service.CaptureAsync(grant, screen, 4, default, "Dark");
+        Assert.False(call.IsCompleted);
+        var next = service.Register(doc, "alice", null, default, () => true, reconnectable: true)!;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var request = (await next.Reader.ReadAsync(deadline.Token)).Request;
+        service.Disconnect(next);
+        var replacement = service.Register(doc, "alice", null, default, () => true, reconnectable: true)!;
+        var retried = (await replacement.Reader.ReadAsync(deadline.Token)).Request;
+        Assert.NotEqual(request.RequestId, retried.RequestId);
+        Assert.Equal(request.ScreenId, retried.ScreenId);
+        Assert.Equal(request.Revision, retried.Revision);
+        Assert.Equal(request.Theme, retried.Theme);
+        var image = ScreenCaptureResult.FromPng(DocumentAssetTests.Png());
+        Assert.False(service.Complete(next, request.RequestId, screen, 4, image));
+        Assert.True(service.Complete(replacement, retried.RequestId, screen, 4, image));
+        Assert.Equal("OK", (await call).Code);
+        service.Disconnect(replacement);
+    }
+
+    [Fact]
     public void PngValidationRejectsInvalidAndOversizedPayloads()
     {
         Assert.Equal("IMAGE_TOO_LARGE", ScreenCaptureResult.FromPng(new byte[ScreenCaptureResult.MaxPngBytes + 1]).Code);

@@ -77,7 +77,7 @@ public sealed class DocumentSubscriptionController(IDocumentReconnectReader read
         bool SessionActive() => sessionId is null || users?.IsActiveSession(actor.Id, sessionId) == true;
         ScreenCaptureService.Provider? provider = null;
         if (SessionActive() && await McpServiceRegistration.CanEditAsync(services, documentId, actor.Id, ct))
-            provider = captures.Register(documentId, actor.Id, sessionId, ct, SessionActive);
+            provider = captures.Register(documentId, actor.Id, sessionId, ct, SessionActive, reconnectable: true);
         await using var messages = subscriptions.ReadAsync(documentId, revision, actor, ct).GetAsyncEnumerator(ct);
         Task<bool>? nextMessage = null;
         Task<bool>? nextCapture = null;
