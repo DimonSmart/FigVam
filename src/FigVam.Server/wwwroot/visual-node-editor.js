@@ -103,7 +103,7 @@ export function createVisualNodeEditor({
       const key = scope && `${scope}:${context.revision}:${context.variantId ?? "base"}:${context.navigationEpoch}`;
       const selectionId = context.selection?.id;
       // UI identity follows selection, not the document revision.
-      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.documentRole}:${context.navigationEpoch}`;
+      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.documentRole}:${context.navigationEpoch}:${context.theme}`;
       if (modelKey !== key) load(key, scope);
       if (loadedKey !== renderKey) {
         loadedKey = renderKey;
@@ -222,11 +222,11 @@ export function createVisualNodeEditor({
     for (const [name, definition] of Object.entries(definitions ?? {})) {
       const choices = definition.type === 'Asset' ? [...model.assets.values()] :
         definition.type === 'TokenReference' || definition.tokenType != null ? [...model.tokens.values()] : null;
-      const signature = JSON.stringify([definition, choices, Boolean(state)]);
+      const signature = JSON.stringify([definition, choices, Boolean(state), context.theme]);
       const valueSignature = JSON.stringify(values?.[name] ?? definition.defaultValue);
       let field = existing.get(name);
       if (!field || field.signature !== signature) {
-        field = createPropertyControl(name, definition, model, values?.[name], prefix);
+        field = createPropertyControl(name, definition, model, values?.[name], prefix, context.theme);
         field.signature = signature;
         field.valueSignature = valueSignature;
         function update(event) {
@@ -286,7 +286,7 @@ export function createVisualNodeEditor({
         }
       } else if (field.valueSignature !== valueSignature) {
         // Create a detached control for a changed baseline, never replace the live DOM.
-        field.baseline = createPropertyControl(name, definition, model, values?.[name], prefix).baseline;
+        field.baseline = createPropertyControl(name, definition, model, values?.[name], prefix, context.theme).baseline;
         field.valueSignature = valueSignature;
       }
       field.hasValue = values?.[name] !== undefined;
@@ -359,7 +359,7 @@ export function createVisualNodeEditor({
           if (!state || !canEdit(current.documentRole) || operations.has(scopeKey(current)) ||
               resolvedModelKey !== modelKey) return;
           if (!active) {
-            const preset = createPropertyControl(name, definition, model, shadowPreset, prefix).baseline;
+            const preset = createPropertyControl(name, definition, model, shadowPreset, prefix, context.theme).baseline;
             state.values.set(name, preset);
             render();
             scheduleApply(state, name, inspectorFields.get(name), true);

@@ -341,6 +341,9 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .drawing-toolbar { display: flex; flex: 0 0 47px; min-height: 47px; gap: 4px;
   justify-content: center; align-items: center; padding: 5px 12px;
   border-bottom: 1px solid var(--ui-border); background: #f9fafc; z-index: 8; }
+.drawing-toolbar::before { content: ''; flex: 1 1 0; }
+.drawing-tools { display: flex; align-items: center; gap: inherit; flex: 0 0 auto; }
+.drawing-theme-slot { display: flex; justify-content: flex-end; flex: 1 1 0; min-width: max-content; }
 .drawing-label { margin-right: 5px; color: var(--ui-muted); font-size: 11px; }
 .app-shell .drawing-tool {
   width: 34px; height: 34px; min-height: 34px; display: grid; place-items: center;

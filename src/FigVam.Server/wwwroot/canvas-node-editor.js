@@ -59,7 +59,7 @@ export function createCanvasNodeEditor({
     for (const name of names) {
       const value = selected.node.properties[name] ?? selected.definitions[name]?.defaultValue;
       const resolved = value?.type === 'token'
-        ? resolvePropertyToken(value, selected.model.tokens, 'Light', selected.definitions[name])
+        ? resolvePropertyToken(value, selected.model.tokens, selected.model.theme, selected.definitions[name])
         : { value };
       if (resolved.error || resolved.value?.type !== (value?.type === 'token' ? 'dimension' : 'number')) return null;
       initial[name] = resolved.value.value;

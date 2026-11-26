@@ -1,15 +1,15 @@
 import { reconcileScreen, renderScreen } from './screen-renderer.js';
 import { resolvePropertyToken } from './token-resolution.js';
 
-export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
+export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange, onThemeChange }) {
   const boundary = element('screen-boundary');
   const viewport = element('preview-viewport');
   const openButton = element('open-preview');
   const closeButton = element('close-preview');
-  const themeButtons = [...element('preview-theme').querySelectorAll('button[data-theme]')];
-  let previewTheme = 'Light';
+  const themeButtons = ['design-theme', 'preview-theme'].flatMap(id => [...element(id).querySelectorAll('button[data-theme]')]);
+  let activeTheme = 'Light';
   function selectTheme(theme) {
-    previewTheme = theme;
+    activeTheme = theme;
     for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === theme));
   }
   const backButton = element('preview-back');
@@ -49,7 +49,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         const raw = properties[name];
         if (!raw) continue;
         if ((name === 'width' || name === 'height') && (node.properties[name + 'Mode'] ?? definitions[name + 'Mode']?.defaultValue)?.value !== 'Fixed') continue;
-        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, 'Light', definitions[name]).value : raw;
+        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, model.theme, definitions[name]).value : raw;
         if (Number.isFinite(value?.value)) bounds[name] = value.value + (name === 'x' || name === 'y' ? parentBounds[name] : 0);
       }
       boxes.set(id, { ...box, bounds });
@@ -67,8 +67,8 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     if (previewFrame) return;
     previewFrame = requestAnimationFrame(() => {
       previewFrame = 0;
-      if (!context || isPreview || !design.model || design.model.revision !== context.revision) return;
-      const drawing = renderScreen({ ...projected(design.model), theme: 'Light' }, { preview: false, report: () => {} });
+      if (!context || isPreview || !design.model || design.model.revision !== context.revision || design.model.theme !== activeTheme) return;
+      const drawing = renderScreen({ ...projected(design.model), theme: activeTheme }, { preview: false, report: () => {} });
       reconcileScreen(design.host, drawing.root);
     });
   }
@@ -236,7 +236,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       readResources(),
       readNodes(screen),
       readPages(`screens/${screen}/layout`, parameters ?? {}, 'boxes', signal),
-      parameters ? readCached(screenScenarios, screen, () => readPages('scenarios', { screenId: screen }, 'items', documentSignal)) : null
+      parameters?.previewWidth != null ? readCached(screenScenarios, screen, () => readPages('scenarios', { screenId: screen }, 'items', documentSignal)) : null
     ]);
     return {
       ...shared, screen, revision: context.revision, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
@@ -285,15 +285,15 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     if (isPreview) {
       const size = sizePreview();
       const selection = playback?.selection;
-      const parameters = { previewWidth: size.width, previewHeight: size.height, theme: previewTheme };
+      const parameters = { previewWidth: size.width, previewHeight: size.height, theme: activeTheme };
       if (selection?.datasetId) parameters.datasetId = selection.datasetId;
       loadView(preview, [selection?.screenId ?? context.screen.id, ...(playback?.overlays ?? [])], parameters, selection ? selection.variantId : context.variantId);
-    } else loadView(design, [context.screen.id], null, context.variantId);
+    } else loadView(design, [context.screen.id], { theme: activeTheme }, context.variantId);
   }
 
   async function loadView(view, screens, parameters, variantId) {
     const previewMode = view === preview;
-    const theme = previewMode ? previewTheme : 'Light';
+    const theme = activeTheme;
     const key = JSON.stringify([screens, parameters, variantId, theme, playback?.values]);
     if (view.key === key) return;
     cancelView(view);
@@ -354,7 +354,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         onDesignChange();
       }
       else {
-        design.model = shown ? models[0] : null;
+        design.model = shown ? { ...models[0], theme } : null;
         syncSelection();
       }
       if (focusedNode) {
@@ -402,7 +402,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     try {
       const body = {
         revision, triggers: next, selection: {
-          screenId: screen.id, variantId: context.variantId, datasetId: null, theme: previewTheme === 'Dark' ? 1 : 0,
+          screenId: screen.id, variantId: context.variantId, datasetId: null, theme: activeTheme === 'Dark' ? 1 : 0,
           viewport: { width: Math.max(1, size.width), height: Math.max(1, size.height) }
         }
       };
@@ -449,7 +449,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   openButton.addEventListener('click', () => {
     if (!context) return;
     if (design.status.textContent === 'Загрузка экрана…') cancelView(design);
-    selectTheme('Light');
     backButton.disabled = true;
     showMode(true);
     if (context.variantId) replay([], null);
@@ -462,9 +461,18 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     openButton.focus();
   });
   for (const button of themeButtons) button.addEventListener('click', () => {
-    if (previewTheme === button.dataset.theme) return;
+    if (activeTheme === button.dataset.theme) return;
     selectTheme(button.dataset.theme);
-    renderActive();
+    cancelView(design);
+    design.model = null;
+    onDesignChange();
+    onThemeChange();
+    if (isPreview && (playbackRequest || triggers.length || context?.variantId)) {
+      playbackRequest?.abort();
+      playbackRequest = null;
+      cancelView(preview);
+      replay(triggers, null, true);
+    } else renderActive();
   });
   design.retry.addEventListener('click', renderActive);
   preview.retry.addEventListener('click', renderActive);
@@ -487,5 +495,5 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
   }).observe(viewport);
-  return { get currentTheme() { return isPreview ? previewTheme : "Light"; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
+  return { get currentTheme() { return activeTheme; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }
