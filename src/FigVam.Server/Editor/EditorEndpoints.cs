@@ -38,7 +38,7 @@ public static class EditorEndpoints
         MapFile("/screen-renderer.js", "screen-renderer.js", "text/javascript; charset=utf-8");
 
         MapFile("/datasets.js", "datasets.js", "text/javascript; charset=utf-8");
-        MapFile("/members.js", "members.js", "text/javascript; charset=utf-8");
+
 
         MapFile("/document-collaboration.js", "document-collaboration.js", "text/javascript; charset=utf-8");
         MapFile("/document-export.js", "document-export.js", "text/javascript; charset=utf-8");
@@ -50,7 +50,7 @@ public static class EditorEndpoints
         MapFile("/interaction-catalog.js", "interaction-catalog.js", "text/javascript; charset=utf-8");
         MapFile("/interaction-editor.js", "interaction-editor.js", "text/javascript; charset=utf-8");
         MapFile("/screen-resize.js", "screen-resize.js", "text/javascript; charset=utf-8");
-        MapFile("/screen-variants.js", "screen-variants.js", "text/javascript; charset=utf-8");
+
 
         MapFile("/tokens.js", "tokens.js", "text/javascript; charset=utf-8");
         MapFile("/token-groups.js", "token-groups.js", "text/javascript; charset=utf-8");
