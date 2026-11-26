@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using FigVam.Application.Documents;
+using FigVam.Domain.Tokens;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 
@@ -94,6 +95,19 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         foreach (var (name, property) in definition.Properties)
             properties[name]!.AsObject()["inputSchema"] = McpPropertyContracts.InputSchema(property);
         return Result("OK", response);
+    }
+
+    [McpServerTool(Name = "list_token_types", ReadOnly = true), Description("List design token types accepted by create_token. Use get_token_schema for each type.")]
+    public CallToolResult ListTokenTypes() =>
+        Result("OK", new { types = Enum.GetNames<TokenType>() });
+
+    [McpServerTool(Name = "get_token_schema", ReadOnly = true), Description("Read the value schema, categories, constraints, examples, aliases and theme semantics for a design token type.")]
+    public CallToolResult GetTokenSchema(string type)
+    {
+        if (!Enum.GetNames<TokenType>().Contains(type, StringComparer.Ordinal))
+            return Result("INVALID_ENUM", null);
+        var tokenType = Enum.Parse<TokenType>(type);
+        return Result("OK", McpTokenSchemas.Describe(tokenType));
     }
 
     [McpServerTool(Name = "list_tokens"), Description("List design tokens and Light/Dark values.")]

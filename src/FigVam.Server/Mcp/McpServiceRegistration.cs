@@ -40,6 +40,18 @@ public static class McpServiceRegistration
                 }
                 return await next(context, ct);
             }))
+            .WithRequestFilters(filters => filters.AddListToolsFilter(next => async (context, ct) =>
+            {
+                var result = await next(context, ct);
+                foreach (var tool in result.Tools.Where(t => t.Name == "render_screen"))
+                {
+                    var schema = System.Text.Json.Nodes.JsonNode.Parse(tool.InputSchema.GetRawText())!.AsObject();
+                    schema["properties"]!["theme"] = System.Text.Json.Nodes.JsonNode.Parse(
+                        """{"description":"Optional render-only theme; omit to use the current prototype theme.","anyOf":[{"type":"string","enum":["Light","Dark"]},{"type":"null"}]}""");
+                    tool.InputSchema = JsonSerializer.SerializeToElement(schema);
+                }
+                return result;
+            }))
             .WithTools<McpReadTools>()
             .WithTools<McpRenderTools>()
             .WithTools<McpWriteTools>();

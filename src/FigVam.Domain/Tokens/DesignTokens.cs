@@ -212,17 +212,40 @@ public static class DesignTokenValidator
         return null;
     }
 
+    // Shared literal constraints for validation and external schema discovery.
+    public sealed record NumericRange(double? Minimum = null, double? Maximum = null, bool ExclusiveMinimum = false);
+    public const int FontFamilyMaxLength = 128;
+    public const string FontFamilyPattern = @"^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$";
+    public const int TypographyFontFamilyMaxLength = 256;
+    public static NumericRange Range(TokenType type, TokenCategory? category = null, string? field = null) =>
+        (type, category, field) switch
+        {
+            (TokenType.Dimension, TokenCategory.FontSize, _) => new(1, 1024),
+            (TokenType.Dimension, TokenCategory.LetterSpacing, _) => new(-100, 100),
+            (TokenType.Dimension, not null, _) => new(0, 1_000_000),
+            (TokenType.Number, TokenCategory.LineHeight, _) => new(0.1, 10),
+            (TokenType.Number, TokenCategory.Opacity, _) => new(0, 1),
+            (TokenType.Geometry, _, _) => new(0),
+            (TokenType.FontWeight, _, _) or (TokenType.Typography, _, "fontWeight") => new(1, 1000),
+            (TokenType.Typography, _, "fontSize" or "lineHeight") => new(0, ExclusiveMinimum: true),
+            (TokenType.Typography, _, "letterSpacing") => new(-100, 100),
+            _ => new()
+        };
+
+    private static ValueIssue? CheckRange(double number, TokenType type, TokenCategory? category = null, string? field = null)
+    {
+        var range = Range(type, category, field);
+        return NumberIssue(number, range.Minimum, range.Maximum, field, range.ExclusiveMinimum);
+    }
+
     private static ValueIssue? LiteralIssue(DesignToken token, TokenValue? value)
     {
         if (!ValidCategory(token.Type, token.Category))
             return new(null, "Token category does not match its type.", "Compatible token category", "Unsupported category");
         return LiteralIssue(token.Type, value) ?? ((token.Type, token.Category, value) switch
         {
-            (TokenType.Dimension, TokenCategory.FontSize, DimensionValue v) => NumberIssue(v.Value, 1, 1024),
-            (TokenType.Dimension, TokenCategory.LetterSpacing, DimensionValue v) => NumberIssue(v.Value, -100, 100),
-            (TokenType.Dimension, _, DimensionValue v) => NumberIssue(v.Value, 0, 1_000_000),
-            (TokenType.Number, TokenCategory.LineHeight, NumberValue v) => NumberIssue(v.Value, 0.1, 10),
-            (TokenType.Number, TokenCategory.Opacity, NumberValue v) => NumberIssue(v.Value, 0, 1),
+            (TokenType.Dimension, _, DimensionValue v) => CheckRange(v.Value, token.Type, token.Category),
+            (TokenType.Number, _, NumberValue v) => CheckRange(v.Value, token.Type, token.Category),
             _ => null
         });
     }
@@ -231,27 +254,27 @@ public static class DesignTokenValidator
     {
         (TokenType.Color, ColorValue) => null,
         (TokenType.Spacing, SpacingValue spacing) => NumberIssue(spacing.Value),
-        (TokenType.Geometry, GeometryValue geometry) => NumberIssue(geometry.Radius, 0),
+        (TokenType.Geometry, GeometryValue geometry) => CheckRange(geometry.Radius, type),
         (TokenType.Dimension, DimensionValue dimension) => NumberIssue(dimension.Value),
         (TokenType.Number, NumberValue number) => NumberIssue(number.Value),
-        (TokenType.FontFamily, FontFamilyValue family) => family.Value is { Length: > 0 and <= 128 } &&
-            System.Text.RegularExpressions.Regex.IsMatch(family.Value, @"^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$", System.Text.RegularExpressions.RegexOptions.CultureInvariant)
+        (TokenType.FontFamily, FontFamilyValue family) => family.Value is { Length: > 0 and <= FontFamilyMaxLength } &&
+            System.Text.RegularExpressions.Regex.IsMatch(family.Value, FontFamilyPattern, System.Text.RegularExpressions.RegexOptions.CultureInvariant)
                 ? null : new(null, "Font family must be a valid name of 1 to 128 characters.",
                     "Font family name (1 to 128 characters)", "Invalid font family"),
-        (TokenType.FontWeight, FontWeightValue weight) => NumberIssue(weight.Value, 1, 1000),
+        (TokenType.FontWeight, FontWeightValue weight) => CheckRange(weight.Value, type),
         (TokenType.Typography, TypographyValue typography) => TypographyIssue(typography),
         _ => new(null, "Literal value does not match token type.", type.ToString(), "Incompatible literal")
     };
 
     private static ValueIssue? TypographyIssue(TypographyValue typography)
     {
-        if (string.IsNullOrWhiteSpace(typography.FontFamily) || typography.FontFamily.Length > 256)
+        if (string.IsNullOrWhiteSpace(typography.FontFamily) || typography.FontFamily.Length > TypographyFontFamilyMaxLength)
             return new("fontFamily", "Font family must be nonblank and at most 256 characters.",
                 "Nonblank string with maximum length 256", "Invalid font family");
-        return NumberIssue(typography.FontSize, 0, field: "fontSize", exclusiveMinimum: true)
-            ?? NumberIssue(typography.FontWeight, 1, 1000, "fontWeight")
-            ?? NumberIssue(typography.LineHeight, 0, field: "lineHeight", exclusiveMinimum: true)
-            ?? NumberIssue(typography.LetterSpacing, -100, 100, "letterSpacing");
+        return CheckRange(typography.FontSize, TokenType.Typography, field: "fontSize")
+            ?? CheckRange(typography.FontWeight, TokenType.Typography, field: "fontWeight")
+            ?? CheckRange(typography.LineHeight, TokenType.Typography, field: "lineHeight")
+            ?? CheckRange(typography.LetterSpacing, TokenType.Typography, field: "letterSpacing");
     }
 }
 
