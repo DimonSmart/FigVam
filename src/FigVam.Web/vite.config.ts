@@ -34,6 +34,7 @@ export default defineConfig({
         'render-model': 'src/canvas/render-model.ts',
         'screen-capture': 'src/canvas/screen-capture.ts',
         'headless-preview': 'src/canvas/headless-preview.ts',
+        'visual-node-editor': 'src/features/editor/visual-node-editor.ts',
         'visual-screen': 'src/canvas/visual-screen.ts',
         'screen-resize': 'src/features/editor/screen-resize.ts',
       },
