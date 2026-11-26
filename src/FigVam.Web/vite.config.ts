@@ -18,6 +18,8 @@ export default defineConfig({
         'layer-drag': 'src/canvas/layer-drag.ts',
         'canvas-node-editor': 'src/canvas/canvas-node-editor.ts',
         'screen-renderer': 'src/canvas/screen-renderer.ts',
+        'document-collaboration': 'src/features/collaboration/document-collaboration.ts',
+        'document-export': 'src/features/documents/document-export.ts',
         'screen-resize': 'src/features/editor/screen-resize.ts',
       },
       formats: ['es'],
