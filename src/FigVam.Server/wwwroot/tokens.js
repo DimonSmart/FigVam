@@ -1,3 +1,4 @@
+import { bindInlineRename } from './inline-rename.js';
 import { splitTokenBundle } from './token-exchange.js';
 import { createTokenValueControl } from './token-value-control.js';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, filteredTokens, tokensInGroup, matchesTokenSearch, qualifyTokenName } from './token-groups.js';
@@ -655,13 +656,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     tokenCommand('delete-token', { tokenId: selectedToken, expectedRevision: getContext().revision });
   });
   el('token-rename-open').addEventListener('click', beginRename);
-  el('token-rename-cancel').addEventListener('click', endRename);
-  el('token-name').addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); endRename(); }
-  });
+  bindInlineRename(el('token-rename'), el('token-name'), endRename, () => renaming && !busy());
   el('token-rename').addEventListener('submit', async event => {
     event.preventDefault();
-    if (!selected() || !editable() || busy()) return;
+    if (!renaming || !selected() || !editable() || busy()) return;
     const name = el('token-name').value.trim(), item = selected();
     if (name === item.name) { endRename(); return; }
     const error = tokenNameError(name, tokenItems, item.id);

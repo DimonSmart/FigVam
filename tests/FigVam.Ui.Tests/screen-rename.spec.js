@@ -36,7 +36,7 @@ test('screen can be renamed inline and its stable ID and name survive reload', a
   await expect(page.locator('#screens .screen-select')).toContainText('Экран 1');
   await page.getByRole('button', { name: 'Переименовать экран «Экран 1»' }).click();
   await page.getByLabel('Имя экрана').fill('Экран авторизации');
-  await page.getByLabel('Имя экрана').press('Enter');
+  await page.getByLabel('Имя экрана').press('Tab');
   await expect(page.locator('#screens .screen-select')).toContainText('Экран авторизации · 640 × 480');
   await expect(page.locator('#screens .screen-select')).toHaveAttribute('data-screen-id', screenId);
   const pages = await request.get(`/api/v1/documents/${documentId}/pages?fields=name`, { headers });

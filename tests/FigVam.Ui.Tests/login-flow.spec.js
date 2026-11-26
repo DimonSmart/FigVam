@@ -24,7 +24,7 @@ async function createScreen(page, name) {
   await page.locator('#screens .screen-select[aria-pressed="true"]')
     .locator('..').locator('.navigator-rename-action').click();
   await page.locator('#screen-name-input').fill(name);
-  await page.locator('#screens .navigator-rename-confirm').click();
+  await page.locator('#screen-name-input').press('Enter');
   await expect(page.locator('#screens .screen-select[aria-pressed="true"]')).toContainText(name);
   return screenId;
 }
@@ -242,7 +242,7 @@ test('designs two linked login screens and previews invalid password through UI'
   expect(copiedFrame).not.toBe(frame);
   await errorScreenSelect.locator('..').locator('.navigator-rename-action').click();
   await page.locator('#screen-name-input').fill('Login Error');
-  await page.locator('#screens .navigator-rename-confirm').click();
+  await page.locator('#screen-name-input').press('Enter');
   await expect(errorScreenSelect).toContainText('Login Error');
 
   await demo.step('Добавляем текст неправильного пароля', 'Второй экран повторяет форму входа, но дополнительно показывает сообщение об ошибке.');

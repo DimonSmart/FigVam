@@ -114,7 +114,7 @@
     <div id="editor-view" hidden>
       <div id="editor-design">
       <header class="document-panel" aria-label="Панель документа"><a href="/" data-navigation>← Документы</a><h1 id="document-title"></h1><span id="revision"></span><span>Design</span><button id="open-preview" type="button" disabled>Preview</button>
-        <form id="document-rename" hidden><label for="rename-document-name">Имя документа</label><input id="rename-document-name" required maxlength="256" autocomplete="off"><button type="submit">Переименовать документ</button><p id="document-rename-status" role="status" aria-live="polite"></p><p id="document-rename-error" role="alert"></p></form>
+        <form id="document-rename" hidden><label for="rename-document-name">Имя документа</label><input id="rename-document-name" required maxlength="256" autocomplete="off"><p id="document-rename-status" role="status" aria-live="polite"></p><p id="document-rename-error" role="alert"></p></form>
         <button id="delete-document" type="button" hidden>Удалить документ</button>
       </header>
       <section id="member-management" aria-labelledby="members-title" hidden>
@@ -350,8 +350,6 @@
               <div class="token-name-header"><h3 id="token-detail-title"></h3>
                 <button id="token-rename-open" class="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен">✎</button>
                 <form id="token-rename" hidden><input id="token-name" aria-label="Новое имя токена" required maxlength="256">
-                  <button type="submit" class="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя">✓</button>
-                  <button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена">×</button>
                 </form>
               </div>
               <p id="token-detail-type"></p>

@@ -19,9 +19,9 @@ test('renames through the command after acceptance and prevents duplicate submis
   const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/commands/rename-document', async route => { count++; await gate; await route.continue(); });
   await name.fill('Renamed');
-  const button = page.getByRole('button', { name: 'Переименовать документ' });
-  await button.click();
-  await expect(button).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Переименовать документ' })).toHaveCount(0);
+  await name.press('Enter');
+  await expect(name).toBeDisabled();
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('Original');
   await expect(page).toHaveTitle('Original — FigVam');
   release();
@@ -51,8 +51,8 @@ test('reports validation and authorization rejection without changing the title'
   const name = page.getByLabel('Имя документа', { exact: true });
   for (const status of [400, 403]) {
     await page.route('**/commands/rename-document', route => route.fulfill({ status, json: {} }));
-    await name.fill('Rejected');
-    await show(page, 'document'); await page.getByRole('button', { name: 'Переименовать документ' }).click();
+    await name.fill('Rejected' + status);
+    await page.getByLabel('Имя документа', { exact: true }).press('Enter');
     await expect(page.locator('#document-rename-error')).toContainText(status === 400 ? 'Проверьте' : 'Нет доступа');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Original');
     await expect(page).toHaveTitle('Original — FigVam');
@@ -66,7 +66,7 @@ test('ignores an in-flight response after logout', async ({ page }) => {
   const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/commands/rename-document', async route => { await gate; await route.fulfill({ status: 200, json: {} }).catch(() => {}); });
   await page.getByLabel('Имя документа', { exact: true }).fill('Late');
-  await show(page, 'document'); await page.getByRole('button', { name: 'Переименовать документ' }).click();
+  await page.getByLabel('Имя документа', { exact: true }).press('Enter');
   await page.locator('#editor-signout').click();
   release();
   await expect(page).toHaveTitle('FigVam — документы');

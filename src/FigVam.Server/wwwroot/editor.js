@@ -1,3 +1,4 @@
+import { bindInlineRename } from './inline-rename.js';
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createUserAdmin } from './user-admin.js';
 import { createMcpAccess } from './mcp-access.js';
@@ -474,26 +475,15 @@ function navigatorRenameForm(kind, item, name) {
     navigatorEditState(kind).value = input.value;
     input.setCustomValidity('');
   });
-  const save = document.createElement('button');
-  save.type = 'submit'; save.className = 'navigator-rename-confirm';
-  save.textContent = '✓'; save.title = 'Сохранить название';
-  save.setAttribute('aria-label', 'Сохранить название ' + noun);
-  const cancel = document.createElement('button');
-  cancel.type = 'button'; cancel.className = 'navigator-rename-cancel';
-  cancel.textContent = '×'; cancel.title = 'Отменить переименование';
-  cancel.setAttribute('aria-label', 'Отменить переименование ' + noun);
   const discard = () => {
     setNavigatorEditState(kind, null);
     renderNavigatorKind(kind);
     document.querySelector('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
   };
-  cancel.addEventListener('click', discard);
-  input.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard(); }
-  });
+  bindInlineRename(form, input, discard, () => navigatorEditState(kind)?.id === item.id);
   form.addEventListener('submit', event => {
     event.preventDefault();
-    if (!navigatorCanEdit() || element('page-edit').inert) return;
+    if (!navigatorCanEdit() || element('page-edit').inert || navigatorEditState(kind)?.id !== item.id) return;
     const newName = input.value.trim();
     if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
       input.setCustomValidity('Укажите непустое имя без управляющих символов.');
@@ -503,7 +493,7 @@ function navigatorRenameForm(kind, item, name) {
     discard();
     if (newName !== name) pageCommand('rename-' + kind, { [kind + 'Id']: item.id, name: newName });
   });
-  form.append(input, save, cancel);
+  form.append(input);
   return form;
 }
 function appendNavigatorActions(row, kind, item, name, actions) {
@@ -863,7 +853,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
 
 function resetDocumentRename() {
   const form = element('document-rename');
-  form.hidden = true; form.reset(); form.querySelector('button').disabled = false;
+  form.hidden = true; form.reset(); element('rename-document-name').disabled = false;
   element('document-rename-status').textContent = '';
   element('document-rename-error').textContent = '';
 }
@@ -964,16 +954,24 @@ async function submitDeletion(operation) {
   }
 }
 
-element('document-rename').addEventListener('submit', async event => {
+const documentRenameForm = element('document-rename');
+const documentNameInput = element('rename-document-name');
+bindInlineRename(documentRenameForm, documentNameInput, () => {
+  documentNameInput.value = element('document-title').textContent;
+  element('document-rename-error').textContent = '';
+  documentNameInput.blur();
+}, () => !documentRenameForm.hidden && !documentNameInput.disabled);
+documentRenameForm.addEventListener('submit', async event => {
   event.preventDefault();
-  const form = event.currentTarget, button = form.querySelector('button');
-  if (button.disabled || !['Owner', 'Editor'].includes(documentRole)) return;
-  const name = element('rename-document-name').value;
+  const input = documentNameInput;
+  if (input.disabled || !['Owner', 'Editor'].includes(documentRole)) return;
+  const name = input.value.trim();
+  if (name === element('document-title').textContent) return;
   stopLive(); const { signal, current } = startRequest(), id = documentId;
-  button.disabled = true;
+  input.disabled = true;
   signal.addEventListener('abort', () => {
     if (current === generation && id === documentId) {
-      button.disabled = false;
+      input.disabled = false;
       element('document-rename-status').textContent = '';
     }
   }, { once: true });
@@ -994,7 +992,7 @@ element('document-rename').addEventListener('submit', async event => {
     element('document-rename-error').textContent = error instanceof TypeError || error.status >= 500
       ? 'Не удалось подтвердить результат. Обновите документ перед повторной попыткой: команда могла выполниться.' : error.message;
   } finally {
-    if (current === generation && id === documentId) { button.disabled = false; startLive(); }
+    if (current === generation && id === documentId) { input.disabled = false; startLive(); }
   }
 });
 

@@ -35,7 +35,7 @@ test('two clients converge through authenticated events while local commands ret
   await expect(second.locator('#pages > li > .page-select')).toHaveCount(1);
   await page.getByRole('button', { name: /Переименовать страницу/ }).click();
   await page.getByLabel('Имя страницы', { exact: true }).fill('Renamed remotely');
-  await page.getByRole('button', { name: 'Сохранить название страницы' }).click();
+  await page.getByLabel('Имя страницы', { exact: true }).press('Enter');
   await expect(second.locator('#pages > li > .page-select')).toHaveText('Renamed remotely');
   await show(second, 'screen');
   await second.getByLabel('Ширина экрана').fill('640');
