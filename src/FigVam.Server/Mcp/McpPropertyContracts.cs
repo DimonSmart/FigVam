@@ -241,6 +241,13 @@ internal static class McpPropertyContracts
         return Choice(CompactTokenLiteral(TokenType.Dimension, TokenCategory.Spacing), ReferenceSchema<McpTokenReferenceInput>());
     }
 
+    internal static JsonObject CompactLiteralSchema(NodePropertyDefinition definition) => definition.Type switch
+    {
+        NodePropertyType.Color => ColorSchema(),
+        NodePropertyType.Shadow => ShadowSchema(),
+        _ => throw new ArgumentOutOfRangeException(nameof(definition))
+    };
+
     internal static JsonObject InputSchema(NodePropertyDefinition definition)
     {
         JsonObject literal = definition.Type switch
