@@ -71,9 +71,9 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public Task<CallToolResult> ListChildren(Guid parentId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
         Read(new("children", parentId, offset, limit, Fields: "name,kind,childCount,parentId", Revision: revision), ct);
 
-    [McpServerTool(Name = "get_screen_tree"), Description("Read a paginated flat list of screen descendants with parent IDs.")]
-    public Task<CallToolResult> GetScreenTree(Guid screenId, int depth = 3, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
-        Read(new("nodes", Offset: offset, Limit: limit, Fields: "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision, MaxDepth: depth), ct);
+    [McpServerTool(Name = "get_screen_tree"), Description("Read a paginated flat list of screen descendants with parent IDs. Set includeProperties to return explicitly assigned properties in the same format as get_node. This does not modify the document.")]
+    public Task<CallToolResult> GetScreenTree(Guid screenId, int depth = 3, int offset = 0, int limit = 50, long? revision = null, bool includeProperties = false, CancellationToken ct = default) =>
+        Read(new("nodes", Offset: offset, Limit: limit, Fields: includeProperties ? "name,kind,childCount,parentId,properties" : "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision, MaxDepth: depth), ct);
 
     [McpServerTool(Name = "list_node_types"), Description("List node kinds supported by the document profile.")]
     public async Task<CallToolResult> ListNodeTypes(CancellationToken ct)
@@ -82,8 +82,8 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response is null ? null : new { r.Response.Revision, kinds = r.Response.Kinds.Select(k => k.Kind) });
     }
 
-    [McpServerTool(Name = "get_node_schema"), Description("Read supported properties, constraints and JSON input schemas for compact and canonical values, including mixed representations in create_node and set_node_properties.")]
-    public async Task<CallToolResult> GetNodeSchema(string kind, CancellationToken ct)
+    [McpServerTool(Name = "get_node_schema"), Description("Read supported properties, constraints and JSON input schemas for compact and canonical values, including mixed representations in create_node and set_node_properties. Use compact=true for concise metadata and shared value formats; omit it for the full JSON input schemas.")]
+    public async Task<CallToolResult> GetNodeSchema(string kind, CancellationToken ct, bool compact = false)
     {
         var r = await queries.ReadProfileAsync(Grant.DocumentId, null, Actor, ct);
         if (r.Response is null) return Result(r.Code, null);
@@ -92,8 +92,27 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         // Preserve the profile metadata and append the MCP input contract, not the storage JSON shape.
         var response = JsonSerializer.SerializeToNode(definition, ResponseOptions)!.AsObject();
         var properties = response["properties"]!.AsObject();
-        foreach (var (name, property) in definition.Properties)
-            properties[name]!.AsObject()["inputSchema"] = McpPropertyContracts.InputSchema(property);
+        if (compact)
+        {
+            // Scalar constraints, defaults, references and enum values remain in the profile metadata.
+            // Share complex wire formats rather than repeating the full input schemas per property.
+            var formats = new JsonObject();
+            foreach (var (name, property) in definition.Properties)
+            {
+                if (property.Type is FigVam.Domain.Documents.NodePropertyType.Color or FigVam.Domain.Documents.NodePropertyType.Shadow)
+                {
+                    var key = property.Type.ToString();
+                    if (!formats.ContainsKey(key))
+                        formats[key] = McpPropertyContracts.CompactLiteralSchema(property);
+                    properties[name]!.AsObject()["format"] = key;
+                }
+            }
+            response["formats"] = formats;
+            response["inputConventions"] = "Use JSON strings, numbers, booleans or declared enum strings; numericFontWeight also accepts an integer. Use {tokenId: UUID} for tokenType, {styleId: UUID} for styleType, {assetId: UUID} for Asset. TokenReference requires a token ID. Complex literal formats are defined in formats. Defaults use canonical typed values.";
+        }
+        else
+            foreach (var (name, property) in definition.Properties)
+                properties[name]!.AsObject()["inputSchema"] = McpPropertyContracts.InputSchema(property);
         return Result("OK", response);
     }
 
