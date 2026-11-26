@@ -20,7 +20,7 @@ public static class EditorEndpoints
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
         MapFile("/home-ui.js", "home-ui.js", "text/javascript; charset=utf-8");
-        MapFile("/mcp-access.js", "mcp-access.js", "text/javascript; charset=utf-8");
+
         MapFile("/screen-capture.js", "screen-capture.js", "text/javascript; charset=utf-8");
         MapFile("/editor-shell.js", "editor-shell.js", "text/javascript; charset=utf-8");
         MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
@@ -49,7 +49,7 @@ public static class EditorEndpoints
         MapFile("/interaction-editor.js", "interaction-editor.js", "text/javascript; charset=utf-8");
         MapFile("/screen-resize.js", "screen-resize.js", "text/javascript; charset=utf-8");
         MapFile("/screen-variants.js", "screen-variants.js", "text/javascript; charset=utf-8");
-        MapFile("/screen-diagnostics.js", "screen-diagnostics.js", "text/javascript; charset=utf-8");
+
         MapFile("/tokens.js", "tokens.js", "text/javascript; charset=utf-8");
         MapFile("/token-groups.js", "token-groups.js", "text/javascript; charset=utf-8");
         MapFile("/token-exchange.js", "token-exchange.js", "text/javascript; charset=utf-8");

@@ -1,7 +1,7 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
-import { createMcpAccess } from './mcp-access.js';
+import { createScreenCapture } from './screen-capture.js';
 import { createApiClient, parseDocumentList } from './api-client.js';
-import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin } from './home-ui.js';
+import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
 import { createEditorShell } from './editor-shell.js';
@@ -16,7 +16,6 @@ import { createDocumentHistory } from './document-history.js';
 import { createDocumentExport } from './document-export.js';
 import { createComponents } from './components.js';
 import { createScenarios } from './scenarios.js';
-import { createScreenDiagnostics } from './screen-diagnostics.js';
 import { createScreenResize } from './screen-resize.js';
 import { createScreenVariants } from './screen-variants.js';
 import { createTokens } from './tokens.js';
@@ -83,8 +82,8 @@ const request = createApiClient({
   }
 });
 
-const mcpAccess = createMcpAccess({ request, getContext: () => ({ documentId, token, navigationEpoch,
-  role: documentRole, theme: visualScreens.currentTheme }) });
+const mcpContext = () => ({ documentId, token, navigationEpoch, role: documentRole, theme: visualScreens.currentTheme });
+const mcpAccess = createMcpAccess({ request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
