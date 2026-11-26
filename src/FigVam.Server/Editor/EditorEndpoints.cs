@@ -42,7 +42,7 @@ public static class EditorEndpoints
 
         MapFile("/document-collaboration.js", "document-collaboration.js", "text/javascript; charset=utf-8");
         MapFile("/document-export.js", "document-export.js", "text/javascript; charset=utf-8");
-        MapFile("/document-history.js", "document-history.js", "text/javascript; charset=utf-8");
+
         MapFile("/layers.js", "layers.js", "text/javascript; charset=utf-8");
         MapFile("/layer-caption.js", "layer-caption.js", "text/javascript; charset=utf-8");
         MapFile("/layer-drag.js", "layer-drag.js", "text/javascript; charset=utf-8");
