@@ -83,7 +83,8 @@ function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, befor
 export function createEditorShell({ beforePrototypeLeave = () => true }:{beforePrototypeLeave?:(resume:()=>void)=>boolean} = {}) {
   // Capture original nodes before reparenting them into temporarily detached panels.
   const shellNodes = new Map([...document.querySelectorAll<HTMLElement>('[id]')].map(node => [node.id, node]));
-  const byId = (id:string):HTMLElement => required(shellNodes.get(id) ?? document.getElementById(id),id);
+  const byId = (id:string):HTMLElement => required(id === 'pages' || id === 'screens'
+    ? document.getElementById(id) ?? shellNodes.get(id) : shellNodes.get(id) ?? document.getElementById(id),id);
   const input=(id:string)=>asElement(byId(id),HTMLInputElement);
   const select=(id:string)=>asElement(byId(id),HTMLSelectElement);
   const form=(id:string)=>asElement(byId(id),HTMLFormElement);

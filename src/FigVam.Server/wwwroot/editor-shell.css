@@ -877,3 +877,6 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   .app-shell .token-workspace .token-value-layout.is-linked .token-value-link { background:var(--ui-selected); }
   .app-shell .token-workspace .token-value-layout.is-invalid .token-value-reference { background:#472c37; }
 }
+
+/* Preserve the existing sidebar grid/flex layout around the React tree host. */
+.navigator-tree-host { display: contents; }

@@ -25,9 +25,7 @@ import { postPageCommand, type PageCommandData } from './page-commands';
 
 type Work = (signal: AbortSignal, current: () => boolean) => Promise<unknown>;
 type Retry = () => Promise<unknown>;
-type NavigatorKind = 'page' | 'screen';
-type RenameDraft = { id: string; value: string };
-type NavigatorAction = { label: string; accessibleLabel: string; destructive?: boolean; run(): void };
+import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
 type SelectionChange = { nodeId: string; previousId?: string };
 type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
@@ -205,13 +203,8 @@ function clearSession() {
   element('document-name').value = '';
   documentListView.clear();
   documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
-  // Detach the nested screen list before clearing its parent page rows.
-  const screenList = element('screens');
-  screenList.remove();
-  element('pages').replaceChildren();
-  required(element('pages').closest('.editor-group')).append(screenList);
   selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingPageName = editingScreenName = null;
-  screenList.replaceChildren();
+  renderPages();
   layers.reset();
   tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
   renderCanvas();
@@ -395,240 +388,46 @@ function renderNavigatorKind(kind: NavigatorKind) {
   if (kind === 'page') renderPages();
   else renderScreens();
 }
-function startNavigatorNameEdit(kind: NavigatorKind, item: { id: string }, name: string) {
+function startNavigatorNameEdit(kind: NavigatorKind, id: string, name: string) {
   if (!navigatorCanEdit() || element('page-edit').inert) return;
-  const other = kind === 'page' ? 'screen' : 'page';
-  if (navigatorEditState(other)) {
-    setNavigatorEditState(other, null);
-    renderNavigatorKind(other);
-  }
-  setNavigatorEditState(kind, { id: item.id, value: name });
+  setNavigatorEditState(kind === 'page' ? 'screen' : 'page', null);
+  setNavigatorEditState(kind, {id, value:name});
   renderNavigatorKind(kind);
-  const input = document.querySelector<HTMLInputElement>('#' + kind + '-name-input');
-  input?.focus();
-  input?.select();
 }
-function navigatorRenameForm(kind: NavigatorKind, item: { id: string }, name: string) {
-  const noun = kind === 'page' ? 'страницы' : 'экрана';
-  const form = document.createElement('form');
-  form.className = 'navigator-rename-form';
-  const input = document.createElement('input');
-  input.id = kind + '-name-input';
-  input.type = 'text'; input.required = true; input.maxLength = 256; input.autocomplete = 'off';
-  input.setAttribute('aria-label', 'Имя ' + noun);
-  input.value = navigatorEditState(kind)?.value ?? name;
-  input.addEventListener('input', () => {
-    const draft = navigatorEditState(kind);
-    if (draft) draft.value = input.value;
-    input.setCustomValidity('');
-  });
-  const save = document.createElement('button');
-  save.type = 'submit'; save.className = 'navigator-rename-confirm';
-  save.textContent = '✓'; save.title = 'Сохранить название';
-  save.setAttribute('aria-label', 'Сохранить название ' + noun);
-  const cancel = document.createElement('button');
-  cancel.type = 'button'; cancel.className = 'navigator-rename-cancel';
-  cancel.textContent = '×'; cancel.title = 'Отменить переименование';
-  cancel.setAttribute('aria-label', 'Отменить переименование ' + noun);
-  const discard = () => {
-    setNavigatorEditState(kind, null);
-    renderNavigatorKind(kind);
-    document.querySelector<HTMLElement>('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
-  };
-  cancel.addEventListener('click', discard);
-  input.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard(); }
-  });
-  form.addEventListener('submit', event => {
-    event.preventDefault();
-    if (!navigatorCanEdit() || element('page-edit').inert) return;
-    const newName = input.value.trim();
-    if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
-      input.setCustomValidity('Укажите непустое имя без управляющих символов.');
-      input.reportValidity();
-      return;
-    }
-    discard();
-    if (newName !== name) {
-      if (kind === 'page') void pageCommand('rename-page', { pageId: item.id, name: newName });
-      else void pageCommand('rename-screen', { screenId: item.id, name: newName });
-    }
-  });
-  form.append(input, save, cancel);
-  return form;
+function discardNavigatorRename(kind: NavigatorKind, id: string) {
+  setNavigatorEditState(kind, null);
+  renderNavigatorKind(kind);
+  document.querySelector<HTMLElement>('[data-' + kind + '-rename-id="' + id + '"]')?.focus({ preventScroll: true });
 }
-function appendNavigatorActions(row: HTMLElement, kind: NavigatorKind, item: {id: string}, name: string, actions: NavigatorAction[]) {
-  if (!navigatorCanEdit()) return;
-  const noun = kind === 'page' ? 'страницу' : 'экран';
-  const rename = document.createElement('input');
-  rename.type = 'button'; rename.value = '✎'; rename.className = 'navigator-rename-action';
-  rename.dataset[kind + 'RenameId'] = item.id;
-  rename.title = 'Переименовать ' + noun;
-  rename.setAttribute('aria-label', rename.title + ' «' + name + '»');
-  rename.addEventListener('click', () => startNavigatorNameEdit(kind, item, name));
-  const menu = document.createElement('details');
-  menu.className = 'navigator-context-menu';
-  const trigger = document.createElement('summary');
-  trigger.title = kind === 'page' ? 'Действия со страницей' : 'Действия с экраном';
-  trigger.setAttribute('aria-label', trigger.title + ' «' + name + '»');
-  trigger.textContent = '⋯';
-  const body = document.createElement('div');
-  body.className = 'navigator-context-body';
-  body.setAttribute('popover', 'manual');
-  for (const action of actions) {
-    const control = document.createElement('input');
-    control.type = 'button'; control.value = action.label;
-    control.setAttribute('aria-label', action.accessibleLabel);
-    if (action.destructive) control.classList.add('navigator-danger-action');
-    control.addEventListener('click', () => {
-      menu.open = false;
-      if (body.matches(':popover-open')) body.hidePopover();
-      if (navigatorCanEdit() && !element('page-edit').inert) action.run();
-    });
-    body.append(control);
-  }
-  menu.append(trigger, body);
-  const position = () => {
-    if (!menu.open || !menu.isConnected) return;
-    if (!body.matches(':popover-open')) body.showPopover();
-    const anchor = trigger.getBoundingClientRect(), margin = 8, gap = 4;
-    const below = Math.max(0, innerHeight - anchor.bottom - gap - margin);
-    const above = Math.max(0, anchor.top - gap - margin);
-    body.style.maxHeight = '';
-    const openAbove = body.offsetHeight > below && above > below;
-    body.style.maxHeight = (openAbove ? above : below) + 'px';
-    body.style.left = Math.max(margin, Math.min(anchor.right - body.offsetWidth, innerWidth - body.offsetWidth - margin)) + 'px';
-    body.style.top = (openAbove ? anchor.top - gap - body.offsetHeight : anchor.bottom + gap) + 'px';
-  };
-  menu.addEventListener('toggle', () => {
-    if (!menu.open) {
-      if (body.matches(':popover-open')) body.hidePopover();
-      return;
-    }
-    if (element('page-edit').inert || !trigger.getClientRects().length) { menu.open = false; return; }
-    for (const other of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open], .navigator-toolbar details[open]'))
-      if (other !== menu) other.open = false;
-    position();
-  });
-  row.addEventListener('contextmenu', event => {
-    if (!(event.target instanceof Element) || event.target.closest('.page-tree-item, .screen-row') !== row ||
-        event.target.closest('input, summary, .navigator-context-body') ||
-        element('page-edit').inert) return;
-    event.preventDefault();
-    menu.open = true;
-    position();
-    body.querySelector<HTMLElement>('input')?.focus({ preventScroll: true });
-  });
-  row.append(rename, menu);
-}
-
 function renderPages() {
-  const list = element('pages');
-  const screensList = element('screens');
-  const previousInput = document.activeElement instanceof HTMLInputElement && document.activeElement.id === 'page-name-input' ? document.activeElement : null;
-  const selection: [number | null, number | null] | null = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
   if (editingPageName && (!pagesItems.some(item => item.id === editingPageName?.id) || !navigatorCanEdit())) editingPageName = null;
-  // Preserve the same live screen list (and its handlers) as the selected page changes.
-  screensList.remove();
-  list.replaceChildren();
-  for (const item of pagesItems) {
-    const selected = item.id === selectedPage;
-    const row = document.createElement('li');
-    row.className = 'page-tree-item';
-    if (editingPageName?.id === item.id) {
-      row.append(navigatorRenameForm('page', item, item.name));
-    } else {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'page-select';
-      button.dataset.pageId = item.id;
-      button.textContent = item.name;
-      button.setAttribute('aria-pressed', String(selected));
-      button.setAttribute('aria-expanded', String(selected && pageExpanded));
-      button.addEventListener('click', () => {
-        if (selectedPage !== item.id && !scenarios.requestLeave(() => button.click())) return;
-        if (selectedPage === item.id) {
-          pageExpanded = !pageExpanded;
-          renderPages();
-          element('pages').querySelector<HTMLElement>('[data-page-id="' + item.id + '"]')?.focus();
-          return;
-        }
-        layers.onScreenContextChanged();
-        selectedPage = item.id;
-        selectedScreen = null;
-        screensItems = []; screensTotal = 0;
-        pageExpanded = true;
-        diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
-        renderPages(); renderScreens(); refreshPages();
-      });
-      row.append(button);
-      appendNavigatorActions(row, 'page', item, item.name, [{
-        label: 'Удалить', accessibleLabel: 'Удалить страницу', destructive: true,
-        run: () => {
-          if (revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
-            pageCommand('delete-page', { pageId: item.id, expectedRevision: revision }, selectedPage === item.id ? null : undefined);
-        }
-      }]);
-    }
-    if (selected && pageExpanded) row.append(screensList);
-    list.append(row);
-  }
-  if (!screensList.isConnected) required(list.closest('.editor-group')).append(screensList);
-  screensList.hidden = !selectedPage || !pageExpanded;
-  if (selection && editingPageName) {
-    const input = document.querySelector<HTMLInputElement>('#page-name-input');
-    if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
-  }
+  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName?.id) || !navigatorCanEdit())) editingScreenName = null;
+  navigatorView.render({pages:pagesItems, screens:screensItems, selectedPage, selectedScreen, pageExpanded, screensOffset,
+    canEdit:navigatorCanEdit(), editingPageName, editingScreenName});
 }
-
+function selectPage(id: string) {
+  if (selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
+  if (selectedPage === id) {
+    pageExpanded = !pageExpanded;
+    renderPages();
+    element('pages').querySelector<HTMLElement>('[data-page-id="' + id + '"]')?.focus();
+    return;
+  }
+  layers.onScreenContextChanged();
+  selectedPage = id; selectedScreen = null; screensItems = []; screensTotal = 0; pageExpanded = true;
+  diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
+  renderPages(); renderScreens(); void refreshPages();
+}
+function selectScreen(id: string) {
+  if ((selectedScreen !== id || layers.selection) && !scenarios.requestLeave(() => selectScreen(id))) return;
+  if (selectedScreen !== id) {
+    layers.onScreenContextChanged(); selectedScreen = id; diagnostics.reset(); scenarios.reset();
+    screenVariants.reset(); screenResize.render(); void refreshPages();
+  } else layers.clearSelection();
+  renderPages(); renderCanvas();
+}
 function renderScreens() {
-  const list = element('screens');
-  const focusedScreenId = document.activeElement instanceof HTMLElement ? document.activeElement.dataset.screenId : undefined;
-  const previousInput = document.activeElement instanceof HTMLInputElement && document.activeElement.id === 'screen-name-input' ? document.activeElement : null;
-  const selection: [number | null, number | null] | null = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
-  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName?.id) ||
-      !['Owner', 'Editor'].includes(documentRole ?? ''))) editingScreenName = null;
-  list.replaceChildren();
-  for (const [index, item] of screensItems.entries()) {
-    const name = item.name ?? `Экран ${screensOffset + index + 1}`;
-    const row = document.createElement('li');
-    row.className = 'screen-row';
-    if (editingScreenName?.id === item.id) {
-      row.append(navigatorRenameForm('screen', item, name));
-    } else {
-      const button = document.createElement('button');
-      button.type = 'button'; button.className = 'screen-select'; button.dataset.screenId = item.id;
-      button.textContent = `${name} · ${item.dimensions.width} × ${item.dimensions.height}`;
-      button.title = name;
-      button.setAttribute('aria-pressed', String(item.id === selectedScreen));
-      button.addEventListener('click', () => {
-        if ((selectedScreen !== item.id || layers.selection) && !scenarios.requestLeave(() => button.click())) return;
-        if (selectedScreen !== item.id) {
-          layers.onScreenContextChanged(); selectedScreen = item.id; diagnostics.reset(); scenarios.reset();
-          screenVariants.reset(); screenResize.render(); refreshPages();
-        } else layers.clearSelection();
-        for (const other of list.querySelectorAll('button[data-screen-id]'))
-          other.setAttribute('aria-pressed', String(other === button));
-        renderCanvas();
-      });
-      row.append(button);
-      appendNavigatorActions(row, 'screen', item, name, [{
-        label: 'Дублировать', accessibleLabel: 'Дублировать экран «' + name + '»',
-        run: () => {
-          if (revision === null) return;
-          const newScreenId = crypto.randomUUID();
-          pageCommand('duplicate-screen', { screenId: item.id, newScreenId, expectedRevision: revision }, undefined, newScreenId);
-        }
-      }]);
-    }
-    list.append(row);
-  }
-  if (selection && editingScreenName) {
-    const input = document.querySelector<HTMLInputElement>('#screen-name-input');
-    if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
-  }
-  if (focusedScreenId && !editingScreenName)
-    list.querySelector<HTMLElement>('[data-screen-id="' + focusedScreenId + '"]')?.focus({ preventScroll: true });
+  renderPages();
   renderCanvas(); screenResize.render();
   const activeScreen = screensItems.find(item => item.id === selectedScreen);
   element('layers-title').textContent = activeScreen
@@ -1080,6 +879,29 @@ element('screen-create').addEventListener('submit', event => {
   const screenId = crypto.randomUUID();
   pageCommand('add-screen', { pageId: selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 });
+const navigatorView = createDocumentNavigator(element('pages'), element('screens'), {
+  isBusy: () => element('page-edit').inert || !navigatorCanEdit(),
+  selectPage, selectScreen,
+  startRename: startNavigatorNameEdit,
+  changeDraft(kind, value) { const draft = navigatorEditState(kind); if (draft) draft.value = value; },
+  discardRename: discardNavigatorRename,
+  saveRename(kind, id, previousName, name) {
+    discardNavigatorRename(kind, id);
+    if (name === previousName) return;
+    if (kind === 'page') void pageCommand('rename-page', {pageId:id, name});
+    else void pageCommand('rename-screen', {screenId:id, name});
+  },
+  deletePage(item) {
+    if (revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
+      void pageCommand('delete-page', {pageId:item.id, expectedRevision:revision}, selectedPage === item.id ? null : undefined);
+  },
+  duplicateScreen(item) {
+    if (revision === null) return;
+    const newScreenId = crypto.randomUUID();
+    void pageCommand('duplicate-screen', {screenId:item.id, newScreenId, expectedRevision:revision}, undefined, newScreenId);
+  },
+});
+renderPages();
 function closeNavigatorContextMenus() {
   for (const menu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]')) menu.open = false;
 }
