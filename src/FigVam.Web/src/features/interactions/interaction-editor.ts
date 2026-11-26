@@ -1,29 +1,46 @@
+import type { ApiClient } from '../../api/api-client';
+import { requiredRecord, array, text } from '../../api/decode';
+import type { Catalog } from './interaction-catalog';
+
+export type ActionKind='navigate'|'openOverlay'|'closeOverlay'|'showVariant'|'setDemoValue'|'selectDataset'|'resetPreview';
+export interface ActionDraft {type:ActionKind|'';screenId?:string;variantId?:string|null;datasetId?:string|null;nodeId?:string;value?:string|null}
+export interface ScenarioDraft {id:string;screenId:string;nodeId:string;event:number|null;actions:ActionDraft[]}
+export interface EditorContext {doc:string|null;screen:string|null;node:string|null;revision:number|null;token:string|null;epoch:number;editable:boolean}
+interface Capability {events:number[];actions:string[];potentialActions:string[];demoTargetIds:string[];navigationScreenId:string|null;demoScreenId:string|null}
+export interface Draft extends EditorContext {scenario:ScenarioDraft;creating:boolean;opener:HTMLElement;original:string;conflict:boolean;valid:boolean;capabilityCache:Map<string,Capability>}
+interface EditorOptions {element(id:string):HTMLElement;request:ApiClient;current():EditorContext;catalog():Catalog|null;sourceName(id:string):string;submit(draft:Draft,scenario:ScenarioDraft):void;pending():boolean;onClose():void}
+interface Choice {id:string;label:string;group?:string}
+interface Values {targetId?:string;screenId?:string|null;variantId?:string|null;datasetId?:string|null;demoNodeId?:string;demoValue?:string|null}
+function asElement<T extends HTMLElement>(node:HTMLElement, ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected interaction editor element: '+node.id);return node;}
+function number(value:unknown):number{if(typeof value!=='number'||!Number.isInteger(value))throw new TypeError('Invalid event');return value;}
+function capability(value:unknown):Capability{const c=requiredRecord(value);return{events:array(c.events,number),actions:array(c.actions,text),potentialActions:array(c.potentialActions,text),demoTargetIds:array(c.demoTargetIds,text),navigationScreenId:c.navigationScreenId==null?null:text(c.navigationScreenId),demoScreenId:c.demoScreenId==null?null:text(c.demoScreenId)};}
 export const eventLabels = ['По нажатию', 'При изменении', 'При наведении', 'При уходе указателя', 'При отправке'];
-export const actionLabels = {
+export const actionLabels:Record<ActionKind,string> = {
   navigate: 'Перейти на экран', openOverlay: 'Открыть оверлей', closeOverlay: 'Закрыть оверлей',
   showVariant: 'Переключить вариант', setDemoValue: 'Установить значение',
   selectDataset: 'Выбрать датасет', resetPreview: 'Сбросить Preview'
 };
 const noValue = '__null__';
-const id = value => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-const clone = value => structuredClone(value);
-function button(text, name, click) {
+const id = (value:unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+const clone = <T>(value:T):T => structuredClone(value);
+const isActionKind=(value:string):value is ActionKind=>Object.hasOwn(actionLabels,value);
+function button(text:string, name:string, click:()=>void) {
   const b = document.createElement('button');
   b.type = 'button'; b.textContent = text; b.setAttribute('aria-label', name); b.addEventListener('click', click);
   return b;
 }
-function labelled(text, control, parent) {
+function labelled<T extends HTMLElement>(text:string, control:T, parent:HTMLElement):T {
   const label = document.createElement('label');
   control.setAttribute('aria-label', text);
   label.append(text, control); parent.append(label); return control;
 }
-function setChoices(select, items, value, placeholder = 'Выберите значение') {
-  const options = [{ id: '', label: placeholder }, ...items];
+function setChoices(select:HTMLSelectElement, items:Choice[], value:string|null|undefined, placeholder = 'Выберите значение') {
+  const options:Choice[] = [{ id: '', label: placeholder }, ...items];
   if (value && !options.some(o => o.id === value)) options.push({ id: value, label: 'Недоступное значение' });
   const key = JSON.stringify(options.map(o => [o.id, o.label, o.group ?? '']));
   if (select.dataset.options !== key) {
     select.replaceChildren();
-    const groups = new Map();
+    const groups = new Map<string,HTMLOptGroupElement>();
     for (const item of options) {
       const option = new Option(item.label, item.id);
       if (!item.group) select.append(option);
@@ -32,27 +49,27 @@ function setChoices(select, items, value, placeholder = 'Выберите зна
           const group = document.createElement('optgroup'); group.label = item.group;
           select.append(group); groups.set(item.group, group);
         }
-        groups.get(item.group).append(option);
+        groups.get(item.group)?.append(option);
       }
     }
     select.dataset.options = key;
   }
   select.value = value ?? '';
 }
-function objectPicker(parent, label, changed) {
+function objectPicker(parent:HTMLElement, label:string, changed:(value:string)=>void) {
   const search = document.createElement('input'); search.type = 'search'; search.placeholder = 'Поиск по имени';
   labelled('Поиск: ' + label, search, parent);
   const select = labelled(label, document.createElement('select'), parent);
-  let options = [], value = '';
+  let options:Choice[] = [], value = '';
   function render() {
     const q = search.value.toLocaleLowerCase().trim();
     setChoices(select, options.filter(o => !q || o.label.toLocaleLowerCase().includes(q) || o.id === value), value);
   }
   search.addEventListener('input', render);
   select.addEventListener('change', () => { value = select.value; changed(value); });
-  return { update(items, selected) { options = items; value = selected ?? ''; render(); } };
+  return { update(items:Choice[], selected:string|null|undefined) { options = items; value = selected ?? ''; render(); } };
 }
-function actionComplete(a) {
+function actionComplete(a:ActionDraft) {
   switch (a.type) {
     case 'navigate': case 'openOverlay': return id(a.screenId);
     case 'showVariant': return a.variantId === null || id(a.variantId);
@@ -62,17 +79,18 @@ function actionComplete(a) {
     default: return false;
   }
 }
-function emptyAction(type) {
+function emptyAction(type:string):ActionDraft {
   if (type === 'setDemoValue') return { type, value: null };
-  return { type };
+  return { type:isActionKind(type)?type:'' };
 }
 
-export function createInteractionEditor({ element, request, current, catalog, sourceName, submit, pending, onClose }) {
-  let draft = null, rows = [], controller = null, generation = 0, validationTimer = null;
-  const form = element('scenario-edit'), fields = element('scenario-edit-fields');
-  const event = element('scenario-edit-event'), status = element('scenario-edit-validation');
-  const sameContext = d => draft === d && current().doc === d.doc && current().screen === d.screen && current().token === d.token;
-  const active = d => sameContext(d) && current().revision === d.revision && current().editable && !d.conflict;
+export function createInteractionEditor({ element, request, current, catalog, sourceName, submit, pending, onClose }:EditorOptions) {
+  let draft:Draft|null=null, rows:{type:HTMLSelectElement;picker:ReturnType<typeof objectPicker>|null;error:HTMLElement}[]=[], controller:AbortController|null=null, generation=0, validationTimer:ReturnType<typeof setTimeout>|undefined;
+  const btn=(id:string)=>asElement(element(id),HTMLButtonElement);
+  const form=asElement(element('scenario-edit'),HTMLFormElement),fields=asElement(element('scenario-edit-fields'),HTMLFieldSetElement);
+  const event = asElement(element('scenario-edit-event'),HTMLSelectElement), status = element('scenario-edit-validation');
+  const sameContext = (d:Draft) => draft === d && current().doc === d.doc && current().screen === d.screen && current().token === d.token;
+  const active = (d:Draft) => sameContext(d) && current().revision === d.revision && current().editable && !d.conflict;
   const dirty = () => !!draft && JSON.stringify(draft.scenario) !== draft.original;
   const canSave = () => !!draft && active(draft) && draft.valid && !pending();
   const contextError = 'Документ изменился. Загрузите актуальное состояние или откажитесь от черновика.';
@@ -81,11 +99,11 @@ export function createInteractionEditor({ element, request, current, catalog, so
     if (!draft) return;
     const unavailable = !active(draft) || pending();
     fields.disabled = unavailable;
-    element('scenario-edit-add').disabled = draft.scenario.actions.length >= 32;
-    element('scenario-edit-submit').disabled = !canSave();
+    btn('scenario-edit-add').disabled = draft.scenario.actions.length >= 32;
+    btn('scenario-edit-submit').disabled = !canSave();
     element('scenario-edit-reload').hidden = !draft.conflict;
     element('scenario-edit-conflict').textContent = draft.conflict ? contextError : '';
-    element('scenario-edit-cancel').disabled = pending();
+    btn('scenario-edit-cancel').disabled = pending();
   }
 
   function close(restoreFocus = false) {
@@ -96,12 +114,12 @@ export function createInteractionEditor({ element, request, current, catalog, so
     element('scenario-edit-actions').replaceChildren();
     onClose();
     if (restoreFocus && old) {
-      const target = old.creating ? element('scenario-create') : [...element('scenarios-list').children].find(card => card.dataset.scenarioId === old.scenario.id)?.querySelector('button[aria-label^="Изменить"]');
+      const target = old.creating ? element('scenario-create') : [...element('scenarios-list').querySelectorAll<HTMLElement>(':scope > *')].find(card => card.dataset.scenarioId === old.scenario.id)?.querySelector<HTMLElement>('button[aria-label^="Изменить"]');
       (target ?? element('tab-prototype')).focus();
     }
   }
 
-  function open(scenario, opener, creating = false) {
+  function open(scenario:ScenarioDraft, opener:HTMLElement, creating = false) {
     const ctx = current();
     if (!ctx.editable || pending()) return;
     if (draft) close();
@@ -127,7 +145,8 @@ export function createInteractionEditor({ element, request, current, catalog, so
     else validationTimer = setTimeout(validate, 180);
   }
 
-  function renderRows(focusIndex) {
+  function renderRows(focusIndex?:number) {
+    if(!draft)return;
     const list = element('scenario-edit-actions'), actions = draft.scenario.actions;
     rows = [];
     list.replaceChildren();
@@ -135,9 +154,10 @@ export function createInteractionEditor({ element, request, current, catalog, so
       const row = document.createElement('li'); row.className = 'interaction-action';
       const tools = document.createElement('div'); tools.className = 'interaction-action-tools';
       const number = document.createElement('strong'); number.textContent = 'Действие ' + (index + 1);
-      const move = direction => {
+      const move = (direction:number) => {
         const destination = index + direction;
-        [actions[index], actions[destination]] = [actions[destination], actions[index]];
+        const dest=actions[destination];if(!dest)return;
+        actions[index]=dest; actions[destination]=action;
         renderRows(destination); changed(true);
       };
       const up = button('↑', 'Поднять действие ' + (index + 1), () => move(-1)); up.disabled = index === 0;
@@ -153,8 +173,8 @@ export function createInteractionEditor({ element, request, current, catalog, so
         renderRows(index); changed(true);
       });
       const params = document.createElement('div'); row.append(params);
-      const set = (key, value) => { actions[index][key] = value; changed(); };
-      let picker = null;
+      const set = <K extends keyof ActionDraft>(key:K,value:ActionDraft[K])=>{const current=actions[index];if(current){current[key]=value;changed();}};
+      let picker:ReturnType<typeof objectPicker>|null = null;
       if (['navigate', 'openOverlay'].includes(action.type)) picker = objectPicker(params, 'Целевой экран', value => set('screenId', value || undefined));
       if (action.type === 'showVariant') picker = objectPicker(params, 'Вариант', value => set('variantId', value === noValue ? null : value || undefined));
       if (action.type === 'selectDataset') picker = objectPicker(params, 'Датасет', value => set('datasetId', value === noValue ? null : value || undefined));
@@ -169,7 +189,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
         plainLabel.append('Демонстрационное значение', value); passwordLabel.append('Демонстрационное значение', password);
         params.append(plainLabel, passwordLabel);
         function refreshPassword() {
-          const secret = catalog()?.nodes.find(n => n.id === actions[index].nodeId)?.properties?.inputType?.value === 'Password';
+          const secret = catalog()?.nodes.find(n => n.id === actions[index]?.nodeId)?.properties?.inputType?.value === 'Password';
           plainLabel.hidden = !!secret; passwordLabel.hidden = !secret;
           value.disabled = password.disabled = nullBox.checked;
         }
@@ -185,7 +205,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
     if (focusIndex !== undefined) (rows[focusIndex]?.type ?? element('scenario-edit-add')).focus();
   }
 
-  async function capabilities(d, prefix, values = {}) {
+  async function capabilities(d:Draft, prefix:ActionDraft[], values:Values={}):Promise<Capability> {
     const { targetId, screenId, variantId, datasetId, demoNodeId, demoValue = null } = values;
     const q = new URLSearchParams({ revision: String(d.revision), nodeId: d.scenario.nodeId });
     for (const [key, value] of Object.entries({ targetId, screenId, variantId, datasetId, demoNodeId })) if (value) q.set(key, value);
@@ -193,11 +213,12 @@ export function createInteractionEditor({ element, request, current, catalog, so
     const cacheKey = q.toString() + '\n' + body;
     // Capability answers are immutable for this draft's document revision.
     // Reusing validated prefixes avoids exhausting the request budget while editing long action lists.
-    if (d.capabilityCache.has(cacheKey)) return d.capabilityCache.get(cacheKey);
-    const signal = controller.signal;
-    const response = await request('/api/v1/documents/' + encodeURIComponent(d.doc) + '/scenario-capabilities?' + q, {
+    const cached=d.capabilityCache.get(cacheKey);if(cached)return cached;
+    if(!controller||!d.doc)throw new Error('No active scenario request');
+    const signal=controller.signal;
+    const response = requiredRecord(await request('/api/v1/documents/' + encodeURIComponent(d.doc) + '/scenario-capabilities?' + q, {
       method: 'POST', body
-    }, signal);
+    }, signal));
     if (response.documentId !== d.doc || response.nodeId !== d.scenario.nodeId || response.revision !== d.revision ||
         (response.targetId ?? null) !== (targetId ?? null) || (response.screenId ?? null) !== (screenId ?? null) ||
         (response.variantId ?? null) !== (variantId ?? null) || (response.datasetId ?? null) !== (datasetId ?? null) ||
@@ -205,14 +226,16 @@ export function createInteractionEditor({ element, request, current, catalog, so
         !Array.isArray(response.events) || !Array.isArray(response.actions) || !Array.isArray(response.potentialActions) ||
         !Array.isArray(response.demoTargetIds) || !Object.hasOwn(response, 'navigationScreenId') || !Object.hasOwn(response, 'demoScreenId'))
       throw new TypeError('Некорректный ответ о возможностях');
+    const decoded=capability(response);
     if (!signal.aborted && active(d)) {
-      if (d.capabilityCache.size >= 256) d.capabilityCache.delete(d.capabilityCache.keys().next().value);
-      d.capabilityCache.set(cacheKey, response);
+      const oldest=d.capabilityCache.keys().next().value;
+      if (d.capabilityCache.size>=256&&oldest!==undefined)d.capabilityCache.delete(oldest);
+      d.capabilityCache.set(cacheKey, decoded);
     }
-    return response;
+    return decoded;
   }
 
-  function choices(action, ctx, objects) {
+  function choices(action:ActionDraft, ctx:Capability, objects:Catalog):Choice[] {
     switch (action.type) {
       case 'navigate': case 'openOverlay': return objects.screens.map(s => ({ ...s, group: s.pageName }));
       case 'showVariant': return [{ id: noValue, label: 'Базовое состояние' }, ...objects.variants.filter(v => !ctx.navigationScreenId || v.screenId === ctx.navigationScreenId)];
@@ -221,14 +244,14 @@ export function createInteractionEditor({ element, request, current, catalog, so
       default: return [];
     }
   }
-  function parameter(action) {
+  function parameter(action:ActionDraft):string|null|undefined {
     if (action.type === 'navigate' || action.type === 'openOverlay') return action.screenId;
     if (action.type === 'showVariant') return action.variantId === null ? noValue : action.variantId;
     if (action.type === 'selectDataset') return action.datasetId === null ? noValue : action.datasetId;
     if (action.type === 'setDemoValue') return action.nodeId;
     return '';
   }
-  function exact(action, ctx, objects, d) {
+  function exact(action:ActionDraft, ctx:Capability, objects:Catalog, d:Draft):Values {
     switch (action.type) {
       case 'navigate': case 'openOverlay': return { targetId: action.screenId };
       case 'showVariant': return { screenId: ctx.navigationScreenId ?? objects.variants.find(v => v.id === action.variantId)?.screenId ?? d.screen, variantId: action.variantId };
@@ -249,21 +272,21 @@ export function createInteractionEditor({ element, request, current, catalog, so
       let ctx = await capabilities(d, []);
       if (!live()) return;
       if (d.creating && d.scenario.event === null && ctx.events.length) {
-        d.scenario.event = ctx.events.includes(0) ? 0 : ctx.events[0];
+        d.scenario.event = ctx.events.includes(0) ? 0 : ctx.events[0]??null;
         if (JSON.parse(d.original).event === null) {
           const initial = JSON.parse(d.original); initial.event = d.scenario.event; d.original = JSON.stringify(initial);
         }
       }
-      setChoices(event, ctx.events.map(v => ({ id: String(v), label: eventLabels[v] })), d.scenario.event == null ? '' : String(d.scenario.event), 'Выберите событие');
-      let valid = ctx.events.includes(d.scenario.event) && d.scenario.actions.length > 0;
+      setChoices(event, ctx.events.map(v => ({ id: String(v), label: eventLabels[v]??'Неизвестное событие' })), d.scenario.event == null ? '' : String(d.scenario.event), 'Выберите событие');
+      let valid = d.scenario.event!==null && ctx.events.includes(d.scenario.event) && d.scenario.actions.length > 0;
       let prefixValid = true;
       for (let i = 0; i < d.scenario.actions.length; i++) {
-        const action = d.scenario.actions[i], controls = rows[i];
+        const action=d.scenario.actions[i],controls=rows[i];if(!action||!controls)throw new Error('Missing action control');
         if (i > 0 && prefixValid) {
           ctx = await capabilities(d, d.scenario.actions.slice(0, i));
           if (!live()) return;
         }
-        setChoices(controls.type, ctx.potentialActions.filter(t => Object.hasOwn(actionLabels, t)).map(t => ({ id: t, label: actionLabels[t] })), action.type, 'Выберите действие');
+        setChoices(controls.type, ctx.potentialActions.filter(isActionKind).map(t => ({ id: t, label: actionLabels[t] })), action.type, 'Выберите действие');
         const options = prefixValid ? choices(action, ctx, objects) : [];
         controls.picker?.update(options, parameter(action));
         controls.error.textContent = '';
@@ -305,7 +328,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
   element('scenario-edit-cancel').addEventListener('click', () => close(true));
   form.addEventListener('submit', e => { e.preventDefault(); save(); });
   function save() {
-    if (!canSave()) return false;
+    if (!draft||!canSave()) return false;
     submit(draft, clone(draft.scenario));
     return true;
   }

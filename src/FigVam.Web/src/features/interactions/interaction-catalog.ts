@@ -6,7 +6,7 @@ import { requiredRecord, text } from '../../api/decode';
 interface Named { id: string; name?: string | null }
 interface NodeItem extends Named, LayerCaptionSource { parentId: string; kind: string; childCount?: number }
 type Labeled<T> = T & { label: string };
-interface Catalog {
+export interface Catalog {
   screens: Labeled<Named & { pageName: string }>[];
   datasets: Labeled<Named>[];
   nodes: (Labeled<NodeItem> & { screenId: string })[];
