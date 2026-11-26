@@ -310,7 +310,7 @@ test('Viewer can navigate from overview but not edit', async ({ page, request })
     await route.fulfill({ response: result, json: body });
   });
   await open(page, f);
-  await expect(card(page)).toContainText('Source');
+  await expect(page.locator('.scenario-group-name')).toHaveText('Source');
   await card(page).getByRole('button', { name: 'Source · По нажатию' }).click();
   await expect(page.locator('#scenarios-title')).toContainText('Source');
   await expect(page.locator('#scenario-create')).toBeHidden();
@@ -480,4 +480,29 @@ test('overview groups by element, collapses independently and uses theme tokens'
   await expect(page.locator('#scenarios-title')).toHaveText('Source');
   await expect(card(page)).toHaveCount(2);
   await expect(card(page).first().getByRole('button', { name: /^Изменить сценарий/ })).toBeVisible();
+});
+
+test('overview paginates whole groups and preserves collapsed state across pages', async ({ page, request }) => {
+  test.setTimeout(120_000);
+  const f = await setup(request);
+  await f.add(); await f.add(f.second); await f.add();
+  for (let i = 0; i < 19; i++) {
+    const nodeId = randomUUID();
+    await f.command('add-node', { nodeId, parentId: f.screens[0], kind: 'Button', properties: { text: str('Extra ' + i) } });
+    await f.add(nodeId);
+  }
+  await open(page, f);
+  const groups = page.locator('.scenario-group');
+  await expect(page.locator('#scenarios-count')).toHaveText('22');
+  await expect(page.locator('#scenarios-number')).toHaveText('1–20 из 21');
+  await expect(groups).toHaveCount(20);
+  await expect(groups.first().locator('.scenario-entry')).toHaveCount(2);
+  await groups.first().locator('summary').click();
+  await expect(groups.first().locator('.scenario-group-items')).toBeHidden();
+  await page.getByRole('button', { name: 'Следующие сценарии' }).click();
+  await expect(page.locator('#scenarios-number')).toHaveText('21–21 из 21');
+  await expect(groups).toHaveCount(1);
+  await expect(groups.first().locator('.scenario-group-name')).toHaveText('Extra 18');
+  await page.getByRole('button', { name: 'Предыдущие сценарии' }).click();
+  await expect(groups.first().locator('.scenario-group-items')).toBeHidden();
 });
