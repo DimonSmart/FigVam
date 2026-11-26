@@ -15,6 +15,7 @@ internal static class McpTokenSchemas
         object example = type switch
         {
             TokenType.Color => "#2563EB",
+            TokenType.Shadow => new { offsetX = 0, offsetY = 4, blurRadius = 8, spreadRadius = 0, color = "#00000026" },
             TokenType.Spacing => new { expression = "literal", value = new { type = "spacing", value = 8 } },
             TokenType.Geometry => 8,
             TokenType.Dimension => 1,
@@ -30,6 +31,7 @@ internal static class McpTokenSchemas
             description = type switch
             {
                 TokenType.Color => "Reusable RGBA color.",
+                TokenType.Shadow => "Reusable single drop shadow with themed geometry and RGBA color.",
                 TokenType.Spacing => "Legacy spacing token; prefer Dimension with category Spacing.",
                 TokenType.Geometry => "Legacy nonnegative corner radius.",
                 TokenType.Dimension => "Dimension in logical UI units, constrained by its semantic category.",

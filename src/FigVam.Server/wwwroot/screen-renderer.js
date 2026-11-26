@@ -158,7 +158,10 @@ export function renderScreen(model, options) {
     }
     if (!options.preview && surface.matches('input, textarea, button')) surface.tabIndex = -1;
     appearance(surface, property, tokens, theme, box.bounds, report, kind.properties);
-    const shadow = property('shadow');
+    const rawShadow = property('shadow');
+    const shadowResult = rawShadow?.type === 'token' ? resolvePropertyToken(rawShadow, tokens, theme, kind.properties.shadow) : { value: rawShadow };
+    if (shadowResult.error) report('shadow', shadowResult.error);
+    const shadow = shadowResult.value;
     if (shadow?.type === 'shadow') {
       const { offsetX, offsetY, blurRadius, spreadRadius, color: rgba } = shadow;
       if ([offsetX, offsetY, blurRadius, spreadRadius].every(Number.isFinite) && rgba) {

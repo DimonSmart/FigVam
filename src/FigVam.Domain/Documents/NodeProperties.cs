@@ -82,7 +82,7 @@ public static class NodePropertyValidator
             (NodePropertyType.Enum, NodeEnumValue) => true,
             (NodePropertyType.Color, NodeColorValue) => true,
             (NodePropertyType.Shadow, NodeShadowValue) => true,
-            (NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum, NodeTokenValue)
+            (NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum or NodePropertyType.Shadow, NodeTokenValue)
                 => definition.TokenType is not null,
             (NodePropertyType.Enum, NodeNumberValue) => definition.NumericFontWeight,
             _ => false
@@ -93,12 +93,7 @@ public static class NodePropertyValidator
                 ? $"{definition.Type} or a {tokenType} token" : definition.Type.ToString();
             return new("INVALID_PROPERTY_TYPE", $"Property '{property}' requires {expected}.");
         }
-        if (value is NodeShadowValue shadow &&
-            (!InRange(shadow.OffsetX, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset) ||
-             !InRange(shadow.OffsetY, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset) ||
-             !InRange(shadow.BlurRadius, 0, NodeShadowValue.MaxBlurRadius) ||
-             !InRange(shadow.SpreadRadius, -NodeShadowValue.MaxSpreadRadius, NodeShadowValue.MaxSpreadRadius) ||
-             shadow.Color is null))
+        if (value is NodeShadowValue shadow && !IsValidShadow(shadow))
             return new("INVALID_PROPERTY_VALUE", "Shadow requires finite offsets in [-1024, 1024], blur in [0, 256], spread in [-256, 256] and a color.");
         if (value is NodeEnumValue item && definition.EnumValues?.Contains(item.Value) != true)
             return new("INVALID_PROPERTY_VALUE", $"Property '{property}' requires a declared enum value.");
@@ -127,6 +122,13 @@ public static class NodePropertyValidator
         return definition.ValidateValue?.Invoke(value!) is { } reason ? new("INVALID_PROPERTY_VALUE", reason) : null;
     }
 
+    public static bool IsValidShadow(NodeShadowValue shadow) =>
+        InRange(shadow.OffsetX, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset) &&
+        InRange(shadow.OffsetY, -NodeShadowValue.MaxOffset, NodeShadowValue.MaxOffset) &&
+        InRange(shadow.BlurRadius, 0, NodeShadowValue.MaxBlurRadius) &&
+        InRange(shadow.SpreadRadius, -NodeShadowValue.MaxSpreadRadius, NodeShadowValue.MaxSpreadRadius) &&
+        shadow.Color is not null;
+
     private static bool InRange(double value, double min, double max) => double.IsFinite(value) && value >= min && value <= max;
 
     // Shared conversion for layout, variants, and component-bound properties.
@@ -147,6 +149,7 @@ public static class NodePropertyValidator
             FontWeightValue weight => new NodeNumberValue(weight.Value),
             FontFamilyValue family => new NodeStringValue(family.Value),
             ColorValue color => new NodeColorValue(color.Red, color.Green, color.Blue, color.Alpha),
+            ShadowValue shadow => shadow.ToNodeValue(),
             _ => null
         };
         if (value is null) return (null, new("type-mismatch", "Token value is not compatible with the property."));

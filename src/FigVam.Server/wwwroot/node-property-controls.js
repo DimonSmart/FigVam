@@ -157,7 +157,7 @@ function fontWeightControl(name, initial) {
 export const shadowPreset = { type: 'shadow', offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0,
   color: { red: 0, green: 0, blue: 0, alpha: 38 } };
 
-function shadowControl(initial) {
+export function shadowControl(initial) {
   const value = initial ?? shadowPreset;
   const dimensions = [['offsetX', 'X', -1024, 1024], ['offsetY', 'Y', -1024, 1024],
     ['blurRadius', 'Blur', 0, 256], ['spreadRadius', 'Spread', -256, 256]];
@@ -176,6 +176,11 @@ function shadowControl(initial) {
     initial: [...dimensions.map(([key]) => String(value[key])), ...colors.initial],
     read: () => [...inputs.map(input => input.value), ...colors.read()],
     write(raw) { inputs.forEach((input, i) => { input.value = raw[i]; }); colors.write(raw.slice(4)); },
+    writeResolved(result) {
+      if (result.error) { this.write(['', '', '', '', '', '']); return; }
+      const value = result.value;
+      this.write([...dimensions.map(([key]) => String(value[key])), '#' + [value.color.red, value.color.green, value.color.blue].map(v => v.toString(16).padStart(2, '0')).join(''), String(value.color.alpha)]);
+    },
     validate() {
       for (const input of inputs)
         if (!input.validity.valid || !Number.isFinite(input.valueAsNumber))
@@ -272,7 +277,7 @@ export function createPropertyControl(name, definition, model, value, prefix) {
     scalarControl(name, definition, model, directValue,
       compactGeometry);
   const control = hasTokenChoice ? createTokenValueControl(name, definition, model, initial, direct, propertyLabel(name),
-    compactGeometry ? compactGeometryLabel(name) : propertyLabel(name)) : direct;
+    compactGeometry ? compactGeometryLabel(name) : propertyLabel(name), { theme: model.theme ?? 'Light', ...(definition.type === 'Shadow' ? { customDirect: true, writeResolved: result => direct.writeResolved(result) } : {}) }) : direct;
   const row = document.createElement('div'), feedback = document.createElement('p');
   row.className = 'node-property';
   if (hasTokenChoice) row.classList.add('node-property--token');

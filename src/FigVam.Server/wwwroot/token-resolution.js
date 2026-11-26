@@ -1,9 +1,9 @@
 // The browser mirrors the portable token contract; the server remains authoritative.
-const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
+const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight', 'Shadow'];
 const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
 const valueTypes = {
   Color: 'color', Spacing: 'spacing', Typography: 'typography', Geometry: 'geometry',
-  Dimension: 'dimension', Number: 'number', FontFamily: 'fontFamily', FontWeight: 'fontWeight'
+  Dimension: 'dimension', Number: 'number', FontFamily: 'fontFamily', FontWeight: 'fontWeight', Shadow: 'shadow'
 };
 
 export function normalizedTokenType(type) {
@@ -33,6 +33,9 @@ export function compatibleToken(token, definition) {
 
 function isValidValue(value, type, category) {
   if (value?.type !== valueTypes[type] || !categoryIsValid(type, category)) return false;
+  if (type === 'Shadow') return [value.offsetX, value.offsetY, value.blurRadius, value.spreadRadius].every(Number.isFinite) &&
+    Math.abs(value.offsetX) <= 1024 && Math.abs(value.offsetY) <= 1024 && value.blurRadius >= 0 && value.blurRadius <= 256 &&
+    Math.abs(value.spreadRadius) <= 256 && isValidValue({ ...value.color, type: 'color' }, 'Color', null);
   if (type === 'Color') return [value.red, value.green, value.blue, value.alpha].every(
     channel => Number.isInteger(channel) && channel >= 0 && channel <= 255);
   if (type === 'Spacing') return Number.isFinite(value.value);
@@ -143,6 +146,7 @@ export function tokenValueText(value) {
   if (value?.type === 'fontFamily') return value.value;
   if (value?.type === 'typography') return [value.fontFamily, value.fontSize + ' px',
     value.fontWeight, value.lineHeight, (value.letterSpacing ?? 0) + ' px tracking'].join(' · ');
+  if (value?.type === 'shadow') return [value.offsetX, value.offsetY, value.blurRadius, value.spreadRadius].map(v => v + ' px').join(' · ') + ' · ' + tokenValueText({ ...value.color, type: 'color' });
   if (value?.type === 'color') return '#' + [value.red, value.green, value.blue, value.alpha]
     .map(channel => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
   return '—';

@@ -167,6 +167,7 @@ internal static class McpPropertyContracts
             TokenType.FontFamily => Schema<string>(),
             TokenType.FontWeight => Schema<int>(),
             TokenType.Typography => FlatTypography(),
+            TokenType.Shadow => ShadowSchema(),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
         if (type == TokenType.FontFamily)
@@ -186,6 +187,13 @@ internal static class McpPropertyContracts
             var required = schema["required"]!.AsArray();
             required.Remove(required.Single(v => v!.GetValue<string>() == "alpha"));
             schema["properties"]!["alpha"]!["default"] = 255;
+            return schema;
+        }
+        if (type == TokenType.Shadow)
+        {
+            var schema = ShadowSchema();
+            schema["required"]!.AsArray().Add(JsonValue.Create("type"));
+            schema["properties"]!["color"] = Schema<McpRgbaInput>();
             return schema;
         }
         if (type == TokenType.Typography)
@@ -299,7 +307,7 @@ internal static class McpPropertyContracts
             alternatives.Add(TaggedScalar(number, "number"));
         }
         if (definition.TokenType is not null &&
-            definition.Type is NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum)
+            definition.Type is NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum or NodePropertyType.Shadow)
             alternatives.Add(ReferenceSchema<McpTokenReferenceInput>("token"));
 
         return alternatives.Count == 1
