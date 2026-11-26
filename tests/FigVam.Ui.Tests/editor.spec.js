@@ -171,7 +171,7 @@ test('loads all pages into the tree, handles command errors and hides editing fo
   }
   await page.route('**/commands/rename-page', route => route.abort());
   await page.locator('#pages > li:has(> .page-select[aria-pressed="true"]) > .navigator-rename-action').click(); await page.getByLabel('Имя страницы', { exact: true }).fill('Network');
-  await page.getByRole('button', { name: 'Сохранить название страницы' }).click();
+  await page.getByLabel('Имя страницы', { exact: true }).press('Enter');
   await expect(page.locator('#error')).toContainText('команда могла выполниться');
   await page.unroute('**/commands/rename-page');
   await page.route('**/api/v1/documents?*', async route => {

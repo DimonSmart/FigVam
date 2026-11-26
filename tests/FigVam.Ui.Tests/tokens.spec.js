@@ -15,7 +15,7 @@ test('creates, renames, updates and follows direct usages', async ({ page, reque
   await page.getByLabel('Light', { exact: true }).fill('8'); await page.getByLabel('Dark', { exact: true }).fill('12');
   await page.getByRole('button', { name: 'Создать токен' }).click(); await expect(page.locator('#token-light')).toHaveValue('8'); await expect(page.locator('#token-dark')).toHaveValue('12');
   await page.getByRole('button', { name: 'Переименовать токен', exact: true }).click();
-  await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByLabel('Новое имя токена').press('Enter');
+  await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByLabel('Новое имя токена').press('Tab');
   await expect(page.locator('#token-detail-title')).toHaveText('Gap');
   await page.getByRole('button', { name: 'Переименовать токен', exact: true }).click();
   await page.locator('#token-name').fill('Discarded'); await page.locator('#token-name').press('Escape');

@@ -1,3 +1,4 @@
+import { bindInlineRename } from './inline-rename.js';
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createUserAdmin } from './user-admin.js';
 import { createMcpAccess } from './mcp-access.js';
@@ -314,7 +315,7 @@ async function loadList(index = 0, cursor = null) {
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = documentRole = null;
+  documentHistory.reset(); styles.reset(); documentId = documentRole = null;
   selectedScreen = null; screensItems = []; renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
@@ -455,7 +456,7 @@ function startNavigatorNameEdit(kind, item, name) {
     setNavigatorEditState(other, null);
     renderNavigatorKind(other);
   }
-  setNavigatorEditState(kind, { id: item.id, value: name });
+  setNavigatorEditState(kind, { id: item.id, value: name, original: name });
   renderNavigatorKind(kind);
   const input = element(kind + '-name-input');
   input?.focus();
@@ -469,41 +470,32 @@ function navigatorRenameForm(kind, item, name) {
   input.id = kind + '-name-input';
   input.type = 'text'; input.required = true; input.maxLength = 256; input.autocomplete = 'off';
   input.setAttribute('aria-label', 'Имя ' + noun);
-  input.value = navigatorEditState(kind).value;
+  const state = navigatorEditState(kind);
+  if (state.value === state.original) state.original = state.value = name;
+  input.value = state.value;
   input.addEventListener('input', () => {
     navigatorEditState(kind).value = input.value;
     input.setCustomValidity('');
   });
-  const save = document.createElement('button');
-  save.type = 'submit'; save.className = 'navigator-rename-confirm';
-  save.textContent = '✓'; save.title = 'Сохранить название';
-  save.setAttribute('aria-label', 'Сохранить название ' + noun);
-  const cancel = document.createElement('button');
-  cancel.type = 'button'; cancel.className = 'navigator-rename-cancel';
-  cancel.textContent = '×'; cancel.title = 'Отменить переименование';
-  cancel.setAttribute('aria-label', 'Отменить переименование ' + noun);
-  const discard = () => {
+  const discard = (restoreFocus = true) => {
     setNavigatorEditState(kind, null);
     renderNavigatorKind(kind);
-    document.querySelector('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
+    if (restoreFocus) document.querySelector('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
   };
-  cancel.addEventListener('click', discard);
-  input.addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard(); }
-  });
+  bindInlineRename(form, input, discard, () => navigatorEditState(kind)?.id === item.id);
   form.addEventListener('submit', event => {
     event.preventDefault();
-    if (!navigatorCanEdit() || element('page-edit').inert) return;
+    if (!navigatorCanEdit() || element('page-edit').inert || navigatorEditState(kind)?.id !== item.id) return;
     const newName = input.value.trim();
     if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
       input.setCustomValidity('Укажите непустое имя без управляющих символов.');
       input.reportValidity();
       return;
     }
-    discard();
+    discard(document.activeElement === input);
     if (newName !== name) pageCommand('rename-' + kind, { [kind + 'Id']: item.id, name: newName });
   });
-  form.append(input, save, cancel);
+  form.append(input);
   return form;
 }
 function appendNavigatorActions(row, kind, item, name, actions) {
@@ -851,6 +843,8 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   else renderCanvas();
   layers.applySnapshot(layerSnapshot, selection);
   const name = header.items[0].name;
+  const nameInput = element('rename-document-name');
+  if (nameInput.value === element('document-title').textContent) nameInput.value = name;
   element('document-title').textContent = name; document.title = `${name} — FigVam`;
   element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
   components.load(); datasets.load(); screenVariants.load();
@@ -863,7 +857,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
 
 function resetDocumentRename() {
   const form = element('document-rename');
-  form.hidden = true; form.reset(); form.querySelector('button').disabled = false;
+  form.hidden = true; form.reset(); element('rename-document-name').disabled = false;
   element('document-rename-status').textContent = '';
   element('document-rename-error').textContent = '';
 }
@@ -881,7 +875,7 @@ async function openDocument(id) {
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const result = await request(`/api/v1/documents/${encodeURIComponent(id)}?fields=name`, {}, signal);
     const role = await findRole(id, signal);
@@ -964,16 +958,24 @@ async function submitDeletion(operation) {
   }
 }
 
-element('document-rename').addEventListener('submit', async event => {
+const documentRenameForm = element('document-rename');
+const documentNameInput = element('rename-document-name');
+bindInlineRename(documentRenameForm, documentNameInput, () => {
+  documentNameInput.value = element('document-title').textContent;
+  element('document-rename-error').textContent = '';
+  documentNameInput.blur();
+}, () => !documentRenameForm.hidden && !documentNameInput.disabled);
+documentRenameForm.addEventListener('submit', async event => {
   event.preventDefault();
-  const form = event.currentTarget, button = form.querySelector('button');
-  if (button.disabled || !['Owner', 'Editor'].includes(documentRole)) return;
-  const name = element('rename-document-name').value;
+  const input = documentNameInput;
+  if (input.disabled || !['Owner', 'Editor'].includes(documentRole)) return;
+  const name = input.value.trim();
+  if (name === element('document-title').textContent) return;
   stopLive(); const { signal, current } = startRequest(), id = documentId;
-  button.disabled = true;
+  input.disabled = true;
   signal.addEventListener('abort', () => {
     if (current === generation && id === documentId) {
-      button.disabled = false;
+      input.disabled = false;
       element('document-rename-status').textContent = '';
     }
   }, { once: true });
@@ -994,7 +996,7 @@ element('document-rename').addEventListener('submit', async event => {
     element('document-rename-error').textContent = error instanceof TypeError || error.status >= 500
       ? 'Не удалось подтвердить результат. Обновите документ перед повторной попыткой: команда могла выполниться.' : error.message;
   } finally {
-    if (current === generation && id === documentId) { button.disabled = false; startLive(); }
+    if (current === generation && id === documentId) { input.disabled = false; startLive(); }
   }
 });
 
