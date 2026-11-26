@@ -16,6 +16,8 @@ export default defineConfig({
         'token-exchange': 'src/core/tokens/token-exchange.ts',
         'canvas-viewport': 'src/canvas/canvas-viewport.ts',
         'layer-drag': 'src/canvas/layer-drag.ts',
+        'canvas-node-editor': 'src/canvas/canvas-node-editor.ts',
+        'screen-resize': 'src/features/editor/screen-resize.ts',
       },
       formats: ['es'],
       fileName: (_format, name) => name + '.js',

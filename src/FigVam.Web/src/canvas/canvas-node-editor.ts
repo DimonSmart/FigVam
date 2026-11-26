@@ -1,40 +1,67 @@
-import { resolvePropertyToken } from './token-resolution.js';
+import { resolvePropertyToken } from '../core/tokens/token-resolution.js';
+import type { CanvasModel, CanvasNode, Bounds, PropertyDefinitions } from './canvas-model';
 
-const arrows = {
+type Axis = keyof Bounds;
+type Geometry = Partial<Record<Axis, { type: 'number'; value: number }>>;
+type GeometryStyle = 'left' | 'top' | 'width' | 'height';
+interface GeometryCommand { nodeId: string; expectedParentId: string; expectedRevision: number; properties: Geometry }
+interface NodeEditorOptions {
+  element(id: string): HTMLElement;
+  getContext(): { documentRole: string | null; revision: number; selection?: { id: string } | null };
+  getModel(): CanvasModel | null;
+  getScale(): number;
+  selectLayer(node: CanvasNode, orderedNodes: CanvasNode[]): boolean | void;
+  editGeometry(command: GeometryCommand, settle: (confirmed: boolean) => void): boolean;
+  isEditPending(): boolean;
+}
+interface Target { model: CanvasModel; node: CanvasNode; bounds: Bounds; parentBounds: Bounds; definitions: PropertyDefinitions; inStack: boolean }
+interface Edit extends Target {
+  wrapper: HTMLElement; names: Axis[]; initial: Partial<Record<Axis, number>>; revision: number;
+  properties: Geometry; style: Partial<Record<GeometryStyle, string>>;
+}
+interface Gesture extends Edit { pointer: number; x: number; y: number; scale: number; moved: boolean }
+
+
+const arrows: Record<string, [number, number] | undefined> = {
   ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]
 };
-const geometryStyles = { x: 'left', y: 'top', width: 'width', height: 'height' };
+const geometryStyles: Record<Axis, GeometryStyle> = { x: 'left', y: 'top', width: 'width', height: 'height' };
 
 export function createCanvasNodeEditor({
   element, getContext, getModel, getScale, selectLayer, editGeometry, isEditPending
-}) {
+}: NodeEditorOptions) {
+  const listeners = new AbortController();
+  const signal = listeners.signal;
   const viewport = element('viewport'), boundary = element('screen-boundary');
   const resizeHandle = document.createElement('span');
   resizeHandle.className = 'canvas-resize-handle';
   resizeHandle.title = 'Изменить размер';
   resizeHandle.setAttribute('aria-hidden', 'true');
-  let gesture = null, selectedWrapper = null;
+  let gesture: Gesture | null = null, selectedWrapper: HTMLElement | null = null;
 
-  function target(id) {
-    const model = getModel(), node = model?.nodes.get(id);
+  function target(id: string | undefined): Target | null {
+    const model = getModel();
+    if (!id || !model) return null;
+    const node = model.nodes.get(id);
     if (!node) return null;
     const parent = model.nodes.get(node.parentId);
-    const parentLayout = parent && (parent.properties.layout ??
-      model.kinds.get(parent.kind)?.properties.layout?.defaultValue)?.value;
-    const definitions = model.kinds.get(node.kind).properties;
-    const bounds = model.boxes.get(id).bounds, parentBounds = model.boxes.get(node.parentId).bounds;
-    return { model, node, bounds, parentBounds, definitions, inStack: parent && parentLayout !== 'Free' };
+    const layout = parent && (parent.properties.layout ?? model.kinds.get(parent.kind)?.properties.layout?.defaultValue);
+    const parentLayout = layout && 'value' in layout ? layout.value : undefined;
+    const definitions = model.kinds.get(node.kind)?.properties;
+    const bounds = model.boxes.get(id)?.bounds, parentBounds = model.boxes.get(node.parentId)?.bounds;
+    if (!definitions || !bounds || !parentBounds) return null;
+    return { model, node, bounds, parentBounds, definitions, inStack: Boolean(parent && parentLayout !== 'Free') };
   }
 
   function writable() {
-    return ['Owner', 'Editor'].includes(getContext().documentRole);
+    return ['Owner', 'Editor'].includes(getContext().documentRole ?? '');
   }
 
   function sync() {
     const id = getContext().selection?.id, selected = target(id);
     if (gesture && (gesture.node.id !== id || gesture.model !== selected?.model || !writable())) cancel();
     selectedWrapper?.removeAttribute('data-canvas-editable');
-    selectedWrapper = boundary.querySelector('[data-selected=true]');
+    selectedWrapper = boundary.querySelector<HTMLElement>('[data-selected=true]');
     const stack = writable() && selected?.inStack;
     element('canvas-edit-hint').textContent = stack ?
       'Положение слоя задаёт стек. Изменить размер можно в инспекторе, порядок — в дереве слоёв.' : '';
@@ -51,17 +78,19 @@ export function createCanvasNodeEditor({
       : 'Изменить размер';
   }
 
-  function begin(id, wrapper, resize) {
+  function begin(id: string | undefined, wrapper: HTMLElement, resize: boolean): Edit | null {
     const selected = target(id);
     if (!selected || selected.inStack || !writable() || isEditPending()) return null;
-    const names = resize ? ['width', 'height'] : ['x', 'y'];
-    const initial = {};
+    const names: Axis[] = resize ? ['width', 'height'] : ['x', 'y'];
+    const initial: Edit['initial'] = {};
     for (const name of names) {
-      const value = selected.node.properties[name] ?? selected.definitions[name]?.defaultValue;
+      const definition = selected.definitions[name];
+      if (!definition) return null;
+      const value = selected.node.properties[name] ?? definition.defaultValue;
       const resolved = value?.type === 'token'
-        ? resolvePropertyToken(value, selected.model.tokens, 'Light', selected.definitions[name])
-        : { value };
-      if (resolved.error || resolved.value?.type !== (value?.type === 'token' ? 'dimension' : 'number')) return null;
+        ? resolvePropertyToken(value, selected.model.tokens, 'Light', definition)
+        : { value, error: null };
+      if (resolved.error || resolved.value?.type !== (value?.type === 'token' ? 'dimension' : 'number') || !('value' in resolved.value) || typeof resolved.value.value !== 'number') return null;
       initial[name] = resolved.value.value;
     }
     return {
@@ -70,17 +99,18 @@ export function createCanvasNodeEditor({
     };
   }
 
-  function preview(edit, deltaX, deltaY) {
+  function preview(edit: Edit, deltaX: number, deltaY: number) {
     edit.properties = {};
     for (const [index, name] of edit.names.entries()) {
-      const { minimum = -Infinity, maximum = Infinity } = edit.definitions[name];
+      const { minimum = -Infinity, maximum = Infinity } = edit.definitions[name] ?? {};
       // Ignore subpixel noise introduced by the inverse viewport transform.
       const delta = Math.round((index ? deltaY : deltaX) * 1000) / 1000;
       const initial = edit.initial[name];
+      if (initial === undefined) continue;
       const value = Math.max(minimum ?? -Infinity, Math.min(maximum ?? Infinity, initial + delta));
       const style = geometryStyles[name];
       if (value === initial) {
-        edit.wrapper.style[style] = edit.style[style];
+        edit.wrapper.style[style] = edit.style[style] ?? '';
         continue;
       }
       edit.properties[name] = { type: 'number', value };
@@ -89,11 +119,11 @@ export function createCanvasNodeEditor({
     }
   }
 
-  function restore(edit) {
+  function restore(edit: Edit) {
     Object.assign(edit.wrapper.style, edit.style);
   }
 
-  function commit(edit) {
+  function commit(edit: Edit) {
     if (!Object.keys(edit.properties).length) return;
     const accepted = editGeometry({
       nodeId: edit.node.id, expectedParentId: edit.node.parentId,
@@ -102,20 +132,19 @@ export function createCanvasNodeEditor({
     if (!accepted) restore(edit);
   }
 
-  function release() {
-    const edit = gesture;
+  function release(edit: Gesture): Gesture {
     gesture = null;
     if (viewport.hasPointerCapture(edit.pointer)) viewport.releasePointerCapture(edit.pointer);
     return edit;
   }
 
   function cancel() {
-    if (gesture) restore(release());
+    if (gesture) restore(release(gesture));
   }
 
   viewport.addEventListener('pointerdown', event => {
     if (!event.isPrimary || event.button !== 0 || event.altKey) return;
-    const wrapper = event.target.closest('[data-visual-node]');
+    const wrapper = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-visual-node]') : null;
     if (!wrapper || !boundary.contains(wrapper)) return;
     event.preventDefault();
     viewport.focus({ preventScroll: true });
@@ -126,9 +155,9 @@ export function createCanvasNodeEditor({
     if (!edit) return;
     gesture = { ...edit, pointer: event.pointerId, x: event.clientX, y: event.clientY, scale: getScale(), moved: false };
     viewport.setPointerCapture(event.pointerId);
-  }, { capture: true });
+  }, { capture: true, signal });
 
-  function track(event) {
+  function track(event: PointerEvent) {
     if (gesture?.pointer !== event.pointerId) return;
     if (gesture.scale !== getScale()) {
       cancel();
@@ -140,19 +169,19 @@ export function createCanvasNodeEditor({
     preview(gesture, dx / gesture.scale, dy / gesture.scale);
   }
 
-  viewport.addEventListener('pointermove', track);
+  viewport.addEventListener('pointermove', track, { signal });
   viewport.addEventListener('pointerup', event => {
     track(event);
-    if (gesture?.pointer === event.pointerId) commit(release());
-  });
-  for (const type of ['pointercancel', 'lostpointercapture']) {
+    if (gesture?.pointer === event.pointerId) commit(release(gesture));
+  }, { signal });
+  for (const type of ['pointercancel', 'lostpointercapture'] as const) {
     viewport.addEventListener(type, event => {
       if (gesture?.pointer === event.pointerId) cancel();
-    });
+    }, { signal });
   }
   viewport.addEventListener('wheel', event => {
     if (gesture) event.preventDefault();
-  }, { capture: true, passive: false });
+  }, { capture: true, passive: false, signal });
   viewport.addEventListener('keydown', event => {
     if (event.key === 'Escape' && gesture) {
       event.preventDefault();
@@ -176,7 +205,7 @@ export function createCanvasNodeEditor({
     if (!edit) return;
     preview(edit, ...delta);
     commit(edit);
-  }, { capture: true });
+  }, { capture: true, signal });
 
-  return { sync };
+  return { sync, dispose() { cancel(); listeners.abort(); resizeHandle.remove(); } };
 }
