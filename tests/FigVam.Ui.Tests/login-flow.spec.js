@@ -22,9 +22,9 @@ async function createScreen(page, name) {
   await expect(page.locator(`#screens .screen-select[data-screen-id="${screenId}"]`))
     .toHaveAttribute('aria-pressed', 'true');
   await page.locator('#screens .screen-select[aria-pressed="true"]')
-    .locator('..').locator('.screen-rename-action').click();
+    .locator('..').locator('.navigator-rename-action').click();
   await page.locator('#screen-name-input').fill(name);
-  await page.locator('#screens .screen-rename-confirm').click();
+  await page.locator('#screens .navigator-rename-confirm').click();
   await expect(page.locator('#screens .screen-select[aria-pressed="true"]')).toContainText(name);
   return screenId;
 }
@@ -225,7 +225,7 @@ test('designs two linked login screens and previews invalid password through UI'
   await demo.step('Создаём экран ошибки', 'У одного действия Login два экрана. Дублируем форму, чтобы сохранить её общие элементы.');
   await show(page, 'layers');
   const sourceScreen = page.locator('#screens .screen-select[data-screen-id="' + loginScreen + '"]');
-  await sourceScreen.locator('..').locator('.screen-context-menu summary').click();
+  await sourceScreen.locator('..').locator('.navigator-context-menu summary').click();
   const duplication = page.waitForResponse(response => response.url().endsWith('/commands/duplicate-screen'));
   await page.getByRole('button', { name: 'Дублировать экран «Login»' }).click();
   const duplicated = await duplication;
@@ -240,9 +240,9 @@ test('designs two linked login screens and previews invalid password through UI'
   const copiedFrame = duplicatedDocument.nodes.find(node => node.id === copiedBackground).childIds[0];
   expect(duplicatedDocument.nodes.find(node => node.id === copiedFrame).properties.shadow).toEqual(dialogEffect);
   expect(copiedFrame).not.toBe(frame);
-  await errorScreenSelect.locator('..').locator('.screen-rename-action').click();
+  await errorScreenSelect.locator('..').locator('.navigator-rename-action').click();
   await page.locator('#screen-name-input').fill('Login Error');
-  await page.locator('#screens .screen-rename-confirm').click();
+  await page.locator('#screens .navigator-rename-confirm').click();
   await expect(errorScreenSelect).toContainText('Login Error');
 
   await demo.step('Добавляем текст неправильного пароля', 'Второй экран повторяет форму входа, но дополнительно показывает сообщение об ошибке.');

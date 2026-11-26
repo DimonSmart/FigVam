@@ -147,6 +147,8 @@ for (const viewport of [{ width: 1200, height: 800 }, { width: 390, height: 500 
     }
 
     await expectUnclipped('.screen-options-body');
+    await page.locator('#pages > li > .navigator-rename-action').click({ trial: true });
+    await page.locator('#pages > li > .navigator-context-menu > summary').click({ trial: true });
     await page.getByLabel('Типовой размер экрана').selectOption('390x844');
     await expect(page.getByLabel('Ширина экрана')).toHaveValue('390');
     await expect(page.getByLabel('Высота экрана')).toHaveValue('844');

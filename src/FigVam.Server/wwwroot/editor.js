@@ -521,6 +521,7 @@ function appendNavigatorActions(row, kind, item, name, actions) {
   trigger.textContent = '⋯';
   const body = document.createElement('div');
   body.className = 'navigator-context-body';
+  body.setAttribute('popover', 'manual');
   for (const action of actions) {
     const control = document.createElement('input');
     control.type = 'button'; control.value = action.label;
@@ -528,6 +529,7 @@ function appendNavigatorActions(row, kind, item, name, actions) {
     if (action.destructive) control.classList.add('navigator-danger-action');
     control.addEventListener('click', () => {
       menu.open = false;
+      if (body.matches(':popover-open')) body.hidePopover();
       if (navigatorCanEdit() && !element('page-edit').inert) action.run();
     });
     body.append(control);
@@ -535,6 +537,7 @@ function appendNavigatorActions(row, kind, item, name, actions) {
   menu.append(trigger, body);
   const position = () => {
     if (!menu.open || !menu.isConnected) return;
+    if (!body.matches(':popover-open')) body.showPopover();
     const anchor = trigger.getBoundingClientRect(), margin = 8, gap = 4;
     const below = Math.max(0, innerHeight - anchor.bottom - gap - margin);
     const above = Math.max(0, anchor.top - gap - margin);
@@ -545,8 +548,11 @@ function appendNavigatorActions(row, kind, item, name, actions) {
     body.style.top = (openAbove ? anchor.top - gap - body.offsetHeight : anchor.bottom + gap) + 'px';
   };
   menu.addEventListener('toggle', () => {
-    if (!menu.open) return;
-    if (element('page-edit').inert) { menu.open = false; return; }
+    if (!menu.open) {
+      if (body.matches(':popover-open')) body.hidePopover();
+      return;
+    }
+    if (element('page-edit').inert || !trigger.getClientRects().length) { menu.open = false; return; }
     for (const other of document.querySelectorAll('.navigator-context-menu[open], .navigator-toolbar details[open]'))
       if (other !== menu) other.open = false;
     position();

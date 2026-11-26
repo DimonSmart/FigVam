@@ -229,13 +229,18 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
     if (!menu.open || !body.getClientRects().length) return;
     const anchor = menu.querySelector('summary').getBoundingClientRect();
     const margin = 8, gap = 6;
-    const below = Math.max(0, window.innerHeight - anchor.bottom - gap - margin);
+    // Keep the automatically suggested creation form below the empty page's row,
+    // so that the page's rename and context actions remain directly clickable.
+    const selectedPageRow = byId('pages').querySelector(':scope > li > .page-select[aria-pressed="true"]')?.parentElement;
+    const emptyPage = selectedPageRow && !selectedPageRow.querySelector('.screen-row');
+    const lowerEdge = emptyPage ? Math.max(anchor.bottom, selectedPageRow.getBoundingClientRect().bottom) : anchor.bottom;
+    const below = Math.max(0, window.innerHeight - lowerEdge - gap - margin);
     const above = Math.max(0, anchor.top - gap - margin);
     body.style.maxHeight = '';
     const openAbove = body.offsetHeight > below && above > below;
     body.style.maxHeight = `${openAbove ? above : below}px`;
     const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - body.offsetWidth - margin));
-    const top = openAbove ? anchor.top - gap - body.offsetHeight : anchor.bottom + gap;
+    const top = openAbove ? anchor.top - gap - body.offsetHeight : lowerEdge + gap;
     body.style.left = `${left}px`;
     body.style.top = `${top}px`;
   }
@@ -248,6 +253,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
       for (const [other] of navigatorMenus) {
         if (other !== current) other.open = false;
       }
+      for (const rowMenu of document.querySelectorAll('.navigator-context-menu[open]')) rowMenu.open = false;
       positionNavigatorMenu(current, body);
     });
   }

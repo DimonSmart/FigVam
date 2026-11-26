@@ -471,7 +471,8 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .layers-master .navigator-context-menu summary:focus-visible,
 .app-shell .layers-master .navigator-context-menu[open] summary { color: var(--ui-accent); background: var(--ui-selected); }
 .app-shell .layers-master .navigator-context-body {
-  position: fixed; min-width: 120px; max-width: calc(100vw - 16px); overflow: auto;
+  position: fixed; inset: auto; margin: 0; width: max-content; box-sizing: border-box;
+  min-width: 120px; max-width: calc(100vw - 16px); overflow: auto;
   padding: 4px; border-radius: 6px; background: var(--ui-surface, white);
   border: 1px solid var(--ui-border); box-shadow: 0 4px 14px #0002; z-index: 22;
 }
