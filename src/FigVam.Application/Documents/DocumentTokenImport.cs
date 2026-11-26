@@ -174,6 +174,7 @@ internal static class DtcgTokenImporter
                             "fontFamily" => TokenType.FontFamily,
                             "fontWeight" => TokenType.FontWeight,
                             "typography" => TokenType.Typography,
+                             "shadow" => TokenType.Shadow,
                             _ => (TokenType)(-1)
                         };
                         if (!Enum.IsDefined(figType)) { Error("unsupported-type", theme + "." + name, "Unsupported or absent DTCG type."); continue; }
@@ -280,6 +281,18 @@ internal static class DtcgTokenImporter
             }
             switch (type)
             {
+                case TokenType.Shadow:
+                    if (Fields(value, ["offsetX", "offsetY", "blur", "spread", "color"]) &&
+                        new[] { "offsetX", "offsetY", "blur", "spread", "color" }.All(field => value.TryGetProperty(field, out _)) &&
+                        Expression(value.GetProperty("offsetX"), TokenType.Dimension, null, path + ".offsetX") is LiteralTokenValue { Value: DimensionValue x } &&
+                        Expression(value.GetProperty("offsetY"), TokenType.Dimension, null, path + ".offsetY") is LiteralTokenValue { Value: DimensionValue y } &&
+                        Expression(value.GetProperty("blur"), TokenType.Dimension, null, path + ".blur") is LiteralTokenValue { Value: DimensionValue blur } &&
+                        Expression(value.GetProperty("spread"), TokenType.Dimension, null, path + ".spread") is LiteralTokenValue { Value: DimensionValue spread } &&
+                        Expression(value.GetProperty("color"), TokenType.Color, null, path + ".color") is LiteralTokenValue { Value: ColorValue c })
+                        return new LiteralTokenValue(new ShadowValue(x.Value, y.Value, blur.Value, spread.Value,
+                            new(c.Red, c.Green, c.Blue, c.Alpha)));
+                    Error("unsupported-value", path, "Shadow must contain four literal pixel dimensions and a literal sRGB color.");
+                    return Invalid();
                 case TokenType.Typography:
                     if (!Fields(value, ["fontFamily", "fontSize", "fontWeight", "letterSpacing", "lineHeight"]) ||
                         new[] { "fontFamily", "fontSize", "fontWeight", "letterSpacing", "lineHeight" }.Any(field => !value.TryGetProperty(field, out _)))

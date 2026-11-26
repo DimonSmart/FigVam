@@ -42,7 +42,7 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(33, tools.Count);
+        Assert.Equal(34, tools.Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
@@ -62,7 +62,10 @@ public sealed class McpProtocolTests
         await Call("resize_screen", new { screenId, width = 810, height = 610 });
         // Discover the exact MCP input shape, then use it to create and edit a real shadow.
         var buttonSchema = (await Call("get_node_schema", new { kind = "Button" })).GetProperty("properties");
-        var shadowSchema = buttonSchema.GetProperty("shadow").GetProperty("inputSchema");
+        Assert.Equal("Shadow", buttonSchema.GetProperty("shadow").GetProperty("tokenType").GetString());
+        var shadowAlternatives = buttonSchema.GetProperty("shadow").GetProperty("inputSchema").GetProperty("anyOf");
+        Assert.True(shadowAlternatives[1].GetProperty("properties").TryGetProperty("tokenId", out _));
+        var shadowSchema = shadowAlternatives[0];
         Assert.Equal("object", shadowSchema.GetProperty("type").GetString());
         Assert.False(shadowSchema.GetProperty("additionalProperties").GetBoolean());
         Assert.Equal(new[] { "blurRadius", "color", "offsetX", "offsetY", "spreadRadius" },
@@ -93,6 +96,19 @@ public sealed class McpProtocolTests
             Assert.All((await Call("get_node_schema", new { kind })).GetProperty("properties").EnumerateObject(),
                 p => Assert.True(p.Value.TryGetProperty("inputSchema", out _), p.Name));
 
+        foreach (var kind in new[] { "Frame", "Text", "Button", "TextInput" })
+        {
+            var full = await Call("get_node_schema", new { kind });
+            var compact = await Call("get_node_schema", new { kind, compact = true });
+            Assert.True(compact.GetRawText().Length * 2 <= full.GetRawText().Length,
+                $"{kind}: compact {compact.GetRawText().Length}, full {full.GetRawText().Length}");
+            foreach (var p in full.GetProperty("properties").EnumerateObject())
+            {
+                var shortProperty = compact.GetProperty("properties").GetProperty(p.Name);
+                foreach (var field in p.Value.EnumerateObject().Where(f => f.Name != "inputSchema"))
+                    Assert.Equal(field.Value.GetRawText(), shortProperty.GetProperty(field.Name).GetRawText());
+            }
+        }
         var initialShadow = new { offsetX = 0, offsetY = 8, blurRadius = 24, spreadRadius = 0, color = "#0F172A1C" };
         var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Button", name = "Primary action", properties = new
             { text = "Login", width = 120, height = 40, backgroundColor = "#2563EB", shadow = initialShadow } })).GetProperty("nodeId").GetGuid();
@@ -108,6 +124,28 @@ public sealed class McpProtocolTests
         var storedProperties = (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties");
         Assert.Equal(255, storedProperties.GetProperty("shadow").GetProperty("color").GetProperty("alpha").GetInt32());
         Assert.Equal(colorTokenId, storedProperties.GetProperty("backgroundColor").GetProperty("tokenId").GetGuid());
+        var tree = (await Call("get_screen_tree", new { screenId, depth = 10, includeProperties = true })).GetProperty("items");
+        Assert.Equal(storedProperties.GetRawText(), tree.EnumerateArray().Single(p => p.GetProperty("id").GetGuid() == nodeId).GetProperty("properties").GetRawText());
+        var oldTree = (await Call("get_screen_tree", new { screenId })).GetProperty("items")[0];
+        Assert.False(oldTree.TryGetProperty("properties", out _));
+        var resolved = (await Call("get_node", new { nodeId, includeResolvedProperties = true, theme = "Dark" })).GetProperty("items")[0];
+        Assert.Equal(colorTokenId, resolved.GetProperty("properties").GetProperty("backgroundColor").GetProperty("tokenId").GetGuid());
+        Assert.Equal(96, resolved.GetProperty("resolvedProperties").GetProperty("backgroundColor").GetProperty("red").GetInt32());
+        Assert.Equal(6, resolved.GetProperty("resolvedProperties").GetProperty("cornerRadius").GetProperty("value").GetDouble());
+        var resolvedTree = (await Call("get_screen_tree", new { screenId, includeResolvedProperties = true, theme = "Dark" })).GetProperty("items")[0];
+        Assert.False(resolvedTree.TryGetProperty("properties", out _));
+        Assert.Equal(resolved.GetProperty("resolvedProperties").GetRawText(), resolvedTree.GetProperty("resolvedProperties").GetRawText());
+
+        var shadowId = (await Call("create_token", new { name = "login.shadow", type = "Shadow", light = initialShadow,
+            dark = new { offsetX = 0, offsetY = 8, blurRadius = 36, spreadRadius = -4, color = "#00000060" } })).GetProperty("tokenId").GetGuid();
+        await Call("set_node_properties", new { nodeId, properties = new { shadow = new { tokenId = shadowId } } });
+        var themedShadow = (await Call("get_node", new { nodeId, includeResolvedProperties = true, theme = "Dark" })).GetProperty("items")[0];
+        Assert.Equal(shadowId, themedShadow.GetProperty("properties").GetProperty("shadow").GetProperty("tokenId").GetGuid());
+        Assert.Equal(36, themedShadow.GetProperty("resolvedProperties").GetProperty("shadow").GetProperty("blurRadius").GetDouble());
+        await Call("set_token_value", new { tokenId = shadowId, theme = "Dark", value = initialShadow });
+        Assert.Equal(24, (await Call("get_node", new { nodeId, includeResolvedProperties = true, theme = "Dark" })).GetProperty("items")[0]
+            .GetProperty("resolvedProperties").GetProperty("shadow").GetProperty("blurRadius").GetDouble());
+        await Call("set_node_properties", new { nodeId, properties = new { shadow = storedProperties.GetProperty("shadow") } });
         await Call("rename_node", new { nodeId, name = "Login button" });
         var updateCommandId = Guid.NewGuid();
         var updated = await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } });
@@ -158,6 +196,18 @@ public sealed class McpProtocolTests
         var scenarioId = scenario.GetProperty("scenarioId").GetGuid();
         var updatedScenario = await Call("update_scenario", new { scenarioId, screenId, nodeId, @event = "Click", actions, expectedRevision = scenario.GetProperty("revision").GetInt64() });
         await Call("list_scenarios", new { screenId });
+        var simulationRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        foreach (var theme in new[] { "Light", "Dark" })
+        {
+            var simulation = await Call("simulate_preview", new { screenId, theme, events = new[] { new { nodeId, @event = "Click" } } });
+            Assert.Equal("Completed", simulation.GetProperty("status").GetString());
+            Assert.Equal(target, simulation.GetProperty("activeScreenId").GetGuid());
+            Assert.Equal(theme, simulation.GetProperty("theme").GetString());
+            Assert.Equal("navigate", simulation.GetProperty("steps")[0].GetProperty("executedActions")[0].GetProperty("type").GetString());
+            var independent = await Call("simulate_preview", new { screenId, theme, events = Array.Empty<object>() });
+            Assert.Equal(screenId, independent.GetProperty("activeScreenId").GetGuid());
+        }
+        Assert.Equal(simulationRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("delete_scenario", new { scenarioId, expectedRevision = updatedScenario.GetProperty("revision").GetInt64() });
         await Call("list_pages");
         await Call("list_screens", new { pageId });
@@ -420,7 +470,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(33, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(34, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>

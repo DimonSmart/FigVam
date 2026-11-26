@@ -193,7 +193,16 @@ internal static class McpPropertyContracts
         {
             var schema = ShadowSchema();
             schema["required"]!.AsArray().Add(JsonValue.Create("type"));
-            schema["properties"]!["color"] = Schema<McpRgbaInput>();
+            var color = Schema<McpRgbaInput>();
+            var required = color["required"]!.AsArray();
+            required.Remove(required.Single(v => v!.GetValue<string>() == "alpha"));
+            color["properties"]!["alpha"]!["default"] = 255;
+            foreach (var channel in color["properties"]!.AsObject())
+            {
+                channel.Value!["minimum"] = 0;
+                channel.Value["maximum"] = 255;
+            }
+            schema["properties"]!["color"] = color;
             return schema;
         }
         if (type == TokenType.Typography)

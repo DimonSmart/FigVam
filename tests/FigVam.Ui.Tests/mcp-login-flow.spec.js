@@ -24,7 +24,7 @@ async function connect(request, endpoint, token) {
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
   const tools = (await rpc('tools/list', {})).tools;
-  expect(tools).toHaveLength(33);
+  expect(tools).toHaveLength(34);
   const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
   expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
   expect(renderSchema.required).not.toContain('theme');
@@ -206,7 +206,7 @@ test('MCP builds the login prototype, both editors see changes and restart inval
 
 
 test('Autonomous MCP rendering uses both themes and screens without changing editor state', async ({ page, request, server }, testInfo) => {
-  test.setTimeout(180000);
+  test.setTimeout(300000);
   // Even if requested accidentally, the native tab picker must never be used.
   await page.addInitScript(() => {
     window.displayMediaRequests = 0;
@@ -236,14 +236,23 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   const { tokenId: spacing } = await call('create_token', { name: 'login.spacing', type: dimensionSchema.type,
     category: dimensionSchema.category.allowedValues.find(c => c === 'Spacing'), light: 0, dark: 0 });
   const create = async (parentId, kind, properties) => (await call('create_node', { parentId, kind, properties })).nodeId;
+  const { tokenId: radius } = await call('create_token', { name: 'login.radius', type: 'Dimension', category: 'Radius', light: 8, dark: 8 });
+  const { tokenId: primary } = await call('create_token', { name: 'login.button', type: 'Color', light: '#2563EB', dark: '#2563EB' });
+  const cardShadow = { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000020' };
+  const buttonShadow = { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000060' };
+  const { tokenId: cardShadowId } = await call('create_token', { name: 'login.shadow.card', type: 'Shadow', light: cardShadow, dark: { ...cardShadow, blurRadius: 12 } });
+  const { tokenId: buttonShadowId } = await call('create_token', { name: 'login.shadow.button', type: 'Shadow', light: buttonShadow, dark: { ...buttonShadow, blurRadius: 12 } });
   const background = await create(login, 'Frame', { x: 0, y: 0, width: 800, height: 600,
-    backgroundColor: { tokenId: bg }, borderWidth: 0, cornerRadius: 0, paddingLeft: { tokenId: spacing } });
+    backgroundColor: { tokenId: bg }, borderWidth: 0, cornerRadius: 0, paddingLeft: { tokenId: spacing }, shadow: { tokenId: cardShadowId } });
   await create(login, 'Text', { x: 250, y: 80, width: 300, height: 40, text: 'Sign in', typography: { tokenId: typography } });
-  await create(login, 'TextInput', { x: 250, y: 140, width: 300, height: 44, placeholder: 'Email', backgroundColor: '#FFFFFF' });
+  const input = await create(login, 'TextInput', { x: 250, y: 140, width: 300, height: 44, placeholder: 'Email', backgroundColor: '#FFFFFF' });
+  const password = await create(login, 'TextInput', { x: 250, y: 255, width: 300, height: 40, placeholder: 'Password', inputType: 'Password', backgroundColor: '#FFFFFF' });
   const button = await create(login, 'Button', { x: 250, y: 200, width: 300, height: 48, text: 'Login',
-    backgroundColor: '#2563EB', borderWidth: 0, cornerRadius: 8, textColor: '#FFFFFF',
-    shadow: { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000060' } });
+    backgroundColor: { tokenId: primary }, borderWidth: 0, cornerRadius: { tokenId: radius }, textColor: '#FFFFFF',
+    shadow: { tokenId: buttonShadowId } });
   const { screenId: error } = await call('duplicate_screen', { screenId: login, expectedRevision: (await call('get_document')).revision, name: 'Login Error' });
+  await call('create_scenario', { screenId: login, nodeId: button, event: 'Click', actions: [{ type: 'navigate', screenId: error }] });
+  await call('create_scenario', { screenId: login, nodeId: password, event: 'Submit', actions: [{ type: 'navigate', screenId: error }] });
   await create(error, 'Text', { x: 250, y: 300, width: 300, height: 40, text: 'Invalid password',
     fontSize: 22, textColor: '#FF0000' });
   const { pageId: otherPage } = await call('create_page', { name: 'Other page' });
@@ -279,6 +288,42 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   const before = await editorState();
   const readSnapshot = async () => (await (await request.get(server.url + '/api/v1' + new URL(page.url()).pathname + '/document.json', { headers: { Authorization: 'Bearer ' + bearer } })).json()).document;
   const documentBefore = await readSnapshot();
+  for (const screenId of [login, error]) {
+    for (const theme of ['Light', 'Dark']) {
+      const tree = await call('get_screen_tree', { screenId, depth: 10, includeProperties: true, includeResolvedProperties: true, theme });
+      const shared = tree.items.find(n => n.kind === 'Button');
+      expect(shared.properties.backgroundColor.tokenId).toBe(primary);
+      expect(shared.properties.cornerRadius.tokenId).toBe(radius);
+      expect(shared.properties.shadow.tokenId).toBe(buttonShadowId);
+      expect(shared.resolvedProperties.shadow.blurRadius).toBe(theme === 'Light' ? 8 : 12);
+      const card = tree.items.find(n => n.id === background || n.kind === 'Frame');
+      expect(card.properties.shadow.tokenId).toBe(cardShadowId);
+      expect(card.resolvedProperties.shadow.blurRadius).toBe(theme === 'Light' ? 8 : 12);
+    }
+  }
+  for (const theme of ['Light', 'Dark']) {
+    for (const event of ['Click', 'Submit']) {
+      const simulated = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [
+        { nodeId: input, event: 'Change', value: 'demo@example.test' },
+        { nodeId: password, event: 'Change', value: 'not-a-real-password' },
+        { nodeId: event === 'Click' ? button : password, event }
+      ] });
+      expect(simulated.isError, JSON.stringify(simulated.structuredContent)).not.toBe(true);
+      expect(simulated.structuredContent.activeScreenId).toBe(error);
+      expect(simulated.structuredContent.theme).toBe(theme);
+      expect(simulated.structuredContent.demoValues[input]).toBe('demo@example.test');
+      expect(simulated.structuredContent.demoValues[password]).toBeUndefined();
+      expect(JSON.stringify(simulated.structuredContent)).not.toContain('not-a-real-password');
+      const image = simulated.content.find(block => block.type === 'image');
+      expect(image?.mimeType).toBe('image/png');
+      await testInfo.attach('simulation-' + theme + '-' + event, { body: Buffer.from(image.data, 'base64'), contentType: 'image/png' });
+      const independent = await call('simulate_preview', { screenId: login, theme, events: [] });
+      expect(independent.activeScreenId).toBe(login);
+      expect(independent.demoValues).toEqual({});
+    }
+  }
+  expect(await readSnapshot()).toEqual(documentBefore);
+  expect(await editorState()).toEqual(before);
   async function inspect(screenId, theme, name, expectedRevision, expectedBackground, expectedError, expectedButton = [37, 99, 235]) {
     const result = await call.raw('render_screen', { screenId, ...(theme ? { theme } : {}) });
     expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
@@ -322,7 +367,13 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   // Changes are rendered from the server revision, not a stale editor DOM.
   const changedToken = await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#102030' });
   await inspect(login, 'Dark', 'changed-token', changedToken.revision, [16, 32, 48], false);
-  const changedButton = await call('set_node_properties', { nodeId: button, properties: { backgroundColor: '#DC2626' } });
+  const changedShadow = await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 20 } });
+  for (const screenId of [login, error]) {
+    const tree = await call('get_screen_tree', { screenId, includeResolvedProperties: true, theme: 'Dark' });
+    expect(tree.items.find(n => n.kind === 'Button').resolvedProperties.shadow.blurRadius).toBe(20);
+  }
+  await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 12 } });
+  const changedButton = await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#DC2626' });
   await inspect(login, 'Dark', 'changed-button', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
 
   // Preview has no MCP controls and doesn't change the direct grant.
@@ -337,12 +388,15 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await expect(page.locator('#preview-theme button[data-theme=Dark]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#preview-viewport [data-visual-node="' + background + '"] > .visual-surface')).toHaveCSS('background-color', 'rgb(16, 32, 48)');
   const previewBefore = await editorState();
-  await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false, [220, 38, 38]);
+  await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false);
   await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
   expect(await editorState()).toEqual(previewBefore);
   await page.locator('#preview-theme button[data-theme=Light]').click();
   await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
+  await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });
+  await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#15243A' });
+  await call('save_version', { name: 'P2 Login Prototype' });
   expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
   await page.locator('#mcp-access-menu summary').click();
   await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);

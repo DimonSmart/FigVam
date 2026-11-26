@@ -75,6 +75,7 @@ public sealed class DocumentTokenExporter(IDocumentAuthorization authorization, 
                         TokenType.FontFamily => "fontFamily",
                         TokenType.FontWeight => "fontWeight",
                         TokenType.Typography => "typography",
+                         TokenType.Shadow => "shadow",
                         _ => throw new ArgumentException("Unsupported token type.")
                     },
                     ["$value"] = value
@@ -123,6 +124,12 @@ public sealed class DocumentTokenExporter(IDocumentAuthorization authorization, 
         (TokenType.Number, NumberValue v) => JsonValue.Create(v.Value)!,
         (TokenType.FontFamily, FontFamilyValue v) => JsonValue.Create(v.Value)!,
         (TokenType.FontWeight, FontWeightValue v) => JsonValue.Create(v.Value)!,
+        (TokenType.Shadow, ShadowValue v) => new JsonObject
+        {
+            ["offsetX"] = Dimension(v.OffsetX), ["offsetY"] = Dimension(v.OffsetY),
+            ["blur"] = Dimension(v.BlurRadius), ["spread"] = Dimension(v.SpreadRadius),
+            ["color"] = Value(new ColorValue(v.Color.Red, v.Color.Green, v.Color.Blue, v.Color.Alpha), TokenType.Color, byId)
+        },
         (TokenType.Typography, TypographyValue v) => new JsonObject
         {
             ["fontFamily"] = v.FontFamily, ["fontSize"] = Dimension(v.FontSize),
