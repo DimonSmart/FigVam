@@ -1,3 +1,4 @@
+import { splitTokenBundle } from './token-exchange.js';
 import { createTokenValueControl } from './token-value-control.js';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, filteredTokens, tokensInGroup, matchesTokenSearch, qualifyTokenName } from './token-groups.js';
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from './token-resolution.js';
@@ -89,6 +90,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('new-token-cancel').addEventListener('click', () => { creating = false; updateDetailVisibility(); });
   const filter = el('token-type-filter');
   const checks = new Map();
+  const filterHeading = document.createElement('div');
+  filterHeading.className = 'token-filter-heading'; filterHeading.textContent = 'Отображаемые типы';
+  filterHeading.setAttribute('aria-hidden', 'true'); filter.append(filterHeading);
   function checkbox(label, value, change) {
     const wrapper = document.createElement('label'), input = document.createElement('input');
     input.type = 'checkbox'; input.value = value; input.addEventListener('change', change);
@@ -144,12 +148,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     try {
       let lightJson, darkJson;
       if (el('token-import-mode').value === 'combined') {
-        const bundle = JSON.parse(el('token-import-combined').value);
-        const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
-        if (!object(bundle) || bundle.format !== 'figvam-tokens' || bundle.version !== 1 ||
-            !object(bundle.themes) || !object(bundle.themes.Light) || !object(bundle.themes.Dark))
-          throw new Error('Ожидается файл FigVam версии 1 с обеими темами Light и Dark.');
-        lightJson = JSON.stringify(bundle.themes.Light); darkJson = JSON.stringify(bundle.themes.Dark);
+        ({ lightJson, darkJson } = splitTokenBundle(el('token-import-combined').value));
       } else {
         lightJson = el('token-import-light').value; darkJson = el('token-import-dark').value;
         JSON.parse(lightJson); JSON.parse(darkJson);

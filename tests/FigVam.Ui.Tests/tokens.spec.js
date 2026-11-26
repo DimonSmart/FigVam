@@ -412,3 +412,29 @@ test('token controls use readable theme colors in light and dark editor workspac
     await expect(page.locator('#token-menu')).toBeHidden();
   }
 });
+
+test('combined envelope preserves raw DTCG validation and rejects ambiguous envelope keys', async () => {
+  const {pathToFileURL} = require('node:url'), {resolve} = require('node:path');
+  const {splitTokenBundle} = await import(pathToFileURL(resolve(__dirname,'../../src/FigVam.Server/wwwroot/token-exchange.js')).href);
+  const raw = '{"format":"figvam-tokens","version":1,"themes":{"Dark":{"a":1,"a":2},"Light":{"x":{"$value":"a, } \\" b"}}}}';
+  const parts = splitTokenBundle(raw);
+  expect(parts.darkJson).toBe('{"a":1,"a":2}');
+  expect(JSON.parse(parts.lightJson).x.$value).toBe('a, } " b');
+  expect(() => splitTokenBundle('{"format":"figvam-tokens","version":1,"themes":{"Light":{},"Light":{},"Dark":{}}}')).toThrow('Повторяющееся поле');
+  expect(() => splitTokenBundle('{"format":"figvam-tokens","version":2,"themes":{"Light":{},"Dark":{}}}')).toThrow('версии 1');
+  expect(() => splitTokenBundle('{"format":"figvam-tokens","version":1,"themes":{"Light":{}}}')).toThrow('обеими темами');
+});
+
+test('combined export never downloads a partial bundle when one theme fails', async ({page}) => {
+  await open(page);
+  await page.route('**/token-export?*',async route => {
+    if (new URL(route.request().url()).searchParams.get('theme') === 'Dark')
+      await route.fulfill({status:200,json:{tokens:null,diagnostics:[{message:'Dark export failed'}]}});
+    else await route.continue();
+  });
+  let downloads = 0; page.on('download',() => downloads++);
+  await page.locator('#token-menu-open').click();
+  await page.locator('#token-export').click();
+  await expect(page.locator('#tokens-error')).toContainText('Dark export failed');
+  expect(downloads).toBe(0);
+});

@@ -735,6 +735,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .token-menu > button:not(:disabled):hover, .token-type-filter label:hover { background:var(--ui-selected); }
 .token-menu hr { border:0; border-top:1px solid var(--ui-border); margin:4px 0; }
 .token-type-filter { display:grid; gap:1px; }
+.token-filter-heading { padding:3px 8px; color:var(--ui-muted); font-size:12px; }
 .app-shell .token-type-filter label { display:flex; align-items:center; gap:6px; padding:3px 8px; min-height:26px; color:var(--ui-text); cursor:pointer; }
 .app-shell .token-type-filter input { margin:0; padding:0; min-height:0; accent-color:var(--ui-accent); }
 .token-workspace > #tokens-status, .token-workspace > #tokens-error { margin:4px 16px; }
@@ -808,5 +809,8 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   .app-shell .token-workspace :is(button,input,select,textarea):disabled { background:var(--ui-bg); color:var(--ui-muted); }
   .app-shell .token-workspace button[type=submit] { background:#4559a5; color:white; border-color:var(--ui-accent); }
   .token-workspace :is(.token-invalid,#tokens-error,.token-value-resolved.is-invalid) { color:#ff9ca7; }
+  .app-shell .token-workspace .token-value-link { background:var(--ui-bg); }
+  .app-shell .token-workspace .token-value-reference { background:var(--ui-selected); }
+  .app-shell .token-workspace .token-value-layout.is-linked .token-value-link { background:var(--ui-selected); }
   .app-shell .token-workspace .token-value-layout.is-invalid .token-value-reference { background:#472c37; }
 }
