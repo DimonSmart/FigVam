@@ -142,7 +142,7 @@ test('designs two linked login screens and previews invalid password through UI'
     'Цвет фона': '#FFFFFF', 'Толщина рамки': 1, 'Цвет рамки': '#E2E8F0', 'Радиус углов': 16 });
   // The dialog uses Free layout: child coordinates below are relative to its padded content.
   await show(page, 'tokens');
-  await page.locator('#new-token-open').click();
+  await page.locator('#token-menu-open').click(); await page.locator('#new-token-open').click();
   await page.getByLabel('Имя токена', { exact: true }).fill('spacing.dialog');
   await page.getByLabel('Тип токена').selectOption('Spacing');
   await page.getByLabel('Light', { exact: true }).fill('32');

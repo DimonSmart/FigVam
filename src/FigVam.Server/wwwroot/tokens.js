@@ -1,5 +1,6 @@
+import { splitTokenBundle } from './token-exchange.js';
 import { createTokenValueControl } from './token-value-control.js';
-import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, visibleTokens, qualifyTokenName } from './token-groups.js';
+import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, filteredTokens, tokensInGroup, matchesTokenSearch, qualifyTokenName } from './token-groups.js';
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from './token-resolution.js';
 
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
@@ -54,13 +55,14 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   const el = element, editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   let group = [], collapsed = new Set(), creating = false, usagesReady = false;
   let importEpoch = 0;
+  let selectedTypes = new Set(types);
   let createControls = [], detailControls = [], renaming = false;
   const pendingThemeValues = new Map();
   let activeThemeSave = null;
   const busy = () => el('token-create').inert;
   function refreshAccess() {
     el('new-token-open').hidden = el('token-import-open').hidden = !editable();
-    el('token-export').disabled = !editable();
+    for (const id of ['token-export','token-export-light','token-export-dark']) el(id).disabled = !editable();
     if (!editable()) { creating = false; pendingThemeValues.clear(); el('token-import-form').hidden = true; }
     el('token-edit').hidden = !editable();
     if (!editable()) endRename();
@@ -86,19 +88,54 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   el('new-token-open').addEventListener('click', beginCreate);
   el('new-token-cancel').addEventListener('click', () => { creating = false; updateDetailVisibility(); });
-  el('token-search').addEventListener('input', () => renderTokens(false));
-  el('token-type-filter').addEventListener('change', () => renderTokens(false));
+  const filter = el('token-type-filter');
+  const checks = new Map();
+  const filterHeading = document.createElement('div');
+  filterHeading.className = 'token-filter-heading'; filterHeading.textContent = 'Отображаемые типы';
+  filterHeading.setAttribute('aria-hidden', 'true'); filter.append(filterHeading);
+  function checkbox(label, value, change) {
+    const wrapper = document.createElement('label'), input = document.createElement('input');
+    input.type = 'checkbox'; input.value = value; input.addEventListener('change', change);
+    wrapper.append(input, label); filter.append(wrapper); return input;
+  }
+  const allTypes = checkbox('Все типы', '', () => {
+    selectedTypes = selectedTypes.size === types.length ? new Set() : new Set(types);
+    syncTypeFilter(); renderTokens(false);
+  });
+  for (const type of types) checks.set(type, checkbox(type, type, () => {
+    if (checks.get(type).checked) selectedTypes.add(type); else selectedTypes.delete(type);
+    syncTypeFilter(); renderTokens(false);
+  }));
+  function syncTypeFilter() {
+    allTypes.checked = selectedTypes.size === types.length;
+    allTypes.indeterminate = selectedTypes.size > 0 && !allTypes.checked;
+    for (const [type, input] of checks) input.checked = selectedTypes.has(type);
+    el('token-menu-open').dataset.filtered = String(!allTypes.checked);
+    el('token-menu-open').setAttribute('aria-label', allTypes.checked ? 'Управление токенами' : 'Управление токенами (активен фильтр)');
+  }
+  syncTypeFilter();
+  el('token-search').addEventListener('input', () => { group = []; renderTokens(false); });
+  function syncImportMode() {
+    const combined = el('token-import-mode').value === 'combined';
+    for (const key of ['combined','light','dark']) {
+      const visible = (key === 'combined') === combined;
+      el('token-import-' + key + '-label').hidden = !visible;
+      el('token-import-' + key).required = visible;
+    }
+  }
+  el('token-import-mode').addEventListener('change', syncImportMode);
+  syncImportMode();
   el('token-import-open').addEventListener('click', () => {
     if (editable() && !busy()) el('token-import-form').hidden = !el('token-import-form').hidden;
   });
-  for (const theme of ['light','dark']) {
+  for (const theme of ['combined','light','dark']) {
     const field = el('token-import-' + theme), input = el('token-import-' + theme + '-file');
     let fileLoad = 0;
     input.addEventListener('change', async () => {
       const file = input.files?.[0], documentId = getContext().documentId, epoch = importEpoch, load = ++fileLoad;
       if (!file) return;
       try {
-        if (file.size > 1024 * 1024) throw new Error('Файл токенов превышает 1 МиБ.');
+        if (file.size > (theme === 'combined' ? 2 * 1024 * 1024 + 4096 : 1024 * 1024)) throw new Error('Файл токенов слишком большой.');
         const value = await file.text();
         if (epoch === importEpoch && load === fileLoad && documentId === getContext().documentId && input.files?.[0] === file) field.value = value;
       } catch (error) {
@@ -109,8 +146,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('token-import-form').addEventListener('submit', event => {
     event.preventDefault();
     try {
-      const lightJson = el('token-import-light').value, darkJson = el('token-import-dark').value;
-      JSON.parse(lightJson); JSON.parse(darkJson);
+      let lightJson, darkJson;
+      if (el('token-import-mode').value === 'combined') {
+        ({ lightJson, darkJson } = splitTokenBundle(el('token-import-combined').value));
+      } else {
+        lightJson = el('token-import-light').value; darkJson = el('token-import-dark').value;
+        JSON.parse(lightJson); JSON.parse(darkJson);
+      }
       const mapping = JSON.parse(el('token-import-mapping').value || '{}');
       if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) throw new Error('Некорректное сопоставление.');
       const convert = (values, names) => Object.fromEntries(Object.entries(values ?? {}).map(([key,value]) => {
@@ -124,20 +166,33 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         numberCategories: convert(mapping.numberCategories, categories) });
     } catch (error) { el('tokens-error').textContent = error.message; }
   });
-  el('token-export').addEventListener('click', async () => {
-    const { documentId, revision, navigationEpoch } = getContext(), theme = el('token-export-theme').value;
+  async function exportTokens(theme) {
+    const { documentId, revision, navigationEpoch } = getContext();
     const active = () => documentId === getContext().documentId && navigationEpoch === getContext().navigationEpoch;
     if (!editable() || !Number.isSafeInteger(revision)) return;
     el('tokens-error').textContent = '';
     try {
-      const result = await request('/api/v1/documents/' + encodeURIComponent(documentId) + '/token-export?theme=' + theme + '&revision=' + revision);
+      async function readTheme(name) {
+        const result = await request('/api/v1/documents/' + encodeURIComponent(documentId) + '/token-export?theme=' + name + '&revision=' + revision);
+        if (!result.tokens || result.diagnostics?.length || result.revision !== revision)
+          throw new Error((result.diagnostics ?? []).map(d => d.message).join('; ') || 'Экспорт темы ' + name + ' недоступен.');
+        return result.tokens;
+      }
+      let data;
+      if (theme) data = await readTheme(theme);
+      else {
+        const [Light, Dark] = await Promise.all([readTheme('Light'), readTheme('Dark')]);
+        data = { format: 'figvam-tokens', version: 1, themes: { Light, Dark } };
+      }
       if (!active()) return;
-      if (!result.tokens || result.diagnostics?.length) throw new Error((result.diagnostics ?? []).map(d => d.message).join('; ') || 'Экспорт недоступен.');
-      const url = URL.createObjectURL(new Blob([JSON.stringify(result.tokens, null, 2)], { type: 'application/json' }));
-      const link = document.createElement('a'); link.href = url; link.download = 'tokens-' + theme.toLowerCase() + '.json';
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
+      const link = document.createElement('a'); link.href = url; link.download = theme ? 'tokens-' + theme.toLowerCase() + '.json' : 'figvam-tokens.json';
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) { if (active()) el('tokens-error').textContent = error.message; }
-  });
+  }
+  el('token-export').addEventListener('click', () => exportTokens());
+  el('token-export-light').addEventListener('click', () => exportTokens('Light'));
+  el('token-export-dark').addEventListener('click', () => exportTokens('Dark'));
   const typeOf = token => normalizedTokenType(token?.type);
   const categoryOf = token => normalizedTokenCategory(token?.category);
   const nameOf = id => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
@@ -304,7 +359,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (activeThemeSave || busy() || !editable() || !pendingThemeValues.size) return;
     const operation = pendingThemeValues.values().next().value;
     pendingThemeValues.delete(operation.theme);
-    if (operation.documentId !== getContext().documentId || operation.tokenId !== selectedToken) {
+    if (operation.documentId !== getContext().documentId || !tokenItems.some(item => item.id === operation.tokenId)) {
       pendingThemeValues.clear(); return;
     }
     activeThemeSave = operation;
@@ -331,9 +386,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     tokenLoad++; importEpoch++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
     pendingThemeValues.clear(); activeThemeSave = null;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
-    el('token-search').value = el('token-type-filter').value = '';
-    el('token-groups').replaceChildren(); el('token-import-form').reset(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
-    el('new-token-open').hidden = el('token-import-open').hidden = true; el('token-export').disabled = true;
+    el('token-search').value = ''; selectedTypes = new Set(types); syncTypeFilter();
+    el('token-groups').replaceChildren(); el('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
+    el('new-token-open').hidden = el('token-import-open').hidden = true; for (const id of ['token-export','token-export-light','token-export-dark']) el(id).disabled = true;
     el('document-mode-editor').click(); updateDetailVisibility();
     el('token-create').inert = el('token-detail').inert = false;
     el('tokens-list').replaceChildren(); el('token-usages').replaceChildren();
@@ -368,7 +423,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     return { selection, usages };
   }
   function applySelectedUsages({ selection, usages }) {
-    if (selection !== selectedToken) { selectToken(selectedToken); return; }
+    if (selection !== selectedToken) { if (selectedToken) selectToken(selectedToken); return; }
     if (!usagesReady || JSON.stringify(tokenUsages) !== JSON.stringify(usages)) { usagesReady = true; tokenUsages = usages; renderTokens(true, false); }
   }
   function applyTokens(snapshot) {
@@ -376,9 +431,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     tokenItems = snapshot.items;
     createControls.forEach(control => control.refresh());
     detailControls.forEach(control => control.refresh());
-    if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
-    if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
-    tokenUsages = snapshot.usages; usagesReady = true;
+    if (selectedToken && selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
+    if (selectedToken && !tokenItems.some(item => item.id === selectedToken)) clearSelection();
+    tokenUsages = selectedToken ? snapshot.usages : []; usagesReady = !!selectedToken;
     if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) {
       rendered = true;
       renderTokens(true, !activeThemeSave && previousItem !== JSON.stringify(selected()));
@@ -404,7 +459,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   function renderTokens(refreshDetail = true, refreshEditor = true) {
     const list = el('tokens-list'); list.replaceChildren();
-    const tree = buildTokenGroups(tokenItems);
+    const search = el('token-search').value;
+    const filtered = filteredTokens(tokenItems, search, selectedTypes, typeOf);
+    const tree = buildTokenGroups(filtered);
     const groups = el('token-groups'); groups.replaceChildren();
     function drawGroup(node, parent) {
       const row = document.createElement('div'); row.className = 'token-group-row';
@@ -418,7 +475,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const select = document.createElement('button'); select.type = 'button'; select.className = 'token-group-select';
       select.textContent = node.segments.at(-1) ?? 'Все токены';
       select.setAttribute('aria-pressed', String(key === groupKey(group)));
-      select.onclick = () => { group = node.segments; el('token-search').value = ''; renderTokens(false); };
+      select.onclick = () => { group = node.segments; renderTokens(false); };
       if (!node.children.size) { const spacer = document.createElement('span'); spacer.setAttribute('aria-hidden','true'); row.append(spacer); }
       row.append(select); parent.append(row);
       if (!collapsed.has(key)) {
@@ -433,8 +490,9 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     drawGroup(tree, groups);
     const index = new Map(tokenItems.map(token => [token.id, token]));
     const nameDiagnostics = tokenNameDiagnostics(tokenItems);
-    const search = el('token-search').value;
-    for (const item of visibleTokens(tokenItems, group, search, el('token-type-filter').value, typeOf)) {
+    const displayed = tokensInGroup(filtered, group);
+    if (selectedToken && !displayed.some(item => item.id === selectedToken)) clearSelection();
+    for (const item of displayed) {
       const row = list.insertRow(), type = typeOf(item), category = categoryOf(item);
       const button = document.createElement('button'); button.type = 'button';
       button.textContent = shortTokenName(item.name, search.trim() ? [] : group);
@@ -463,9 +521,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
           target.onclick = () => {
             if (busy()) return;
             const item = index.get(expression.tokenId);
-            group = tokenSegments(item.name).slice(0,-1);
-            for (let i = 0; i <= group.length; i++) collapsed.delete(groupKey(group.slice(0,i)));
-            el('token-search').value = ''; el('token-type-filter').value = '';
+            revealToken(item, true);
             selectToken(expression.tokenId);
           }; target.disabled = !index.has(expression.tokenId); cell.append(target, ' · ' + value);
         } else cell.append(value);
@@ -474,7 +530,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       row.insertCell().textContent = item.id === selectedToken && usagesReady ? String(tokenUsages.length) : '—';
       const status = row.insertCell(); status.textContent = problems.length ? 'Ошибка' : '—'; status.title = problems.join('\n'); status.classList.toggle('token-invalid', !!problems.length);
     }
-    if (!list.rows.length) { const cell = list.insertRow().insertCell(); cell.colSpan = 7; cell.textContent = 'Нет токенов в выбранном контексте.'; }
+    if (!list.rows.length) { const cell = list.insertRow().insertCell(); cell.colSpan = 7; cell.textContent = selectedTypes.size ? 'Нет токенов, соответствующих фильтрам.' : 'Не выбраны типы токенов'; }
     
     const item = selected();
     updateDetailVisibility();
@@ -525,6 +581,21 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const li = document.createElement('li'); li.textContent = 'Использований нет.'; usages.append(li);
     }
   }
+  function clearSelection() {
+    selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
+    // A presentation filter must not discard theme edits already queued for saving.
+    endRename();
+    detailControls.forEach(control => control.dispose()); detailControls = []; el('token-values').replaceChildren();
+  }
+  function revealToken(item, navigate = false) {
+    const hidden = !selectedTypes.has(typeOf(item)) || !matchesTokenSearch(item, el('token-search').value) ||
+      !tokensInGroup([item], group).length;
+    selectedTypes.add(typeOf(item)); syncTypeFilter();
+    if (!matchesTokenSearch(item, el('token-search').value)) el('token-search').value = '';
+    if (navigate || hidden) group = tokenSegments(item.name).slice(0,-1);
+    const path = tokenSegments(item.name).slice(0,-1);
+    for (let i = 0; i <= path.length; i++) collapsed.delete(groupKey(path.slice(0,i)));
+  }
   async function selectToken(id) {
     endRename();
     pendingThemeValues.clear();
@@ -550,8 +621,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       await request(`/api/v1/documents/${encodeURIComponent(getContext().documentId)}/commands/${command}`,
         { method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), ...data }) }, signal);
       if (signal.aborted || current !== getContext().generation) return;
-      if (selection) { selectedToken = selection; creating = false; }
-      if (command === 'import-design-tokens') { importEpoch++; el('token-import-form').hidden = true; el('token-import-form').reset(); }
+      if (selection) { revealToken({ name: data.name, type: data.type }); selectedToken = selection; creating = false; }
+      if (command === 'import-design-tokens') { importEpoch++; el('token-import-form').hidden = true; el('token-import-form').reset(); syncImportMode(); }
       await readPages(signal);
       if (current === getContext().generation) { el('tokens-status').textContent = ''; return true; }
     } catch (error) {

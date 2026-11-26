@@ -320,29 +320,52 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
     byId('asset-upload-error'), byId('asset-upload-retry'));
   const tokenPage = byId('tokens-title').closest('section');
   tokenPage.id = 'token-workspace'; tokenPage.classList.add('token-workspace');
-  const tokenHeader = el('div', 'token-workspace-toolbar');
+  const tokenHeader = el('div', 'token-tree-toolbar');
   const tokenGrid = el('div', 'token-workspace-grid');
+  const tokenSidebar = el('div', 'token-sidebar');
   const tokenGroups = el('nav', 'token-groups'); tokenGroups.id = 'token-groups';
   tokenGroups.setAttribute('aria-label', 'Группы токенов');
   const tokenTable = el('div', 'token-table-area');
   const tokenDetails = el('aside', 'token-details-area');
-  const newToken = el('button', 'primary-action', 'Новый токен'); newToken.id = 'new-token-open'; newToken.type = 'button'; newToken.hidden = true;
   const search = el('input'); search.id = 'token-search'; search.type = 'search'; search.placeholder = 'Поиск токенов'; search.setAttribute('aria-label', 'Поиск токенов');
-  const typeFilter = el('select'); typeFilter.id = 'token-type-filter'; typeFilter.setAttribute('aria-label', 'Фильтр по типу токена');
-  typeFilter.add(new Option('Все типы', ''));
-  for (const type of ['Color','Spacing','Typography','Geometry','Dimension','Number','FontFamily','FontWeight']) typeFilter.add(new Option(type, type));
-  const exchange = el('div', 'token-exchange');
-  const importButton = el('button', '', 'Импорт'); importButton.id = 'token-import-open'; importButton.type = 'button'; importButton.hidden = true;
-  const exportTheme = el('select'); exportTheme.id = 'token-export-theme'; exportTheme.setAttribute('aria-label', 'Тема экспорта');
-  for (const theme of ['Light','Dark']) exportTheme.add(new Option(theme, theme));
-  const exportButton = el('button', '', 'Экспорт'); exportButton.id = 'token-export'; exportButton.type = 'button'; exportButton.disabled = true;
-  exchange.append(importButton, exportTheme, exportButton);
+  const menuButton = el('button', 'token-menu-button', '…'); menuButton.id = 'token-menu-open'; menuButton.type = 'button';
+  menuButton.setAttribute('aria-label', 'Управление токенами'); menuButton.setAttribute('popovertarget', 'token-menu');
+  const tokenMenu = el('div', 'token-menu'); tokenMenu.id = 'token-menu'; tokenMenu.setAttribute('popover', 'auto');
+  tokenMenu.setAttribute('role', 'group'); tokenMenu.setAttribute('aria-label', 'Управление токенами');
+  const command = (id, label) => { const b = el('button', '', label); b.id = id; b.type = 'button'; b.addEventListener('click', () => { tokenMenu.hidePopover(); menuButton.focus(); }); return b; };
+  const newToken = command('new-token-open', '+ Новый токен…'); newToken.hidden = true;
+  const importButton = command('token-import-open', 'Импорт токенов…'); importButton.hidden = true;
+  const exportButton = command('token-export', 'Экспорт токенов…');
+  const exportLight = command('token-export-light', 'Экспорт Light');
+  const exportDark = command('token-export-dark', 'Экспорт Dark');
+  for (const b of [exportButton, exportLight, exportDark]) b.disabled = true;
+  const typeFilter = el('div', 'token-type-filter'); typeFilter.id = 'token-type-filter';
+  typeFilter.setAttribute('role', 'group'); typeFilter.setAttribute('aria-label', 'Отображаемые типы');
+  tokenMenu.append(newToken, el('hr'), importButton, exportButton, exportLight, exportDark, el('hr'), typeFilter);
+  function positionTokenMenu() {
+    if (!tokenMenu.matches(':popover-open')) return;
+    const rect = menuButton.getBoundingClientRect();
+    const margin = 8;
+    tokenMenu.style.left = Math.max(margin, Math.min(rect.right - tokenMenu.offsetWidth, window.innerWidth - tokenMenu.offsetWidth - margin)) + 'px';
+    const below = window.innerHeight - rect.bottom - margin, above = rect.top - margin;
+    const openAbove = below < tokenMenu.scrollHeight && above > below;
+    tokenMenu.style.maxHeight = Math.max(0, openAbove ? above : below) + 'px';
+    tokenMenu.style.top = (openAbove ? rect.top - tokenMenu.offsetHeight : rect.bottom) + 'px';
+  }
+  tokenMenu.addEventListener('toggle', positionTokenMenu);
+  window.addEventListener('resize', positionTokenMenu);
+  tokenHeader.append(search, menuButton, tokenMenu);
+  tokenSidebar.append(tokenHeader, tokenGroups);
   const importForm = el('form', 'token-import-form'); importForm.id = 'token-import-form'; importForm.hidden = true;
-  for (const theme of ['Light','Dark']) {
-    const label = el('label', '', 'DTCG JSON · ' + theme);
-    const field = el('textarea'); field.id = 'token-import-' + theme.toLowerCase(); field.required = true; field.rows = 4; label.append(field);
+  const modeLabel = el('label', '', 'Формат импорта');
+  const importMode = el('select'); importMode.id = 'token-import-mode';
+  importMode.add(new Option('FigVam — обе темы', 'combined')); importMode.add(new Option('Два файла DTCG', 'pair'));
+  modeLabel.append(importMode); importForm.append(modeLabel);
+  for (const [key, title] of [['combined','FigVam JSON'],['light','DTCG JSON · Light'],['dark','DTCG JSON · Dark']]) {
+    const label = el('label', '', title); label.id = 'token-import-' + key + '-label';
+    const field = el('textarea'); field.id = 'token-import-' + key; field.rows = 4; label.append(field);
     const file = el('input'); file.type = 'file'; file.accept = '.json,application/json';
-    file.id = field.id + '-file'; file.setAttribute('aria-label', 'Файл токенов ' + theme);
+    file.id = field.id + '-file'; file.setAttribute('aria-label', 'Файл токенов ' + (key === 'combined' ? 'FigVam' : key === 'light' ? 'Light' : 'Dark'));
     label.append(file); importForm.append(label);
   }
   const mappingLabel = el('label', '', 'Сопоставление типов/категорий (JSON, необязательно)');
@@ -360,19 +383,19 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const body = table.createTBody(); body.id = 'tokens-list';
   byId('tokens-list').remove();
   tokenPage.removeAttribute('aria-labelledby'); tokenPage.setAttribute('aria-label', 'Токены');
-  tokenHeader.append(newToken, search, typeFilter, exchange);
   tokenTable.append(table);
   tokenDetails.append(placeholder, byId('token-create'), byId('token-detail'));
-  tokenGrid.append(tokenGroups, tokenTable, tokenDetails);
+  tokenGrid.append(tokenSidebar, tokenTable, tokenDetails);
   const stylesPanel = byId('styles-panel');
   const status = byId('tokens-status'), error = byId('tokens-error');
-  tokenPage.replaceChildren(tokenHeader, status, error, importForm, tokenGrid);
+  tokenPage.replaceChildren(status, error, importForm, tokenGrid);
   design.append(tokenPage);
   const stylesGroup = el('section', 'editor-group');
   stylesGroup.append(stylesPanel);
   resources.append(assetPanel, byId('datasets-title').closest('section'),
     stylesGroup, byId('screen-variants-title').closest('section'));
   function selectMode(tokens) {
+    if (!tokens && tokenMenu.matches(':popover-open')) tokenMenu.hidePopover();
     workspace.hidden = tokens; tokenPage.hidden = !tokens;
     editorMode.setAttribute('aria-pressed', String(!tokens)); tokenMode.setAttribute('aria-pressed', String(tokens));
     for (const control of [leftToggle, rightToggle]) control.hidden = tokens;
