@@ -1,5 +1,5 @@
-import { ApiError } from '../api/api-client.js';
-import type { components } from '../api/schema.generated';
+import { ApiError } from '../../api/api-client.js';
+import type { components } from '../../api/schema.generated';
 
 type Axis = 'width' | 'height';
 type ResizeBody = components['schemas']['ResizeScreenRequest'];
