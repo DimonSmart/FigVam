@@ -14,7 +14,7 @@ type State='ready'|'pending'|'uncertain'|'rejected';
 interface Metadata {id?:string;name?:string|null;semanticKey?:string|null;error?:string}
 type MetadataOperation={kind:'name';body:{commandId:string;nodeId:string;name:string};state:State}|{kind:'key';body:{commandId:string;nodeId:string;semanticKey:string|null};state:State};
 interface DeleteOperation {doc:string;screen:string;name:string;body:{commandId:string;nodeId:string};state:State;error?:string}
-interface MoveOperation {doc:string;screen:string;name:string;reveal:string[];body:Schema['MoveNodeRequest'];state:State}
+interface MoveOperation {doc:string;screen:string;name:string;reveal:string[];body:Schema['MoveNodeRequest'] & {position:number;expectedRevision:number};state:State}
 interface Snapshot {screen:string|null;roots:LayerItem[];children:Map<string,LayerItem[]>;expanded:Set<string>;initialExpansion:Set<string>}
 interface SnapshotOptions {base:string;screen:string|null;revision:number;signal:AbortSignal;isCurrent:()=>boolean;reveal:string[];shouldReportFailure:()=>boolean}
 function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected layer element '+node.id);return node;}
@@ -258,7 +258,7 @@ export function createLayers({
         await runPageRefresh(signal => readCurrentPages(signal, active));
         if (!active()) { op.state = 'uncertain'; return; }
         op.error = 'Слой уже удалён другим участником.';
-      } else op.error = ({ SCENARIO_IN_USE: 'Слой или его поддерево используется в сценариях. Сначала удалите ссылки сценариев.', SCREEN_VARIANT_IN_USE: 'Слой или его поддерево используется в вариантах. Сначала удалите ссылки вариантов.', INVALID_REPEATER: 'Слой используется повторителем. Сначала удалите зависимость.', INVALID_COMPONENT: 'Слой используется компонентом. Сначала удалите зависимость.' }) as Record<string,string>)[error.code??''] || error.message;
+      } else op.error = ({ SCENARIO_IN_USE: 'Слой или его поддерево используется в сценариях. Сначала удалите ссылки сценариев.', SCREEN_VARIANT_IN_USE: 'Слой или его поддерево используется в вариантах. Сначала удалите ссылки вариантов.', INVALID_REPEATER: 'Слой используется повторителем. Сначала удалите зависимость.', INVALID_COMPONENT: 'Слой используется компонентом. Сначала удалите зависимость.' } as Record<string,string>)[error.code??''] || error.message;
       op.state = 'rejected';
     } finally { if (nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && !element('editor-view').hidden) renderNodeDeletion(); }
   }

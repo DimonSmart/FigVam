@@ -44,11 +44,15 @@
   <Target Name="CollectFigVamFrontend" BeforeTargets="AssignTargetPaths"
           DependsOnTargets="BuildFigVamFrontend" Condition="'$(DesignTimeBuild)' != 'true'">
     <ItemGroup>
-      <Content Include="$(FigVamWebRoot)dist/*.js"
-               Link="wwwroot/%(Filename)%(Extension)"
-               TargetPath="wwwroot/%(Filename)%(Extension)"
-               CopyToOutputDirectory="PreserveNewest"
-               CopyToPublishDirectory="PreserveNewest" />
+      <_FigVamBundle Include="$(FigVamWebRoot)dist/*.js">
+        <Link>wwwroot/%(Filename)%(Extension)</Link>
+        <TargetPath>wwwroot/%(Filename)%(Extension)</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </_FigVamBundle>
+      <!-- Files are served by EditorEndpoints, not the SDK Static Web Assets pipeline.
+           None items still propagate to project-reference outputs and publish. -->
+      <None Include="@(_FigVamBundle)" />
     </ItemGroup>
   </Target>
 
