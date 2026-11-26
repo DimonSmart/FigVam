@@ -13,6 +13,7 @@ export default defineConfig({
         session: 'src/core/session.ts',
         'home-ui': 'src/features/home/index.ts',
         'token-resolution': 'src/core/tokens/token-resolution.ts',
+        tokens: 'src/features/tokens/tokens.ts',
         'token-groups': 'src/core/tokens/token-groups.ts',
         'token-exchange': 'src/core/tokens/token-exchange.ts',
         'canvas-viewport': 'src/canvas/canvas-viewport.ts',
