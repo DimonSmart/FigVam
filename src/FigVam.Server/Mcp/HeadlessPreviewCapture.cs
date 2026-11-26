@@ -94,7 +94,7 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
             Directory.CreateDirectory(directory);
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            foreach (var file in new[] { "screen-capture.js", "screen-renderer.js", "token-resolution.js", "editor.css", "editor-shell.css", "home.css" })
+            foreach (var file in new[] { "screen-capture.js", "render-model.js", "decode.js", "screen-renderer.js", "token-resolution.js", "editor.css", "editor-shell.css", "home.css" })
                 File.Copy(Path.Combine(AppContext.BaseDirectory, "wwwroot", file), Path.Combine(directory, file));
             var snapshot = JsonSerializer.Serialize(new { screen, theme = theme.ToString(), width, height, nodes, boxes,
                 overrides, kinds = profile.Response.Kinds, tokens = tokenItems, assets = manifest.Response.Assets, assetData, values }, Json);

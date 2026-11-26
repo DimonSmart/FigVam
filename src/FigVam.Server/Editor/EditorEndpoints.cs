@@ -21,6 +21,7 @@ public static class EditorEndpoints
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
         MapFile("/home-ui.js", "home-ui.js", "text/javascript; charset=utf-8");
 
+        MapFile("/render-model.js", "render-model.js", "text/javascript; charset=utf-8");
         MapFile("/screen-capture.js", "screen-capture.js", "text/javascript; charset=utf-8");
         MapFile("/editor-shell.js", "editor-shell.js", "text/javascript; charset=utf-8");
         MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
