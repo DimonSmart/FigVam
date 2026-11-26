@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import type { DocumentListItem } from '../../api/document-list';
 import { Button } from '../../ui/Button';
 
@@ -62,7 +62,7 @@ function DocumentCard({ item, onDelete }: { item: DocumentListItem; onDelete: De
 }
 
 export function createDocumentListView(host: HTMLElement, onDelete: DeleteDocument) {
-  const root = createRoot(host);
+  const root = createPanelRoot(host);
   const render = (items: DocumentListItem[]) => {
     flushSync(() => root.render(<>{items.map(item =>
       <DocumentCard key={item.documentId} item={item} onDelete={onDelete} />)}</>));

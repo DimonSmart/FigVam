@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { Trash2 } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { ApiError } from '../../api/api-client';
@@ -71,7 +71,7 @@ export function createMcpAccess({request, getContext, capture}: {request: ApiCli
   const body = document.getElementById('mcp-access-body');
   if (!(menu instanceof HTMLDetailsElement) || !body) throw new Error('MCP access host missing.');
   const host = menu;
-  const root = createRoot(body);
+  const root = createPanelRoot(body);
   let controller: AbortController | null = null, current: Operation | null = null;
   const valid = (operation: Operation) => {
     const context = getContext();

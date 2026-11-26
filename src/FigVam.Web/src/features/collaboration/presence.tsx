@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { authHeaders, credentialsMode } from '../../api/auth-client';
 import { ApiError } from '../../api/api-client';
@@ -15,7 +15,7 @@ function participant(value:unknown):Participant {
   return {name:text(p.name),color,screenId:p.screenId==null?null:text(p.screenId),selectedIds:array(p.selectedIds,text),cursor};
 }
 export function createPresence({element,getContext,toViewportPoint}:Options){
-  const list=createRoot(element('presence-list')), markers=createRoot(element('presence-markers'));
+  const list=createPanelRoot(element('presence-list')), markers=createPanelRoot(element('presence-markers'));
   let controller:AbortController|null=null,timer:ReturnType<typeof setTimeout>|undefined;
   let participants:Participant[]=[],cursor:Point|null=null,cursorScreen:string|null=null,lastRead=0;
   function input(id:string){const node=element(id);if(!(node instanceof HTMLInputElement))throw new TypeError('Missing input: '+id);return node.value;}

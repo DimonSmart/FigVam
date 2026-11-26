@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
@@ -48,7 +48,7 @@ function View({state,pageSize,search,select,load,move,moveUsage,resetKey}:{state
 }
 export function createComponents({element,request,pageSize,getContext}:{element(id:string):HTMLElement;request:ApiClient;pageSize:number;getContext():Context}) {
   const host=element('components-title').closest('section');if(!host)throw new Error('Components host missing');
-  const root=createRoot(host);let state=initial(),generation=0,query='',resetKey=0;
+  const root=createPanelRoot(host);let state=initial(),generation=0,query='',resetKey=0;
   function render(patch:Partial<State>={}) {
     state={...state,...patch};
     flushSync(()=>root.render(<View state={state} pageSize={pageSize} resetKey={resetKey} load={()=>void load()}

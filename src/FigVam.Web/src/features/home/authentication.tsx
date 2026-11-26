@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import type { AuthMode } from '../../api/auth-client';
 import { Button } from '../../ui/Button';
 
@@ -38,7 +38,7 @@ function Authentication({ state, submit }: {
 
 /** Transitional boundary: editor commands remain outside the React-owned subtree. */
 export function createAuthenticationView(host: HTMLElement, submit: (token: string) => void) {
-  const root = createRoot(host);
+  const root = createPanelRoot(host);
   let state: AuthenticationState = { visible: true, mode: null, error: '', reset: 0 };
   function update(patch: Partial<AuthenticationState>) {
     state = { ...state, ...patch };

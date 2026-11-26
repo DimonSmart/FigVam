@@ -1,12 +1,12 @@
 import { PanelsTopLeft, UsersRound } from 'lucide-react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { Button } from '../../ui/Button';
 
 type HomeView = 'documents' | 'users';
 
 export function createHomeNavigation(host: HTMLElement, onSelect: (view: HomeView) => void) {
-  const root = createRoot(host);
+  const root = createPanelRoot(host);
   let admin = false;
   let selected: HomeView = 'documents';
   function render() {

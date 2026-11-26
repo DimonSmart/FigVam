@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
@@ -55,7 +55,7 @@ function View({state,editable,op,pageSize,select,move,reload,retryCommand,create
 }
 export function createDatasets({element,request,getContext,pageSize,startRequest,stopLive,startLive,readPages,run}:Options){
   const host=element('datasets-title').closest('section');if(!host)throw new Error('Missing datasets host');
-  const root=createRoot(host),operations=new Map<string,Operation>();let state=initial(),generation=0;
+  const root=createPanelRoot(host),operations=new Map<string,Operation>();let state=initial(),generation=0;
   const editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   function render(patch:Partial<State>={}){
     state={...state,...patch};const doc=getContext().documentId,op=doc?operations.get(doc):undefined;

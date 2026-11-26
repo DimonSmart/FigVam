@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import type { components } from '../../api/schema.generated';
@@ -33,7 +33,7 @@ export function createScreenDiagnostics({element, request, getContext, pageSize}
 }) {
   const section = element('diagnostics-title').closest('section');
   if (!section) throw new Error('Diagnostics host missing');
-  const root = createRoot(section);
+  const root = createPanelRoot(section);
   let controller: AbortController | null = null, generation = 0, offset = 0, total = 0, key: string | null = null;
   const initial = (): State => ({ status: 'Выберите экран.', error: '', items: [], offset: 0, total: 0, retry: false });
   let state = initial();

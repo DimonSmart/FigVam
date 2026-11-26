@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Check, X, Ellipsis } from 'lucide-react';
 import { Button } from '../../ui/Button';
@@ -154,7 +154,7 @@ export function createDocumentNavigator(pages: HTMLElement, screens: HTMLElement
   const host = document.createElement('div');
   host.className = 'navigator-tree-host';
   pages.replaceWith(host); screens.remove();
-  const root = createRoot(host);
+  const root = createPanelRoot(host);
   return {
     render(state: NavigatorState) { flushSync(() => root.render(<NavigatorView state={state} actions={actions}/>)); },
     dispose() { root.unmount(); host.remove(); },

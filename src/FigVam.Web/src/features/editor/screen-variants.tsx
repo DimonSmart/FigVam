@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
@@ -29,7 +29,7 @@ function View({state,selected,editable,enabled,op,pageSize,select,create,retry,r
 }
 export function createScreenVariants({element,request,refreshPages,onSelectionChanged,pageSize,workspace}:Options){
   const host=element('screen-variants-title').closest('section');if(!host)throw new Error('Missing screen variants host');
-  const root=createRoot(host),operations=new Map<string,Operation>();
+  const root=createPanelRoot(host),operations=new Map<string,Operation>();
   let state=initial(),generation=0,screenId:string|null=null,selected:string|null=null,commandError:{key:string;message:string}|null=null;
   const key=(doc:string|null,screen:string|null)=>doc+'/'+screen;
   const currentKey=()=>key(workspace.documentId,workspace.selectedScreen);

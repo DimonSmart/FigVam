@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { authHeaders, credentialsMode } from '../../api/auth-client';
 import { Button } from '../../ui/Button';
@@ -77,7 +77,7 @@ function UserAdmin({ users, feedback, invite, save }: Props) {
 
 export function createUserAdmin(element: (id: string) => HTMLElement) {
   const section = element('user-admin');
-  const root = createRoot(section);
+  const root = createPanelRoot(section);
   let controller: AbortController | null = null;
   let users: User[] = [], feedback = '';
   let epoch = 0;

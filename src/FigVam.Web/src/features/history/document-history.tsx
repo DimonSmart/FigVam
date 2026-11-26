@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import { ApiError, type ApiClient } from '../../api/api-client';
@@ -53,7 +53,7 @@ export function createDocumentHistory({element,request,pageSize,refreshPages,wor
   const versionOperations=new Map<string,SaveOperation>(),restoreOperations=new Map<string,RestoreOperation>(),historyActions=new Map<string,HistoryOperation>();
   const form=element('version-save'),section=element('versions-title').closest('section');
   if(!section)throw new Error('Missing version history host');
-  const formRoot=createRoot(form),listRoot=createRoot(section);
+  const formRoot=createPanelRoot(form),listRoot=createPanelRoot(section);
   let state=initial(),draft='',generation=0,controller:AbortController|null=null,cursors:(number|null)[]=[null];
   const canEdit=()=>['Owner','Editor'].includes(workspace.documentRole??'');
   const get=<T,>(map:Map<string,T>):T|undefined=>workspace.documentId?map.get(workspace.documentId):undefined;

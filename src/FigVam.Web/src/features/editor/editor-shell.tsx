@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image } from 'lucide-react';
 import { Button } from '../../ui/Button';
@@ -37,7 +37,7 @@ function menu(label:string, className:string) {
 const toolIcons={select:MousePointer2, Frame, Text:Type, Button:RectangleHorizontal, TextInput:TextCursorInput, Image};
 type ToolKind=keyof typeof toolIcons;
 function renderToolIcon(host:HTMLElement,name:ToolKind) {
-  const Icon=toolIcons[name],root=createRoot(host);
+  const Icon=toolIcons[name],root=createPanelRoot(host);
   flushSync(()=>root.render(<Icon size={18} strokeWidth={1.7} aria-hidden="true"/>));
 }
 
@@ -48,7 +48,7 @@ function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, befor
   nav.setAttribute('role','tablist');
   nav.setAttribute('aria-label',label);
   const stage=el('div','panel-stage');
-  const reactRoot=createRoot(nav);
+  const reactRoot=createPanelRoot(nav);
   let selected:string|undefined;
   for(const [key,,panel] of entries) {
     panel.classList.add('panel-page');

@@ -17,6 +17,7 @@ import { createStyles } from '../features/styles/styles';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
 
 import { element, required } from './dom';
+import { disposeApplicationRoot } from './react-panels';
 import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
@@ -931,7 +932,9 @@ window.addEventListener('popstate', () => {
 window.addEventListener('beforeunload', event => {
   if (scenarios.hasDirtyDraft()) { event.preventDefault(); event.returnValue = ''; }
 });
-window.addEventListener('pagehide', clearSession);
+window.addEventListener('pagehide', event => {
+  try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
+});
 async function initializeAuthentication() {
   try {
     const config = await fetch('/api/auth/config', { credentials: 'same-origin', cache: 'no-store' });

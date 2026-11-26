@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { useRef } from 'react';
 import { Button } from '../../ui/Button';
@@ -28,7 +28,7 @@ function MemberForm({state,change}:{state:State;change(remove:boolean,id:string,
   </>;
 }
 export function createMembers({element,request,findRole,openDocument,loadList,message,stopLive,startLive,workspace}:Options){
-  const host=element('member-management'),root=createRoot(host);
+  const host=element('member-management'),root=createPanelRoot(host);
   let controller:AbortController|null=null,state:State={busy:false,status:'',error:'',resetKey:0};
   function render(patch:Partial<State>={}){state={...state,...patch};flushSync(()=>root.render(<MemberForm state={state} change={(remove,id,role)=>void changeMember(remove,id,role)}/>));}
   function reset(){controller?.abort();controller=null;host.hidden=true;render({busy:false,status:'',error:'',resetKey:state.resetKey+1});}
