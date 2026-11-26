@@ -24,7 +24,7 @@ public static class EditorEndpoints
         MapFile("/screen-capture.js", "screen-capture.js", "text/javascript; charset=utf-8");
         MapFile("/editor-shell.js", "editor-shell.js", "text/javascript; charset=utf-8");
         MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
-        MapFile("/user-admin.js", "user-admin.js", "text/javascript; charset=utf-8");
+
         MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
         MapFile("/canvas-viewport.js", "canvas-viewport.js", "text/javascript; charset=utf-8");
         MapFile("/canvas-node-editor.js", "canvas-node-editor.js", "text/javascript; charset=utf-8");

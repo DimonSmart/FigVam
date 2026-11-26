@@ -1,8 +1,7 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
-import { createUserAdmin } from './user-admin.js';
 import { createMcpAccess } from './mcp-access.js';
 import { createApiClient, parseDocumentList } from './api-client.js';
-import { createAuthenticationView, createDocumentListView, createHomeNavigation } from './home-ui.js';
+import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
 import { createEditorShell } from './editor-shell.js';
