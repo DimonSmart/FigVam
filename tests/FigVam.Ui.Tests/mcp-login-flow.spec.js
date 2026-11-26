@@ -6,23 +6,28 @@ async function connect(request, endpoint, token) {
   let id = 0;
   let protocolVersion;
   async function rpc(method, params, notification = false) {
+    const requestId = notification ? undefined : ++id;
     const response = await request.post(endpoint, {
       headers: { Authorization: 'Bearer ' + token, Accept: 'application/json, text/event-stream',
         ...(protocolVersion ? { 'MCP-Protocol-Version': protocolVersion } : {}) },
-      data: { jsonrpc: '2.0', ...(notification ? {} : { id: ++id }), method, params }
+      data: { jsonrpc: '2.0', ...(notification ? {} : { id: requestId }), method, params }
     });
     expect(response.ok(), 'MCP ' + method + ': HTTP ' + response.status()).toBeTruthy();
     if (notification) return;
     const body = await response.text();
     const message = body.startsWith('{') ? JSON.parse(body) :
-      body.split(/\r?\n/).filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6))).find(message => message.id === id);
+      body.split(/\r?\n/).filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6))).find(message => message.id === requestId);
     expect(message?.error).toBeUndefined();
     return message.result;
   }
   const initialized = await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'FigVam UI acceptance', version: '1' } });
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
-  expect((await rpc('tools/list', {})).tools.length).toBe(31);
+  const tools = (await rpc('tools/list', {})).tools;
+  expect(tools).toHaveLength(33);
+  const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
+  expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
+  expect(renderSchema.required).not.toContain('theme');
   const raw = (name, args = {}) => rpc('tools/call', { name, arguments: args });
   const call = async (name, args = {}) => {
     const result = await raw(name, args);
@@ -219,11 +224,21 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   const call = await connect(request, access.endpoint, access.token);
   const { pageId } = await call('create_page', { name: 'Login flow' });
   const { screenId: login } = await call('create_screen', { pageId, width: 800, height: 600, name: 'Login' });
-  const { tokenId: bg } = await call('create_token', { name: 'login.background', type: 'Color', light: '#EEF2F7', dark: '#15243A' });
+  const { types } = await call('list_token_types');
+  expect(types).toContain('Color');
+  expect(types).toContain('Typography');
+  const colorSchema = await call('get_token_schema', { type: 'Color' });
+  const typographySchema = await call('get_token_schema', { type: 'Typography' });
+  const dimensionSchema = await call('get_token_schema', { type: 'Dimension' });
+  const { tokenId: bg } = await call('create_token', { name: 'login.background', type: colorSchema.type, light: '#EEF2F7', dark: '#15243A' });
+  const { tokenId: typography } = await call('create_token', { name: 'login.typography', type: typographySchema.type,
+    light: typographySchema.example, dark: typographySchema.example });
+  const { tokenId: spacing } = await call('create_token', { name: 'login.spacing', type: dimensionSchema.type,
+    category: dimensionSchema.category.allowedValues.find(c => c === 'Spacing'), light: 0, dark: 0 });
   const create = async (parentId, kind, properties) => (await call('create_node', { parentId, kind, properties })).nodeId;
   const background = await create(login, 'Frame', { x: 0, y: 0, width: 800, height: 600,
-    backgroundColor: { tokenId: bg }, borderWidth: 0, cornerRadius: 0 });
-  await create(login, 'Text', { x: 250, y: 80, width: 300, height: 40, text: 'Sign in', fontSize: 26 });
+    backgroundColor: { tokenId: bg }, borderWidth: 0, cornerRadius: 0, paddingLeft: { tokenId: spacing } });
+  await create(login, 'Text', { x: 250, y: 80, width: 300, height: 40, text: 'Sign in', typography: { tokenId: typography } });
   await create(login, 'TextInput', { x: 250, y: 140, width: 300, height: 44, placeholder: 'Email', backgroundColor: '#FFFFFF' });
   const button = await create(login, 'Button', { x: 250, y: 200, width: 300, height: 48, text: 'Login',
     backgroundColor: '#2563EB', borderWidth: 0, cornerRadius: 8, textColor: '#FFFFFF',
@@ -262,6 +277,8 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   // Wait for the editor to receive the committed revision before comparing UI state.
   await expect(page.locator('#revision')).toContainText(String(revision));
   const before = await editorState();
+  const readSnapshot = async () => (await (await request.get(server.url + '/api/v1' + new URL(page.url()).pathname + '/document.json', { headers: { Authorization: 'Bearer ' + bearer } })).json()).document;
+  const documentBefore = await readSnapshot();
   async function inspect(screenId, theme, name, expectedRevision, expectedBackground, expectedError, expectedButton = [37, 99, 235]) {
     const result = await call.raw('render_screen', { screenId, ...(theme ? { theme } : {}) });
     expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
@@ -291,6 +308,12 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     for (const theme of ['Light', 'Dark'])
       await inspect(screenId, theme, (screenId === login ? 'login' : 'login-error') + '-' + theme,
         revision, theme === 'Light' ? [238, 242, 247] : [21, 36, 58], screenId === error);
+  await inspect(login, 'Light', 'light-repeat', revision, [238, 242, 247], false);
+  await Promise.all([
+    inspect(login, 'Light', 'parallel-light', revision, [238, 242, 247], false),
+    inspect(login, 'Dark', 'parallel-dark', revision, [21, 36, 58], false)
+  ]);
+  expect(await readSnapshot()).toEqual(documentBefore);
   expect(await editorState()).toEqual(before);
   expect((await call('get_document')).revision).toBe(revision);
   expect((await call.raw('render_screen', { screenId: login, theme: 'Sepia' })).structuredContent.code).toBe('INVALID_THEME');

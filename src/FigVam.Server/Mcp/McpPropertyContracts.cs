@@ -137,37 +137,67 @@ internal static class McpPropertyContracts
         return WithTag(schema, "shadow");
     }
 
-    private static JsonObject CompactTokenLiteral(TokenType type) => type switch
+    private static JsonObject ApplyRange(JsonObject schema, TokenType type, TokenCategory? category = null, string? field = null)
+    {
+        var range = DesignTokenValidator.Range(type, category, field);
+        if (range.Minimum is { } min) schema[range.ExclusiveMinimum ? "exclusiveMinimum" : "minimum"] = min;
+        if (range.Maximum is { } max) schema["maximum"] = max;
+        return schema;
+    }
+
+    private static JsonObject FlatTypography()
+    {
+        var schema = Schema<McpTypographyInput>();
+        var properties = schema["properties"]!.AsObject();
+        var family = properties["fontFamily"]!.AsObject();
+        family["minLength"] = 1;
+        family["maxLength"] = DesignTokenValidator.TypographyFontFamilyMaxLength;
+        family["pattern"] = @"\S";
+        foreach (var field in new[] { "fontSize", "fontWeight", "lineHeight", "letterSpacing" })
+            ApplyRange(properties[field]!.AsObject(), TokenType.Typography, field: field);
+        return schema;
+    }
+
+    private static JsonObject CompactTokenLiteral(TokenType type, TokenCategory? category = null)
+    {
+        var schema = type switch
         {
             TokenType.Color => ColorSchema(),
             TokenType.Spacing or TokenType.Geometry or TokenType.Dimension or TokenType.Number => Schema<double>(),
             TokenType.FontFamily => Schema<string>(),
             TokenType.FontWeight => Schema<int>(),
-            TokenType.Typography => Schema<McpTypographyInput>(),
+            TokenType.Typography => FlatTypography(),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
+        if (type == TokenType.FontFamily)
+        {
+            schema["minLength"] = 1;
+            schema["maxLength"] = DesignTokenValidator.FontFamilyMaxLength;
+            schema["pattern"] = DesignTokenValidator.FontFamilyPattern;
+        }
+        return ApplyRange(schema, type, category);
+    }
 
-    private static JsonObject CanonicalTokenLiteral(TokenType type)
+    private static JsonObject CanonicalTokenLiteral(TokenType type, TokenCategory? category = null)
     {
         if (type == TokenType.Color)
         {
             var schema = RgbaSchema(tagged: true);
             var required = schema["required"]!.AsArray();
             required.Remove(required.Single(v => v!.GetValue<string>() == "alpha"));
+            schema["properties"]!["alpha"]!["default"] = 255;
             return schema;
         }
         if (type == TokenType.Typography)
         {
-            var flat = WithTag(Schema<McpTypographyInput>(), "typography", required: true);
+            var flat = WithTag(FlatTypography(), "typography", required: true);
             flat["additionalProperties"] = false;
-            var fields = ObjectSchema(new JsonObject
-            {
-                ["fontFamily"] = TokenExpressionSchema(TokenType.FontFamily),
-                ["fontSize"] = TokenExpressionSchema(TokenType.Dimension),
-                ["fontWeight"] = TokenExpressionSchema(TokenType.FontWeight),
-                ["lineHeight"] = TokenExpressionSchema(TokenType.Number),
-                ["letterSpacing"] = TokenExpressionSchema(TokenType.Dimension)
-            }, "fontFamily", "fontSize", "fontWeight", "lineHeight");
+            var properties = new JsonObject();
+            foreach (var (name, contract) in DesignTokenValidator.TypographyFieldTypes)
+                properties[name] = TokenExpressionSchema(contract.Type, contract.Category);
+            properties["letterSpacing"] = Choice(properties["letterSpacing"]!.DeepClone().AsObject(), new JsonObject { ["type"] = "null" });
+            var fields = ObjectSchema(properties, properties.Select(p => p.Key).Where(name => name != "letterSpacing").ToArray());
+            fields["properties"]!["letterSpacing"]!["description"] = "Omitted or null resolves to zero.";
             return Choice(flat, WithTag(fields, "typographyFields", required: true));
         }
         var tag = type switch
@@ -177,26 +207,38 @@ internal static class McpPropertyContracts
             TokenType.FontFamily => "fontFamily", TokenType.FontWeight => "fontWeight",
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
-        return TaggedScalar(CompactTokenLiteral(type), tag, type == TokenType.Geometry ? "radius" : "value");
+        return TaggedScalar(CompactTokenLiteral(type, category), tag, type == TokenType.Geometry ? "radius" : "value");
     }
 
-    private static JsonObject AliasExpressionSchema() =>
-        WithTag(ReferenceSchema<McpTokenReferenceInput>(), "alias", required: true, field: "expression");
+    private static JsonObject AliasExpressionSchema(TokenType type, TokenCategory? category)
+    {
+        var schema = WithTag(ReferenceSchema<McpTokenReferenceInput>(), "alias", required: true, field: "expression");
+        schema["description"] = $"Existing {type} token, category {category?.ToString() ?? "none"}; resolves in the same theme; no alias cycles.";
+        return schema;
+    }
 
-    private static JsonObject LiteralExpressionSchema(TokenType type) =>
-        WithTag(ObjectSchema(new JsonObject { ["value"] = CanonicalTokenLiteral(type) }, "value"),
+    private static JsonObject LiteralExpressionSchema(TokenType type, TokenCategory? category = null) =>
+        WithTag(ObjectSchema(new JsonObject { ["value"] = CanonicalTokenLiteral(type, category) }, "value"),
             "literal", required: true, field: "expression");
 
-    private static JsonObject TokenExpressionSchema(TokenType type) =>
-        Choice(AliasExpressionSchema(), LiteralExpressionSchema(type));
+    private static JsonObject TokenExpressionSchema(TokenType type, TokenCategory? category = null) =>
+        Choice(AliasExpressionSchema(type, category), LiteralExpressionSchema(type, category));
 
-    internal static JsonObject TokenInputSchema(TokenType type)
+    internal static JsonObject TokenInputSchema(TokenType type, TokenCategory? category = null)
     {
         var alternatives = new List<JsonObject>();
         if (type == TokenType.Color) alternatives.AddRange([HexSchema(), RgbaSchema()]);
-        else alternatives.Add(CompactTokenLiteral(type));
-        alternatives.AddRange([ReferenceSchema<McpTokenReferenceInput>(), AliasExpressionSchema(), LiteralExpressionSchema(type)]);
+        else alternatives.Add(CompactTokenLiteral(type, category));
+        var reference = ReferenceSchema<McpTokenReferenceInput>();
+        reference["description"] = $"Existing {type} token of the same category; resolves in the same theme; no alias cycles.";
+        alternatives.AddRange([reference, AliasExpressionSchema(type, category), LiteralExpressionSchema(type, category)]);
         return Choice(alternatives.ToArray());
+    }
+
+    internal static JsonObject LegacySpacingCreateSchema()
+    {
+        // The existing create_token shortcut normalizes two noncanonical inputs to Dimension/Spacing.
+        return Choice(CompactTokenLiteral(TokenType.Dimension, TokenCategory.Spacing), ReferenceSchema<McpTokenReferenceInput>());
     }
 
     internal static JsonObject InputSchema(NodePropertyDefinition definition)

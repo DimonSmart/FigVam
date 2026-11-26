@@ -32,7 +32,7 @@ test('ChatGPT tunnel can be granted, revoked and switched without copying tokens
   version = (await rpc('initialize', { protocolVersion: '2025-11-25', capabilities: {},
     clientInfo: { name: 'FigVam tunnel test', version: '1' } })).protocolVersion;
   await rpc('notifications/initialized', {}, true);
-  expect((await rpc('tools/list', {})).tools).toHaveLength(31);
+  expect((await rpc('tools/list', {})).tools).toHaveLength(33);
   const call = (name, args = {}) => rpc('tools/call', { name, arguments: args });
   expect((await call('get_document')).structuredContent.code).toBe('MCP_TUNNEL_ACCESS_REQUIRED');
 
