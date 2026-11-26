@@ -35,7 +35,7 @@ public static class EditorEndpoints
         MapFile("/token-value-control.js", "token-value-control.js", "text/javascript; charset=utf-8");
         MapFile("/token-resolution.js", "token-resolution.js", "text/javascript; charset=utf-8");
         MapFile("/screen-renderer.js", "screen-renderer.js", "text/javascript; charset=utf-8");
-        MapFile("/components.js", "components.js", "text/javascript; charset=utf-8");
+
         MapFile("/datasets.js", "datasets.js", "text/javascript; charset=utf-8");
         MapFile("/members.js", "members.js", "text/javascript; charset=utf-8");
         MapFile("/presence.js", "presence.js", "text/javascript; charset=utf-8");

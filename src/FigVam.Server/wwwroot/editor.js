@@ -1,7 +1,7 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createScreenCapture } from './screen-capture.js';
 import { createApiClient, parseDocumentList } from './api-client.js';
-import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics } from './home-ui.js';
+import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
 import { createEditorShell } from './editor-shell.js';
@@ -14,7 +14,6 @@ import { createLayers } from './layers.js';
 import { createDatasets } from './datasets.js';
 import { createDocumentHistory } from './document-history.js';
 import { createDocumentExport } from './document-export.js';
-import { createComponents } from './components.js';
 import { createScenarios } from './scenarios.js';
 import { createScreenResize } from './screen-resize.js';
 import { createScreenVariants } from './screen-variants.js';

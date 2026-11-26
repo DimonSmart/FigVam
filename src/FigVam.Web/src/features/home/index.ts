@@ -4,3 +4,4 @@ export { createHomeNavigation } from './navigation';
 export { createUserAdmin } from './user-admin';
 export { createMcpAccess } from '../mcp/mcp-access';
 export { createScreenDiagnostics } from '../editor/screen-diagnostics';
+export { createComponents } from '../components/components';
