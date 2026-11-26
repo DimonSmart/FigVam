@@ -96,6 +96,8 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
                 File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             foreach (var file in new[] { "screen-capture.js", "render-model.js", "decode.js", "screen-renderer.js", "token-resolution.js", "editor.css", "editor-shell.css", "home.css" })
                 File.Copy(Path.Combine(AppContext.BaseDirectory, "wwwroot", file), Path.Combine(directory, file));
+            foreach (var chunk in FigVam.Server.Editor.FrontendAssets.Chunks())
+                File.Copy(chunk, Path.Combine(directory, Path.GetFileName(chunk)));
             var snapshot = JsonSerializer.Serialize(new { screen, theme = theme.ToString(), width, height, nodes, boxes,
                 overrides, kinds = profile.Response.Kinds, tokens = tokenItems, assets = manifest.Response.Assets, assetData, values }, Json);
             // The default JSON encoder escapes HTML-sensitive characters, so document text

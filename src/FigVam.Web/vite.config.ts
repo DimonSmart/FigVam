@@ -39,7 +39,7 @@ export default defineConfig({
       fileName: (_format, name) => name + '.js',
     },
     rollupOptions: {
-      output: { chunkFileNames: '[name]-[hash].js' },
+      output: { chunkFileNames: 'figvam-chunk-[hash].js' },
     },
   },
 });

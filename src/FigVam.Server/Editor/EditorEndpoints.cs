@@ -20,6 +20,12 @@ public static class EditorEndpoints
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
         MapFile("/home-ui.js", "home-ui.js", "text/javascript; charset=utf-8");
+        // Map only actual generated bundle chunks, never an arbitrary user-supplied filesystem path.
+        foreach (var file in FrontendAssets.Chunks())
+        {
+            var name = Path.GetFileName(file);
+            MapFile("/" + name, name, "text/javascript; charset=utf-8");
+        }
 
         MapFile("/render-model.js", "render-model.js", "text/javascript; charset=utf-8");
         MapFile("/screen-capture.js", "screen-capture.js", "text/javascript; charset=utf-8");

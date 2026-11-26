@@ -22,7 +22,7 @@ public sealed class EditorUiTests
             "/", $"/documents/{id}", "/editor.css", "/editor-shell.css", "/home.css", "/editor.js", "/api-client.js", "/canvas-viewport.js",
             "/home-ui.js", "/decode.js", "/layer-caption.js", "/document-collaboration.js", "/document-export.js", "/layers.js", "/scenarios.js", "/screen-resize.js",
             "/tokens.js", "/token-groups.js", "/token-exchange.js", "/layer-drag.js", "/canvas-node-editor.js", "/screen-capture.js", "/session.js", "/auth-client.js",
-            "/visual-node-editor.js", "/node-property-controls.js", "/screen-renderer.js",
+            "/visual-node-editor.js", "/node-property-controls.js", "/screen-renderer.js", "/render-model.js", "/visual-screen.js",
             "/token-value-control.js", "/token-resolution.js", "/interaction-catalog.js", "/interaction-editor.js"
         });
         var visited = new HashSet<string>(StringComparer.Ordinal);
@@ -38,12 +38,14 @@ public sealed class EditorUiTests
                 Assert.Equal("text/javascript", response.Content.Headers.ContentType?.MediaType);
                 // Recursively verify static relative imports, including modules not named in the smoke-test seed list.
                 var source = await response.Content.ReadAsStringAsync();
-                foreach (Match import in Regex.Matches(source, """(?m)^\s*import\s+(?:[^;]*?\s+from\s+)?['"]\./(?<module>[^'"]+\.js)['"]"""))
+                foreach (Match import in Regex.Matches(source, """(?m)(?:^|;)\s*(?:import|export)\s+(?:[^;]*?\s+from\s+)?['"]\./(?<module>[^'"]+\.js)['"]"""))
                     routes.Enqueue("/" + import.Groups["module"].Value);
             }
             Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
             Assert.Contains("frame-ancestors 'none'", response.Headers.GetValues("Content-Security-Policy").Single());
         }
+        Assert.Contains(visited, route => route.StartsWith("/figvam-chunk-", StringComparison.Ordinal));
+        Assert.False((await client.GetAsync("/figvam-chunk-nonexistent.js")).IsSuccessStatusCode);
         Assert.Equal(401, (int)(await client.GetAsync($"/api/v1/documents/{id}?fields=name")).StatusCode);
         client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "owner"));
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = id, name = "<script>document name</script>" })).StatusCode);
