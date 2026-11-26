@@ -24,4 +24,27 @@
     <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <FigVamWebRoot>$(MSBuildThisFileDirectory)../FigVam.Web/</FigVamWebRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="$(FigVamWebRoot)dist/auth-client.js;$(FigVamWebRoot)dist/api-client.js;$(FigVamWebRoot)dist/session.js"
+             Link="wwwroot/%(Filename)%(Extension)"
+             TargetPath="wwwroot/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="RestoreFigVamFrontend"
+          Inputs="$(FigVamWebRoot)package.json;$(FigVamWebRoot)package-lock.json"
+          Outputs="$(FigVamWebRoot)node_modules/.package-lock.json">
+    <Exec WorkingDirectory="$(FigVamWebRoot)" Command="npm ci" />
+  </Target>
+
+  <Target Name="BuildFigVamFrontend" BeforeTargets="PrepareForBuild"
+          DependsOnTargets="RestoreFigVamFrontend" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec WorkingDirectory="$(FigVamWebRoot)" Command="npm run build" />
+  </Target>
+
 </Project>

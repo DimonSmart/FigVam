@@ -14,6 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/FigVam.Web/package-lock.json
+      - name: Configure npm 11
+        run: npm install --global npm@11
+      - name: Install frontend dependencies
+        working-directory: src/FigVam.Web
+        run: npm ci
+      - name: Typecheck and build
+        working-directory: src/FigVam.Web
+        run: npm run build
+      - name: Frontend unit tests
+        working-directory: src/FigVam.Web
+        run: npm test
+
   server:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -22,10 +43,22 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Configure npm 11
+        run: npm install --global npm@11
       - name: Restore dependencies
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
+      - name: Verify production publish
+        run: |
+          dotnet publish src/FigVam.Server --no-restore -c Release -o "$env:RUNNER_TEMP/figvam-publish"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($file in @('auth-client.js', 'api-client.js', 'session.js', 'index.html')) {
+            if (!(Test-Path (Join-Path "$env:RUNNER_TEMP/figvam-publish/wwwroot" $file))) { throw "Missing published frontend asset: $file" }
+          }
       - name: MCP protocol smoke
         run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~Mcp
       - name: Server tests
@@ -52,6 +85,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: tests/FigVam.Ui.Tests/package-lock.json
+      - name: Configure npm 11
+        run: npm install --global npm@11
       - name: Restore dependencies
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
@@ -126,6 +161,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Configure npm 11
+        run: npm install --global npm@11
       - name: Restore dependencies
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build AppHost
