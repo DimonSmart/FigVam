@@ -192,14 +192,11 @@ internal static class McpPropertyContracts
         {
             var flat = WithTag(FlatTypography(), "typography", required: true);
             flat["additionalProperties"] = false;
-            var fields = ObjectSchema(new JsonObject
-            {
-                ["fontFamily"] = TokenExpressionSchema(TokenType.FontFamily),
-                ["fontSize"] = TokenExpressionSchema(TokenType.Dimension, TokenCategory.FontSize),
-                ["fontWeight"] = TokenExpressionSchema(TokenType.FontWeight),
-                ["lineHeight"] = TokenExpressionSchema(TokenType.Number, TokenCategory.LineHeight),
-                ["letterSpacing"] = Choice(TokenExpressionSchema(TokenType.Dimension, TokenCategory.LetterSpacing), new JsonObject { ["type"] = "null" })
-            }, "fontFamily", "fontSize", "fontWeight", "lineHeight");
+            var properties = new JsonObject();
+            foreach (var (name, contract) in DesignTokenValidator.TypographyFieldTypes)
+                properties[name] = TokenExpressionSchema(contract.Type, contract.Category);
+            properties["letterSpacing"] = Choice(properties["letterSpacing"]!.DeepClone().AsObject(), new JsonObject { ["type"] = "null" });
+            var fields = ObjectSchema(properties, properties.Select(p => p.Key).Where(name => name != "letterSpacing").ToArray());
             fields["properties"]!["letterSpacing"]!["description"] = "Omitted or null resolves to zero.";
             return Choice(flat, WithTag(fields, "typographyFields", required: true));
         }

@@ -46,7 +46,17 @@ internal static class McpTokenSchemas
             example,
             themes = new { allowedValues = Enum.GetNames<TokenTheme>(), create = "Both light and dark are required; each is an independent value or alias.",
                 update = "Set one theme by name with set_token_value; the other theme is unchanged." },
-            references = "Compact {tokenId} or canonical {expression:alias,tokenId}; target must exist in this document and have the same type and category. Cycles are rejected. Nested typographyFields use canonical expressions and their field-specific type/category.",
+            references = new
+            {
+                description = "Compact {tokenId} or canonical {expression:alias,tokenId}; nested typographyFields use canonical expressions only.",
+                requiresExistingToken = true,
+                sameTheme = true,
+                cyclesAllowed = false,
+                targetType = type.ToString(),
+                targetCategoryMatches = true,
+                typographyFields = type == TokenType.Typography ? DesignTokenValidator.TypographyFieldTypes.ToDictionary(
+                    field => field.Key, field => new { type = field.Value.Type.ToString(), category = field.Value.Category?.ToString() }) : null
+            },
             legacySpacing = type == TokenType.Spacing ? new
             {
                 description = "create_token without category and with two noncanonical values creates Dimension/Spacing instead. If either value has an expression discriminator, the actual type remains Spacing. set_token_value always uses the stored type. Use the canonical example to create actual Spacing.",

@@ -22,10 +22,10 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         Converters = { new JsonStringEnumConverter() }
     };
 
-    internal static CallToolResult Result(string code, object? response)
+    internal static CallToolResult Result(string code, object? response, string? message = null)
     {
         var failed = response is null;
-        var value = JsonSerializer.SerializeToElement(response ?? new { status = "REJECTED", code, message = "The document operation was rejected." },
+        var value = JsonSerializer.SerializeToElement(response ?? new { status = "REJECTED", code, message = message ?? "The document operation was rejected." },
             ResponseOptions);
         if (value.GetRawText().Length > 256 * 1024)
             {
@@ -105,7 +105,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public CallToolResult GetTokenSchema(string type)
     {
         if (!Enum.GetNames<TokenType>().Contains(type, StringComparer.Ordinal))
-            return Result("INVALID_ENUM", null);
+            return Result("INVALID_ENUM", null, "Expected one of: " + string.Join(", ", Enum.GetNames<TokenType>()));
         var tokenType = Enum.Parse<TokenType>(type);
         return Result("OK", McpTokenSchemas.Describe(tokenType));
     }

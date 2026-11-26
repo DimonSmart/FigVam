@@ -142,11 +142,24 @@ public static class DesignTokenValidator
         return errors;
     }
 
+    // Field reference compatibility belongs to the domain model, not the MCP adapter.
+    public static IReadOnlyDictionary<string, (TokenType Type, TokenCategory? Category)> TypographyFieldTypes { get; } =
+        new System.Collections.ObjectModel.ReadOnlyDictionary<string, (TokenType, TokenCategory?)>(
+            new Dictionary<string, (TokenType, TokenCategory?)>
+            {
+                ["fontFamily"] = (TokenType.FontFamily, null),
+                ["fontSize"] = (TokenType.Dimension, TokenCategory.FontSize),
+                ["fontWeight"] = (TokenType.FontWeight, null),
+                ["lineHeight"] = (TokenType.Number, TokenCategory.LineHeight),
+                ["letterSpacing"] = (TokenType.Dimension, TokenCategory.LetterSpacing)
+            });
+
     private static void ValidateTypographyFields(DesignToken owner, TokenTheme theme, TypographyFieldsValue value,
         IReadOnlyDictionary<Guid, DesignToken> byId, List<TokenDiagnostic> diagnostics)
     {
-        void Check(string field, TokenExpression expression, TokenType type, TokenCategory? category)
+        void Check(string field, TokenExpression expression)
         {
+            var (type, category) = TypographyFieldTypes[field];
             void Error(string code, Guid? reference, string reason) =>
                 diagnostics.Add(new(code, owner.Id, theme, reference, $"{owner.Name}.{field}: {reason}", field));
             if (expression is LiteralTokenValue literal)
@@ -162,11 +175,11 @@ public static class DesignTokenValidator
             }
             else Error("invalid-expression", null, "Field requires a literal or token reference.");
         }
-        Check("fontFamily", value.FontFamily, TokenType.FontFamily, null);
-        Check("fontSize", value.FontSize, TokenType.Dimension, TokenCategory.FontSize);
-        Check("fontWeight", value.FontWeight, TokenType.FontWeight, null);
-        Check("lineHeight", value.LineHeight, TokenType.Number, TokenCategory.LineHeight);
-        Check("letterSpacing", value.LetterSpacing ?? new LiteralTokenValue(new DimensionValue(0)), TokenType.Dimension, TokenCategory.LetterSpacing);
+        Check("fontFamily", value.FontFamily);
+        Check("fontSize", value.FontSize);
+        Check("fontWeight", value.FontWeight);
+        Check("lineHeight", value.LineHeight);
+        Check("letterSpacing", value.LetterSpacing ?? new LiteralTokenValue(new DimensionValue(0)));
     }
 
     public static TokenResolution Resolve(IReadOnlyList<DesignToken> tokens, Guid tokenId, TokenTheme theme)
@@ -337,8 +350,9 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
 
     private TokenResolution ResolveTypography(DesignToken owner, TypographyFieldsValue fields, TokenTheme theme)
     {
-        TokenResolution Field(string path, TokenExpression expression, TokenType expected, TokenCategory? category)
+        TokenResolution Field(string path, TokenExpression expression)
         {
+            var (expected, category) = DesignTokenValidator.TypographyFieldTypes[path];
             TokenResolution Error(string code, Guid? reference, string message) =>
                 new(null, [new(code, owner.Id, theme, reference, $"{owner.Name}.{path}: {message}", path)]);
             if (expression is LiteralTokenValue literal)
@@ -358,15 +372,15 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
             return result.IsSuccess ? result : Error(result.Diagnostics[0].Code, alias.TokenId, result.Diagnostics[0].Message);
         }
 
-        var family = Field("fontFamily", fields.FontFamily, TokenType.FontFamily, null);
+        var family = Field("fontFamily", fields.FontFamily);
         if (!family.IsSuccess) return family;
-        var size = Field("fontSize", fields.FontSize, TokenType.Dimension, TokenCategory.FontSize);
+        var size = Field("fontSize", fields.FontSize);
         if (!size.IsSuccess) return size;
-        var weight = Field("fontWeight", fields.FontWeight, TokenType.FontWeight, null);
+        var weight = Field("fontWeight", fields.FontWeight);
         if (!weight.IsSuccess) return weight;
-        var line = Field("lineHeight", fields.LineHeight, TokenType.Number, TokenCategory.LineHeight);
+        var line = Field("lineHeight", fields.LineHeight);
         if (!line.IsSuccess) return line;
-        var spacing = Field("letterSpacing", fields.LetterSpacing ?? new LiteralTokenValue(new DimensionValue(0)), TokenType.Dimension, TokenCategory.LetterSpacing);
+        var spacing = Field("letterSpacing", fields.LetterSpacing ?? new LiteralTokenValue(new DimensionValue(0)));
         if (!spacing.IsSuccess) return spacing;
         var flat = new TypographyValue(((FontFamilyValue)family.Value!).Value, ((DimensionValue)size.Value!).Value,
             ((FontWeightValue)weight.Value!).Value, ((NumberValue)line.Value!).Value, ((DimensionValue)spacing.Value!).Value);

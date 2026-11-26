@@ -679,6 +679,10 @@ public sealed class McpProtocolTests
         });
         Assert.True(Valid(typography, fields));
         await Call("set_token_value", new { tokenId = ids["Typography"], theme = "Dark", value = fields });
+        await Call("create_token", new { name = "typography.fields", type = "Typography", light = fields, dark = fields });
+        var reference = JsonSerializer.SerializeToElement(new { tokenId = ids["Color"] });
+        Assert.True(Valid(definitions["Color"].GetProperty("valueSchema"), reference));
+        await Call("create_token", new { name = "color.alias", type = "Color", light = reference, dark = reference });
         foreach (var (type, category, value) in new (string, string?, object)[]
         {
             ("Color", null, "#xyz"), ("Geometry", null, -1), ("FontFamily", null, " "),

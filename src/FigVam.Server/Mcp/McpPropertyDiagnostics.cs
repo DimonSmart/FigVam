@@ -64,6 +64,7 @@ internal static class McpPropertyDiagnostics
         "string" => value.ValueKind == JsonValueKind.String,
         "boolean" => value.ValueKind is JsonValueKind.True or JsonValueKind.False,
         "object" => value.ValueKind == JsonValueKind.Object,
+        "null" => value.ValueKind == JsonValueKind.Null,
         _ => true
     };
 
@@ -143,7 +144,9 @@ internal static class McpPropertyDiagnostics
             if (schema["pattern"] is JsonValue pattern)
             {
                 var match = Regex.Match(str, pattern.GetValue<string>(), RegexOptions.CultureInvariant);
-                if (!match.Success || match.Length != str.Length)
+                // JSON Schema patterns are search expressions, not implicitly anchored.
+                // Hex input also has a separate exact-length contract.
+                if (!match.Success || pattern.GetValue<string>() == McpPropertyContracts.ColorPattern && match.Length != str.Length)
                     return pattern.GetValue<string>() == McpPropertyContracts.ColorPattern
                         ? Error("#RRGGBB or #RRGGBBAA", "Invalid color format",
                             $"Property '{path}' must be a hex color in #RRGGBB or #RRGGBBAA format (alpha last).")
