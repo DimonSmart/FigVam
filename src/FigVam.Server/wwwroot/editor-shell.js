@@ -368,10 +368,10 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const status = byId('tokens-status'), error = byId('tokens-error');
   tokenPage.replaceChildren(tokenHeader, status, error, importForm, tokenGrid);
   design.append(tokenPage);
-  const openTokens = el('button', '', 'Открыть токены'); openTokens.type = 'button';
-  const openStyles = group('Дизайн-система', openTokens, stylesPanel);
+  const stylesGroup = el('section', 'editor-group');
+  stylesGroup.append(stylesPanel);
   resources.append(assetPanel, byId('datasets-title').closest('section'),
-    openStyles, byId('screen-variants-title').closest('section'));
+    stylesGroup, byId('screen-variants-title').closest('section'));
   function selectMode(tokens) {
     workspace.hidden = tokens; tokenPage.hidden = !tokens;
     editorMode.setAttribute('aria-pressed', String(!tokens)); tokenMode.setAttribute('aria-pressed', String(tokens));
@@ -385,7 +385,6 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
     }
     selectMode(true);
   });
-  openTokens.addEventListener('click', () => tokenMode.click());
   selectMode(false);
   const treeTitle = byId('tree-title');
   treeTitle.classList.add('visually-hidden');

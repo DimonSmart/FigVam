@@ -161,6 +161,20 @@ for (const viewport of [{ width: 1200, height: 800 }, { width: 390, height: 500 
   });
 }
 
+test('tokens are opened from the document toolbar without a duplicate resources shortcut', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openEditor(page);
+  await page.getByRole('tab', { name: 'Ресурсы' }).click();
+  await expect(page.getByRole('button', { name: 'Открыть токены', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Дизайн-система', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Стили оформления', exact: true })).toBeVisible();
+  await page.locator('#document-mode-tokens').click();
+  await expect(page.locator('#token-workspace')).toBeVisible();
+  await page.locator('#document-mode-editor').click();
+  await expect(page.locator('#token-workspace')).toBeHidden();
+  await expect(page.getByRole('heading', { name: 'Стили оформления', exact: true })).toBeVisible();
+});
+
 test('narrow editor keeps full page unscrolled and panels accessible', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await openEditor(page);
