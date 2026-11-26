@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { fulfillLayerPage } = require('./layer-fixture');
 const { show } = require('./ui-panels');
 const { randomUUID } = require('node:crypto');
 async function create(request) { const id = randomUUID(); expect((await request.post('/api/v1/documents', { headers: { Authorization: `Bearer ${bearer}` }, data: { documentId: id, name: 'Presence' } })).ok()).toBeTruthy(); return id; }
@@ -14,7 +15,7 @@ test('publishes changes, recovers and removes expired participants', async ({ pa
     else await route.fulfill({ json: { code: 'PRESENCE', participants } });
   });
   const nodeId = randomUUID();
-  await page.route('**/children/**', route => route.fulfill({ json: { items: [{ id: nodeId, name: 'Layer', kind: 'FixtureLeaf', childCount: 0 }], total: 1 } }));
+  await page.route('**/children/**', route => fulfillLayerPage(route, [{ id: nodeId, name: 'Layer', kind: 'FixtureLeaf', childCount: 0 }]));
   await open(page, id);
   await expect(page.locator('#presence-list')).toContainText('Другой');
   await page.locator('#screens button').click();
