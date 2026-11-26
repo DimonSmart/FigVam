@@ -10,6 +10,7 @@ export default defineConfig({
         'auth-client': 'src/api/auth-client.ts',
         'decode': 'src/api/decode.ts',
         'api-client': 'src/api/api-client.ts',
+        'document-queries': 'src/api/document-queries.ts',
         session: 'src/core/session.ts',
         'home-ui': 'src/features/home/index.ts',
         'token-resolution': 'src/core/tokens/token-resolution.ts',

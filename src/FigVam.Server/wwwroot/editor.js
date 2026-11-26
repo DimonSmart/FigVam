@@ -1,6 +1,7 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createScreenCapture } from './screen-capture.js';
 import { createApiClient, parseDocumentList } from './api-client.js';
+import { createDocumentQueries } from './document-queries.js';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
@@ -74,6 +75,9 @@ const request = createApiClient({
     message('', 'Сессия завершена. Войдите повторно.');
   }
 });
+
+const documentQueries = createDocumentQueries(request);
+const findRole = documentQueries.findRole;
 
 const mcpContext = () => ({ documentId, token, navigationEpoch, role: documentRole, theme: visualScreens.currentTheme });
 const mcpAccess = createMcpAccess({ request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
@@ -360,19 +364,6 @@ async function deleteCatalogDocument(item, command) {
       message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
     }
   }
-}
-
-async function findRole(id, signal) {
-  let cursor = null;
-  do {
-    const query = new URLSearchParams({ limit: '100' });
-    if (cursor) query.set('cursor', cursor);
-    const result = await request(`/api/v1/documents?${query}`, {}, signal);
-    const item = result.items.find(item => item.documentId.toLowerCase() === id.toLowerCase());
-    if (item) return item.role;
-    cursor = result.nextCursor;
-  } while (cursor);
-  return null;
 }
 
 function navigatorCanEdit() {
@@ -728,31 +719,11 @@ async function readNodeEditRevision(signal, newRevision, isCurrent, reveal, sele
   return true;
 }
 
-// The structure API is intentionally capped at 100 items per request; the editor tree
-// collects every page and every screen instead of exposing technical pagination.
-async function readAllStructure(url, fields, signal, valid, pinnedRevision = null) {
-  const items = [];
-  let expectedRevision = pinnedRevision, total = 0;
-  do {
-    const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields });
-    if (expectedRevision !== null) query.set('revision', String(expectedRevision));
-    const result = await request(`${url}?${query}`, {}, signal, valid);
-    if (!valid()) return null;
-    if (expectedRevision !== null && result.revision !== expectedRevision)
-      throw new Error('Ревизия документа изменилась во время загрузки дерева.');
-    expectedRevision = result.revision;
-    total = result.total;
-    if (!result.items.length && items.length < total) throw new Error('Не удалось загрузить полный список.');
-    items.push(...result.items);
-  } while (items.length < total);
-  return { items, total, revision: expectedRevision };
-}
-
 async function readPages(signal, _offset = 0, targetRevision = null, isCurrent = () => true, reveal = [], selectionChange) {
   const id = documentId, current = generation;
   const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
   const base = `/api/v1/documents/${encodeURIComponent(id)}`;
-  const result = await readAllStructure(`${base}/pages`, 'name,childCount', signal, valid, targetRevision);
+  const result = await documentQueries.readPages(id, signal, valid, targetRevision);
   if (!valid() || !result) return;
   const nextRevision = result.revision;
   const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
@@ -760,8 +731,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   let screen = page === selectedPage ? selectedScreen : null;
   let screens = { items: [], total: 0 };
   if (page) {
-    screens = await readAllStructure(`${base}/pages/${encodeURIComponent(page)}/screens`,
-      'dimensions,name', signal, valid, nextRevision);
+    screens = await documentQueries.readScreens(id, page, signal, valid, nextRevision);
     if (!valid() || !screens) return;
   }
   if (!screens.items.some(item => item.id === screen)) screen = null;
@@ -772,7 +742,7 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   const [tokenSnapshot, styleSnapshot] = await Promise.all([
     tokens.read(base, nextRevision, signal, valid), styles.read(base, nextRevision, signal, valid)
   ]);
-  const header = await request(`${base}?fields=name&revision=${nextRevision}`, {}, signal, valid);
+  const name = await documentQueries.readName(id, signal, nextRevision, valid);
   if (!valid()) return;
   if (!layers.isExpansionCurrent(layerSnapshot))
     return readPages(signal, 0, nextRevision, isCurrent, reveal, selectionChange);
@@ -791,7 +761,6 @@ async function readPages(signal, _offset = 0, targetRevision = null, isCurrent =
   if (screensChanged || pagesChanged) renderScreens();
   else renderCanvas();
   layers.applySnapshot(layerSnapshot, selection);
-  const name = header.items[0].name;
   element('document-title').textContent = name; document.title = `${name} — FigVam`;
   element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
   components.load(); datasets.load(); screenVariants.load();
@@ -824,11 +793,10 @@ async function openDocument(id) {
   document.title = 'FigVam — открытие документа';
   documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
-    const result = await request(`/api/v1/documents/${encodeURIComponent(id)}?fields=name`, {}, signal);
+    const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
     if (!current()) return;
     documentRole = role;
-    const name = result.items[0].name;
     element('document-title').textContent = name;
     element('rename-document-name').value = name;
     element('document-rename').hidden = !['Owner', 'Editor'].includes(role);
