@@ -198,7 +198,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     } else {
       const holder = document.createElement('div'); holder.className = 'token-scalar-direct';
       const input = document.createElement('input'); input.id = prefix;
-      input.setAttribute('aria-label', label); input.autocomplete = 'off';
+      input.setAttribute('aria-label', prefix.startsWith('token-') ? label + ' — значение токена' : label); input.autocomplete = 'off';
       const inputs = [input]; let picker, preset;
       if (type === 'Color') {
         picker = document.createElement('input'); picker.type = 'color';

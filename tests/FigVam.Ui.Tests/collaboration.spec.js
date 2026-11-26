@@ -61,7 +61,12 @@ test('five open editors converge within the five-stream actor limit', async ({ p
   const id = await create(request, 'Five editors');
   const clients = [page];
   for (let index = 1; index < 5; index++) clients.push(await context.newPage());
-  for (const client of clients) { await open(client, id); await connected(client); }
+  const captureConnections = [];
+  for (const client of clients) {
+    client.on('request', request => { if (request.url().endsWith('/screen-capture/providers')) captureConnections.push(request); });
+    await open(client, id); await connected(client);
+  }
+  expect(captureConnections).toHaveLength(0);
   await command(page, 'add-page', { pageId: randomUUID() });
   for (const client of clients) {
     await expect(client.locator('#pages > li > .page-select')).toHaveCount(1);

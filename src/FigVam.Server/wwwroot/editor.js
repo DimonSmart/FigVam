@@ -95,6 +95,8 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   readRevision: (signal, targetRevision) => readPages(signal, pagesOffset, targetRevision),
   onConnectionStatus: status => { element('connection-status').textContent = status; },
   onAccessLost: closeInaccessibleDocument,
+  onCaptureEvent: mcpAccess.onCaptureEvent,
+  onCaptureDisconnect: mcpAccess.onCaptureDisconnect,
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -708,7 +710,7 @@ const canvasViewport = createCanvasViewport({
   setPresenceCursor: presence.setCursor
 });
 const visualScreens = createVisualScreens({
-  element, request, closeInaccessibleDocument, onDesignChange: () => { canvasNodes.sync(); mcpAccess.sync(); },
+  element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
   getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
@@ -901,7 +903,6 @@ async function openDocument(id) {
     await readPages(signal, 0);
     if (!current()) return;
     element('editor-view').hidden = false;
-    mcpAccess.sync();
     presence.start();
     documentHistory.load();
     if (selectedScreen) requestAnimationFrame(fitScreen);

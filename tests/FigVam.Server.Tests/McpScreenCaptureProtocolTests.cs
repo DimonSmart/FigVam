@@ -10,8 +10,10 @@ namespace FigVam.Server.Tests;
 [Collection(ProcessTestCollection.Name)]
 public sealed class McpScreenCaptureProtocolTests
 {
-    [Fact]
-    public async Task AuthorizedBrowserReturnsImageThroughOfficialMcpClientWithoutEditingDocument()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AuthorizedBrowserReturnsImageThroughOfficialMcpClientWithoutEditingDocument(bool sharedStream)
     {
         using var key = RSA.Create(2048);
         var config = ServerTestIdentity.Production(key);
@@ -50,7 +52,10 @@ public sealed class McpScreenCaptureProtocolTests
         Assert.Equal("RENDER_UNAVAILABLE", Code(await Call("render_screen", new { screenId })));
         Assert.Equal("RENDER_REVISION_MISMATCH", Code(await Call("render_screen", new { screenId, revision = revision - 1 })));
 
-        using var connect = new HttpRequestMessage(HttpMethod.Post, path + "/screen-capture/providers");
+        using var connect = sharedStream
+            ? new HttpRequestMessage(HttpMethod.Get, path + $"/events?lastSeenRevision={revision}")
+            : new HttpRequestMessage(HttpMethod.Post, path + "/screen-capture/providers");
+        if (sharedStream) connect.Headers.Add("X-FigVam-Screen-Capture", "1");
         using var response = await user.SendAsync(connect, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
         using var stream = await response.Content.ReadAsStreamAsync();
@@ -62,7 +67,8 @@ public sealed class McpScreenCaptureProtocolTests
             {
                 if (!line.StartsWith("data: ")) continue;
                 using var json = JsonDocument.Parse(line[6..]);
-                if (json.RootElement.GetProperty("code").GetString() == code) return json.RootElement.Clone();
+                if (json.RootElement.GetProperty("code").GetString() == (sharedStream ? "SCREEN_CAPTURE_" + code : code))
+                    return json.RootElement.Clone();
             }
             throw new InvalidOperationException("Capture connection closed");
         }

@@ -49,7 +49,7 @@ public sealed class DocumentDiagnosticsTests
     public async Task HttpContractsAndAccess()
     {
         using var key = RSA.Create(2048); await using var server = new ServerProcess(Production(key)); await server.WaitUntilReadyAsync();
-        using var client = server.CreateClient(); var doc = Guid.NewGuid(); var route = $"/api/v1/documents/{doc}/diagnostics";
+        using var client = server.CreateClient(TimeSpan.FromSeconds(45)); var doc = Guid.NewGuid(); var route = $"/api/v1/documents/{doc}/diagnostics";
         Assert.Equal(401, (int)(await client.GetAsync(route)).StatusCode);
         client.DefaultRequestHeaders.Authorization = new("Bearer", Token(key, subject: "owner"));
         Assert.Equal(201, (int)(await client.PostAsJsonAsync("/api/v1/documents", new { documentId = doc })).StatusCode);

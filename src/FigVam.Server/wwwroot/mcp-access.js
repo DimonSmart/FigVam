@@ -139,5 +139,5 @@ export function createMcpAccess({ request, getContext }) {
     if (menu.open) load();
     else clear();
   });
-  return { reset, sync: capture.sync };
+  return { reset, onCaptureEvent: capture.onEvent, onCaptureDisconnect: capture.onDisconnect };
 }
