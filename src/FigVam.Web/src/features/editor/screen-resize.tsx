@@ -1,3 +1,38 @@
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
+import { Button } from '../../ui/Button';
+import { NumberInput } from '../../ui/Inputs';
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+
+function ResizeView({saved, hidden, draft, readOnly, pending, retry, error, change, apply, cancel, repeat}: {
+  saved: string; hidden: boolean; draft: Record<Axis,string>; readOnly: boolean; pending: boolean;
+  retry: boolean; error: string; change(axis: Axis,value: string): void; apply(): void; cancel(): void; repeat(): void;
+}) {
+  return <>
+    <h2 id="screen-size-title">Размер экрана</h2>
+    <p id="screen-size-saved">{saved}</p>
+    <form id="screen-resize" hidden={hidden} noValidate onSubmit={event => {event.preventDefault(); apply();}}
+      onBlur={event => {if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) apply();}}>
+      {(['width','height'] as const).map(axis => {
+        const id = 'resize-' + axis;
+        return <div key={axis} className="resize-field">
+          <label htmlFor={id}>{axis === 'width' ? 'Ширина' : 'Высота'} выбранного экрана</label>
+          <NumberInput id={id} min={0} step="any" required readOnly={readOnly} value={draft[axis]}
+            onChange={event => change(axis,event.currentTarget.value)}
+            onKeyDown={event => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === 'Enter') {event.preventDefault(); apply();}
+              if (event.key === 'Escape' && !readOnly) {cancel();}
+            }}/>
+        </div>;
+      })}
+      <Button id="resize-retry" hidden={!retry} onClick={repeat}>Повторить команду</Button>
+    </form>
+    <StatusMessage id="screen-size-status">{pending ? 'Ожидание подтверждения…' : ''}</StatusMessage>
+    <InlineError id="screen-size-error">{error}</InlineError>
+  </>;
+}
+
 import { ApiError } from '../../api/api-client.js';
 import type { components } from '../../api/schema.generated';
 
@@ -19,61 +54,49 @@ export function createScreenResize({ element, request, refreshPages, workspace }
   const resizeOperations = new Map<string, Operation>();
   let resizeDraftScreen: string | null = null, resizeError: string | null = null, resizeTimer: ReturnType<typeof setTimeout> | undefined;
   const dirtyAxes = new Set<Axis>();
-  const listeners = new AbortController();
-  const signal = listeners.signal;
-  function inputElement(id: string): HTMLInputElement {
-    const input = element(id);
-    if (!(input instanceof HTMLInputElement)) throw new TypeError('Expected input: ' + id);
-    return input;
-  }
-
+  const section = element('screen-size-title').closest('section');
+  if (!section) throw new Error('Missing screen size section');
+  const root = createPanelRoot(section);
+  const draft: Record<Axis, string> = { width: '', height: '' };
   function resizeKey(id: string | null, screen: string | null) { return `${id}:${screen}`; }
   function renderScreenSize() {
     const screen = workspace.screensItems.find(item => item.id === workspace.selectedScreen);
-    const form = element('screen-resize'), operation = screen && resizeOperations.get(resizeKey(workspace.documentId, screen.id));
-    element('screen-size-saved').textContent = screen ? `Подтверждённый размер: ${screen.dimensions.width} × ${screen.dimensions.height} uiUnit` : 'Выберите экран.';
-    form.hidden = !screen || !['Owner', 'Editor'].includes(workspace.documentRole ?? '');
-    if (resizeDraftScreen !== screen?.id) { resizeDraftScreen = screen?.id ?? null; dirtyAxes.clear(); resizeError = null; }
+    const operation = screen && resizeOperations.get(resizeKey(workspace.documentId, screen.id));
+    if (resizeDraftScreen !== (screen?.id ?? null)) {
+      resizeDraftScreen = screen?.id ?? null; dirtyAxes.clear(); resizeError = null;
+    }
     if (screen) {
       for (const axis of ['width', 'height'] as const) {
-        const input = inputElement('resize-' + axis);
         const sent = operation && operation.body[axis === 'width' ? 'updateWidth' : 'updateHeight'];
-        if (sent) input.value = String(operation.body.dimensions[axis]);
-        else if (!dirtyAxes.has(axis)) input.value = String(screen.dimensions[axis]);
+        if (sent) draft[axis] = String(operation.body.dimensions[axis]);
+        else if (!dirtyAxes.has(axis)) draft[axis] = String(screen.dimensions[axis]);
       }
     }
-    for (const id of ['resize-width', 'resize-height']) inputElement(id).readOnly = !!operation;
-    element('resize-retry').hidden = operation?.state !== 'uncertain';
-    element('screen-size-status').textContent = operation?.state === 'pending' ? 'Ожидание подтверждения…' : '';
-    element('screen-size-error').textContent = operation?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : resizeError ?? '';
+    flushSync(() => root.render(<ResizeView
+      saved={screen ? `Подтверждённый размер: ${screen.dimensions.width} × ${screen.dimensions.height} uiUnit` : 'Выберите экран.'}
+      hidden={!screen || !['Owner','Editor'].includes(workspace.documentRole ?? '')}
+      draft={{...draft}} readOnly={!!operation} pending={operation?.state === 'pending'}
+      retry={operation?.state === 'uncertain'} error={operation?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : resizeError ?? ''}
+      change={change} apply={applyResize} cancel={cancelDraft} repeat={repeat}
+    />));
   }
-  for (const axis of ['width', 'height'] as const) {
-    const input = inputElement('resize-' + axis);
-    input.addEventListener('input', () => {
-      dirtyAxes.add(axis); resizeError = null; element('screen-size-error').textContent = '';
-      clearTimeout(resizeTimer);
-      const screen = workspace.selectedScreen, doc = workspace.documentId;
-      resizeTimer = setTimeout(() => {
-        if (screen === workspace.selectedScreen && doc === workspace.documentId) applyResize();
-      }, 500);
-    }, { signal });
-    input.addEventListener('keydown', event => {
-      if (event.isComposing) return;
-      if (event.key === 'Enter') { event.preventDefault(); applyResize(); }
-      if (event.key === 'Escape' && !input.readOnly) {
-        clearTimeout(resizeTimer); dirtyAxes.clear(); resizeError = null; renderScreenSize();
-      }
-    }, { signal });
+  function change(axis: Axis, value: string) {
+    draft[axis] = value; dirtyAxes.add(axis); resizeError = null;
+    clearTimeout(resizeTimer);
+    const screen = workspace.selectedScreen, doc = workspace.documentId;
+    resizeTimer = setTimeout(() => {
+      if (screen === workspace.selectedScreen && doc === workspace.documentId) applyResize();
+    }, 500);
+    renderScreenSize();
   }
-  element('screen-resize').addEventListener('focusout', event => {
-    if (!(event.relatedTarget instanceof Node) || !element('screen-resize').contains(event.relatedTarget)) applyResize();
-  }, { signal });
-  element('screen-resize').addEventListener('submit', event => { event.preventDefault(); applyResize(); }, { signal });
+  function cancelDraft() {
+    clearTimeout(resizeTimer); dirtyAxes.clear(); resizeError = null; renderScreenSize();
+  }
   function applyResize() {
     clearTimeout(resizeTimer);
     if (!dirtyAxes.size) return;
     if (!workspace.documentId || !workspace.selectedScreen || !['Owner', 'Editor'].includes(workspace.documentRole ?? '')) return;
-    const width = inputElement('resize-width').valueAsNumber, height = inputElement('resize-height').valueAsNumber;
+    const width = draft.width === '' ? NaN : Number(draft.width), height = draft.height === '' ? NaN : Number(draft.height);
     if (!Number.isFinite(width) || !Number.isFinite(height) || width < 0 || height < 0) {
       resizeError = 'Введите конечные неотрицательные ширину и высоту.'; renderScreenSize(); return;
     }
@@ -87,10 +110,11 @@ export function createScreenResize({ element, request, refreshPages, workspace }
       dimensions: { width, height }, updateWidth, updateHeight }, state: 'pending' };
     resizeError = null; resizeOperations.set(key, operation); sendResize(workspace.documentId, workspace.selectedScreen, operation);
   }
-  element('resize-retry').addEventListener('click', () => {
+  function repeat() {
     const operation = resizeOperations.get(resizeKey(workspace.documentId, workspace.selectedScreen));
-    if (workspace.documentId && workspace.selectedScreen && operation?.state === 'uncertain') sendResize(workspace.documentId, workspace.selectedScreen, operation);
-  }, { signal });
+    if (workspace.documentId && workspace.selectedScreen && operation?.state === 'uncertain')
+      void sendResize(workspace.documentId, workspace.selectedScreen, operation);
+  }
   async function sendResize(id: string, screen: string, operation: Operation) {
     const key = resizeKey(id, screen), current = workspace.generation, requestToken = workspace.token;
     const active = () => current === workspace.generation && workspace.documentId === id && workspace.token === requestToken && !element('editor-view').hidden;
@@ -101,7 +125,7 @@ export function createScreenResize({ element, request, refreshPages, workspace }
       if (!active()) { operation.state = 'uncertain'; return; }
       resizeOperations.delete(key); if (workspace.selectedScreen === screen) dirtyAxes.clear();
       await refreshPages();
-      if (active() && workspace.selectedScreen === screen) element('screen-size-status').textContent = 'Размер подтверждён.';
+      // Refresh the authoritative dimensions; do not write to a React-owned status node.
     } catch (error) {
       if (resizeOperations.get(key) !== operation) return;
       if (!active() || error instanceof TypeError || (error instanceof ApiError && error.status >= 500) || (error instanceof Error && error.name === 'AbortError')) operation.state = 'uncertain';
@@ -109,9 +133,10 @@ export function createScreenResize({ element, request, refreshPages, workspace }
     } finally { if (active() || (workspace.token === requestToken && workspace.documentId === id && workspace.selectedScreen === screen && resizeOperations.get(key) === operation && !element('editor-view').hidden)) { renderScreenSize(); } }
   }
 
+  renderScreenSize();
   return {
     render: renderScreenSize,
-    dispose() { clearTimeout(resizeTimer); listeners.abort(); resizeOperations.clear(); },
+    dispose() { clearTimeout(resizeTimer); root.unmount(); resizeOperations.clear(); },
     resetDraft() { clearTimeout(resizeTimer); dirtyAxes.clear(); resizeError = null; resizeDraftScreen = null; },
     clear() { clearTimeout(resizeTimer); resizeOperations.clear(); resizeDraftScreen = null; dirtyAxes.clear(); resizeError = null; }
   };

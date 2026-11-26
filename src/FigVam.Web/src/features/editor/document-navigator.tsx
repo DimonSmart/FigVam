@@ -4,6 +4,8 @@ import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Check, X, Ellipsis } from 'lucide-react';
 import { Button } from '../../ui/Button';
+import { TextInput } from '../../ui/Inputs';
+import { IconButton } from '../../ui/IconButton';
 import type { PageItem, ScreenItem } from '../../api/document-queries';
 
 export type NavigatorKind = 'page' | 'screen';
@@ -41,17 +43,17 @@ function RenameForm({ kind, draft, name, actions }: {kind: NavigatorKind; draft:
     }
     actions.saveRename(kind, draft.id, name, newName);
   }}>
-    <input ref={input} id={kind + '-name-input'} type="text" required maxLength={256} autoComplete="off"
+    <TextInput ref={input} id={kind + '-name-input'} type="text" required maxLength={256} autoComplete="off"
       aria-label={'Имя ' + noun} value={value} onChange={event => {
         const next = event.currentTarget.value;
         event.currentTarget.setCustomValidity(''); setValue(next); actions.changeDraft(kind, next);
       }} onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard(); }
       }}/>
-    <Button type="submit" className="navigator-rename-confirm" title="Сохранить название"
-      aria-label={'Сохранить название ' + noun}><Check size={14} aria-hidden="true"/></Button>
-    <Button className="navigator-rename-cancel" title="Отменить переименование"
-      aria-label={'Отменить переименование ' + noun} onClick={discard}><X size={14} aria-hidden="true"/></Button>
+    <IconButton type="submit" className="navigator-rename-confirm" title="Сохранить название"
+      label={'Сохранить название ' + noun} icon={Check} iconSize={14}/>
+    <IconButton className="navigator-rename-cancel" title="Отменить переименование"
+      label={'Отменить переименование ' + noun} onClick={discard} icon={X} iconSize={14}/>
   </form>;
 }
 

@@ -880,3 +880,5 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 
 /* Preserve the existing sidebar grid/flex layout around the React tree host. */
 .navigator-tree-host { display: contents; }
+
+.resize-field { display: contents; }

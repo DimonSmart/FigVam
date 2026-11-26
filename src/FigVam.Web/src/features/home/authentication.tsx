@@ -1,3 +1,4 @@
+import { InlineError } from '../../ui/Feedback';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createPanelRoot } from '../../app/react-panels';
@@ -21,7 +22,7 @@ function Authentication({ state, submit }: {
     <p id="authentication-help">{state.mode === 'bearer'
       ? 'Для API-режима введите выданный Bearer-токен. Вход через Google настроен отдельно.'
       : 'Войдите с помощью Google. Доступ предоставляется администратором FigVam.'}</p>
-    <p id="authentication-error" role="alert">{state.error}</p>
+    <InlineError id="authentication-error">{state.error}</InlineError>
     <a id="google-login" href="/api/auth/login" hidden={state.mode !== 'google'}>Войти через Google</a>
     <form id="authentication-form" autoComplete="off" hidden={state.mode !== 'bearer'} onSubmit={event => {
       event.preventDefault();

@@ -1,3 +1,5 @@
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+import { TextInput } from '../../ui/Inputs';
 import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
@@ -35,14 +37,14 @@ function View({state,editable,op,pageSize,select,move,reload,retryCommand,create
 }){
   return <>
     <h2 id="datasets-title">Локальные датасеты</h2>
-    <p id="datasets-status" role="status" aria-live="polite">{state.status}</p><p id="datasets-error" role="alert">{state.error}</p>
+    <StatusMessage id="datasets-status">{state.status}</StatusMessage><InlineError id="datasets-error">{state.error}</InlineError>
     <Button id="datasets-retry" hidden={!state.retry} onClick={reload}>Повторить загрузку датасетов</Button>
     <ul id="datasets-list" aria-label="Датасеты документа">{state.items.map(item=><li key={item.id}><Button aria-pressed={state.selection===item.id} onClick={()=>select(item.id)}>{item.name}</Button></li>)}</ul>
     <Pagination prefix="datasets" label="Навигация по датасетам" previousLabel="Предыдущие датасеты" nextLabel="Следующие датасеты" offset={state.offset} total={state.total} pageSize={pageSize} previous={()=>move(-1)} next={()=>move(1)}/>
     <div id="dataset-detail" hidden={!state.detail}><h3 id="dataset-title">{state.detail?.name}</h3><p>Сохранённая JSON-фикстура:</p><pre id="dataset-fixture" tabIndex={0}>{state.detail?.fixture}</pre></div>
     <div id="dataset-edit" hidden={!editable} inert={!!op} key={state.formKey}>
       <form id="dataset-create" onSubmit={e=>{e.preventDefault();create(value(e.currentTarget,'name'),value(e.currentTarget,'format')==='csv',value(e.currentTarget,'content'));}}>
-        <h3>Новый датасет</h3><label htmlFor="dataset-name">Имя датасета</label><input id="dataset-name" name="name" required maxLength={256}/>
+        <h3>Новый датасет</h3><label htmlFor="dataset-name">Имя датасета</label><TextInput id="dataset-name" name="name" required maxLength={256}/>
         <Format id="dataset-create-format" label="Формат нового снимка"/>
         <label htmlFor="dataset-create-content">Содержимое нового снимка</label><textarea id="dataset-create-content" name="content" required/><Button type="submit">Создать датасет</Button>
       </form>

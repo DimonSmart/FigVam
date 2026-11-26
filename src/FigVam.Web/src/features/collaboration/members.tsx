@@ -1,3 +1,5 @@
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+import { TextInput } from '../../ui/Inputs';
 import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { useRef } from 'react';
@@ -21,10 +23,10 @@ function MemberForm({state,change}:{state:State;change(remove:boolean,id:string,
   return <>
     <h2 id="members-title">Управление участниками</h2><p>Укажите разрешённого пользователя по email (либо его ID).</p>
     <form id="member-form" key={state.resetKey} onSubmit={e=>{e.preventDefault();submit(false);}}>
-      <label htmlFor="member-id">ID участника</label><input ref={id} id="member-id" list="member-options" required maxLength={256} autoComplete="off" disabled={state.busy}/><datalist id="member-options"/>
+      <label htmlFor="member-id">ID участника</label><TextInput ref={id} id="member-id" list="member-options" required maxLength={256} autoComplete="off" disabled={state.busy}/><datalist id="member-options"/>
       <label htmlFor="member-role">Роль участника</label><select ref={role} id="member-role" disabled={state.busy} defaultValue="Owner">{(['Owner','Editor','Viewer'] as const).map(r=><option key={r}>{r}</option>)}</select>
       <Button type="submit" disabled={state.busy}>Назначить роль</Button><Button id="member-remove" disabled={state.busy} onClick={()=>submit(true)}>Удалить участника</Button>
-    </form><p id="member-status" role="status" aria-live="polite">{state.status}</p><p id="member-error" role="alert">{state.error}</p>
+    </form><StatusMessage id="member-status">{state.status}</StatusMessage><InlineError id="member-error">{state.error}</InlineError>
   </>;
 }
 export function createMembers({element,request,findRole,openDocument,loadList,message,stopLive,startLive,workspace}:Options){

@@ -1,3 +1,5 @@
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+import { TextInput } from '../../ui/Inputs';
 import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
@@ -15,7 +17,7 @@ const initial=():State=>({items:[],status:'Выберите экран.',error:'
 function View({state,selected,editable,enabled,op,pageSize,select,create,retry,retryCommand,move}:{state:State;selected:string|null;editable:boolean;enabled:boolean;op:Operation|undefined;pageSize:number;select(id:string|null):void;create(name:string):void;retry():void;retryCommand():void;move(delta:number):void}){
   return <>
     <h2 id="screen-variants-title">Варианты экрана</h2>
-    <p id="screen-variants-status" role="status" aria-live="polite">{state.status}</p><p id="screen-variants-error" role="alert">{state.error}</p>
+    <StatusMessage id="screen-variants-status">{state.status}</StatusMessage><InlineError id="screen-variants-error">{state.error}</InlineError>
     <Button id="screen-variants-retry" hidden={!state.retry} onClick={retry}>Повторить загрузку вариантов</Button>
     <ul id="screen-variants-list" aria-label="Варианты экрана">
       {state.hasBase&&<li><Button data-variant-id="" aria-pressed={selected===null} onClick={()=>select(null)}>Базовое состояние (Base)</Button></li>}
@@ -23,7 +25,7 @@ function View({state,selected,editable,enabled,op,pageSize,select,create,retry,r
     </ul>
     <Pagination prefix="screen-variants" label="Навигация по вариантам экрана" previousLabel="Предыдущие варианты" nextLabel="Следующие варианты" offset={enabled?state.offset:0} total={enabled?state.total:0} pageSize={pageSize} previous={()=>move(-1)} next={()=>move(1)}/>
     <form id="screen-variant-create" hidden={!editable} key={state.formKey} onSubmit={e=>{e.preventDefault();const field=e.currentTarget.elements.namedItem('name');if(field instanceof HTMLInputElement)create(field.value);}}>
-      <label htmlFor="screen-variant-name">Имя нового варианта</label><input id="screen-variant-name" name="name" maxLength={256} required readOnly={!!op}/><Button type="submit" disabled={!!op}>Создать пустой вариант</Button>
+      <label htmlFor="screen-variant-name">Имя нового варианта</label><TextInput id="screen-variant-name" name="name" maxLength={256} required readOnly={!!op}/><Button type="submit" disabled={!!op}>Создать пустой вариант</Button>
     </form><Button id="screen-variant-command-retry" hidden={!editable||op?.state!=='uncertain'} onClick={retryCommand}>Повторить создание варианта</Button>
   </>;
 }
