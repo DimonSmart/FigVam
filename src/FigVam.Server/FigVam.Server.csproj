@@ -29,7 +29,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="$(FigVamWebRoot)dist/auth-client.js;$(FigVamWebRoot)dist/api-client.js;$(FigVamWebRoot)dist/session.js;$(FigVamWebRoot)dist/home-ui.js;$(FigVamWebRoot)dist/token-resolution.js;$(FigVamWebRoot)dist/token-groups.js;$(FigVamWebRoot)dist/token-exchange.js;$(FigVamWebRoot)dist/canvas-viewport.js"
+    <Content Include="$(FigVamWebRoot)dist/auth-client.js;$(FigVamWebRoot)dist/api-client.js;$(FigVamWebRoot)dist/session.js;$(FigVamWebRoot)dist/home-ui.js;$(FigVamWebRoot)dist/token-resolution.js;$(FigVamWebRoot)dist/token-groups.js;$(FigVamWebRoot)dist/token-exchange.js;$(FigVamWebRoot)dist/canvas-viewport.js;$(FigVamWebRoot)dist/layer-drag.js"
              Link="wwwroot/%(Filename)%(Extension)"
              TargetPath="wwwroot/%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
