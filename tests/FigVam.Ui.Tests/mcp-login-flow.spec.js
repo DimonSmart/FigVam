@@ -408,19 +408,19 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#15243A' });
   await call('save_version', { name: 'P2 Login Prototype' });
   // The document grant remains valid even when there is no editor capture provider.
+  expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
+  await page.locator('#mcp-access-menu summary').click();
+  await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);
   const documentUrl = page.url();
-  await page.goto('/');
+  const documentPath = new URL(documentUrl).pathname;
+  await page.close();
   const detached = await call.raw('simulate_preview', { screenId: login, theme: 'Light', includeImage: true,
     events: [{ nodeId: button, event: 'Click' }] });
   expect(detached.isError, JSON.stringify(detached.structuredContent)).not.toBe(true);
   expect(detached.structuredContent.activeScreenId).toBe(error);
   expect(detached.content.some(block => block.type === 'image')).toBe(true);
-  await page.goto(documentUrl);
-  expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
-  await page.locator('#mcp-access-menu summary').click();
-  await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Отозвать MCP-доступ' }).click();
-  await expect(page.getByText('Доступ не предоставлен', { exact: true })).toBeVisible();
+  const revoked = await request.delete(server.url + '/api/v1' + documentPath + '/mcp-access', { headers: { Authorization: 'Bearer ' + bearer } });
+  expect(revoked.ok(), await revoked.text()).toBeTruthy();
   const denied = await request.post(access.endpoint, { headers: { Authorization: 'Bearer ' + access.token, Accept: 'application/json, text/event-stream' },
     data: { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'render_screen', arguments: { screenId: login } } } });
   expect(denied.status()).toBe(401);

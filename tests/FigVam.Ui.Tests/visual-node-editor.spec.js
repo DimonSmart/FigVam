@@ -889,6 +889,7 @@ test('shadow token can be created, edited, bound, resolved by theme, persisted a
   await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
   const effects = page.locator('#visual-inspector .shadow-effects');
   await effects.getByRole('button', { name: 'Add drop shadow' }).click();
+  await expect(page.locator('#visual-inspector').getByRole('status')).toHaveText('Свойства сохранены.');
   await expect(effects.getByRole('button', { name: 'Привязать токен' })).toBeVisible();
   await effects.getByRole('button', { name: 'Привязать токен' }).click();
   await effects.getByRole('button', { name: /Elevation/ }).click();
@@ -899,6 +900,7 @@ test('shadow token can be created, edited, bound, resolved by theme, persisted a
   await expect.poll(async () => (await properties()).shadow?.type).toBe('token');
   const reference = (await properties()).shadow;
   await page.reload();
+  await login(page);
   await page.locator('#screens button').first().click();
   await show(page, 'design');
   await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
