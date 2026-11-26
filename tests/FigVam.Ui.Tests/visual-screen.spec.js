@@ -288,9 +288,9 @@ test('Design and Preview use the server bounds, clipping, typed styling and loca
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await expect(design.locator(visual(input))).toHaveAttribute('data-selected', 'true');
   await expect(design.locator(`${visual(frame)} > .visual-surface`)).toHaveCSS('background-color', 'rgb(18, 60, 72)');
-  await page.locator('#screens button').nth(1).click();
+  await page.locator(`#screens .screen-select[data-screen-id="${model.other}"]`).click();
   await expect(design.locator(visual(model.otherLabel))).toBeVisible();
-  await page.locator('#screens button').first().click();
+  await page.locator(`#screens .screen-select[data-screen-id="${screen}"]`).click();
   await expect(design.locator(`${visual(frame)} > .visual-surface`)).toHaveCSS('background-color', 'rgb(18, 60, 72)');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await expect(field).toHaveValue('Пример');

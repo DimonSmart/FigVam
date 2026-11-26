@@ -49,7 +49,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         const raw = properties[name];
         if (!raw) continue;
         if ((name === 'width' || name === 'height') && (node.properties[name + 'Mode'] ?? definitions[name + 'Mode']?.defaultValue)?.value !== 'Fixed') continue;
-        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, model.theme, definitions[name]).value : raw;
+        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, activeTheme, definitions[name]).value : raw;
         if (Number.isFinite(value?.value)) bounds[name] = value.value + (name === 'x' || name === 'y' ? parentBounds[name] : 0);
       }
       boxes.set(id, { ...box, bounds });
