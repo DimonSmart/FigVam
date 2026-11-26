@@ -1,3 +1,6 @@
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
+import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
@@ -70,6 +73,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
   const select=(id:string)=>checked(el(id),HTMLSelectElement),fieldInput=(id:string)=>checked(el(id),HTMLInputElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
   let styleUsages:Usage[]=[],styleUsageRequest=0;
+  const usageRoot=createPanelRoot(el('styles-usages'));
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
@@ -211,38 +215,11 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     choose(parent, selected?.basedOnStyleId);
     buildFields(selected, type);
     renderPreview(selected);
-    const usageList = el('styles-usages');
-    usageList.replaceChildren();
-    for (const indirect of [false, true]) {
-      const uses = styleUsages.filter(item => Boolean(item.indirect) === indirect);
-      if (!uses.length) continue;
-      const group = document.createElement('li');
-      group.className = 'resource-usage-group';
-      group.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + uses.length;
-      usageList.append(group);
-      for (const usage of uses) {
-        const li = document.createElement('li');
-        li.textContent = [usage.label ?? usage.kind, usage.property, usage.theme == null ? null : 'тема ' + usage.theme]
-          .filter(x => x != null).join(' · ');
-        if (usage.kind === 'nodeProperty') {
-          const target = document.createElement('button');
-          target.type = 'button';
-          target.textContent = 'К слою';
-          target.addEventListener('click', () => {
-            const node = [...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row => row.dataset.id === usage.ownerId);
-            node?.querySelector<HTMLElement>('.layer-label')?.click();
-          });
-          li.append(' ', target);
-        }
-        li.title = (usage.chain ?? []).map(id => items.find(item => item.id === id)?.name ?? id).join(' → ');
-        usageList.append(li);
-      }
-    }
-    if (!styleUsages.length) {
-      const empty = document.createElement('li');
-      empty.textContent = 'Использований нет.';
-      usageList.append(empty);
-    }
+    flushSync(()=>usageRoot.render(<ResourceUsages usages={styleUsages}
+      name={id=>items.find(item=>item.id===id)?.name??id} selectLayer={id=>{
+        const node=[...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row=>row.dataset.id===id);
+        node?.querySelector<HTMLElement>('.layer-label')?.click();
+      }}/>));
   }
 
   function resolvePreview(style:DesignStyle|null|undefined,theme:Theme,seen=new Set<string>()):Record<string,string> {

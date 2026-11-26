@@ -1,3 +1,8 @@
+import type { ReactElement } from 'react';
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
+import { Button } from '../../ui/Button';
+import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, record, array, text, errorMessage, aborted } from '../../api/decode';
@@ -88,6 +93,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   const el=element,editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   const input=(id:string)=>checked(el(id),HTMLInputElement),select=(id:string)=>checked(el(id),HTMLSelectElement),form=(id:string)=>checked(el(id),HTMLFormElement),area=(id:string)=>checked(el(id),HTMLTextAreaElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
   let group:string[]=[],collapsed=new Set<string>(), creating = false, usagesReady = false;
+  const groupRoot=createPanelRoot(el('token-groups')), tableRoot=createPanelRoot(el('tokens-list')), usageRoot=createPanelRoot(el('token-usages'));
   let importEpoch = 0;
   let selectedTypes=new Set<TokenType>(types);
   let createControls:PropertyControl[]=[],detailControls:PropertyControl[]=[],renaming=false;
@@ -423,11 +429,11 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     pendingThemeValues.clear(); activeThemeSave = null;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     input('token-search').value = ''; selectedTypes = new Set(types); syncTypeFilter();
-    el('token-groups').replaceChildren(); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
+    flushSync(()=>groupRoot.render(null)); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
     el('new-token-open').hidden = el('token-import-open').hidden = true; for (const id of ['token-export','token-export-light','token-export-dark']) btn(id).disabled = true;
     el('document-mode-editor').click(); updateDetailVisibility();
     el('token-create').inert = el('token-detail').inert = false;
-    el('tokens-list').replaceChildren(); el('token-usages').replaceChildren();
+    flushSync(()=>{tableRoot.render(null);usageRoot.render(null);});
     el('token-detail').hidden = true; el('token-create').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
     form('token-create').reset(); endRename();
@@ -494,79 +500,56 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       knownType(select('new-token-type').value),normalizedTokenCategory(select('new-token-category').value),null);
   }
   function renderTokens(refreshDetail = true, refreshEditor = true) {
-    const list=checked(el('tokens-list'),HTMLTableSectionElement); list.replaceChildren();
     const search = input('token-search').value;
     const filtered = filteredTokens(tokenItems, search, selectedTypes, typeOf);
     const tree = buildTokenGroups(filtered);
-    const groups = el('token-groups'); groups.replaceChildren();
-    function drawGroup(node:TokenGroup,parent:HTMLElement) {
-      const row = document.createElement('div'); row.className = 'token-group-row';
-      const key = groupKey(node.segments);
-      if (node.children.size) {
-        const toggle = document.createElement('button'); toggle.type = 'button'; toggle.textContent = collapsed.has(key) ? '▸' : '▾';
-        toggle.setAttribute('aria-label', (collapsed.has(key) ? 'Раскрыть ' : 'Свернуть ') + (node.segments.join('.') || 'все группы'));
-        toggle.setAttribute('aria-expanded', String(!collapsed.has(key)));
-        toggle.onclick = () => { if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key); renderTokens(false); }; row.append(toggle);
-      }
-      const select = document.createElement('button'); select.type = 'button'; select.className = 'token-group-select';
-      select.textContent = node.segments.at(-1) ?? 'Все токены';
-      select.setAttribute('aria-pressed', String(key === groupKey(group)));
-      select.onclick = () => { group = node.segments; renderTokens(false); };
-      if (!node.children.size) { const spacer = document.createElement('span'); spacer.setAttribute('aria-hidden','true'); row.append(spacer); }
-      row.append(select); parent.append(row);
-      if (!collapsed.has(key)) {
-        const children = document.createElement('div'); children.className = 'token-group-children';
-        for (const child of [...node.children.values()].sort((a,b) => (a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??''))) drawGroup(child, children);
-        parent.append(children);
-      }
+    function drawGroup(node:TokenGroup):ReactElement {
+      const key=groupKey(node.segments), expanded=!collapsed.has(key);
+      return <div key={key} className="token-group-branch" style={{display:'contents'}}>
+        <div className="token-group-row">
+          {node.children.size ? <Button aria-label={(expanded?'Свернуть ':'Раскрыть ')+(node.segments.join('.')||'все группы')}
+            aria-expanded={expanded} onClick={()=>{if(expanded)collapsed.add(key);else collapsed.delete(key);renderTokens(false);}}>{expanded?'▾':'▸'}</Button> : <span aria-hidden="true"/>}
+          <Button className="token-group-select" aria-pressed={key===groupKey(group)} onClick={()=>{group=node.segments;renderTokens(false);}}>{node.segments.at(-1)??'Все токены'}</Button>
+        </div>
+        {expanded && <div className="token-group-children">{[...node.children.values()].sort((a,b)=>(a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??'')).map(drawGroup)}</div>}
+      </div>;
     }
     let active:TokenGroup|undefined=tree;
-    for (const segment of group) active = active?.children.get(segment);
-    if (!active) group = [];
-    drawGroup(tree, groups);
-    const index = new Map(tokenItems.map(token => [token.id, token]));
-    const nameDiagnostics = tokenNameDiagnostics(tokenItems);
-    const displayed = tokensInGroup(filtered, group);
-    if (selectedToken && !displayed.some(item => item.id === selectedToken)) clearSelection();
-    for (const item of displayed) {
-      const row = list.insertRow(), type = typeOf(item), category = categoryOf(item);
-      const button = document.createElement('button'); button.type = 'button';
-      button.textContent = shortTokenName(item.name, search.trim() ? [] : group);
-      button.title = item.name; button.setAttribute('aria-pressed', String(item.id === selectedToken));
-      button.addEventListener('click', () => { if (!busy()) selectToken(item.id); }); row.insertCell().append(button);
-      row.dataset.selected = String(item.id === selectedToken);
-      row.insertCell().textContent = category ? type + '.' + category : type;
+    for(const segment of group) active=active?.children.get(segment);
+    if(!active)group=[];
+    const index=new Map(tokenItems.map(token=>[token.id,token]));
+    const nameDiagnostics=tokenNameDiagnostics(tokenItems);
+    const displayed=tokensInGroup(filtered,group);
+    if(selectedToken&&!displayed.some(item=>item.id===selectedToken))clearSelection();
+    const rows=displayed.map(item=>{
+      const type=typeOf(item),category=categoryOf(item);
       const problems=[nameDiagnostics.get(item.id)].filter((x):x is string=>!!x);
       const sources:string[]=[];
-      for(const currentTheme of themes) {
-        const cell = row.insertCell(), expression = item.values?.[currentTheme];
-        const resolved = resolveTokenValue({ type: 'token', tokenId: item.id }, index, currentTheme, item.type, item.category);
-        const alias = expression?.expression === 'alias';
+      const cells=themes.map(currentTheme=>{
+        const expression=item.values?.[currentTheme];
+        const resolved=resolveTokenValue({type:'token',tokenId:item.id},index,currentTheme,item.type,item.category);
+        const alias=expression?.expression==='alias';
         const nested=expression?.expression==='literal'&&expression.value.type==='typographyFields'&&typographyFields.some(field=>expression.value.type==='typographyFields'&&expression.value[field.name]?.expression==='alias');
-        sources.push(alias ? 'alias' : nested ? 'mixed' : 'literal');
-        if (resolved.error) problems.push(currentTheme + ': ' + resolved.error);
-        if (type === 'Color' && !resolved.error && resolved.value?.type === 'color') {
-          const swatch = document.createElement('span'); swatch.className = 'token-color-swatch';
-          swatch.style.backgroundColor = 'rgba(' + [resolved.value.red, resolved.value.green, resolved.value.blue, resolved.value.alpha / 255].join(',') + ')';
-          cell.append(swatch);
-        }
-        const value = resolved.error ?? tokenValueText(resolved.value);
-        if (alias) {
-          const target = document.createElement('button'); target.type = 'button'; target.className = 'token-alias-link';
-          target.textContent = '↳ ' + nameOf(expression.tokenId); target.title = value;
-          target.onclick = () => {
-            if (busy()) return;
-            const item = index.get(expression.tokenId);
-            revealToken(item, true);
-            selectToken(expression.tokenId);
-          }; target.disabled = !index.has(expression.tokenId); cell.append(target, ' · ' + value);
-        } else cell.append(value);
-      }
-      row.insertCell().textContent=sources[0]===sources[1]?(sources[0]??''):'mixed';
-      row.insertCell().textContent = item.id === selectedToken && usagesReady ? String(tokenUsages.length) : '—';
-      const status = row.insertCell(); status.textContent = problems.length ? 'Ошибка' : '—'; status.title = problems.join('\n'); status.classList.toggle('token-invalid', !!problems.length);
-    }
-    if (!list.rows.length) { const cell = list.insertRow().insertCell(); cell.colSpan = 7; cell.textContent = selectedTypes.size ? 'Нет токенов, соответствующих фильтрам.' : 'Не выбраны типы токенов'; }
+        sources.push(alias?'alias':nested?'mixed':'literal');
+        if(resolved.error)problems.push(currentTheme+': '+resolved.error);
+        const color=type==='Color'&&!resolved.error&&resolved.value?.type==='color'?resolved.value:undefined;
+        const value=resolved.error??tokenValueText(resolved.value);
+        return <td key={currentTheme}>
+          {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
+          {alias?<><Button className="token-alias-link" title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
+            if(busy())return;revealToken(index.get(expression.tokenId),true);void selectToken(expression.tokenId);
+          }}>{'↳ '+nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
+        </td>;
+      });
+      return <tr key={item.id} data-selected={String(item.id===selectedToken)}>
+        <td><Button title={item.name} aria-pressed={item.id===selectedToken} onClick={()=>{if(!busy())void selectToken(item.id);}}>{shortTokenName(item.name,search.trim()?[]:group)}</Button></td>
+        <td>{category?type+'.'+category:type}</td>{cells}
+        <td>{sources[0]===sources[1]?(sources[0]??''):'mixed'}</td>
+        <td>{item.id===selectedToken&&usagesReady?String(tokenUsages.length):'—'}</td>
+        <td className={problems.length?'token-invalid':undefined} title={problems.join('\n')}>{problems.length?'Ошибка':'—'}</td>
+      </tr>;
+    });
+    flushSync(()=>{groupRoot.render(drawGroup(tree));tableRoot.render(rows.length?rows:<tr><td colSpan={7}>{selectedTypes.size?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>);});
     
     const item = selected();
     updateDetailVisibility();
@@ -586,36 +569,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (refreshEditor) {
       detailControls = replaceThemeControls('token-values', detailControls, typeOf(item), categoryOf(item), item);
     } else detailControls.forEach(control => control.refresh?.());
-    const usages = el('token-usages'); usages.replaceChildren();
-    const usageTitle=usages.previousElementSibling;if(usageTitle)usageTitle.textContent = 'Использования' + (usagesReady ? ' · ' + tokenUsages.length : ' · загрузка…');
-    for (const indirect of [false, true]) {
-      const group = tokenUsages.filter(usage => Boolean(usage.indirect) === indirect);
-      if (!group.length) continue;
-      const heading = document.createElement('li');
-      heading.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + group.length;
-      heading.className = 'resource-usage-group';
-      usages.append(heading);
-      for (const usage of group) {
-        const li = document.createElement('li');
-        li.textContent = [usage.label ?? usage.kind, usage.property,
-          usage.theme == null ? null : 'тема ' + usage.theme].filter(x => x != null).join(' · ');
-        li.title = (usage.chain ?? []).map(id => tokenItems.find(t => t.id === id)?.name ?? id).join(' → ');
-        if (usage.kind === 'nodeProperty') {
-          const button = document.createElement('button');
-          button.type = 'button';
-          button.textContent = 'К слою';
-          button.addEventListener('click', () => {
-            const layer = [...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row => row.dataset.id === usage.ownerId);
-            if (layer) { el('document-mode-editor').click(); layer.querySelector<HTMLElement>('.layer-label')?.click(); }
-          });
-          li.append(' ', button);
-        }
-        usages.append(li);
-      }
-    }
-    if (usagesReady && !tokenUsages.length) {
-      const li = document.createElement('li'); li.textContent = 'Использований нет.'; usages.append(li);
-    }
+    const usageTitle=el('token-usages').previousElementSibling;
+    if(usageTitle)usageTitle.textContent='Использования'+(usagesReady?' · '+tokenUsages.length:' · загрузка…');
+    flushSync(()=>usageRoot.render(<ResourceUsages usages={tokenUsages} ready={usagesReady}
+      name={id=>tokenItems.find(t=>t.id===id)?.name??id} selectLayer={id=>{
+        const layer=[...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row=>row.dataset.id===id);
+        if(layer){el('document-mode-editor').click();layer.querySelector<HTMLElement>('.layer-label')?.click();}
+      }}/>));
   }
   function clearSelection() {
     selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
