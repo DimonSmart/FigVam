@@ -1,5 +1,4 @@
 using System.Text.Json;
-using FigVam.Application.Documents;
 using FigVam.Server.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
@@ -8,37 +7,28 @@ using Microsoft.AspNetCore.Mvc;
 namespace FigVam.Server.Mcp;
 
 [ApiController, Authorize, Route("api/v1/documents/{documentId}/screen-capture")]
-public sealed class ScreenCaptureController(McpAccessRegistry registry, ScreenCaptureService captures,
-    IDocumentStructureQueries queries) : ControllerBase
+public sealed class ScreenCaptureController(ScreenCaptureService captures) : ControllerBase
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     // A separate, targeted SSE stream uses the same authenticated HTTP transport as
     // collaboration. It is not a document event and must never enter the journal.
-    [HttpPost("providers/{screenId:guid}")]
-    public async Task<IActionResult> Connect(Guid documentId, Guid screenId, CancellationToken ct)
+    [HttpPost("providers")]
+    public async Task<IActionResult> Connect(Guid documentId, CancellationToken ct)
     {
         var actor = User.GetDocumentActor();
         if (!await McpServiceRegistration.CanEditAsync(HttpContext.RequestServices, documentId, actor.Id, ct))
             return Forbid();
-        var screen = await queries.QueryAsync(documentId, new("screen", screenId, Fields: "name"), actor, ct);
-        if (screen.Response is null) return NotFound();
-        var grants = new[] { registry.GetStatus(documentId, actor.Id), registry.GetTunnelGrant() }
-            .OfType<McpDocumentGrant>().Where(g => g.DocumentId == documentId && g.UserId == actor.Id &&
-                !g.CaptureRevoked.IsCancellationRequested).ToArray();
-        if (grants.Length == 0) return Forbid();
-
         var sessionId = User.FindFirst("figvam_session")?.Value;
         var users = HttpContext.RequestServices.GetService<FigVamUserStore>();
         bool SessionActive() => sessionId is null || users?.IsActiveSession(actor.Id, sessionId) == true;
-        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(
-            grants.Select(g => g.CaptureRevoked).Append(ct).ToArray());
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var duration = TimeSpan.FromHours(1);
         if (long.TryParse(User.FindFirst("exp")?.Value, out var expiry))
             duration = TimeSpan.FromSeconds(Math.Min(duration.TotalSeconds, expiry - DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
         if (duration <= TimeSpan.Zero) return Unauthorized();
         lifetime.CancelAfter(duration);
-        var provider = captures.Register(documentId, actor.Id, sessionId, screenId, grants, lifetime.Token, SessionActive);
+        var provider = captures.Register(documentId, actor.Id, sessionId, lifetime.Token, SessionActive);
         if (provider is null) return Conflict(new { code = "RENDERER_UNAVAILABLE" });
         Response.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-store";
@@ -88,7 +78,7 @@ public sealed class ScreenCaptureController(McpAccessRegistry registry, ScreenCa
     [HttpPost("providers/{providerId:guid}/results/{requestId:guid}")]
     [RequestSizeLimit(8 * 1024 * 1024 + 1)]
     public async Task<IActionResult> Submit(Guid documentId, Guid providerId, Guid requestId,
-        [FromQuery] Guid screenId, [FromQuery] long revision, [FromQuery] string? code, CancellationToken ct)
+        [FromQuery] Guid screenId, [FromQuery] long revision, [FromQuery] string? code, [FromQuery] string? theme, CancellationToken ct)
     {
         var provider = Find(documentId, providerId);
         if (provider is null || !captures.IsPending(provider, requestId)) return NotFound();
@@ -99,7 +89,7 @@ public sealed class ScreenCaptureController(McpAccessRegistry registry, ScreenCa
         }
         ScreenCaptureResult result;
         if (code is not null && code != "OK")
-            result = new(code is "SCREEN_NOT_DISPLAYED" or "RENDER_REVISION_MISMATCH" or "CAPTURE_CANCELLED" or "IMAGE_TOO_LARGE" or "CAPTURE_TIMEOUT"
+            result = new(code is "RENDER_REVISION_MISMATCH" or "CAPTURE_CANCELLED" or "IMAGE_TOO_LARGE" or "CAPTURE_TIMEOUT"
                 ? code : "CAPTURE_FAILED");
         else if (Request.ContentType != "image/png") result = new("CAPTURE_FAILED");
         else if (Request.ContentLength > ScreenCaptureResult.MaxPngBytes) result = new("IMAGE_TOO_LARGE");
@@ -118,7 +108,7 @@ public sealed class ScreenCaptureController(McpAccessRegistry registry, ScreenCa
                 }
                 output.Write(buffer, 0, read);
             }
-            result = ScreenCaptureResult.FromPng(output.ToArray());
+            result = ScreenCaptureResult.FromPng(output.ToArray()) with { Theme = theme };
         }
         return captures.Complete(provider, requestId, screenId, revision, result)
             ? Ok(new { accepted = true }) : NotFound();

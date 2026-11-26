@@ -82,7 +82,7 @@ const request = createApiClient({
 });
 
 const mcpAccess = createMcpAccess({ request, getContext: () => ({ documentId, token, navigationEpoch,
-  captureView: visualScreens.captureView() }) });
+  role: documentRole, theme: visualScreens.currentTheme }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
@@ -633,7 +633,6 @@ const canvasViewport = createCanvasViewport({
 });
 const visualScreens = createVisualScreens({
   element, request, closeInaccessibleDocument, onDesignChange: () => { canvasNodes.sync(); mcpAccess.sync(); },
-  onPreviewMode: next => mcpAccess.setPreview(next),
   getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
@@ -826,6 +825,7 @@ async function openDocument(id) {
     await readPages(signal, 0);
     if (!current()) return;
     element('editor-view').hidden = false;
+    mcpAccess.sync();
     presence.start();
     documentHistory.load();
     if (selectedScreen) requestAnimationFrame(fitScreen);

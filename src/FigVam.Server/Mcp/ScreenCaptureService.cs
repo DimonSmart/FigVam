@@ -4,8 +4,8 @@ using FigVam.Domain.Documents;
 
 namespace FigVam.Server.Mcp;
 
-public sealed record ScreenCaptureRequest(Guid RequestId, Guid DocumentId, Guid ScreenId, long Revision);
-public sealed record ScreenCaptureResult(string Code, byte[]? Png = null, int Width = 0, int Height = 0)
+public sealed record ScreenCaptureRequest(Guid RequestId, Guid DocumentId, Guid ScreenId, long Revision, string? Theme = null, int Width = 0, int Height = 0);
+public sealed record ScreenCaptureResult(string Code, byte[]? Png = null, int Width = 0, int Height = 0, string? Theme = null)
 {
     public const int MaxPngBytes = DocumentAssetValidator.MaxAssetBytes;
 
@@ -20,7 +20,7 @@ public sealed record ScreenCaptureEvent(string Code, ScreenCaptureRequest Reques
 
 public interface IScreenCaptureService
 {
-    Task<ScreenCaptureResult> CaptureAsync(McpDocumentGrant grant, Guid screenId, long revision, CancellationToken ct);
+    Task<ScreenCaptureResult> CaptureAsync(McpDocumentGrant grant, Guid screenId, long revision, CancellationToken ct, string? theme = null, int width = 0, int height = 0);
 }
 
 // One process, one outstanding request per browser connection. The channel carries
@@ -36,18 +36,15 @@ public sealed class ScreenCaptureService : IScreenCaptureService
 
     public sealed class Provider
     {
-        internal Provider(Guid documentId, string userId, string? sessionId, Guid screenId,
-            McpDocumentGrant[] grants, CancellationToken lifetime, Func<bool> sessionActive)
+        internal Provider(Guid documentId, string userId, string? sessionId, CancellationToken lifetime, Func<bool> sessionActive)
         {
-            DocumentId = documentId; UserId = userId; SessionId = sessionId; ScreenId = screenId;
-            Grants = grants; Lifetime = lifetime; SessionActive = sessionActive;
+            DocumentId = documentId; UserId = userId; SessionId = sessionId;
+            Lifetime = lifetime; SessionActive = sessionActive;
         }
         public Guid Id { get; } = Guid.NewGuid();
         public Guid DocumentId { get; }
         public string UserId { get; }
         public string? SessionId { get; }
-        public Guid ScreenId { get; }
-        internal McpDocumentGrant[] Grants { get; }
         internal CancellationToken Lifetime { get; }
         internal Func<bool> SessionActive { get; }
         internal bool Closed { get; set; }
@@ -55,24 +52,22 @@ public sealed class ScreenCaptureService : IScreenCaptureService
         public ChannelReader<ScreenCaptureEvent> Reader => Events.Reader;
         internal Pending? Pending { get; set; }
         internal bool Available => !Closed && !Lifetime.IsCancellationRequested &&
-            Grants.All(g => !g.CaptureRevoked.IsCancellationRequested) && SessionActive();
+            SessionActive();
     }
 
-    internal sealed record Pending(ScreenCaptureRequest Request)
+    internal sealed record Pending(ScreenCaptureRequest Request, McpDocumentGrant Grant)
     {
         public TaskCompletionSource<ScreenCaptureResult> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    public Provider? Register(Guid documentId, string userId, string? sessionId, Guid screenId,
-        McpDocumentGrant[] grants, CancellationToken lifetime, Func<bool> sessionActive)
+    public Provider? Register(Guid documentId, string userId, string? sessionId, CancellationToken lifetime, Func<bool> sessionActive)
     {
         lock (sync)
         {
-            if (grants.Length == 0 || grants.Any(g => g.DocumentId != documentId || g.UserId != userId ||
-                g.CaptureRevoked.IsCancellationRequested) || lifetime.IsCancellationRequested ||
+            if (lifetime.IsCancellationRequested ||
                 providers.Count >= 128 || providers.Values.Count(p => p.UserId == userId) >= 5)
                 return null;
-            var provider = new Provider(documentId, userId, sessionId, screenId, grants, lifetime, sessionActive);
+            var provider = new Provider(documentId, userId, sessionId, lifetime, sessionActive);
             if (!provider.Available) return null;
             providers.Add(provider.Id, provider);
             return provider;
@@ -99,39 +94,42 @@ public sealed class ScreenCaptureService : IScreenCaptureService
 
     public bool IsPending(Provider provider, Guid requestId)
     {
-        lock (sync) return provider.Available && provider.Pending?.Request.RequestId == requestId;
+        lock (sync) return provider.Available && provider.Pending is { } pending &&
+            pending.Request.RequestId == requestId && !pending.Grant.CaptureRevoked.IsCancellationRequested;
     }
 
     public bool Complete(Provider provider, Guid requestId, Guid screenId, long revision, ScreenCaptureResult result)
     {
         lock (sync)
         {
-            if (!provider.Available || provider.Pending is not { } pending || pending.Request.RequestId != requestId)
+            if (!provider.Available || provider.Pending is not { } pending || pending.Request.RequestId != requestId || pending.Grant.CaptureRevoked.IsCancellationRequested)
                 return false;
             if (result.Code == "OK")
             {
-                if (screenId != pending.Request.ScreenId) result = new("SCREEN_NOT_DISPLAYED");
+                if (screenId != pending.Request.ScreenId) result = new("CAPTURE_FAILED");
                 else if (revision != pending.Request.Revision) result = new("RENDER_REVISION_MISMATCH");
+                else if (pending.Request.Width > 0 && (result.Width != pending.Request.Width || result.Height != pending.Request.Height ||
+                    result.Theme is not ("Light" or "Dark") || (pending.Request.Theme is not null && pending.Request.Theme != result.Theme)))
+                    result = new("CAPTURE_FAILED");
             }
             return pending.Completion.TrySetResult(result);
         }
     }
 
-    public async Task<ScreenCaptureResult> CaptureAsync(McpDocumentGrant grant, Guid screenId, long revision, CancellationToken ct)
+    public async Task<ScreenCaptureResult> CaptureAsync(McpDocumentGrant grant, Guid screenId, long revision, CancellationToken ct, string? theme = null, int width = 0, int height = 0)
     {
         Provider provider;
         Pending pending;
         lock (sync)
         {
             if (grant.CaptureRevoked.IsCancellationRequested) return new("CAPTURE_CANCELLED");
-            var candidates = providers.Values.Where(p => p.Available && p.Grants.Contains(grant)).ToArray();
+            var candidates = providers.Values.Where(p => p.Available && p.DocumentId == grant.DocumentId &&
+                p.UserId == grant.UserId).ToArray();
             if (candidates.Length == 0) return new("RENDERER_UNAVAILABLE");
-            var matching = candidates.Where(p => p.ScreenId == screenId).ToArray();
-            if (matching.Length == 0) return new("SCREEN_NOT_DISPLAYED");
-            var idle = matching.FirstOrDefault(p => p.Pending is null);
+            var idle = candidates.FirstOrDefault(p => p.Pending is null);
             if (idle is null) return new("CAPTURE_FAILED");
             provider = idle;
-            pending = new(new(Guid.NewGuid(), grant.DocumentId, screenId, revision));
+            pending = new(new(Guid.NewGuid(), grant.DocumentId, screenId, revision, theme, width, height), grant);
             provider.Pending = pending;
             provider.Events.Writer.TryWrite(new("CAPTURE", pending.Request));
         }
