@@ -1,33 +1,7 @@
 import { createLayerDrag, resolveLayerDrop } from './layer-drag.js';
 
-// Derived layer captions are for display only and never change the saved node name.
-export function layerDisplayName(item) {
-  const explicit = item.name?.trim();
-  if (explicit) return { text: explicit, source: 'explicit', origin: 'Имя слоя' };
-
-  const props = item.properties ?? {};
-  function excerpt(key) {
-    const value = props[key];
-    if (value?.type !== 'string' || typeof value.value !== 'string') return null;
-    const line = value.value.split(/\r\n|\r|\n/, 1)[0].replace(/\s+/g, ' ').trim();
-    if (!line) return null;
-    return line.length > 48 ? line.slice(0, 47).trimEnd() + '…' : line;
-  }
-  const keys = {
-    Text: [['text', 'Текст элемента']],
-    Button: [['text', 'Текст кнопки']],
-    TextInput: [
-      ['placeholder', 'Подсказка поля'],
-      ...(props.inputType?.value === 'Password' ? [] : [['value', 'Значение поля']])
-    ],
-    Image: [['altText', 'Альтернативный текст']]
-  };
-  for (const [key, origin] of keys[item.kind] ?? []) {
-    const text = excerpt(key);
-    if (text) return { text, source: 'inferred', origin };
-  }
-  return { text: 'Без имени', source: 'missing', origin: 'Имя слоя не задано' };
-}
+import { layerDisplayName } from './layer-caption.js';
+export { layerDisplayName };
 
 export function createLayers({
   element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,

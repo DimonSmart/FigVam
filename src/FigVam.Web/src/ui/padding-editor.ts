@@ -3,7 +3,11 @@ const sides = [
   ['right', 'paddingRight', 'Справа', 'Отступ справа'],
   ['bottom', 'paddingBottom', 'Снизу', 'Отступ снизу'],
   ['left', 'paddingLeft', 'Слева', 'Отступ слева']
-];
+] as const;
+
+type PaddingProperty = typeof sides[number][1];
+interface Field { row: HTMLElement }
+type Reconcile = (host: HTMLElement, children: HTMLElement[]) => void;
 
 export const paddingProperties = sides.map(([, name]) => name);
 
@@ -35,9 +39,9 @@ export function createPaddingEditor() {
     button.setAttribute('aria-label', 'Перейти к полю: ' + label);
     button.addEventListener('click', () => {
       const linked = slot.querySelector('.token-value-layout.is-linked');
-      const input = slot.querySelector('input[type=number]:not(:disabled)');
+      const input = slot.querySelector<HTMLInputElement>('input[type=number]:not(:disabled)');
       const target = !linked && input && !input.closest('[hidden]') ? input :
-        slot.querySelector('.token-value-link:not(:disabled)');
+        slot.querySelector<HTMLElement>('.token-value-link:not(:disabled)');
       target?.focus({ preventScroll: true });
     });
     diagram.append(button);
@@ -48,10 +52,11 @@ export function createPaddingEditor() {
 }
 
 // Keep existing field nodes and their listeners, validation and drafts intact.
-export function updatePaddingEditor(root, fields, reconcileChildren) {
+export function updatePaddingEditor(root: HTMLElement, fields: ReadonlyMap<PaddingProperty, Field>, reconcileChildren: Reconcile) {
   for (const [side, name, shortLabel, labelText] of sides) {
-    const slot = root.querySelector('.padding-editor-field[data-side="' + side + '"]');
-    const row = fields.get(name).row;
+    const slot = root.querySelector<HTMLElement>('.padding-editor-field[data-side="' + side + '"]');
+    const row = fields.get(name)?.row;
+    if (!slot || !row) throw new Error('Missing padding field: ' + name);
     const caption = row.querySelector('.token-value-label');
     if (caption) caption.textContent = shortLabel;
     else {
@@ -77,6 +82,8 @@ export function createGapRow() {
   return root;
 }
 
-export function updateGapRow(root, field, reconcileChildren) {
-  reconcileChildren(root, [root.querySelector('.padding-gap-icon'), field.row]);
+export function updateGapRow(root: HTMLElement, field: Field, reconcileChildren: Reconcile) {
+  const icon = root.querySelector<HTMLElement>('.padding-gap-icon');
+  if (!icon) throw new Error('Missing gap icon');
+  reconcileChildren(root, [icon, field.row]);
 }
