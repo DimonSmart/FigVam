@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Json.Schema;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
@@ -67,16 +68,17 @@ public sealed class McpProtocolTests
         Assert.Equal(new[] { "blurRadius", "color", "offsetX", "offsetY", "spreadRadius" },
             shadowSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()!).Order(StringComparer.Ordinal).ToArray());
         var shadowProperties = shadowSchema.GetProperty("properties");
-        Assert.Equal(5, shadowProperties.EnumerateObject().Count());
+        Assert.Equal(6, shadowProperties.EnumerateObject().Count());
+        Assert.Equal("shadow", shadowProperties.GetProperty("type").GetProperty("const").GetString());
         Assert.Equal("number", shadowProperties.GetProperty("blurRadius").GetProperty("type").GetString());
         Assert.Equal(0, shadowProperties.GetProperty("blurRadius").GetProperty("minimum").GetDouble());
         Assert.Equal(256, shadowProperties.GetProperty("blurRadius").GetProperty("maximum").GetDouble());
-        Assert.Equal("string", shadowProperties.GetProperty("color").GetProperty("type").GetString());
-        Assert.Matches(shadowProperties.GetProperty("color").GetProperty("pattern").GetString()!, "#0F172A1C");
-        Assert.DoesNotMatch(shadowProperties.GetProperty("color").GetProperty("pattern").GetString()!, "#xyz");
+        Assert.Equal("string", shadowProperties.GetProperty("color").GetProperty("anyOf")[0].GetProperty("type").GetString());
+        Assert.Matches(shadowProperties.GetProperty("color").GetProperty("anyOf")[0].GetProperty("pattern").GetString()!, "#0F172A1C");
+        Assert.DoesNotMatch(shadowProperties.GetProperty("color").GetProperty("anyOf")[0].GetProperty("pattern").GetString()!, "#xyz");
         var colorAlternatives = buttonSchema.GetProperty("backgroundColor").GetProperty("inputSchema").GetProperty("anyOf");
         Assert.Equal("string", colorAlternatives[0].GetProperty("type").GetString());
-        Assert.True(colorAlternatives[1].GetProperty("properties").TryGetProperty("tokenId", out _));
+        Assert.True(colorAlternatives.EnumerateArray().Last().GetProperty("properties").TryGetProperty("tokenId", out _));
         Assert.True(buttonSchema.GetProperty("textStyle").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("styleId", out _));
         Assert.True(buttonSchema.GetProperty("typography").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("tokenId", out _));
         var opacitySchema = buttonSchema.GetProperty("opacity").GetProperty("inputSchema").GetProperty("anyOf")[0];
@@ -84,7 +86,7 @@ public sealed class McpProtocolTests
         Assert.Equal(1, opacitySchema.GetProperty("maximum").GetDouble());
         var inputSchema = (await Call("get_node_schema", new { kind = "TextInput" })).GetProperty("properties")
             .GetProperty("inputType").GetProperty("inputSchema");
-        Assert.Equal(new[] { "Text", "Password" }, inputSchema.GetProperty("enum").EnumerateArray().Select(v => v.GetString()).ToArray());
+        Assert.Equal(new[] { "Text", "Password" }, inputSchema.GetProperty("anyOf")[0].GetProperty("enum").EnumerateArray().Select(v => v.GetString()).ToArray());
         var imageSchema = (await Call("get_node_schema", new { kind = "Image" })).GetProperty("properties");
         Assert.True(imageSchema.GetProperty("asset").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("assetId", out _));
         foreach (var kind in new[] { "Frame", "Text", "TextInput" })
@@ -115,8 +117,8 @@ public sealed class McpProtocolTests
         foreach (var invalidShadow in new[]
         {
             """{"offsetX":0,"offsetY":8,"blur":24,"spreadRadius":0,"color":"#0F172A1C"}""",
-            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C","type":"shadow"}""",
-            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":15,"green":23,"blue":42,"alpha":28}}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C","type":"color"}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":256,"green":23,"blue":42,"alpha":28}}""",
             """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":null}""",
             """{"offsetX":0,"offsetY":8,"blurRadius":"24","spreadRadius":0,"color":"#0F172A1C"}""",
             """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#xyz"}""",
@@ -392,6 +394,208 @@ public sealed class McpProtocolTests
         CheckDiagnostic(await Call("set_token_value", new { tokenId = typographyId, theme = "Dark", value = invalidTypography }, true),
             "INVALID_TOKEN", "value.fontSize", "-1", "greater than 0");
         Assert.Equal(beforeInvalidTypography, (await Call("get_document")).GetProperty("revision").GetInt64());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CanonicalValuesRoundTripThroughOfficialMcpClient(bool tokenExpressionsOnly)
+    {
+        using var key = RSA.Create(2048);
+        var config = ServerTestIdentity.Production(key);
+        config["Storage__Directory"] = Path.Combine(Path.GetTempPath(), "figvam-mcp-roundtrip-" + Guid.NewGuid().ToString("N"));
+        await using var server = new ServerProcess(config);
+        await server.WaitUntilReadyAsync();
+        using var user = server.CreateClient();
+        user.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "roundtrip-owner"));
+        var documentId = Guid.NewGuid();
+        var root = $"/api/v1/documents/{documentId}";
+        (await user.PostAsJsonAsync("/api/v1/documents", new { documentId, name = "Round-trip" })).EnsureSuccessStatusCode();
+        using var grant = await user.PostAsync(root + "/mcp-access", null);
+        grant.EnsureSuccessStatusCode();
+        var access = await grant.Content.ReadFromJsonAsync<JsonElement>();
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(access.GetProperty("endpoint").GetString()!),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
+        }));
+        Assert.Equal(31, (await mcp.ListToolsAsync()).Count);
+        Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
+        static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
+        static void Equivalent(JsonElement expected, JsonElement actual) =>
+            Assert.True(JsonElement.DeepEquals(expected, actual), $"Expected {expected}, got {actual}");
+        async Task<long> Revision() => (await Call("get_document")).GetProperty("revision").GetInt64();
+        var pageId = (await Call("create_page")).GetProperty("pageId").GetGuid();
+        var screenId = (await Call("create_screen", new { pageId, width = 800, height = 600 })).GetProperty("screenId").GetGuid();
+
+        async Task<Guid> Create(string kind, object properties) =>
+            (await Call("create_node", new { parentId = screenId, kind, properties })).GetProperty("nodeId").GetGuid();
+        async Task<JsonElement> Properties(Guid nodeId) =>
+            (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties");
+        async Task<Guid[]> RoundTrip(string kind, object compact, object? initialForEdit = null)
+        {
+            var source = await Create(kind, compact);
+            var properties = await Properties(source);
+            var created = await Create(kind, properties);
+            var edited = await Create(kind, initialForEdit ?? new { });
+            await Call("set_node_properties", new { nodeId = edited, properties });
+            Equivalent(properties, await Properties(created));
+            Equivalent(properties, await Properties(edited));
+            // Check the advertised schema against the exact read representation.
+            var schema = (await Call("get_node_schema", new { kind })).GetProperty("properties");
+            foreach (var property in properties.EnumerateObject())
+            {
+                var input = schema.GetProperty(property.Name).GetProperty("inputSchema");
+                var validator = JsonSchema.Build(input, new BuildOptions { SchemaRegistry = new SchemaRegistry() });
+                Assert.True(validator.EvaluateNode(System.Text.Json.Nodes.JsonNode.Parse(property.Value.GetRawText())!).IsValid,
+                    $"Schema for {kind}.{property.Name} rejects {property.Value}");
+            }
+            return [source, created, edited];
+        }
+
+        async Task<Guid> Token(string name, string type, object light, object dark, string? category = null) =>
+            (await Call("create_token", new { name, type, light, dark, category })).GetProperty("tokenId").GetGuid();
+        async Task<JsonElement> ReadToken(Guid id) => (await Call("list_tokens", new { limit = 100 }))
+            .GetProperty("items").EnumerateArray().Single(t => t.GetProperty("id").GetGuid() == id);
+        async Task<Guid> RoundTripToken(Guid id)
+        {
+            var token = await ReadToken(id);
+            var values = token.GetProperty("values");
+            var light = values.GetProperty("Light");
+            var dark = values.GetProperty("Dark");
+            var type = token.GetProperty("type").GetString()!;
+            var category = token.TryGetProperty("category", out var cat) ? cat.GetString() : null;
+            var copy = await Token("copy." + token.GetProperty("name").GetString(), type, light, dark, category);
+            Equivalent(values, (await ReadToken(copy)).GetProperty("values"));
+            await Call("set_token_value", new { tokenId = copy, theme = "Light", value = dark });
+            Equivalent(dark, (await ReadToken(copy)).GetProperty("values").GetProperty("Light"));
+            await Call("set_token_value", new { tokenId = copy, theme = "Light", value = light });
+            Equivalent(values, (await ReadToken(copy)).GetProperty("values"));
+            return copy;
+        }
+
+        var color = await Token("color.primary", "Color", "#2563EB", "#60A5FA1C");
+        var width = await Token("size.button", "Dimension", 120.125, 130.5, "Size");
+        var family = await Token("font.family", "FontFamily", "Arial", "Verdana");
+        var weight = await Token("font.weight", "FontWeight", 400, 600);
+        var opacity = await Token("opacity", "Number", 0.5, 0.75, "Opacity");
+        var spacing = await Token("spacing.modern", "Spacing", 8, 12);
+        var geometry = await Token("radius.legacy", "Geometry", 4, 6);
+        var legacySpacing = await Token("spacing.legacy", "Spacing",
+            Json("""{"expression":"literal","value":{"type":"spacing","value":8}}"""),
+            Json("""{"expression":"literal","value":{"type":"spacing","value":12}}"""));
+        var alias = await Token("color.alias", "Color", new { tokenId = color }, new { tokenId = color });
+        var typography = await Token("type.flat", "Typography",
+            new { fontFamily = "Arial", fontSize = 16, fontWeight = 400, lineHeight = 1.25, letterSpacing = 0.5 },
+            new { fontFamily = "Verdana", fontSize = 18, fontWeight = 600, lineHeight = 1.5 });
+        var fields = new
+        {
+            expression = "literal", value = new
+            {
+                type = "typographyFields",
+                fontFamily = new { expression = "alias", tokenId = family },
+                fontSize = new { expression = "literal", value = new { type = "dimension", value = 16.5 } },
+                fontWeight = new { expression = "alias", tokenId = weight },
+                lineHeight = new { expression = "literal", value = new { type = "number", value = 1.25 } },
+                letterSpacing = new { expression = "literal", value = new { type = "dimension", value = 0.5 } }
+            }
+        };
+        var composite = await Token("type.fields", "Typography", fields, fields);
+        // Keep the two independent protocol cases below the production MCP rate limit.
+        if (tokenExpressionsOnly)
+        {
+            foreach (var id in new[] { color, width, family, weight, opacity, spacing, geometry, legacySpacing, alias, typography, composite })
+                await RoundTripToken(id);
+            return;
+        }
+
+        // MCP has no asset upload or style mutation tools. Seed these resources via REST;
+        // all node creation, reads and copies below use the public MCP transport.
+        var assetId = Guid.NewGuid();
+        using (var upload = new ByteArrayContent(DocumentAssetTests.Png()))
+        {
+            upload.Headers.ContentType = new("image/png");
+            (await user.PutAsync(root + $"/assets/{assetId}?commandId={Guid.NewGuid()}", upload)).EnsureSuccessStatusCode();
+        }
+        var styleId = Guid.NewGuid();
+        async Task SetStyle(int red)
+        {
+            var style = new { id = styleId, name = "button.text", type = 0,
+                fields = new { textColor = new { type = "color", red, green = 30, blue = 40, alpha = 255 } } };
+            using var response = await user.PostAsJsonAsync(root + "/commands/upsert-style", new
+                { commandId = Guid.NewGuid(), expectedRevision = await Revision(), style });
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
+        }
+        await SetStyle(20);
+
+        var buttons = await RoundTrip("Button", new
+        {
+            width = new { tokenId = width }, height = 40.125, text = "Sign in", enabled = false, visible = true,
+            fontWeight = "Semibold", backgroundColor = new { tokenId = alias }, opacity = new { tokenId = opacity },
+            textStyle = new { styleId },
+            shadow = new { offsetX = -1.5, offsetY = 8.25, blurRadius = 24.5, spreadRadius = -2.25, color = "#0F172A1C" }
+        });
+        await RoundTrip("Frame", new { width = 320.125, height = 150, backgroundColor = "#2563EB80",
+            layout = "Free", paddingRight = new { tokenId = spacing }, shadow = new
+                { type = "shadow", offsetX = 0, offsetY = 8, blurRadius = 24, spreadRadius = 0,
+                    color = new { type = "color", red = 15, green = 23, blue = 42, alpha = 28 } } });
+        await RoundTrip("Text", new { text = "", wrap = false, fontWeight = 450, typography = new { tokenId = composite } });
+        await RoundTrip("TextInput", new { placeholder = "Password", inputType = "Password", multiline = false });
+        await RoundTrip("Image", new { asset = new { assetId }, fit = "Cover", altText = "Icon" }, new { asset = new { assetId } });
+
+        // Mixed representations are equivalent to compact forms, including independently
+        // tagged/untagged colors nested in shadows and order-independent discriminators.
+        var mixed = await Create("Button", Json("""
+            {"text":"Mixed","width":{"value":320.125,"type":"number"},"enabled":{"type":"boolean","value":false},
+             "fontWeight":{"type":"number","value":450},"backgroundColor":{"type":"color","red":37,"green":99,"blue":235,"alpha":128},
+             "shadow":{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":15,"green":23,"blue":42,"alpha":28}}}
+            """));
+        var compactMixed = await Create("Button", Json("""
+            {"text":"Mixed","width":320.125,"enabled":false,"fontWeight":450,"backgroundColor":"#2563EB80",
+             "shadow":{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C"}}
+            """));
+        Equivalent(await Properties(compactMixed), await Properties(mixed));
+
+        await Call("set_token_value", new { tokenId = width, theme = "Light", value = 200.25 });
+        await Call("set_token_value", new { tokenId = color, theme = "Light", value = "#112233" });
+        await SetStyle(99);
+        var layout = await Call("get_screen_layout", new { screenId });
+        foreach (var button in buttons)
+        {
+            var properties = await Properties(button);
+            Assert.Equal(width, properties.GetProperty("width").GetProperty("tokenId").GetGuid());
+            Assert.Equal(alias, properties.GetProperty("backgroundColor").GetProperty("tokenId").GetGuid());
+            Assert.Equal(styleId, properties.GetProperty("textStyle").GetProperty("styleId").GetGuid());
+            var box = layout.GetProperty("boxes").EnumerateArray().Single(b => b.GetProperty("objectId").GetGuid() == button);
+            Assert.Equal(200.25, box.GetProperty("bounds").GetProperty("width").GetDouble());
+            var effective = layout.GetProperty("overrides").EnumerateArray().Single(o => o.GetProperty("nodeId").GetGuid() == button).GetProperty("properties");
+            Assert.Equal(99, effective.GetProperty("textColor").GetProperty("red").GetInt32());
+            Assert.Equal(17, effective.GetProperty("backgroundColor").GetProperty("red").GetInt32());
+        }
+
+        var before = await Revision();
+        var original = await Properties(mixed);
+        foreach (var invalid in new[]
+        {
+            """{"width":{"type":"string","value":"320"}}""",
+            """{"width":{"type":"number"}}""",
+            """{"width":{"type":"number","value":1,"extra":true}}""",
+            """{"enabled":{"type":"boolean","value":"false"}}""",
+            """{"fontWeight":{"type":"enum","value":"Unsupported"}}""",
+            """{"backgroundColor":{"type":"color","red":256,"green":0,"blue":0,"alpha":255}}""",
+            """{"shadow":{"type":"shadow","offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":0,"green":0,"blue":0,"alpha":-1}}}""",
+            """{"shadow":{"type":"shadow","offsetX":0,"offsetY":8,"blurRadius":257,"spreadRadius":0,"color":"#000000"}}"""
+        })
+        {
+            var invalidValues = Json(invalid).EnumerateObject().ToDictionary(p => p.Name, p => (object)p.Value);
+            invalidValues["text"] = "must not be written";
+            await Call("set_node_properties", new { nodeId = mixed, properties = invalidValues }, true);
+        }
+        await Call("set_token_value", new { tokenId = color, theme = "Dark",
+            value = Json("""{"expression":"literal","value":{"type":"number","value":1}}""") }, true);
+        Assert.Equal(before, await Revision());
+        Equivalent(original, await Properties(mixed));
     }
 
     private static async Task<JsonElement> CallAsync(McpClient mcp, string name, object? args, bool error)

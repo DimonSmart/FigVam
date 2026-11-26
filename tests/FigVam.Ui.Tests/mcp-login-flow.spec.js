@@ -106,13 +106,28 @@ test('MCP builds the login prototype, both editors see changes and restart inval
     const username = await input(106, 'Username');
     await label(164, 24, 'Password', 13, '#334155', 'Semibold');
     const password = await input(194, 'Password', 'Password');
-    const loginButton = await create(frame, 'Button', { x: 0, y: 268, width: 296, height: 44, text: 'Login', backgroundColor: '#2563EB', borderWidth: 0,
+    const { tokenId: primaryToken } = await call('create_token', { name: 'login.primary', type: 'Color', light: '#2563EB', dark: '#60A5FA' });
+    const loginButton = await create(frame, 'Button', { x: 0, y: 268, width: 296, height: 44, text: 'Login', backgroundColor: { tokenId: primaryToken }, borderWidth: 0,
       cornerRadius: 8, fontSize: 15, textColor: '#FFFFFF', fontWeight: 'Semibold',
       shadow: { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#2563EB3D' } });
     const move = position => call('move_node', { nodeId: loginButton, expectedParentId: frame, targetParentId: frame, position });
     await move(5);
     expect((await read()).nodes.find(n => n.id === frame).childIds.indexOf(loginButton)).toBe(5);
     await move(6);
+    // Exercise MCP value round-tripping, not the internal duplicate_screen command.
+    const propertiesOf = async nodeId => (await call('get_node', { nodeId })).items[0].properties;
+    const cardProperties = await propertiesOf(frame);
+    const buttonProperties = await propertiesOf(loginButton);
+    const cardCopy = await create(background, 'Frame', cardProperties);
+    const buttonCopy = await create(cardCopy, 'Button', buttonProperties);
+    expect(await propertiesOf(cardCopy)).toEqual(cardProperties);
+    expect(await propertiesOf(buttonCopy)).toEqual(buttonProperties);
+    expect(buttonProperties.backgroundColor).toEqual({ type: 'token', tokenId: primaryToken });
+    expect(buttonProperties.shadow.color.alpha).toBe(61);
+    await call('set_node_properties', { nodeId: buttonCopy, properties: { text: 'Temporary' } });
+    await call('set_node_properties', { nodeId: buttonCopy, properties: buttonProperties });
+    expect(await propertiesOf(buttonCopy)).toEqual(buttonProperties);
+    await call('delete_node', { nodeId: cardCopy });
     const original = await read();
     expect(original.nodes.find(n => n.id === frame).childIds.indexOf(loginButton)).toBe(6);
     expect(original.nodes.find(n => n.id === frame).properties.paddingRight).toEqual({ type: 'token', tokenId });

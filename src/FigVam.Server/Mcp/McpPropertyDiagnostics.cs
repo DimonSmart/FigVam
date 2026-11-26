@@ -46,9 +46,9 @@ internal static class McpPropertyDiagnostics
         if (schema["pattern"]?.GetValue<string>() == McpPropertyContracts.ColorPattern)
             return "#RRGGBB or #RRGGBBAA";
         if (schema["format"]?.GetValue<string>() == "uuid") return "GUID";
-        if (schema["properties"] is JsonObject fields && fields.Count == 1 &&
-            fields.First().Key is "tokenId" or "assetId" or "styleId")
-            return "{ " + fields.First().Key + ": GUID }";
+        if (schema["properties"] is JsonObject fields && fields.Select(p => p.Key).SingleOrDefault(k => k is "tokenId" or "assetId" or "styleId") is { } reference &&
+            fields.All(p => p.Key == reference || p.Key is "type" or "expression"))
+            return "{ " + reference + ": GUID }";
         if (schema["enum"] is JsonArray options)
             return string.Join(", ", options.Select(v => v!.GetValue<string>()));
         return Type(schema) switch
@@ -77,9 +77,17 @@ internal static class McpPropertyDiagnostics
             var matching = alternatives.OfType<JsonObject>().Where(s => MatchesType(value, s)).ToArray();
             if (matching.Length == 0)
                 return Error(Expected(schema), Actual(value));
-            if (value.ValueKind == JsonValueKind.Object && value.TryGetProperty("tokenId", out _))
+            if (value.ValueKind == JsonValueKind.Object)
             {
-                var reference = matching.FirstOrDefault(s => s["properties"] is JsonObject p && p.ContainsKey("tokenId"));
+                foreach (var key in new[] { "expression", "type" })
+                    if (value.TryGetProperty(key, out var discriminator) && discriminator.ValueKind == JsonValueKind.String)
+                    {
+                        var tagged = matching.FirstOrDefault(s => s["properties"] is JsonObject p &&
+                            p[key] is JsonObject field && field["const"]?.GetValue<string>() == discriminator.GetString());
+                        if (tagged is not null) return Find(path, value, tagged, strictIntegers);
+                    }
+                var reference = matching.FirstOrDefault(s => s["properties"] is JsonObject p &&
+                    new[] { "tokenId", "assetId", "styleId" }.Any(k => p.ContainsKey(k) && value.TryGetProperty(k, out _)));
                 if (reference is not null) return Find(path, value, reference, strictIntegers);
             }
             var errors = matching.Select(s => Find(path, value, s, strictIntegers)).ToArray();
@@ -119,6 +127,8 @@ internal static class McpPropertyDiagnostics
         if (value.ValueKind == JsonValueKind.String)
         {
             var str = value.GetString()!;
+            if (schema["const"] is JsonValue tag && tag.GetValue<string>() != str)
+                return Error(tag.GetValue<string>(), "Unsupported discriminator");
             if (schema["format"]?.GetValue<string>() == "uuid")
             {
                 if (!value.TryGetGuid(out var id))

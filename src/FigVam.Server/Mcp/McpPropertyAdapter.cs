@@ -31,11 +31,11 @@ public static class McpPropertyAdapter
             {
                 converted = Reference(value, "tokenId") is { } token ? new NodeTokenValue(token) : definition.Type switch
                 {
-                    NodePropertyType.String => new NodeStringValue(value.GetString() ?? throw new FormatException()),
-                    NodePropertyType.Number => new NodeNumberValue(value.GetDouble()),
-                    NodePropertyType.Boolean => new NodeBooleanValue(value.GetBoolean()),
-                    NodePropertyType.Enum when definition.NumericFontWeight && value.ValueKind == JsonValueKind.Number => new NodeNumberValue(value.GetDouble()),
-                    NodePropertyType.Enum => new NodeEnumValue(value.GetString() ?? throw new FormatException()),
+                    NodePropertyType.String => new NodeStringValue(Scalar(value, "string").GetString() ?? throw new FormatException()),
+                    NodePropertyType.Number => new NodeNumberValue(Scalar(value, "number").GetDouble()),
+                    NodePropertyType.Boolean => new NodeBooleanValue(Scalar(value, "boolean").GetBoolean()),
+                    NodePropertyType.Enum when definition.NumericFontWeight && (value.ValueKind == JsonValueKind.Number || HasTag(value, "number")) => new NodeNumberValue(Scalar(value, "number").GetDouble()),
+                    NodePropertyType.Enum => new NodeEnumValue(Scalar(value, "enum").GetString() ?? throw new FormatException()),
                     NodePropertyType.Color => Color(value),
                     NodePropertyType.Asset => new NodeAssetValue(Reference(value, "assetId") ?? throw new FormatException()),
                     NodePropertyType.StyleReference => new NodeStyleValue(Reference(value, "styleId") ?? throw new FormatException()),
@@ -56,9 +56,42 @@ public static class McpPropertyAdapter
         return result;
     }
 
-    private static Guid? Reference(JsonElement value, string name)
+    private static bool HasTag(JsonElement value, string tag) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty("type", out var type) &&
+        type.ValueKind == JsonValueKind.String && type.GetString() == tag;
+
+    // Verify the discriminator, then reuse the strict compact DTO readers.
+    private static JsonElement Untag(JsonElement value, string tag, bool required = false)
+    {
+        if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty("type", out _))
+        {
+            if (required) throw new JsonException("Missing value discriminator.");
+            return value;
+        }
+        if (!HasTag(value, tag)) throw new JsonException("Unexpected value discriminator.");
+        var members = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var member in value.EnumerateObject())
+        {
+            if (!seen.Add(member.Name)) throw new JsonException("Duplicate value member.");
+            if (member.Name != "type") members.Add(member.Name, member.Value);
+        }
+        return JsonSerializer.SerializeToElement(members);
+    }
+
+    private static JsonElement Scalar(JsonElement value, string tag) =>
+        value.ValueKind == JsonValueKind.Object
+            ? McpPropertyContracts.Read<McpScalarInput>(Untag(value, tag, required: true)).Value
+            : value;
+
+    private static Guid? Reference(JsonElement value, string name, bool nodeReference = true)
     {
         if (value.ValueKind != JsonValueKind.Object || !value.TryGetProperty(name, out _)) return null;
+        if (nodeReference) value = Untag(value, name switch
+        {
+            "tokenId" => "token", "assetId" => "asset", "styleId" => "style",
+            _ => throw new ArgumentOutOfRangeException(nameof(name))
+        });
         return name switch
         {
             "tokenId" => McpPropertyContracts.Read<McpTokenReferenceInput>(value).TokenId,
@@ -68,7 +101,12 @@ public static class McpPropertyAdapter
         };
     }
 
-    public static NodeColorValue Color(JsonElement value) => Color(value.GetString());
+    public static NodeColorValue Color(JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Object) return Color(value.GetString());
+        var input = McpPropertyContracts.Read<McpRgbaInput>(Untag(value, "color"));
+        return new(input.Red, input.Green, input.Blue, input.Alpha);
+    }
 
     private static NodeColorValue Color(string? text)
     {
@@ -81,7 +119,7 @@ public static class McpPropertyAdapter
 
     private static NodeShadowValue Shadow(JsonElement value)
     {
-        var input = McpPropertyContracts.Read<McpShadowInput>(value);
+        var input = McpPropertyContracts.Read<McpShadowInput>(Untag(value, "shadow"));
         return new(input.OffsetX, input.OffsetY, input.BlurRadius, input.SpreadRadius, Color(input.Color));
     }
 
@@ -91,11 +129,17 @@ public static class McpPropertyAdapter
         return new(input.FontFamily, input.FontSize, input.FontWeight, input.LineHeight, input.LetterSpacing);
     }
 
+    internal static bool IsCanonicalTokenExpression(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Object && value.TryGetProperty("expression", out _);
+
     public static TokenExpression Token(TokenType type, JsonElement value, string property = "value")
     {
         try
         {
-            if (Reference(value, "tokenId") is { } token) return new TokenAlias(token);
+            // Canonical expressions from list_tokens retain aliases and nested typography fields.
+            if (IsCanonicalTokenExpression(value))
+                return McpPropertyContracts.Read<TokenExpression>(value);
+            if (Reference(value, "tokenId", nodeReference: false) is { } token) return new TokenAlias(token);
             TokenValue literal = type switch
             {
                 TokenType.Color => ToTokenColor(Color(value)),
