@@ -349,7 +349,7 @@ export function createScenarios({
     try {
       const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(op.doc)+'/commands/'+op.kind+'-scenario',{method:'POST',body:JSON.stringify(op.body)}));
       if (result.status !== 'ACCEPTED' || result.documentId !== op.doc || result.commandId !== op.body.commandId ||
-          !Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision)
+          typeof result.revision!=='number'||!Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision)
         throw new TypeError('Некорректное подтверждение');
       if (operations.get(k) !== op) return;
       if (!active()) { op.state = 'uncertain'; return; }
