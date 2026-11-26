@@ -291,6 +291,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   const before = await editorState();
   const readSnapshot = async () => (await (await request.get(server.url + '/api/v1' + new URL(page.url()).pathname + '/document.json', { headers: { Authorization: 'Bearer ' + bearer } })).json()).document;
   const documentBefore = await readSnapshot();
+  const transitionImages = [];
   for (const screenId of [login, error]) {
     for (const theme of ['Light', 'Dark']) {
       const tree = await call('get_screen_tree', { screenId, depth: 10, includeProperties: true, includeResolvedProperties: true, theme });
@@ -319,6 +320,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
       expect(JSON.stringify(simulated.structuredContent)).not.toContain('not-a-real-password');
       const image = simulated.content.find(block => block.type === 'image');
       expect(image?.mimeType).toBe('image/png');
+      transitionImages.push({ theme, image });
       await testInfo.attach('simulation-' + theme + '-' + event, { body: Buffer.from(image.data, 'base64'), contentType: 'image/png' });
       const independent = await call('simulate_preview', { screenId: login, theme, events: [] });
       expect(independent.activeScreenId).toBe(login);
@@ -334,6 +336,9 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     expect(image?.mimeType).toBe('image/png');
     expect(result.structuredContent).toEqual({ screenId, theme: theme ?? 'Dark', revision: expectedRevision, width: 800, height: 600 });
     await testInfo.attach(name, { body: Buffer.from(image.data, 'base64'), contentType: 'image/png' });
+    await assertImage(image, expectedBackground, expectedError, expectedButton);
+  }
+  async function assertImage(image, expectedBackground, expectedError, expectedButton = [37, 99, 235]) {
     const pixels = await page.evaluate(async data => {
       const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
       const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
@@ -352,6 +357,8 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     if (expectedError) expect(pixels.red).toBeGreaterThan(10);
     else expect(pixels.red).toBe(0);
   }
+  for (const { theme, image } of transitionImages)
+    await assertImage(image, theme === 'Light' ? [238, 242, 247] : [21, 36, 58], true);
   for (const screenId of [login, error])
     for (const theme of ['Light', 'Dark'])
       await inspect(screenId, theme, (screenId === login ? 'login' : 'login-error') + '-' + theme,
@@ -400,6 +407,15 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });
   await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#15243A' });
   await call('save_version', { name: 'P2 Login Prototype' });
+  // The document grant remains valid even when there is no editor capture provider.
+  const documentUrl = page.url();
+  await page.goto('/');
+  const detached = await call.raw('simulate_preview', { screenId: login, theme: 'Light', includeImage: true,
+    events: [{ nodeId: button, event: 'Click' }] });
+  expect(detached.isError, JSON.stringify(detached.structuredContent)).not.toBe(true);
+  expect(detached.structuredContent.activeScreenId).toBe(error);
+  expect(detached.content.some(block => block.type === 'image')).toBe(true);
+  await page.goto(documentUrl);
   expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
   await page.locator('#mcp-access-menu summary').click();
   await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);
