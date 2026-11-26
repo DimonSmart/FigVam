@@ -16,7 +16,7 @@ test('composite typography and inherited text styles save only on explicit submi
   const id = page.url().split('/').pop();
   const headers = { Authorization: `Bearer ${bearer}` };
   await show(page, 'tokens');
-  await page.locator('#new-token-open').click();
+  await page.locator('#token-menu-open').click(); await page.locator('#new-token-open').click();
   await page.locator('#new-token-name').fill('Heading');
   await page.locator('#new-token-type').selectOption('Typography');
   await expect(page.locator('#new-token-light-typography')).toBeVisible();
@@ -130,7 +130,7 @@ test('DTCG import is visible and imported typography can be applied to a reusabl
 test('inline typography preview resolves nested font-size aliases independently for Light and Dark', async ({ page }) => {
   await open(page);
   await show(page, 'tokens');
-  await page.locator('#new-token-open').click();
+  await page.locator('#token-menu-open').click(); await page.locator('#new-token-open').click();
   await page.getByLabel('Имя токена', { exact: true }).fill('Font Size');
   await page.locator('#new-token-type').selectOption('Dimension');
   await page.locator('#new-token-category').selectOption('FontSize');

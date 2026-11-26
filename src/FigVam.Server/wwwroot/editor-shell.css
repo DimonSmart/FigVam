@@ -795,3 +795,18 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .token-theme-values .token-scalar-direct input:not([type=color]) { min-width:0; width:100%; flex:1; }
 .token-theme-values .token-scalar-direct input[type=color] { width:26px; padding:2px; flex:0 0 26px; }
 .token-theme-values .token-scalar-direct select { max-width:75px; padding:3px; }
+
+/* The editor currently has no global dark palette; scope OS dark mode to the token workspace. */
+@media (prefers-color-scheme: dark) {
+  .token-workspace {
+    color-scheme:dark;
+    --ui-bg:#181e29; --ui-surface:#202836; --ui-text:#e2e8f4; --ui-muted:#aab6ca;
+    --ui-border:#465164; --ui-accent:#a9baff; --ui-selected:#344263;
+    color:var(--ui-text);
+  }
+  .app-shell .token-workspace button:hover:not(:disabled) { background:var(--ui-selected); border-color:var(--ui-border); }
+  .app-shell .token-workspace :is(button,input,select,textarea):disabled { background:var(--ui-bg); color:var(--ui-muted); }
+  .app-shell .token-workspace button[type=submit] { background:#4559a5; color:white; border-color:var(--ui-accent); }
+  .token-workspace :is(.token-invalid,#tokens-error,.token-value-resolved.is-invalid) { color:#ff9ca7; }
+  .app-shell .token-workspace .token-value-layout.is-invalid .token-value-reference { background:#472c37; }
+}
