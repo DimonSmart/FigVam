@@ -1,6 +1,9 @@
-import { compatibleToken, resolvePropertyToken, tokenValueText, tokenColorHex } from './token-resolution.js';
+import type { ResolvableValue, TokenMap } from '../core/tokens/token-model';
+import type { ControlDefinition, PropertyControl, RawValue, TokenControlOptions } from './property-control-contract';
+import { rawArray, rawText } from './property-control-contract';
+import { compatibleToken, resolvePropertyToken, tokenValueText, tokenColorHex } from '../core/tokens/token-resolution';
 
-const el = (tag, cls, text) => {
+const el = <K extends keyof HTMLElementTagNameMap>(tag:K, cls?:string, text?:string) => {
   const node = document.createElement(tag);
   if (cls) node.className = cls;
   if (text != null) node.textContent = text;
@@ -9,11 +12,11 @@ const el = (tag, cls, text) => {
 
 // A reusable property control. It exposes the same read/write/validate contract as
 // literal controls so the inspector and the creation palette share draft handling.
-export function createTokenValueControl(name, definition, model, initial, direct, label, displayLabel = label, options = {}) {
+export function createTokenValueControl(_name:string, definition:ControlDefinition, model:{tokens:TokenMap}, initial:ResolvableValue|null|undefined, direct:PropertyControl, label:string, displayLabel=label, options:TokenControlOptions={}):PropertyControl {
   const literalType = definition.type.toLowerCase();
   const theme = options.theme ?? 'Light';
   const getCompatible = options.getCompatible ?? (() => [...model.tokens.values()].filter(token => compatibleToken(token, definition)));
-  const resolve = id => options.resolve ? options.resolve(id) : resolvePropertyToken({ type: 'token', tokenId: id }, model.tokens, theme, definition);
+  const resolve = (id:string) => options.resolve ? options.resolve(id) : resolvePropertyToken({ type: 'token', tokenId: id }, model.tokens, theme, definition);
   const root = el('div', 'token-value-layout');
   if (definition.type === 'Shadow') root.classList.add('token-value-layout--shadow');
   const caption = el('span', 'token-value-label', displayLabel);
@@ -22,6 +25,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
   const directHost = el('div', 'token-value-direct');
   if (definition.type === 'Number' && !options.customDirect) {
     const input = direct.inputs[0];
+    if(!input)throw new Error('Missing literal input');
     input.setAttribute('aria-label', label);
     directHost.append(input);
   } else {
@@ -76,7 +80,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
     resolvedText.textContent = (result.error ?? tokenValueText(result.value)) + ' · ' + theme;
     resolvedText.classList.toggle('is-invalid', Boolean(result.error));
     swatch.hidden = result.value?.type !== 'color' || Boolean(result.error);
-    if (!swatch.hidden) swatch.style.backgroundColor = 'rgba(' +
+    if (!swatch.hidden && result.value?.type==='color') swatch.style.backgroundColor = 'rgba(' +
       [result.value.red, result.value.green, result.value.blue, result.value.alpha / 255].join(', ') + ')';
     root.classList.toggle('is-invalid', Boolean(result.error));
     referenceHost.title = result.error ?? (nameText.textContent + ' · ' + tokenValueText(result.value) + ' · ' + theme);
@@ -90,10 +94,10 @@ export function createTokenValueControl(name, definition, model, initial, direct
     document.removeEventListener('keydown', escape, true);
     if (restoreFocus) link.focus();
   }
-  function outside(event) {
-    if (!root.contains(event.target)) close();
+  function outside(event:PointerEvent) {
+    if (!(event.target instanceof Node) || !root.contains(event.target)) close();
   }
-  function escape(event) {
+  function escape(event:KeyboardEvent) {
     if (event.key === 'Escape' && !popover.hidden) {
       event.preventDefault();
       event.stopPropagation();
@@ -165,7 +169,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
       options.writeResolved(result);
       source = literalType; tokenId = ''; close(true); fireChange(); return;
     }
-    if (result.error) {
+    if (result.error || !result.value) {
       // Unresolved references cannot supply a literal. Switch to an empty, invalid
       // draft so the user explicitly enters a value before saving the property.
       if (definition.type === 'Color') direct.write(['', '255']);
@@ -177,14 +181,14 @@ export function createTokenValueControl(name, definition, model, initial, direct
       fireChange();
       return;
     }
-    if (definition.type === 'Color') {
+    if (definition.type === 'Color' && result.value.type==='color') {
       direct.write([tokenColorHex(result.value), String(result.value.alpha)]);
     } else if (definition.numericFontWeight) {
-      direct.write(['Custom', String(result.value.value)]);
+      direct.write(['Custom', String('value' in result.value ? result.value.value : '')]);
     } else if (definition.type === 'String') {
-      direct.write(result.value.value);
+      direct.write('value' in result.value && typeof result.value.value==='string' ? result.value.value : '');
     } else {
-      direct.write(String(result.value.type === 'geometry' ? result.value.radius : result.value.value));
+      direct.write(String(result.value.type === 'geometry' ? result.value.radius : 'value' in result.value ? result.value.value : ''));
     }
     source = literalType;
     tokenId = '';
@@ -195,16 +199,17 @@ export function createTokenValueControl(name, definition, model, initial, direct
   return {
     content: [root],
     inputs: [...direct.inputs, link],
-    initial: [initial?.type === 'token' ? 'token' : literalType, direct.initial, initial?.tokenId ?? ''],
+    initial: [initial?.type === 'token' ? 'token' : literalType, direct.initial, initial?.type==='token' ? initial.tokenId : ''],
     read: () => [source, direct.read(), tokenId],
-    write([mode, literal, id]) {
+    write(value:RawValue) {
+      const [mode,literal,id]=rawArray(value);
       close();
       source = mode === 'token' ? 'token' : literalType;
-      tokenId = id ?? '';
-      direct.write(literal);
+      tokenId = rawText(id);
+      direct.write(literal??null);
       updateView();
     },
-    setDisabled(disabled) {
+    setDisabled(disabled:boolean) {
       const wasDisabled = readOnly;
       readOnly = disabled;
       if (direct.setDisabled) direct.setDisabled(disabled);

@@ -163,13 +163,13 @@ export function resolvePropertyToken(reference: ResolvableValue | null | undefin
 }
 
 function hex(channel: number): string { return channel.toString(16).padStart(2, '0'); }
-export function tokenValueText(value: TokenValue | null | undefined): string {
+export function tokenValueText(value: ResolvableValue | null | undefined): string {
   switch (value?.type) {
     case 'spacing': case 'dimension': return String(value.value) + ' px';
     case 'geometry': return String(value.radius) + ' px';
     case 'number': case 'fontWeight': return String(value.value);
     case 'fontFamily': return value.value;
-    case 'typography': return [value.fontFamily, value.fontSize + ' px', value.fontWeight,
+    case 'typography': if('value' in value)return tokenValueText(value.value); return [value.fontFamily, value.fontSize + ' px', value.fontWeight,
       value.lineHeight, (value.letterSpacing ?? 0) + ' px tracking'].join(' · ');
     case 'shadow': return [value.offsetX, value.offsetY, value.blurRadius, value.spreadRadius]
       .map(v => v + ' px').join(' · ') + ' · ' + tokenValueText({ ...value.color, type: 'color' });

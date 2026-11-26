@@ -1,7 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image } from 'lucide-react';
-import { Button } from '../../ui/button';
+import { Button } from '../../ui/Button';
 
 function required<T>(value:T|null|undefined, description:string):T {
   if(value==null) throw new Error('Missing editor shell element: '+description);
