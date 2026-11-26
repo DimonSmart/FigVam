@@ -14,7 +14,7 @@ interface Playback {selection:{screenId:string;datasetId:string|null;variantId:s
 interface Asset {id:string;width:number;height:number}
 interface Style {id:string;name:string;type:number|string}
 interface Resources {kinds:Map<string,CanvasKind>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
-interface DrawingModel extends Omit<RenderModel,'theme'|'assets'>, Resources {
+interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens'>, Resources {
   screen:string;revision:number;scenarios:Scenario[];diagnostics:Diagnostic[];orderedNodes:CanvasNode[];
 }
 interface Diagnostic {objectId:string;property:string;message:string;code:string}
@@ -521,7 +521,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     renderActive();
   });
   backButton.addEventListener('click', () => {
-    if (triggers.length) replay(triggers.slice(0, -1));
+    if (triggers.length) replay(triggers.slice(0, -1), null);
   });
   new ResizeObserver(() => {
     clearTimeout(resizeTimer);
