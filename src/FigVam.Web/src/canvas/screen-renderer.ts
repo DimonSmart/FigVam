@@ -139,8 +139,9 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
 
     let surface: HTMLElement;
     if (role === 'Button') {
-      surface = document.createElement('button');
-      surface.type = 'button';
+      const button = document.createElement('button');
+      button.type = 'button';
+      surface = button;
       surface.textContent = string(value('text'));
       if (!surface.textContent) surface.setAttribute('aria-label', node.name || 'Кнопка');
       if (options.preview && kind.previewEvents.includes(0)) surface.addEventListener('click', () => options.trigger?.(id, 0));
