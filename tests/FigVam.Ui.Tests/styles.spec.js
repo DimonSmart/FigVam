@@ -178,3 +178,35 @@ test('existing styles apply valid changes automatically and reject invalid inter
   await page.getByLabel('Радиус углов: переопределить').uncheck();
   await expect.poll(async () => (await read()).fields.cornerRadius).toBeUndefined();
 });
+
+test('automatic style edits queue newer input during an acknowledgement without replacing another field', async ({ page, request }) => {
+  await open(page);
+  const id = page.url().split('/').pop();
+  const headers = { Authorization: `Bearer ${bearer}` };
+  await page.locator('#styles-type').selectOption('BorderStyle');
+  await page.locator('#styles-name').fill('border.queue');
+  await page.getByLabel('Радиус углов: переопределить').check();
+  await page.getByLabel('Толщина рамки: переопределить').check();
+  await page.getByRole('button', { name: 'Создать стиль' }).click();
+  await expect(page.locator('#styles-save')).toBeHidden();
+  await expect(page.locator('#styles-status')).toHaveText('Стиль сохранён.');
+  let release, count = 0;
+  const gate = new Promise(resolve => { release = resolve; });
+  await page.route('**/commands/upsert-style', async route => {
+    if (++count === 1) await gate;
+    await route.continue();
+  });
+  const radius = page.getByLabel('Радиус углов: значение');
+  const width = page.getByLabel('Толщина рамки: значение');
+  await radius.fill('12'); await radius.press('Enter');
+  await expect.poll(() => count).toBe(1);
+  await radius.fill('16'); await radius.press('Enter');
+  await width.fill('3'); await width.press('Enter');
+  release();
+  const read = async () => (await (await request.get(`/api/v1/documents/${id}/styles`, { headers })).json()).items[0];
+  await expect.poll(async () => [(await read()).fields.cornerRadius.value, (await read()).fields.borderWidth.value]).toEqual([16, 3]);
+  await expect(page.locator('#styles-status')).toHaveText('Стиль сохранён.');
+  await expect(radius).toHaveValue('16');
+  await expect(width).toHaveValue('3');
+  expect(count).toBe(2);
+});

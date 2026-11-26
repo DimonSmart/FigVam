@@ -54,7 +54,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   const el = element;
   let items = [], selectedId = null, busy = false, tokenSignature = '';
   let styleUsages = [], styleUsageRequest = 0;
-  let formId, formSnapshot, timer, activeAuto = null, epoch = 0;
+  let formId, formSnapshot, timer, activeAuto = null, epoch = 0, rendering = false;
   const drafts = new Map();
   const equal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
   const fieldValue = (style, key) => key.startsWith('fields.')
@@ -204,6 +204,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     el('styles-delete').disabled = busy;
     const draft = drafts.get(selectedId);
     if (formId !== selectedId || !draft && activeAuto?.id !== selectedId) {
+      rendering = true;
       const focused = document.activeElement;
       const focusKey = el('styles-form').contains(focused) ? focused.getAttribute('aria-label') || focused.id : '';
       const selection = focusKey && focused.matches('input[type=text], input:not([type])')
@@ -223,6 +224,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
         replacement?.focus({ preventScroll: true });
         if (selection && replacement?.matches('input[type=text], input:not([type])')) replacement.setSelectionRange(...selection);
       }
+      rendering = false;
     }
     renderPreview(selected ? draftStyle(selected, draft) : null);
     const usageList = el('styles-usages');
@@ -390,9 +392,9 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     timer = setTimeout(flush, delay);
   }
 
-  function capture(target, immediate) {
+  function capture(target, immediate, edited = false) {
     const saved = chosen();
-    if (!saved || !editable() || !formSnapshot || formSnapshot.id !== saved.id) return;
+    if (rendering || !saved || !editable() || !formSnapshot || formSnapshot.id !== saved.id) return;
     let key, read;
     if (target === el('styles-name')) {
       key = 'name';
@@ -416,11 +418,15 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     try {
       const value = read();
       const previous = draft.changes.get(key);
+      // A blur/Enter after a conflict must not silently rebase the rejected value.
+      if (draft.blocked && (!edited || previous && equal(previous.value, value))) return;
       const base = draft.blocked ? fieldValue(saved, key) : previous ? previous.base : fieldValue(formSnapshot, key);
       draft.invalid.delete(key);
       target.removeAttribute('aria-invalid');
+      const row = rows.find(item => item.element.contains(target));
+      row?.element.querySelectorAll('[aria-invalid]').forEach(control => control.removeAttribute('aria-invalid'));
       if (equal(value, base) && !(activeAuto?.id === saved.id && activeAuto.sent.has(key))) draft.changes.delete(key);
-      else draft.changes.set(key, { base, value });
+      else draft.changes.set(key, { base, value, ready: key !== 'name' || immediate });
       draft.blocked = false;
       if (!draft.invalid.size) el('styles-error').textContent = '';
     } catch (error) {
@@ -431,13 +437,14 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     }
     renderPreview(draftStyle(saved, draft));
     if (!draft.changes.size && !draft.invalid.size && activeAuto?.id !== saved.id) drafts.delete(saved.id);
-    schedule(immediate ? 0 : 500);
+    if (immediate) void flush();
+    else if (key !== 'name') schedule(500);
   }
 
   async function flush() {
     clearTimeout(timer);
     if (busy || !editable()) return;
-    const draft = [...drafts.values()].find(item => !item.blocked && item.changes.size);
+    const draft = [...drafts.values()].find(item => !item.blocked && [...item.changes.values()].some(change => change.ready));
     if (!draft) return;
     const saved = items.find(item => item.id === draft.id);
     if (!saved) {
@@ -449,6 +456,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     const sent = new Map();
     let style = saved;
     for (const [key, change] of draft.changes) {
+      if (!change.ready) continue;
       const current = fieldValue(saved, key);
       if (equal(current, change.value)) { draft.changes.delete(key); continue; }
       if (!equal(current, change.base)) {
@@ -465,25 +473,34 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       schedule(0); return;
     }
     const context = getContext(), startedEpoch = epoch;
-    const { signal, current } = startRequest();
+    // Automatic edits must not cancel an unrelated explicit command or navigation.
+    const signal = new AbortController().signal;
     stopLive();
     const op = { id: draft.id, sent };
     activeAuto = op; busy = true;
     el('styles-save').disabled = el('styles-delete').disabled = true;
     el('styles-status').textContent = 'Сохранение…';
-    const stillCurrent = () => startedEpoch === epoch && current === getContext().generation &&
-      context.documentId === getContext().documentId && !signal.aborted;
+    const stillCurrent = () => startedEpoch === epoch && context.documentId === getContext().documentId;
     try {
       const result = await request('/api/v1/documents/' + encodeURIComponent(context.documentId) + '/commands/upsert-style',
         { method: 'POST', body: JSON.stringify({
           commandId: crypto.randomUUID(), expectedRevision: context.revision,
           style: { ...style, type: styleType(style) === 'TextStyle' ? 0 : 1 }
         }) }, signal);
-      if (!stillCurrent()) throw new DOMException('Cancelled', 'AbortError');
-      if (!Number.isSafeInteger(result.revision) || !await readPages(signal, 0, result.revision))
+      if (!stillCurrent()) return;
+      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision))
         throw new Error('Не удалось подтвердить состояние стиля. Обновите документ.');
-      if (!stillCurrent()) throw new DOMException('Cancelled', 'AbortError');
-      const confirmed = items.find(item => item.id === draft.id);
+      const canRead = () => stillCurrent() && getContext().revision <= result.revision;
+      if (getContext().revision < result.revision) {
+        try { await readPages(signal, 0, result.revision, canRead); }
+        catch (error) { if (error.name !== 'AbortError') throw error; }
+      }
+      if (!stillCurrent()) return;
+      if (getContext().revision < result.revision)
+        throw new Error('Не удалось обновить состояние стиля. Обновите документ.');
+      // Rebase only onto the value we sent, not a later collaborator's value.
+      const confirmed = getContext().revision === result.revision
+        ? items.find(item => item.id === draft.id) : style;
       for (const [key, change] of sent) {
         const currentChange = draft.changes.get(key);
         const value = fieldValue(confirmed, key);
@@ -502,18 +519,17 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       }
     } finally {
       if (startedEpoch === epoch) {
-        activeAuto = null; busy = false; render();
-        if (current === getContext().generation) startLive();
-        schedule(0);
+        activeAuto = null; busy = false;
+        if (stillCurrent()) { render(); startLive(); schedule(0); }
       }
     }
   }
 
   const form = el('styles-form');
   form.addEventListener('input', event => {
-    if (!event.isComposing && event.target.matches('input:not([type=checkbox])')) capture(event.target, false);
+    if (!event.isComposing && event.target.matches('input:not([type=checkbox])')) capture(event.target, false, true);
   });
-  form.addEventListener('change', event => capture(event.target, true));
+  form.addEventListener('change', event => capture(event.target, true, event.target.matches('select,input[type=checkbox]')));
   form.addEventListener('focusout', event => {
     if (event.target.matches('input:not([type=checkbox])')) capture(event.target, true);
   });
@@ -528,6 +544,11 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   });
 
   el('styles-list').addEventListener('change', () => {
+    const previousDraft = drafts.get(selectedId);
+    if (previousDraft) {
+      previousDraft.invalid.clear();
+      if (!previousDraft.changes.size && activeAuto?.id !== selectedId) drafts.delete(selectedId);
+    }
     selectedId = el('styles-list').value || null;
     formId = undefined;
     loadUsages(); schedule(0);

@@ -315,7 +315,7 @@ async function loadList(index = 0, cursor = null) {
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = documentRole = null;
+  documentHistory.reset(); styles.reset(); documentId = documentRole = null;
   selectedScreen = null; screensItems = []; renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
@@ -475,10 +475,10 @@ function navigatorRenameForm(kind, item, name) {
     navigatorEditState(kind).value = input.value;
     input.setCustomValidity('');
   });
-  const discard = () => {
+  const discard = (restoreFocus = true) => {
     setNavigatorEditState(kind, null);
     renderNavigatorKind(kind);
-    document.querySelector('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
+    if (restoreFocus) document.querySelector('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
   };
   bindInlineRename(form, input, discard, () => navigatorEditState(kind)?.id === item.id);
   form.addEventListener('submit', event => {
@@ -490,7 +490,7 @@ function navigatorRenameForm(kind, item, name) {
       input.reportValidity();
       return;
     }
-    discard();
+    discard(document.activeElement === input);
     if (newName !== name) pageCommand('rename-' + kind, { [kind + 'Id']: item.id, name: newName });
   });
   form.append(input);
