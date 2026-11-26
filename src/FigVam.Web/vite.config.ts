@@ -16,6 +16,7 @@ export default defineConfig({
         'token-groups': 'src/core/tokens/token-groups.ts',
         'token-exchange': 'src/core/tokens/token-exchange.ts',
         'canvas-viewport': 'src/canvas/canvas-viewport.ts',
+        layers: 'src/features/editor/layers.ts',
         'layer-drag': 'src/canvas/layer-drag.ts',
         'canvas-node-editor': 'src/canvas/canvas-node-editor.ts',
         'screen-renderer': 'src/canvas/screen-renderer.ts',

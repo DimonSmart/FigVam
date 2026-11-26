@@ -1,24 +1,56 @@
-import { createLayerDrag, resolveLayerDrop } from './layer-drag.js';
+import type { ApiClient } from '../../api/api-client';
+import { ApiError } from '../../api/api-client';
+import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
+import type { LayerCaptionSource } from '../../core/layer-caption';
+import type { LayerContext } from '../../canvas/layer-drag';
+import type { components } from '../../api/schema.generated';
+type Schema=components['schemas'];
+interface LayerItem extends LayerCaptionSource {id:string;parentId:string;childCount:number;canContainChildren?:boolean}
+interface Workspace {documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;navigationEpoch:number;token:string|null}
+type Work=(signal:AbortSignal,current:()=>boolean)=>Promise<unknown>;
+interface Options {element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
+type MetadataKind='name'|'key';
+type State='ready'|'pending'|'uncertain'|'rejected';
+interface Metadata {id?:string;name?:string|null;semanticKey?:string|null;error?:string}
+type MetadataOperation={kind:'name';body:{commandId:string;nodeId:string;name:string};state:State}|{kind:'key';body:{commandId:string;nodeId:string;semanticKey:string|null};state:State};
+interface DeleteOperation {doc:string;screen:string;name:string;body:{commandId:string;nodeId:string};state:State;error?:string}
+interface MoveOperation {doc:string;screen:string;name:string;reveal:string[];body:Schema['MoveNodeRequest'];state:State}
+interface Snapshot {screen:string|null;roots:LayerItem[];children:Map<string,LayerItem[]>;expanded:Set<string>;initialExpansion:Set<string>}
+interface SnapshotOptions {base:string;screen:string|null;revision:number;signal:AbortSignal;isCurrent:()=>boolean;reveal:string[];shouldReportFailure:()=>boolean}
+function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected layer element '+node.id);return node;}
+function layer(value:unknown,parentId?:string):LayerItem{
+  const v=requiredRecord(value),props=v.properties==null?{}:requiredRecord(v.properties);
+  const childCount=v.childCount==null?0:v.childCount;
+  if(typeof childCount!=='number'||!Number.isSafeInteger(childCount)||childCount<0)throw new TypeError('Invalid layer child count');
+  return {id:text(v.id),parentId:parentId??text(v.parentId),kind:text(v.kind),name:v.name==null?null:text(v.name),childCount,canContainChildren:v.canContainChildren===true,
+    properties:Object.fromEntries(Object.entries(props).map(([key,val])=>{const p=requiredRecord(val);return[key,{...p,type:text(p.type),value:p.value}];}))};
+}
+function accepted(value:unknown,doc:string,commandId:string):void{
+  const r=requiredRecord(value);
+  if(r.status!=='ACCEPTED'||!Number.isSafeInteger(r.revision)||text(r.documentId).toLowerCase()!==doc.toLowerCase()||text(r.commandId).toLowerCase()!==commandId.toLowerCase())throw new TypeError('Некорректное подтверждение');
+}
+import { createLayerDrag, resolveLayerDrop } from '../../canvas/layer-drag';
 
-import { layerDisplayName } from './layer-caption.js';
+import { layerDisplayName } from '../../core/layer-caption';
 export { layerDisplayName };
 
 export function createLayers({
   element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
   closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected, beforeSelectionChange = () => true
-}) {
-  let layerController = null, layerGeneration = 0, layerSelection = null;
-  let nodeReadGeneration = 0, nodeMetadata = null;
-  const nodeOperations = new Map();
-  const metadataDrafts = new Map();
-  let metadataTimer;
-  const nodeDeletions = new Map();
-  const nodeMoves = new Map();
-  const nodeMoveNotices = new Map();
+}:Options) {
+  let layerController:AbortController|null=null,layerGeneration=0,layerSelection:LayerItem|null=null;
+  const input=(id:string)=>typed(element(id),HTMLInputElement),btn=(id:string)=>typed(element(id),HTMLButtonElement);
+  let nodeReadGeneration=0,nodeMetadata:Metadata|null=null;
+  const nodeOperations=new Map<string,MetadataOperation>();
+  const metadataDrafts=new Map<string,Map<MetadataKind,string>>();
+  let metadataTimer:ReturnType<typeof setTimeout>|undefined;
+  const nodeDeletions=new Map<string,DeleteOperation>();
+  const nodeMoves=new Map<string,MoveOperation>();
+  const nodeMoveNotices=new Map<string,string>();
   let layerSelectionEpoch = 0;
   let screenContextEpoch = 0;
-  let layerRoots = [], layerExpanded = new Set(), layerChildren = new Map();
-  let interactiveNodes = new Set();
+  let layerRoots:LayerItem[]=[],layerExpanded=new Set<string>(),layerChildren=new Map<string,LayerItem[]>();
+  let interactiveNodes=new Set<string>();
 
   function reset() {
     drag.cancel();
@@ -31,57 +63,57 @@ export function createLayers({
     nodeReadGeneration++; nodeMetadata = null; renderNodeMetadata();
   }
 
-  function selectLayer(item) {
+  function selectLayer(item:LayerItem) {
     const changed = layerSelection?.id !== item.id;
     if (changed && layerSelection && nodeMetadata?.id === layerSelection.id) {
       const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id));
-      if (drafts?.size === 1) submitNodeMetadata(drafts.keys().next().value);
+      if(drafts?.size===1){const kind=drafts.keys().next().value;if(kind)submitNodeMetadata(kind);}
     }
     if (changed) layerSelectionEpoch++;
     layerSelection = item;
     if (changed || nodeMetadata?.id !== item.id) loadNodeMetadata();
     if (changed) onLayerSelected();
     if (!changed && nodeMetadata?.id === item.id && nodeMetadata.name !== item.name) {
-      nodeMetadata.name = item.name;
+      nodeMetadata.name = item.name??'';
       renderNodeMetadata();
     }
     const caption = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
     if (element('inspector-selection').textContent !== caption)
       element('inspector-selection').textContent = caption;
     renderNodeOrder();
-    for (const row of element('layers').querySelectorAll('[role=treeitem]')) {
+    for (const row of element('layers').querySelectorAll<HTMLElement>('[role=treeitem]')) {
       const selected = String(row.dataset.id === item.id);
       if (row.getAttribute('aria-selected') !== selected) row.setAttribute('aria-selected', selected);
     }
   }
 
-  function nodeOperationKey(doc, node) { return `${doc}:${node}`; }
+  function nodeOperationKey(doc:string|null,node:string) { return `${doc}:${node}`; }
   function renderNodeDeletion() {
     renderNodeOrder();
     let op = nodeDeletions.get(`${workspace.documentId}:${workspace.selectedScreen}`);
-    const editable = ['Owner', 'Editor'].includes(workspace.documentRole);
+    const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     element('node-delete').hidden = !layerSelection || !editable;
-    element('node-delete').disabled = !!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id)));
+    btn('node-delete').disabled = !!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id)));
     element('node-delete-retry').hidden = !editable || op?.state !== 'uncertain';
     element('node-delete-status').textContent = op?.state === 'pending' ? 'Удаление слоя…' : op?.state === 'uncertain' ? `Результат удаления слоя «${op.name}» неизвестен. Повторите ту же команду.` : op?.error || '';
   }
   function renderNodeMetadata() {
     renderNodeDeletion();
-    const selected = layerSelection, op = selected && nodeOperations.get(nodeOperationKey(workspace.documentId, selected.id));
+    const selected=layerSelection,op=selected?nodeOperations.get(nodeOperationKey(workspace.documentId, selected.id)):undefined;
     const visible = !!selected;
     element('node-metadata').hidden = !visible;
     if (!visible) return;
-    const editable = ['Owner', 'Editor'].includes(workspace.documentRole);
+    const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     const ready = nodeMetadata?.id === selected.id;
-    for (const id of ['node-name', 'node-key']) element(id).readOnly = !editable || !ready || !!op;
+    for (const id of ['node-name','node-key']) input(id).readOnly = !editable || !ready || !!op;
     const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id));
-    if (ready) {
-      const name = (editable ? drafts?.get('name') : undefined) ?? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name);
+    if (ready && nodeMetadata) {
+      const name = (editable ? drafts?.get('name') : undefined) ?? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name) ?? '';
       const key = (editable ? drafts?.get('key') : undefined) ?? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
-      if (element('node-name').value !== name) element('node-name').value = name;
-      if (element('node-key').value !== key) element('node-key').value = key;
+      if (input('node-name').value !== name) input('node-name').value = name;
+      if (input('node-key').value !== key) input('node-key').value = key;
     }
-    else { element('node-name').value = editable ? drafts?.get('name') ?? '' : ''; element('node-key').value = editable ? drafts?.get('key') ?? '' : ''; }
+    else { input('node-name').value = editable ? drafts?.get('name') ?? '' : ''; input('node-key').value = editable ? drafts?.get('key') ?? '' : ''; }
     element('node-metadata-status').textContent = op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready ? 'Загрузка слоя…' : '');
     element('node-metadata-error').textContent = op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? '');
     element('node-metadata-retry').hidden = !editable || op?.state !== 'uncertain';
@@ -89,54 +121,55 @@ export function createLayers({
   async function loadNodeMetadata() {
     const current = ++nodeReadGeneration, doc = workspace.documentId, screen = workspace.selectedScreen, node = layerSelection?.id, atRevision = workspace.revision, epoch = workspace.navigationEpoch, requestToken = workspace.token;
     nodeMetadata = null; renderNodeMetadata();
-    if (!node || !Number.isSafeInteger(atRevision)) return;
+    if (!doc || !node || !Number.isSafeInteger(atRevision)) return;
     const active = () => current === nodeReadGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && node === layerSelection?.id && atRevision === workspace.revision && epoch === workspace.navigationEpoch && requestToken === workspace.token && !element('editor-view').hidden;
     try {
-      const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/nodes/${encodeURIComponent(node)}?fields=name,semanticKey&revision=${atRevision}`, {}, undefined, active);
+      const result=requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(doc)}/nodes/${encodeURIComponent(node)}?fields=name,semanticKey&revision=${atRevision}`,{},undefined,active));
       if (!active()) return;
-      const item = result.items?.[0];
+      const item=array(result.items,requiredRecord)[0];
       if (result.revision !== atRevision || item?.id !== node || typeof item.name !== 'string') throw new TypeError('Некорректный ответ');
-      nodeMetadata = { id: node, name: item.name, semanticKey: item.semanticKey ?? null };
+      nodeMetadata = { id: node, name: item.name, semanticKey:item.semanticKey==null?null:text(item.semanticKey) };
       renderNodeMetadata();
     } catch (error) {
       if (!active()) return;
-      if (error.status === 403) { closeInaccessibleDocument(error.status); return; }
-      nodeMetadata = { error: error.message || 'Не удалось загрузить слой.' }; renderNodeMetadata();
+      if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
+      nodeMetadata = { error: errorMessage(error) || 'Не удалось загрузить слой.' }; renderNodeMetadata();
       element('node-metadata-status').textContent = '';
-      element('node-metadata-error').textContent = error.message || 'Не удалось загрузить слой.';
+      element('node-metadata-error').textContent = errorMessage(error) || 'Не удалось загрузить слой.';
     }
   }
-  function submitNodeMetadata(kind) {
+  function submitNodeMetadata(kind:MetadataKind) {
     const doc = workspace.documentId, screen = workspace.selectedScreen, node = layerSelection?.id;
-    if (!node || nodeMetadata?.id !== node || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
+    if (!doc || !screen || !node || nodeMetadata?.id !== node || !['Owner', 'Editor'].includes(workspace.documentRole??'')) return;
     const key = nodeOperationKey(doc, node); if (nodeOperations.has(key)) return;
     clearTimeout(metadataTimer);
     const drafts = metadataDrafts.get(key);
     const value = drafts?.get(kind);
     if (value === undefined) return;
     if (value === ((kind === 'name' ? nodeMetadata.name : nodeMetadata.semanticKey) ?? '')) {
-      drafts.delete(kind); return;
+      drafts?.delete(kind); return;
     }
     if (value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value) || (kind === 'key' && value !== '' && !value.trim())) {
       element('node-metadata-error').textContent = 'Проверьте значение: не более 256 символов, без управляющих символов; semantic key не может состоять из пробелов.'; return;
     }
-    const op = { kind, body: { commandId: crypto.randomUUID(), nodeId: node, ...(kind === 'name' ? { name: value } : { semanticKey: value === '' ? null : value }) }, state: 'pending' };
+    const body={commandId:crypto.randomUUID(),nodeId:node};
+    const op:MetadataOperation=kind==='name'?{kind,body:{...body,name:value},state:'pending'}:{kind,body:{...body,semanticKey:value===''?null:value},state:'pending'};
     nodeOperations.set(key, op); sendNodeMetadata(doc, screen, node, op);
   }
-  for (const [kind, id] of [['name', 'node-name'], ['key', 'node-key']]) {
-    const input = element(id);
-    input.addEventListener('input', () => {
-      if (!layerSelection || nodeMetadata?.id !== layerSelection.id || input.readOnly) return;
+  for (const [kind, id] of [['name', 'node-name'], ['key', 'node-key']] as const) {
+    const field=input(id);
+    field.addEventListener('input', () => {
+      if (!layerSelection || nodeMetadata?.id !== layerSelection.id || field.readOnly) return;
       const key = nodeOperationKey(workspace.documentId, layerSelection.id);
       if (!metadataDrafts.has(key)) metadataDrafts.set(key, new Map());
-      metadataDrafts.get(key).set(kind, input.value);
+      metadataDrafts.get(key)?.set(kind,field.value);
       clearTimeout(metadataTimer);
       metadataTimer = setTimeout(() => {
         if (layerSelection && key === nodeOperationKey(workspace.documentId, layerSelection.id)) submitNodeMetadata(kind);
       }, 500);
     });
-    input.addEventListener('blur', () => submitNodeMetadata(kind));
-    input.addEventListener('keydown', event => {
+    field.addEventListener('blur', () => submitNodeMetadata(kind));
+    field.addEventListener('keydown', event => {
       if (event.isComposing) return;
       if (event.key === 'Enter') { event.preventDefault(); submitNodeMetadata(kind); }
       if (event.key === 'Escape' && layerSelection) {
@@ -149,9 +182,9 @@ export function createLayers({
   }
   element('node-metadata-retry').addEventListener('click', () => {
     const op = layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id));
-    if (op?.state === 'uncertain') sendNodeMetadata(workspace.documentId, workspace.selectedScreen, layerSelection.id, op);
+    if(op?.state==='uncertain'&&workspace.documentId&&workspace.selectedScreen&&layerSelection)void sendNodeMetadata(workspace.documentId,workspace.selectedScreen,layerSelection.id,op);
   });
-  async function sendNodeMetadata(doc, screen, node, op) {
+  async function sendNodeMetadata(doc:string,screen:string,node:string,op:MetadataOperation) {
     const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionEpoch = layerSelectionEpoch;
     // Rereading metadata for the same selected node must not invalidate a command.
     const active = () => layerSelectionEpoch === selectionEpoch && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
@@ -159,7 +192,7 @@ export function createLayers({
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
       if (nodeOperations.get(key) !== op) return;
-      if (!Number.isSafeInteger(result.revision) || result.status !== 'ACCEPTED' || result.documentId?.toLowerCase() !== doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      accepted(result,doc,op.body.commandId);
       if (!active()) { op.state = 'uncertain'; return; }
       nodeOperations.delete(key);
       metadataDrafts.get(key)?.delete(op.kind);
@@ -173,10 +206,10 @@ export function createLayers({
       function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }
     } catch (error) {
       if (nodeOperations.get(key) !== op) return;
-      if (!active() || error instanceof TypeError || error.status >= 500 || error.name === 'AbortError') op.state = 'uncertain';
+      if (!active() || !(error instanceof ApiError) || error.status >= 500) op.state = 'uncertain';
       else {
         nodeOperations.delete(key);
-        if (error.status === 403) { closeInaccessibleDocument(error.status); return; }
+        if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
         if (error.code === 'NODE_NOT_FOUND') {
           const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
           await runPageRefresh(signal => readCurrentPages(signal, currentContext));
@@ -185,8 +218,8 @@ export function createLayers({
         }
         if (nodeMetadata) nodeMetadata.error = error.message;
         renderNodeMetadata();
-        const input = element(op.kind === 'name' ? 'node-name' : 'node-key');
-        input.value = (op.kind === 'name' ? op.body.name : op.body.semanticKey) ?? '';
+        const field=input(op.kind==='name'?'node-name':'node-key');
+        field.value = (op.kind === 'name' ? op.body.name : op.body.semanticKey) ?? '';
         return;
       }
     } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden) renderNodeMetadata(); }
@@ -194,17 +227,17 @@ export function createLayers({
 
   element('node-delete').addEventListener('click', () => {
     const node = layerSelection, doc = workspace.documentId, screen = workspace.selectedScreen, key = `${doc}:${screen}`;
-    if (!node || !['Owner', 'Editor'].includes(workspace.documentRole) || (nodeDeletions.has(key) && nodeDeletions.get(key).state !== 'rejected') || nodeOperations.has(nodeOperationKey(doc, node.id))) return;
+    if (!doc || !screen || !node || !['Owner', 'Editor'].includes(workspace.documentRole??'') || (nodeDeletions.has(key) && nodeDeletions.get(key)?.state !== 'rejected') || nodeOperations.has(nodeOperationKey(doc, node.id))) return;
     const name = node.name?.trim() || 'Без имени';
     if (!confirm(`Удалить слой «${name}»? Будет удалено всё его поддерево.`)) return;
-    const op = { doc, screen, name, body: { commandId: crypto.randomUUID(), nodeId: node.id }, state: 'ready' };
+    const op:DeleteOperation = { doc, screen, name, body: { commandId: crypto.randomUUID(), nodeId: node.id }, state: 'ready' };
     nodeDeletions.set(key, op); sendNodeDeletion(op);
   });
   element('node-delete-retry').addEventListener('click', () => {
     const op = nodeDeletions.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     if (op?.state === 'uncertain') sendNodeDeletion(op);
   });
-  async function sendNodeDeletion(op) {
+  async function sendNodeDeletion(op:DeleteOperation) {
     const key = `${op.doc}:${op.screen}`;
     if (nodeDeletions.get(key) !== op || op.state === 'pending') return;
     const epoch = workspace.navigationEpoch, screenEpoch = screenContextEpoch, requestToken = workspace.token;
@@ -213,27 +246,27 @@ export function createLayers({
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/delete-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
       if (!active()) { op.state = 'uncertain'; return; }
-      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      accepted(result,op.doc,op.body.commandId);
       let synced = false;
       await runPageRefresh(async signal => { await readCurrentPages(signal, active); synced = true; });
       if (active() && synced) { nodeDeletions.delete(key); renderNodeDeletion(); }
       else op.state = 'uncertain';
     } catch (error) {
-      if (!active() || error instanceof TypeError || error.name === 'AbortError' || error.status === undefined || error.status >= 500) { op.state = 'uncertain'; return; }
-      if (error.status === 403) { nodeDeletions.delete(key); closeInaccessibleDocument(403); return; }
+      if (!active() || !(error instanceof ApiError) || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (error instanceof ApiError && error.status === 403) { nodeDeletions.delete(key); closeInaccessibleDocument(403); return; }
       if (error.code === 'NODE_NOT_FOUND') {
         await runPageRefresh(signal => readCurrentPages(signal, active));
         if (!active()) { op.state = 'uncertain'; return; }
         op.error = 'Слой уже удалён другим участником.';
-      } else op.error = ({ SCENARIO_IN_USE: 'Слой или его поддерево используется в сценариях. Сначала удалите ссылки сценариев.', SCREEN_VARIANT_IN_USE: 'Слой или его поддерево используется в вариантах. Сначала удалите ссылки вариантов.', INVALID_REPEATER: 'Слой используется повторителем. Сначала удалите зависимость.', INVALID_COMPONENT: 'Слой используется компонентом. Сначала удалите зависимость.' })[error.code] || error.message;
+      } else op.error = ({ SCENARIO_IN_USE: 'Слой или его поддерево используется в сценариях. Сначала удалите ссылки сценариев.', SCREEN_VARIANT_IN_USE: 'Слой или его поддерево используется в вариантах. Сначала удалите ссылки вариантов.', INVALID_REPEATER: 'Слой используется повторителем. Сначала удалите зависимость.', INVALID_COMPONENT: 'Слой используется компонентом. Сначала удалите зависимость.' }) as Record<string,string>)[error.code??''] || error.message;
       op.state = 'rejected';
     } finally { if (nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && !element('editor-view').hidden) renderNodeDeletion(); }
   }
 
-  function siblingContext(id) {
-    function find(parent, items, ancestors = []) {
+  function siblingContext(id:string|undefined):LayerContext|null {
+    function find(parent:string,items:LayerItem[],ancestors:string[]=[]):LayerContext|null {
       const index = items.findIndex(item => item.id === id);
-      if (index >= 0) return { parent, index, count: items.length, ancestors, item: items[index] };
+      const foundItem=items[index];if(index>=0&&foundItem)return{parent,index,count:items.length,ancestors,item:foundItem};
       for (const item of items) {
         const found = find(item.id, layerChildren.get(item.id) || [], [...ancestors, item.id]);
         if (found) return found;
@@ -243,10 +276,10 @@ export function createLayers({
     return workspace.selectedScreen && id ? find(workspace.selectedScreen, layerRoots) : null;
   }
   const moveKey = () => `${workspace.documentId}:${workspace.selectedScreen}`;
-  const canMove = () => ['Owner', 'Editor'].includes(workspace.documentRole) && !nodeMoves.has(moveKey()) && !element('editor-view').hidden;
+  const canMove = () => ['Owner', 'Editor'].includes(workspace.documentRole??'') && !nodeMoves.has(moveKey()) && !element('editor-view').hidden;
   function renderNodeOrder() {
     const op = nodeMoves.get(moveKey());
-    const editable = ['Owner', 'Editor'].includes(workspace.documentRole);
+    const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     element('layers').classList.toggle('layer-move-enabled', editable && !op);
     element('node-order-retry').hidden = !editable || op?.state !== 'uncertain';
     element('node-order-status').textContent = !editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || '';
@@ -273,19 +306,19 @@ export function createLayers({
     }
   });
 
-  function beginNodeMove(delta) {
+  function beginNodeMove(delta:number) {
     const context = siblingContext(layerSelection?.id);
-    if (!context) return;
+    if (!context||!layerSelection) return;
     const position = context.index + delta;
     if (position < 0 || position >= context.count) return;
     renderLayers(layerSelection.id);
     startNodeMove(context.parent, context.parent, position, context.ancestors);
   }
-  function startNodeMove(expectedParentId, targetParentId, position, reveal = []) {
+  function startNodeMove(expectedParentId:string,targetParentId:string,position:number,reveal:string[]=[]) {
     const key = `${workspace.documentId}:${workspace.selectedScreen}`;
-    if (!layerSelection || !['Owner', 'Editor'].includes(workspace.documentRole) || nodeMoves.has(key)) return;
+    if (!workspace.documentId || !workspace.selectedScreen || workspace.revision===null || !layerSelection || !['Owner', 'Editor'].includes(workspace.documentRole??'') || nodeMoves.has(key)) return;
     const body = { commandId: crypto.randomUUID(), nodeId: layerSelection.id, expectedParentId, targetParentId, position, expectedRevision: workspace.revision };
-    const op = { doc: workspace.documentId, screen: workspace.selectedScreen, name: layerSelection.name?.trim() || layerSelection.kind, reveal, body, state: 'ready' };
+    const op:MoveOperation = { doc: workspace.documentId, screen: workspace.selectedScreen, name: layerSelection.name?.trim() || layerSelection.kind, reveal, body, state: 'ready' };
     nodeMoveNotices.delete(key);
     nodeMoves.set(key, op);
     sendNodeMove(op);
@@ -294,13 +327,13 @@ export function createLayers({
     const op = nodeMoves.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     if (op?.state === 'uncertain') sendNodeMove(op);
   });
-  async function refreshNodeMoveTree(active, reveal = []) {
+  async function refreshNodeMoveTree(active:()=>boolean,reveal:string[]=[]) {
     let synced = false;
     await runPageRefresh(async (signal, current) => {
       try {
         synced = await readCurrentPages(signal, active, reveal) === true;
       } catch (error) {
-        if (active() && (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND')) closeInaccessibleDocument(error.status);
+        if (active() && error instanceof ApiError && (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND')) closeInaccessibleDocument(error.status);
         else throw error;
       } finally {
         if (current()) message();
@@ -309,9 +342,9 @@ export function createLayers({
     return synced;
   }
 
-  async function sendNodeMove(op) {
+  async function sendNodeMove(op:MoveOperation) {
     const key = `${op.doc}:${op.screen}`;
-    if (nodeMoves.get(key) !== op || op.state === 'pending' || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
+    if (nodeMoves.get(key) !== op || op.state === 'pending' || !['Owner', 'Editor'].includes(workspace.documentRole??'')) return;
     const epoch = workspace.navigationEpoch, screenEpoch = screenContextEpoch, selectionEpoch = layerSelectionEpoch, requestToken = workspace.token;
     const context = () => nodeMoves.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && screenContextEpoch === screenEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
     const active = () => context() && layerSelectionEpoch === selectionEpoch;
@@ -320,7 +353,7 @@ export function createLayers({
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/move-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
       if (!active()) { op.state = 'uncertain'; return; }
-      if (result.status !== 'ACCEPTED' || !Number.isSafeInteger(result.revision) || result.documentId?.toLowerCase() !== op.doc.toLowerCase() || result.commandId?.toLowerCase() !== op.body.commandId.toLowerCase()) throw new TypeError('Некорректное подтверждение');
+      accepted(result,op.doc,op.body.commandId);
       const reveal = layerSelection?.id === op.body.nodeId ? op.reveal : [];
       const synced = await refreshNodeMoveTree(active, reveal);
       if (context() && synced) {
@@ -333,9 +366,9 @@ export function createLayers({
         }
       } else op.state = 'uncertain';
     } catch (error) {
-      if (!active() || error.status === undefined || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
-      if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
-      const explanations = {
+      if (!active() || !(error instanceof ApiError) || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (error instanceof ApiError && error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
+      const explanations:Record<string,string> = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',
         PARENT_NOT_FOUND: 'Новый родитель уже удалён другим участником.',
         INVALID_LAYOUT_CONTEXT: 'Родитель слоя изменился.',
@@ -348,8 +381,8 @@ export function createLayers({
         SCENARIO_IN_USE: 'Перемещение нарушит ссылки сценария.',
         SCREEN_VARIANT_IN_USE: 'Перемещение нарушит ссылки варианта экрана.'
       };
-      const notice = explanations[error.code] ?? error.message;
-      const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED', 'REVISION_CONFLICT'].includes(error.code);
+      const notice = explanations[error.code??''] ?? error.message;
+      const refresh = ['NODE_NOT_FOUND', 'PARENT_NOT_FOUND', 'INVALID_LAYOUT_CONTEXT', 'INVALID_POSITION', 'CYCLE_NOT_ALLOWED', 'REVISION_CONFLICT'].includes(error.code??'');
       const synced = refresh && await refreshNodeMoveTree(context);
       if (context())
         nodeMoveNotices.set(key, notice + (synced ? ' Дерево обновлено.' : ''));
@@ -360,13 +393,13 @@ export function createLayers({
     }
   }
 
-  function renderLayers(focusId) {
+  function renderLayers(focusId?:string) {
     renderNodeDeletion();
     const tree = element('layers');
-    const old = new Map([...tree.querySelectorAll('[role=treeitem]')].map(row => [row.dataset.id, row]));
+    const old = new Map([...tree.querySelectorAll<HTMLElement>('[role=treeitem]')].map(row => [row.dataset.id, row]));
 
-    function reconcile(parent, items) {
-      const rows = [];
+    function reconcile(parent:HTMLElement,items:LayerItem[]) {
+      const rows:HTMLElement[]=[];
       for (const [index, item] of items.entries()) {
         let row = old.get(item.id);
         if (!row) {
@@ -380,7 +413,7 @@ export function createLayers({
           label.addEventListener('click', () => {
             const latest = findLayer(item.id);
             if (!latest) return;
-            const select = () => { selectLayer(latest); row.focus(); if (latest.childCount) toggleLayer(latest); };
+            const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) toggleLayer(latest); };
             if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
           });
         }
@@ -392,7 +425,7 @@ export function createLayers({
           const expanded = String(layerExpanded.has(item.id));
           if (row.getAttribute('aria-expanded') !== expanded) row.setAttribute('aria-expanded', expanded);
         } else row.removeAttribute('aria-expanded');
-        const label = row.querySelector(':scope > .layer-label');
+        const label=row.querySelector<HTMLElement>(':scope > .layer-label');if(!label)throw new Error('Missing layer label');
         const { text: name, source, origin } = layerDisplayName(item);
         const expansion = item.childCount ? (layerExpanded.has(item.id) ? '▾' : '▸') : '';
         const caption = `${expansion}:${name}:${item.kind}:${source}:${origin}`;
@@ -406,7 +439,7 @@ export function createLayers({
           icon.setAttribute('aria-hidden', 'true');
           icon.title = item.kind;
           icon.textContent = ({ Frame: '▣', Container: '▣', Text: 'T', Button: '▭',
-            TextInput: '▤', Image: '▧' })[item.kind] ?? '◇';
+            TextInput: '▤', Image: '▧' } as Record<string,string>)[item.kind] ?? '◇';
           const title = document.createElement('span');
           title.className = 'layer-name';
           title.dataset.labelSource = source;
@@ -416,7 +449,7 @@ export function createLayers({
           label.title = `${name} · ${item.kind} · ${origin}`;
           row.setAttribute('aria-label', `${name}, ${item.kind}`);
         }
-        let marker = label.querySelector('.layer-interaction');
+        let marker=label.querySelector<HTMLElement>('.layer-interaction');
         if (interactiveNodes.has(item.id) && !marker) {
           marker = document.createElement('span');
           marker.className = 'layer-interaction';
@@ -426,7 +459,7 @@ export function createLayers({
           label.append(marker);
         } else if (!interactiveNodes.has(item.id)) marker?.remove();
         row.setAttribute('aria-label', name + ', ' + item.kind + (interactiveNodes.has(item.id) ? ', есть взаимодействия' : ''));
-        let group = row.querySelector(':scope > [role=group]');
+        let group=row.querySelector<HTMLElement>(':scope > [role=group]');
         if (layerExpanded.has(item.id) && item.childCount) {
           if (!group) {
             group = document.createElement('div');
@@ -437,23 +470,23 @@ export function createLayers({
         } else group?.remove();
         rows.push(row);
       }
-      let following = null;
+      let following:HTMLElement|null=null;
       for (let index = rows.length - 1; index >= 0; index--) {
-        const row = rows[index];
+        const row=rows[index];if(!row)continue;
         if (row.parentNode !== parent || row.nextElementSibling !== following)
           parent.insertBefore(row, following);
         following = row;
       }
       const expected = new Set(items.map(item => item.id));
-      for (const child of [...parent.children]) {
-        if (child.getAttribute('role') === 'treeitem' && !expected.has(child.dataset.id))
+      for (const child of parent.querySelectorAll<HTMLElement>(':scope > *')) {
+        if (child.getAttribute('role') === 'treeitem' && !expected.has(child.dataset.id??''))
           child.remove();
       }
     }
 
     const focusedElement = document.activeElement?.closest('[role=treeitem]');
     reconcile(tree, layerRoots);
-    const rows = [...tree.querySelectorAll('[role=treeitem]')];
+    const rows = [...tree.querySelectorAll<HTMLElement>('[role=treeitem]')];
     const focused = rows.find(row => row.dataset.id === focusId) ||
       rows.find(row => row === focusedElement) ||
       rows.find(row => row.dataset.id === layerSelection?.id) || rows[0];
@@ -461,26 +494,27 @@ export function createLayers({
     if (focused && focusId) focused.focus({ preventScroll: true });
   }
 
-  async function readLayerChildren(base, parentId, signal, revision, isCurrent) {
-    const items = []; let total;
+  async function readLayerChildren(base:string,parentId:string,signal:AbortSignal,revision:number|null,isCurrent?:()=>boolean):Promise<LayerItem[]> {
+    const items:LayerItem[]=[];let total:number;
     do {
       const query = new URLSearchParams({ offset: String(items.length), limit: '100', fields: 'name,kind,childCount,properties,canContainChildren', revision: String(revision) });
-      const result = await request(`${base}/children/${encodeURIComponent(parentId)}?${query}`, {}, signal, isCurrent);
-      total = result.total;
-      if (!result.items.length && items.length < total) throw new Error('Не удалось загрузить все слои. Обновите страницы.');
-      items.push(...result.items);
+      const result=requiredRecord(await request(`${base}/children/${encodeURIComponent(parentId)}?${query}`,{},signal,isCurrent));
+      if(typeof result.total!=='number'||!Number.isSafeInteger(result.total)||result.total<0||result.revision!==revision||result.offset!==items.length)throw new TypeError('Некорректный список слоёв');
+      total=result.total;const batch=array(result.items,v=>layer(v,parentId));
+      if ((!batch.length && items.length<total)||items.length+batch.length>total)throw new Error('Не удалось загрузить все слои. Обновите страницы.');
+      items.push(...batch);
     } while (items.length < total);
     return items;
   }
 
-  function layerFailure(error, current) {
-    if (error.name === 'AbortError' || current !== layerGeneration) return;
-    if (error.status === 403) { closeInaccessibleDocument(403); return; }
+  function layerFailure(error:unknown,current:number) {
+    if (aborted(error) || current !== layerGeneration) return;
+    if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
     reset();
-    element('layers-status').textContent = error instanceof TypeError ? 'Не удалось загрузить слои. Проверьте соединение и обновите страницы.' : `${error.message} Обновите страницы.`;
+    element('layers-status').textContent = error instanceof TypeError ? 'Не удалось загрузить слои. Проверьте соединение и обновите страницы.' : `${errorMessage(error)} Обновите страницы.`;
   }
 
-  function findLayer(id, items = layerRoots) {
+  function findLayer(id:string|undefined,items:LayerItem[]=layerRoots):LayerItem|undefined {
     for (const item of items) {
       if (item.id === id) return item;
       const found = findLayer(id, layerChildren.get(item.id) || []);
@@ -488,7 +522,8 @@ export function createLayers({
     }
   }
 
-  async function toggleLayer(item) {
+  async function toggleLayer(item:LayerItem|undefined) {
+    if(!item)return;
     if (layerExpanded.has(item.id)) {
       layerExpanded.delete(item.id); renderLayers(item.id); return;
     }
@@ -497,11 +532,12 @@ export function createLayers({
     try {
       if (!layerChildren.has(item.id)) {
         element('layers-status').textContent = 'Загрузка слоёв…';
-        const base = `/api/v1/documents/${encodeURIComponent(workspace.documentId)}`;
-        const latest = await request(`${base}/pages?limit=1&fields=name`, {}, layerController.signal);
+        if(!workspace.documentId||!layerController)return;
+        const base=`/api/v1/documents/${encodeURIComponent(workspace.documentId)}`,signal=layerController.signal;
+        const latest=requiredRecord(await request(`${base}/pages?limit=1&fields=name`,{},signal));
         if (current !== layerGeneration) return;
         if (latest.revision !== workspace.revision) { await refreshPages(); return; }
-        const items = await readLayerChildren(base, item.id, layerController.signal, workspace.revision);
+        const items = await readLayerChildren(base,item.id,signal,workspace.revision);
         if (current !== layerGeneration) return;
         layerChildren.set(item.id, items);
       }
@@ -511,10 +547,10 @@ export function createLayers({
   }
 
   element('layers').addEventListener('keydown', event => {
-    const row = event.target.closest('[role=treeitem]');
+    const row=event.target instanceof Element?event.target.closest<HTMLElement>('[role=treeitem]'):null;
     if (!row) return;
-    const rows = [...element('layers').querySelectorAll('[role=treeitem]')], index = rows.indexOf(row);
-    let target;
+    const rows = [...element('layers').querySelectorAll<HTMLElement>('[role=treeitem]')], index = rows.indexOf(row);
+    let target:HTMLElement|null|undefined;
     if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
       event.preventDefault(); event.stopPropagation();
       if (canMove() && layerSelection) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1);
@@ -525,11 +561,11 @@ export function createLayers({
     else if (event.key === 'Home') target = rows[0];
     else if (event.key === 'End') target = rows.at(-1);
     else if (event.key === 'ArrowLeft') {
-      if (row.getAttribute('aria-expanded') === 'true') { layerExpanded.delete(row.dataset.id); renderLayers(row.dataset.id); }
-      else target = row.parentElement.closest('[role=treeitem]');
+      if (row.getAttribute('aria-expanded') === 'true') { layerExpanded.delete(row.dataset.id??''); renderLayers(row.dataset.id); }
+      else target = row.parentElement?.closest<HTMLElement>('[role=treeitem]');
     } else if (event.key === 'ArrowRight') {
       if (row.getAttribute('aria-expanded') === 'false') toggleLayer(findLayer(row.dataset.id));
-      else if (row.getAttribute('aria-expanded') === 'true') target = row.querySelector('[role=treeitem]');
+      else if (row.getAttribute('aria-expanded') === 'true') target = row.querySelector<HTMLElement>('[role=treeitem]');
     } else if (event.key === 'Enter' || event.key === ' ') {
       const item = findLayer(row.dataset.id);
       if (item && (layerSelection?.id === item.id || beforeSelectionChange(() => selectLayer(item)))) selectLayer(item);
@@ -538,10 +574,10 @@ export function createLayers({
     if (target) { row.tabIndex = -1; target.tabIndex = 0; target.focus(); }
   });
 
-  async function readSnapshot({ base, screen, revision, signal, isCurrent, reveal, shouldReportFailure }) {
-    const children = new Map(), initialExpansion = new Set(layerExpanded);
+  async function readSnapshot({base,screen,revision,signal,isCurrent,reveal,shouldReportFailure}:SnapshotOptions):Promise<Snapshot> {
+    const children=new Map<string,LayerItem[]>(), initialExpansion = new Set(layerExpanded);
     const expanded = new Set(screen === workspace.selectedScreen ? [...initialExpansion, ...reveal] : []);
-    async function readBranch(parent) {
+    async function readBranch(parent:string):Promise<LayerItem[]> {
       const items = await readLayerChildren(base, parent, signal, revision, isCurrent);
       if (!isCurrent()) return [];
       for (const item of items) if (item.childCount > 0 || expanded.has(item.id)) children.set(item.id, await readBranch(item.id));
@@ -556,11 +592,11 @@ export function createLayers({
     }
   }
 
-  function isExpansionCurrent({ initialExpansion }) {
+  function isExpansionCurrent({initialExpansion}:Snapshot) {
     return initialExpansion.size === layerExpanded.size && [...initialExpansion].every(id => layerExpanded.has(id));
   }
 
-  function applySnapshot({ screen, roots, children, expanded }, selection) {
+  function applySnapshot({screen,roots,children,expanded}:Snapshot,selection:{id:string}|null|undefined) {
     drag.cancel();
     layerController?.abort();
     layerGeneration++;
@@ -581,20 +617,21 @@ export function createLayers({
     element('layers-status').textContent = screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.';
   }
 
-  function selectFromCanvas(item, nodes, confirmed = false) {
+  function selectFromCanvas(rawItem:unknown,rawNodes:unknown[],confirmed=false) {
+    const item=layer(rawItem),nodes=rawNodes.map(n=>layer(n));
     if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true))) return false;
     drag.cancel();
     const byId = new Map(nodes.map(node => [node.id, node]));
-    const branches = new Map();
+    const branches=new Map<string,LayerItem[]>();
     for (const node of nodes) {
       if (!branches.has(node.parentId)) branches.set(node.parentId, []);
-      branches.get(node.parentId).push(node);
+      branches.get(node.parentId)?.push(node);
     }
     for (let parent = byId.get(item.parentId); parent; parent = byId.get(parent.parentId)) {
       layerExpanded.add(parent.id);
-      layerChildren.set(parent.id, branches.get(parent.id));
+      layerChildren.set(parent.id,branches.get(parent.id)??[]);
     }
-    layerRoots = branches.get(workspace.selectedScreen) ?? [];
+    layerRoots = branches.get(workspace.selectedScreen??'') ?? [];
     selectLayer(item);
     renderLayers();
     return true;
@@ -607,7 +644,7 @@ export function createLayers({
   return {
     reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
-    setInteractiveNodes(ids) { interactiveNodes = new Set(ids); renderLayers(); },
+    setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },
     clearSelection() {
       if (!layerSelection) return;
       layerSelection = null; layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
