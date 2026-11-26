@@ -25,6 +25,7 @@ public static class EditorEndpoints
         MapFile("/editor-shell.js", "editor-shell.js", "text/javascript; charset=utf-8");
         MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
 
+        MapFile("/decode.js", "decode.js", "text/javascript; charset=utf-8");
         MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
         MapFile("/canvas-viewport.js", "canvas-viewport.js", "text/javascript; charset=utf-8");
         MapFile("/canvas-node-editor.js", "canvas-node-editor.js", "text/javascript; charset=utf-8");
@@ -38,7 +39,7 @@ public static class EditorEndpoints
 
         MapFile("/datasets.js", "datasets.js", "text/javascript; charset=utf-8");
         MapFile("/members.js", "members.js", "text/javascript; charset=utf-8");
-        MapFile("/presence.js", "presence.js", "text/javascript; charset=utf-8");
+
         MapFile("/document-collaboration.js", "document-collaboration.js", "text/javascript; charset=utf-8");
         MapFile("/document-export.js", "document-export.js", "text/javascript; charset=utf-8");
         MapFile("/document-history.js", "document-history.js", "text/javascript; charset=utf-8");

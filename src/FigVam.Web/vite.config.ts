@@ -8,6 +8,7 @@ export default defineConfig({
     lib: {
       entry: {
         'auth-client': 'src/api/auth-client.ts',
+        'decode': 'src/api/decode.ts',
         'api-client': 'src/api/api-client.ts',
         session: 'src/core/session.ts',
         'home-ui': 'src/features/home/index.ts',
