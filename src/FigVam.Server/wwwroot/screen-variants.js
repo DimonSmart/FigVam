@@ -1,6 +1,8 @@
 export function createScreenVariants({ element, request, refreshPages, onSelectionChanged, pageSize, workspace }) {
   let variantGeneration = 0, variantOffset = 0, variantTotal = 0, variantScreen = null;
   const variantOperations = new Map();
+  // A background read must not erase the result of a rejected write.
+  let commandError = null;
   let selectedVariantId = null, selectedScreenId = null;
   function selectVariant(id) {
     if (id === selectedVariantId) return;
@@ -11,6 +13,7 @@ export function createScreenVariants({ element, request, refreshPages, onSelecti
   function variantKey(doc, screen) { return `${doc}/${screen}`; }
   function resetScreenVariants() {
     variantGeneration++; variantOffset = variantTotal = 0; variantScreen = null;
+    commandError = null;
     selectedScreenId = null;
     if (selectedVariantId !== null) selectVariant(null);
     element('screen-variants-list').replaceChildren(); element('screen-variants-status').textContent = 'Выберите экран.';
@@ -30,12 +33,15 @@ export function createScreenVariants({ element, request, refreshPages, onSelecti
     element('screen-variants-next').disabled = !workspace.selectedScreen || variantOffset + pageSize >= variantTotal;
     element('screen-variants-number').textContent = variantTotal ? `${variantOffset + 1}–${Math.min(variantOffset + pageSize, variantTotal)} из ${variantTotal}` : '';
     if (op?.state === 'uncertain') element('screen-variants-error').textContent = 'Результат создания неизвестен. Повторите ту же команду.';
+    else if (commandError?.key === variantKey(workspace.documentId, workspace.selectedScreen))
+      element('screen-variants-error').textContent = commandError.message;
   }
   async function loadScreenVariants() {
     const screen = workspace.selectedScreen, doc = workspace.documentId, atRevision = workspace.revision,
       catalogRevision = workspace.catalogRevision, current = ++variantGeneration;
     if (variantScreen !== screen) {
       variantOffset = variantTotal = 0; variantScreen = screen;
+      commandError = null;
       if (selectedScreenId !== screen) { selectedScreenId = screen; selectVariant(null); }
     }
     element('screen-variants-list').replaceChildren(); element('screen-variants-error').textContent = '';
@@ -70,7 +76,7 @@ export function createScreenVariants({ element, request, refreshPages, onSelecti
     const key = variantKey(doc, screen), requestToken = workspace.token, epoch = workspace.navigationEpoch;
     if (op.state === 'pending' || !['Owner', 'Editor'].includes(workspace.documentRole)) return;
     const active = () => doc === workspace.documentId && screen === workspace.selectedScreen && workspace.token === requestToken && epoch === workspace.navigationEpoch && !element('editor-view').hidden;
-    op.state = 'pending'; if (active()) { element('screen-variants-error').textContent = ''; renderScreenVariants(); }
+    op.state = 'pending'; if (active()) { commandError = null; element('screen-variants-error').textContent = ''; renderScreenVariants(); }
     try {
       await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/add-screen-variant`, { method: 'POST', body: JSON.stringify(op.body) });
       if (variantOperations.get(key) !== op) return;
@@ -83,7 +89,10 @@ export function createScreenVariants({ element, request, refreshPages, onSelecti
     } catch (error) {
       if (variantOperations.get(key) !== op) return;
       if (error instanceof TypeError || error.name === 'AbortError' || !error.status || error.status >= 500) op.state = 'uncertain';
-      else { variantOperations.delete(key); if (active()) element('screen-variants-error').textContent = error.message; }
+      else {
+        variantOperations.delete(key);
+        if (active()) { commandError = { key, message: error.message }; element('screen-variants-error').textContent = error.message; }
+      }
     } finally { if (active()) renderScreenVariants(); }
   }
   element('screen-variant-create').addEventListener('submit', event => {

@@ -1,6 +1,6 @@
 import { authHeaders, credentialsMode } from './auth-client.js';
 export function createDocumentCollaboration({
-  request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, onUnauthorized
+  request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, onUnauthorized, onCaptureEvent, onCaptureDisconnect
 }) {
   let liveController = null;
   function stop() {
@@ -25,6 +25,7 @@ export function createDocumentCollaboration({
       const data = raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
       if (!data || !active()) return;
       const event = JSON.parse(data);
+      if (event.code.startsWith('SCREEN_CAPTURE_')) { onCaptureEvent?.(event, signal); return; }
       if (event.code === 'FORBIDDEN') { const error = new Error('Доступ потерян'); error.status = 403; throw error; }
       if (event.code === 'RECONNECT_REQUIRED') throw new Error('Требуется восстановление');
       if (event.code !== 'CHANGE') return;
@@ -46,7 +47,7 @@ export function createDocumentCollaboration({
         if (recovery.revision > workspace.revision) await readRevision(signal, recovery.revision);
         if (!active()) return;
         const response = await fetch(`${base}/events?lastSeenRevision=${workspace.revision}`, {
-          signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: authHeaders(workspace.token)
+          signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: { ...authHeaders(workspace.token), ...(onCaptureEvent ? { 'X-FigVam-Screen-Capture': '1' } : {}) }
         });
         if (!active()) return;
         if (response.status === 401) { onUnauthorized(); return; }
@@ -72,6 +73,7 @@ export function createDocumentCollaboration({
         if ([403, 404].includes(error.status)) { onAccessLost(error.status); return; }
         if (error.status === 429) delay = 30000;
       } finally {
+        onCaptureDisconnect?.(signal);
         if (reader) await reader.cancel().catch(() => {});
       }
       if (!active()) return;

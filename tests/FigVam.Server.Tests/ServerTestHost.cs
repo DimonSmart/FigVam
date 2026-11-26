@@ -80,10 +80,10 @@ internal sealed class ServerProcess : IAsyncDisposable
         error = CaptureAsync(process.StandardError, "stderr");
     }
 
-    public HttpClient CreateClient() => new(new DiagnosticHandler(this))
+    public HttpClient CreateClient(TimeSpan? timeout = null) => new(new DiagnosticHandler(this))
     {
         // Bound the complete request, including cold endpoint activation and response buffering.
-        BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = TimeSpan.FromSeconds(15)
+        BaseAddress = new Uri($"http://127.0.0.1:{port}"), Timeout = timeout ?? TimeSpan.FromSeconds(15)
     };
 
     public async Task WaitUntilReadyAsync(TimeSpan? timeout = null)

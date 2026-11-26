@@ -1,4 +1,3 @@
-import { authHeaders, credentialsMode } from './auth-client.js';
 import { renderScreen } from './screen-renderer.js';
 
 const fail = code => Object.assign(new Error(code), { code });
@@ -135,7 +134,7 @@ async function renderPng(request, base, task, theme, signal) {
 }
 
 export function createScreenCapture({ request, getContext }) {
-  let current = null, retry = null;
+  let current = null;
   const same = operation => {
     const context = getContext();
     return context.documentId === operation.documentId && context.token === operation.token &&
@@ -143,10 +142,11 @@ export function createScreenCapture({ request, getContext }) {
   };
   const active = operation => current === operation && !operation.controller.signal.aborted && same(operation);
   function stop() {
-    clearTimeout(retry); retry = null;
     const operation = current; current = null;
-    operation?.controller.abort();
-    operation?.pending?.controller.abort();
+    if (!operation) return;
+    operation.signal.removeEventListener('abort', operation.abort);
+    operation.controller.abort();
+    operation.pending?.controller.abort();
   }
   async function handle(operation, task) {
     if (!active(operation) || operation.pending || task.documentId !== operation.documentId) return;
@@ -173,52 +173,32 @@ export function createScreenCapture({ request, getContext }) {
       if (operation.pending === pending) operation.pending = null;
     }
   }
-  async function connect(operation) {
-    let reader;
-    try {
-      const response = await fetch(operation.base + '/screen-capture/providers', {
-        method: 'POST', signal: operation.controller.signal, cache: 'no-store', credentials: credentialsMode(),
-        redirect: 'error', headers: authHeaders(operation.token, 'POST')
-      });
-      if (!response.ok || !response.headers.get('content-type')?.startsWith('text/event-stream')) return;
-      reader = response.body.getReader();
-      const decoder = new TextDecoder(); let buffer = '';
-      while (active(operation)) {
-        const chunk = await reader.read(); if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true }); buffer = buffer.replace(/\r\n/g, '\n');
-        let boundary;
-        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-          const raw = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-          const data = raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
-          if (!data || !active(operation)) continue;
-          const event = JSON.parse(data);
-          if (event.code === 'READY') operation.providerId = event.providerId;
-          else if (event.code === 'CAPTURE') void handle(operation, event.request);
-          else if (event.code === 'CANCEL' && operation.pending?.id === event.request.requestId) {
-            operation.pending.controller.abort(); operation.pending = null;
-          }
-        }
-        if (buffer.length > 65536) break;
-      }
-    } catch { /* The editor may reconnect without any user action. */ }
-    finally {
-      if (reader) await reader.cancel().catch(() => {});
-      if (current === operation) {
-        stop();
-        if (same(operation)) retry = setTimeout(sync, 1000);
-      }
+  // Capture control frames share the authenticated document event stream.
+  // A separate persistent HTTP/1.1 connection per tab would exhaust Chromium's
+  // per-origin connection pool before five editors could open.
+  function onEvent(event, signal) {
+    if (signal.aborted) return;
+    if (event.code === 'SCREEN_CAPTURE_READY') {
+      stop();
+      const context = getContext();
+      if (!context.documentId || !['Owner', 'Editor'].includes(context.role)) return;
+      const operation = { ...context, base: '/api/v1/documents/' + encodeURIComponent(context.documentId),
+        providerId: event.providerId, signal, controller: new AbortController() };
+      operation.abort = () => { if (current === operation) stop(); };
+      current = operation;
+      signal.addEventListener('abort', operation.abort, { once: true });
+      return;
+    }
+    const operation = current;
+    if (!operation || operation.signal !== signal || !active(operation)) return;
+    if (event.code === 'SCREEN_CAPTURE_CAPTURE') void handle(operation, event.request);
+    else if (event.code === 'SCREEN_CAPTURE_CANCEL' && operation.pending?.id === event.request.requestId) {
+      operation.pending.controller.abort(); operation.pending = null;
     }
   }
-  function sync() {
-    if (current && active(current)) return;
-    stop();
-    const context = getContext();
-    if (!context.documentId || !['Owner', 'Editor'].includes(context.role)) return;
-    const operation = { ...context, base: '/api/v1/documents/' + encodeURIComponent(context.documentId),
-      controller: new AbortController() };
-    current = operation;
-    void connect(operation);
+  function onDisconnect(signal) {
+    if (current?.signal === signal) stop();
   }
   window.addEventListener('pagehide', stop);
-  return { stop, sync };
+  return { stop, onEvent, onDisconnect };
 }

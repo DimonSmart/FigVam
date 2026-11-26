@@ -1,5 +1,6 @@
+import { createTokenValueControl } from './token-value-control.js';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, visibleTokens, qualifyTokenName } from './token-groups.js';
-import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText, tokenColorHex } from './token-resolution.js';
+import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from './token-resolution.js';
 
 const types = ['Color', 'Spacing', 'Typography', 'Geometry', 'Dimension', 'Number', 'FontFamily', 'FontWeight'];
 const categories = ['Spacing', 'FontSize', 'Radius', 'BorderWidth', 'Size', 'LineHeight', 'Opacity', 'LetterSpacing'];
@@ -53,12 +54,18 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   const el = element, editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   let group = [], collapsed = new Set(), creating = false, usagesReady = false;
   let importEpoch = 0;
+  let createControls = [], detailControls = [], renaming = false;
+  const pendingThemeValues = new Map();
+  let activeThemeSave = null;
   const busy = () => el('token-create').inert;
   function refreshAccess() {
     el('new-token-open').hidden = el('token-import-open').hidden = !editable();
     el('token-export').disabled = !editable();
-    if (!editable()) { creating = false; el('token-import-form').hidden = true; }
+    if (!editable()) { creating = false; pendingThemeValues.clear(); el('token-import-form').hidden = true; }
     el('token-edit').hidden = !editable();
+    if (!editable()) endRename();
+    el('token-rename-open').hidden = !editable() || renaming;
+    detailControls.forEach(control => control.setDisabled(!editable()));
     updateDetailVisibility();
   }
   const selected = () => tokenItems.find(t => t.id === selectedToken);
@@ -71,7 +78,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   function beginCreate() {
     if (!editable() || busy()) return;
     creating = true; el('token-create').reset();
-    for (const prefix of ['new-token-light','new-token-dark']) loadTypographyFields(prefix, null);
+    endRename();
     updateCategoryOptions();
     el('new-token-name').placeholder = group.length ? group.join('.') + '.…' : 'Имя токена';
     el('new-token-name').value = group.length ? group.join('.') + '.' : '';
@@ -141,96 +148,200 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
     { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
   ];
-  const typographyPrefixes = ['new-token-light', 'new-token-dark', 'token'];
-  function makeTypographyFields(prefix) {
-    const root = el(prefix + '-typography');
-    for (const field of typographyFields) {
-      const row = document.createElement('div');
-      row.className = 'token-typography-row';
-      const label = document.createElement('label');
-      label.htmlFor = prefix + '-' + field.name + '-source';
-      label.textContent = field.label;
-      const source = document.createElement('select');
-      source.id = label.htmlFor;
-      source.add(new Option('Прямое', 'literal'));
-      source.add(new Option('Токен', 'alias'));
-      const direct = document.createElement('input');
-      direct.id = prefix + '-' + field.name + '-value';
-      direct.placeholder = field.initial;
-      direct.value = field.initial;
-      const alias = document.createElement('select');
-      alias.id = prefix + '-' + field.name + '-alias';
-      alias.setAttribute('aria-label', field.label + ': ссылка на токен');
-      source.addEventListener('change', () => updateTypographyField(prefix, field));
-      row.append(label, source, direct, alias);
-      root.append(row);
+  // The shared control owns the literal/reference interaction; this adapter only
+  // translates its values to the token command's literal/alias expression.
+  const tokenIndex = () => new Map(tokenItems.map(token => [token.id, token]));
+  function dependsOn(id, ownerId, theme, visited = new Set()) {
+    if (!ownerId || !id || visited.has(id)) return false;
+    if (id === ownerId) return true;
+    visited.add(id);
+    const expression = tokenItems.find(item => item.id === id)?.values?.[theme];
+    if (expression?.expression === 'alias') return dependsOn(expression.tokenId, ownerId, theme, visited);
+    if (expression?.value?.type === 'typographyFields')
+      return typographyFields.some(field => dependsOn(expression.value[field.name]?.tokenId, ownerId, theme, visited));
+    return false;
+  }
+  function makeTokenControl(prefix, label, type, category, theme, expression, ownerId, initialText = '') {
+    const literal = expression?.expression === 'literal' ? expression.value : null;
+    let direct;
+    if (type === 'Typography') {
+      const holder = document.createElement('div'); holder.className = 'token-composite-direct';
+      holder.id = prefix + '-typography';
+      const children = typographyFields.map(field => {
+        const child = makeTokenControl(prefix + '-' + field.name + '-value', field.label, field.type,
+          field.category, theme, typographyPart(literal, field), ownerId, field.initial);
+        holder.append(...child.content);
+        return child;
+      });
+      direct = {
+        content: [holder], inputs: children.flatMap(child => child.inputs),
+        initial: children.map(child => child.initial),
+        read: () => children.map(child => child.read()),
+        write: raw => children.forEach((child, i) => child.write(raw[i])),
+        validate() {
+          const value = { type: 'typographyFields' };
+          for (const [i, child] of children.entries()) {
+            const result = child.validate();
+            if (result.error) return result;
+            value[typographyFields[i].name] = asExpression(result.value);
+          }
+          return { value };
+        },
+        setDisabled: disabled => children.forEach(child => child.setDisabled(disabled)),
+        refresh: () => children.forEach(child => child.refresh()),
+        dispose: () => children.forEach(child => child.dispose())
+      };
+      direct.writeResolved = result => children.forEach((child, i) => {
+        const field = typographyFields[i];
+        child.write([field.type.toLowerCase(), result.error ? '' : String(result.value[field.name] ?? 0), '']);
+      });
+    } else {
+      const holder = document.createElement('div'); holder.className = 'token-scalar-direct';
+      const input = document.createElement('input'); input.id = prefix;
+      input.setAttribute('aria-label', prefix.startsWith('token-') ? label + ' — значение токена' : label); input.autocomplete = 'off';
+      const inputs = [input]; let picker, preset;
+      if (type === 'Color') {
+        picker = document.createElement('input'); picker.type = 'color';
+        picker.setAttribute('aria-label', 'Выбрать цвет ' + label);
+        picker.addEventListener('input', () => {
+          input.value = picker.value + (/^#[0-9a-f]{8}$/i.test(input.value) ? input.value.slice(7) : 'FF');
+        });
+        input.placeholder = '#RRGGBBAA'; inputs.push(picker); holder.append(picker);
+      }
+      if (type === 'FontWeight') {
+        preset = document.createElement('select'); preset.setAttribute('aria-label', 'Пресет толщины ' + label);
+        for (const [v, text] of [['','Custom'],['400','Normal'],['500','Medium'],['600','Semibold'],['700','Bold']])
+          preset.add(new Option(text, v));
+        preset.addEventListener('change', () => { if (preset.value) input.value = preset.value; });
+        inputs.push(preset); holder.append(preset);
+      }
+      function sync() {
+        if (picker && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(input.value)) picker.value = input.value.slice(0,7);
+        if (preset) preset.value = ['400','500','600','700'].includes(input.value) ? input.value : '';
+      }
+      input.addEventListener('input', sync);
+      holder.append(input);
+      direct = {
+        content: [holder], inputs, initial: literal ? directText(expression) : initialText,
+        read: () => input.value,
+        write: value => { input.value = value ?? ''; sync(); },
+        validate() {
+          try { return { value: literalExpression(type, category, input.value.trim()).value }; }
+          catch (error) { return { input, error: error.message }; }
+        },
+        writeResolved: result => { direct.write(result.error ? '' : tokenValueText(result.value).replace(/ px$/, '')); }
+      };
     }
+    const control = createTokenValueControl(prefix, { type, tokenType: type, tokenCategory: category },
+      { tokens: tokenIndex() }, expression?.expression === 'alias' ? { type: 'token', tokenId: expression.tokenId } : null,
+      direct, label, label, {
+        theme, customDirect: true, validateChoices: true,
+        getToken: id => tokenItems.find(item => item.id === id),
+        getCompatible: () => allowedAliases(type, category, ownerId).filter(item => !dependsOn(item.id, ownerId, theme)),
+        resolve: id => dependsOn(id, ownerId, theme)
+          ? { error: 'Цикл ссылок дизайн-токенов.' }
+          : resolveTokenValue({ type: 'token', tokenId: id }, tokenIndex(), theme, type, category),
+        writeResolved: direct.writeResolved
+      });
+    control.write(control.initial);
+    return control;
   }
-  typographyPrefixes.forEach(makeTypographyFields);
-
-  function updateTypographyField(prefix, field) {
-    const source = el(prefix + '-' + field.name + '-source');
-    const input = el(prefix + '-' + field.name + '-value');
-    const select = el(prefix + '-' + field.name + '-alias');
-    const candidates = allowedAliases(field.type, field.category);
-    const previous = select.value;
-    select.replaceChildren(new Option(candidates.length ? 'Выберите токен' : 'Нет подходящих токенов', ''));
-    for (const token of candidates) select.add(new Option(token.name, token.id));
-    select.value = candidates.some(item => item.id === previous) ? previous : '';
-    const enabled = !el(prefix + '-typography').hidden;
-    input.hidden = source.value === 'alias';
-    select.hidden = source.value !== 'alias';
-    input.required = enabled && source.value !== 'alias';
-    select.required = enabled && source.value === 'alias';
+  function typographyPart(value, field) {
+    if (value?.type === 'typographyFields') return value[field.name];
+    if (value?.type === 'typography') return { expression: 'literal', value: {
+      type: { FontFamily: 'fontFamily', Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[field.type],
+      value: value[field.name] ?? (field.name === 'letterSpacing' ? 0 : field.initial)
+    } };
+    return null;
   }
-  function refreshTypographyFields(prefix, visible) {
-    el(prefix + '-typography').hidden = !visible;
-    for (const field of typographyFields) updateTypographyField(prefix, field);
+  const asExpression = value => value.type === 'token' ? { expression: 'alias', tokenId: value.tokenId } : { expression: 'literal', value };
+  function readExpression(control) {
+    const result = control.validate();
+    if (result.error) { result.input?.setAttribute('aria-invalid', 'true'); throw new Error(result.error); }
+    return asExpression(result.value);
   }
-  function loadTypographyFields(prefix, expression) {
-    const value = expression?.value;
-    for (const field of typographyFields) {
-      const part = value?.type === 'typographyFields' ? value[field.name] :
-        value?.type === 'typography' ? { expression: 'literal', value:
-          field.type === 'FontFamily' ? { type: 'fontFamily', value: value.fontFamily } :
-          { type: { Dimension: 'dimension', FontWeight: 'fontWeight', Number: 'number' }[field.type],
-            value: value[field.name] ?? (field.name === 'letterSpacing' ? 0 : undefined) } } : null;
-      el(prefix + '-' + field.name + '-source').value = part?.expression === 'alias' ? 'alias' : 'literal';
-      el(prefix + '-' + field.name + '-value').value = part?.expression === 'literal'
-        ? String(part.value.value) : field.initial;
-      updateTypographyField(prefix, field);
-      if (part?.expression === 'alias') el(prefix + '-' + field.name + '-alias').value = part.tokenId;
+  function replaceThemeControls(hostId, previous, type, category, item) {
+    previous.forEach(control => control.dispose());
+    const host = el(hostId); host.replaceChildren();
+    return ['Light','Dark'].map((theme, index) => {
+      const prefix = (item ? 'token-' : 'new-token-') + theme.toLowerCase();
+      const control = makeTokenControl(prefix, theme, type, category, theme, item?.values?.[theme], item?.id);
+      const row = document.createElement('div'); row.className = 'token-theme-row'; row.dataset.theme = theme;
+      row.append(...control.content); host.append(row);
+      if (item) {
+        control.setDisabled(!editable());
+        row.addEventListener('change', () => {
+          if ((busy() && !activeThemeSave) || !editable() || selectedToken !== item.id) return;
+          try {
+            control.inputs.forEach(input => input.removeAttribute('aria-invalid'));
+            const value = readExpression(control);
+            el('tokens-error').textContent = '';
+            queueThemeSave(item.id, theme, index, value);
+          } catch (error) {
+            pendingThemeValues.delete(theme);
+            el('tokens-error').textContent = error.message;
+          }
+        });
+        row.addEventListener('keydown', event => {
+          if (!event.isComposing && event.key === 'Enter' && event.target.matches('input:not([type=search]):not([type=color])')) {
+            event.preventDefault(); event.target.blur();
+          }
+        });
+      }
+      return control;
+    });
+  }
+  // Keep the two theme drafts independent. The existing document command pipeline
+  // remains serialized, but saving Light must not discard an edit made in Dark.
+  function queueThemeSave(tokenId, theme, index, value) {
+    const baseline = activeThemeSave?.tokenId === tokenId && activeThemeSave.theme === theme
+      ? activeThemeSave.value : selected()?.values?.[theme];
+    if (JSON.stringify(value) === JSON.stringify(baseline)) pendingThemeValues.delete(theme);
+    else pendingThemeValues.set(theme, { tokenId, theme, index, value, documentId: getContext().documentId });
+    void flushThemeSaves();
+  }
+  async function flushThemeSaves() {
+    if (activeThemeSave || busy() || !editable() || !pendingThemeValues.size) return;
+    const operation = pendingThemeValues.values().next().value;
+    pendingThemeValues.delete(operation.theme);
+    if (operation.documentId !== getContext().documentId || operation.tokenId !== selectedToken) {
+      pendingThemeValues.clear(); return;
     }
+    activeThemeSave = operation;
+    const saved = await tokenCommand('set-token-value', {
+      tokenId: operation.tokenId, theme: operation.index, value: operation.value
+    });
+    if (activeThemeSave !== operation) return;
+    activeThemeSave = null;
+    if (!saved) { pendingThemeValues.clear(); return; }
+    void flushThemeSaves();
   }
-  function saveTypographyFields(prefix) {
-    const value = { type: 'typographyFields' };
-    for (const field of typographyFields) {
-      const mode = el(prefix + '-' + field.name + '-source').value;
-      if (mode === 'alias') {
-        const id = el(prefix + '-' + field.name + '-alias').value;
-        if (!allowedAliases(field.type, field.category).some(token => token.id === id))
-          throw new Error('Выберите токен для поля ' + field.label + '.');
-        value[field.name] = { expression: 'alias', tokenId: id };
-      } else value[field.name] = literalExpression(field.type, field.category,
-        el(prefix + '-' + field.name + '-value').value.trim());
-    }
-    return { expression: 'literal', value };
+  function endRename() {
+    renaming = false; el('token-rename').hidden = true; el('token-detail-title').hidden = false;
+    el('token-rename-open').hidden = !editable();
+  }
+  function beginRename() {
+    if (!selected() || !editable() || busy()) return;
+    renaming = true; el('token-rename').hidden = false; el('token-detail-title').hidden = true;
+    el('token-rename-open').hidden = true;
+    const input = el('token-name'); input.value = selected().name; input.focus(); input.select();
   }
 
   function resetTokens() {
     tokenLoad++; importEpoch++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
+    pendingThemeValues.clear(); activeThemeSave = null;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     el('token-search').value = el('token-type-filter').value = '';
     el('token-groups').replaceChildren(); el('token-import-form').reset(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
     el('new-token-open').hidden = el('token-import-open').hidden = true; el('token-export').disabled = true;
     el('document-mode-editor').click(); updateDetailVisibility();
-    el('token-create').inert = el('token-edit').inert = false;
+    el('token-create').inert = el('token-detail').inert = false;
     el('tokens-list').replaceChildren(); el('token-usages').replaceChildren();
     el('token-detail').hidden = true; el('token-create').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
-    el('token-create').reset(); el('token-rename').reset(); el('token-set').reset();
-    for (const prefix of typographyPrefixes) loadTypographyFields(prefix, null);
-    updateCategoryOptions(); updateCreateMode();
+    el('token-create').reset(); endRename();
+    detailControls.forEach(control => control.dispose()); detailControls = []; el('token-values').replaceChildren();
+    updateCategoryOptions();
   }
   async function readAllTokenPages(path, revision, signal, isCurrent) {
     const items = []; let total;
@@ -263,27 +374,20 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   function applyTokens(snapshot) {
     const before = JSON.stringify([tokenItems, tokenUsages, selectedToken]), previousItem = JSON.stringify(selected());
     tokenItems = snapshot.items;
-    for (const prefix of typographyPrefixes)
-      for (const field of typographyFields) updateTypographyField(prefix, field);
+    createControls.forEach(control => control.refresh());
+    detailControls.forEach(control => control.refresh());
     if (selectedToken !== snapshot.selection) { selectToken(selectedToken); return; }
     if (!tokenItems.some(item => item.id === selectedToken)) selectedToken = null;
     tokenUsages = snapshot.usages; usagesReady = true;
     if (!rendered || before !== JSON.stringify([tokenItems, tokenUsages, selectedToken])) {
       rendered = true;
-      renderTokens(true, previousItem !== JSON.stringify(selected()));
+      renderTokens(true, !activeThemeSave && previousItem !== JSON.stringify(selected()));
     }
   }
 
   function allowedAliases(type, category, excludeId = null) {
     const t = normalizedTokenType(type), c = normalizedTokenCategory(category);
     return tokenItems.filter(item => item.id !== excludeId && typeOf(item) === t && categoryOf(item) === c);
-  }
-  function aliasSelect(id, type, category, excludeId, current = '') {
-    const select = el(id), options = allowedAliases(type, category, excludeId);
-    const value = current || select.value;
-    select.replaceChildren(new Option(options.length ? 'Выберите токен' : 'Нет совместимых токенов', ''));
-    for (const option of options) select.add(new Option(option.name, option.id));
-    select.value = options.some(item => item.id === value) ? value : '';
   }
   function updateCategoryOptions() {
     const type = el('new-token-type').value, choices = allowedCategories[type] ?? [];
@@ -295,61 +399,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     updateCreateMode();
   }
   function updateCreateMode() {
-    const type = el('new-token-type').value, category = el('new-token-category').value;
-    for (const theme of ['light', 'dark']) {
-      const mode = el('new-token-' + theme + '-mode').value;
-      const field = el('new-token-' + theme), picker = el('new-token-' + theme + '-picker');
-      const preset = el('new-token-' + theme + '-weight-preset');
-      const alias = el('new-token-' + theme + '-alias');
-      const composite = type === 'Typography' && mode !== 'alias';
-      refreshTypographyFields('new-token-' + theme, composite);
-      preset.hidden = mode === 'alias' || type !== 'FontWeight';
-      field.hidden = mode === 'alias' || composite; field.required = mode !== 'alias' && !composite;
-      alias.hidden = mode !== 'alias'; alias.required = mode === 'alias';
-      picker.hidden = mode === 'alias' || type !== 'Color';
-      aliasSelect(alias.id, type, category, null);
-      field.placeholder = type === 'Color' ? '#RRGGBBAA' :
-        type === 'FontFamily' ? 'Inter' : type === 'FontWeight' ? '400' : '0';
-    }
-  }
-  function expressionFor(type, category, mode, direct, reference) {
-    if (mode === 'alias') {
-      const match = allowedAliases(type, category).find(item => item.id === reference);
-      if (!match) throw new Error('Выберите совместимый токен для алиаса.');
-      return { expression: 'alias', tokenId: reference };
-    }
-    return literalExpression(type, category, direct);
-  }
-  function refreshSetMode() {
-    const item = selected();
-    if (!item) return;
-    const mode = el('token-mode').value, type = typeOf(item), category = categoryOf(item);
-    const literal = el('token-value'), picker = el('token-value-picker'), alias = el('token-value-alias');
-    const preset = el('token-font-weight-preset');
-    const composite = type === 'Typography' && mode !== 'alias';
-    refreshTypographyFields('token', composite);
-    alias.hidden = mode !== 'alias'; alias.required = mode === 'alias';
-    literal.hidden = mode === 'alias' || composite; literal.required = mode !== 'alias' && !composite;
-    picker.hidden = mode === 'alias' || type !== 'Color';
-    preset.hidden = mode === 'alias' || type !== 'FontWeight';
-    aliasSelect(alias.id, type, category, item.id);
-    literal.placeholder = type === 'Color' ? '#RRGGBBAA' : type === 'FontFamily' ? 'Inter' : '0';
-  }
-  function setEditorFromTheme() {
-    const item = selected();
-    if (!item) return;
-    const expression = item.values[el('token-theme').value];
-    el('token-mode').value = expression?.expression === 'alias' ? 'alias' : 'literal';
-    el('token-value').value = directText(expression);
-    if (typeOf(item) === 'Color' && expression?.value?.type === 'color')
-      el('token-value-picker').value = tokenColorHex(expression.value);
-    const alias = el('token-value-alias');
-    alias.value = expression?.tokenId ?? '';
-    refreshSetMode();
-    if (typeOf(item) === 'Typography') loadTypographyFields('token', expression);
-    if (expression?.expression === 'alias') alias.value = expression.tokenId;
-    el('token-font-weight-preset').value = typeOf(item) === 'FontWeight'
-      ? (['400', '500', '600', '700'].includes(el('token-value').value) ? el('token-value').value : '') : '';
+    createControls = replaceThemeControls('new-token-values', createControls,
+      el('new-token-type').value, el('new-token-category').value || null, null);
   }
   function renderTokens(refreshDetail = true, refreshEditor = true) {
     const list = el('tokens-list'); list.replaceChildren();
@@ -365,9 +416,10 @@ export function createTokens({ element, request, getContext, startRequest, stopL
         toggle.onclick = () => { if (collapsed.has(key)) collapsed.delete(key); else collapsed.add(key); renderTokens(false); }; row.append(toggle);
       }
       const select = document.createElement('button'); select.type = 'button'; select.className = 'token-group-select';
-      select.textContent = (node.segments.at(-1) ?? 'Все токены') + ' · ' + node.count;
+      select.textContent = node.segments.at(-1) ?? 'Все токены';
       select.setAttribute('aria-pressed', String(key === groupKey(group)));
       select.onclick = () => { group = node.segments; el('token-search').value = ''; renderTokens(false); };
+      if (!node.children.size) { const spacer = document.createElement('span'); spacer.setAttribute('aria-hidden','true'); row.append(spacer); }
       row.append(select); parent.append(row);
       if (!collapsed.has(key)) {
         const children = document.createElement('div'); children.className = 'token-group-children';
@@ -423,7 +475,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const status = row.insertCell(); status.textContent = problems.length ? 'Ошибка' : '—'; status.title = problems.join('\n'); status.classList.toggle('token-invalid', !!problems.length);
     }
     if (!list.rows.length) { const cell = list.insertRow().insertCell(); cell.colSpan = 7; cell.textContent = 'Нет токенов в выбранном контексте.'; }
-    el('tokens-status').textContent = tokenItems.length ? `Токенов: ${tokenItems.length}` : 'Токенов пока нет.';
+    
     const item = selected();
     updateDetailVisibility();
     if (!item || refreshDetail === false) return;
@@ -435,25 +487,13 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       if (resolved.error) diagnostics.push(selectedTheme + ': ' + resolved.error);
     }
     el('token-detail-diagnostic').textContent = diagnostics.join(' · ');
-    const describe = currentTheme => {
-      const expression = item.values[currentTheme];
-      if (expression?.expression === 'alias') return '↳ ' + nameOf(expression.tokenId);
-      if (expression?.value?.type === 'typographyFields') {
-        const resolved = resolveTokenValue({type:'token',tokenId:item.id}, index, currentTheme, item.type, item.category);
-        return resolved.error ?? tokenValueText(resolved.value);
-      }
-      return directText(expression);
-    };
-    const pair = `Light: ${describe('Light')}; Dark: ${describe('Dark')}`;
-    el('token-values').textContent = categoryOf(item) ? `${typeOf(item)}.${categoryOf(item)} · ${pair}` : pair;
     el('token-edit').hidden = !editable();
-    el('token-set').hidden = false;
+    el('token-rename-open').hidden = !editable() || renaming;
     el('token-delete').disabled = !usagesReady || tokenUsages.length > 0;
     el('token-delete').title = tokenUsages.length ? 'У токена есть зависимости: ' + tokenUsages.length : 'Удалить токен';
     if (refreshEditor) {
-      el('token-name').value = item.name;
-      setEditorFromTheme();
-    }
+      detailControls = replaceThemeControls('token-values', detailControls, typeOf(item), categoryOf(item), item);
+    } else detailControls.forEach(control => control.refresh());
     const usages = el('token-usages'); usages.replaceChildren();
     usages.previousElementSibling.textContent = 'Использования' + (usagesReady ? ' · ' + tokenUsages.length : ' · загрузка…');
     for (const indirect of [false, true]) {
@@ -486,6 +526,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     }
   }
   async function selectToken(id) {
+    endRename();
+    pendingThemeValues.clear();
     selectedToken = id; tokenUsages = []; creating = false; usagesReady = false;
     const current = ++tokenLoad, doc = getContext().documentId, revision = getContext().revision;
     renderTokens();
@@ -501,7 +543,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   async function tokenCommand(command, data, selection) {
     if (!editable() || busy()) return;
     stopLive(); const { signal, current } = startRequest();
-    el('token-create').inert = el('token-edit').inert = el('token-import-form').inert = true;
+    el('token-create').inert = el('token-import-form').inert = true;
+    el('token-detail').inert = command !== 'set-token-value';
     el('tokens-error').textContent = ''; el('tokens-status').textContent = 'Сохранение…';
     try {
       await request(`/api/v1/documents/${encodeURIComponent(getContext().documentId)}/commands/${command}`,
@@ -510,41 +553,20 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       if (selection) { selectedToken = selection; creating = false; }
       if (command === 'import-design-tokens') { importEpoch++; el('token-import-form').hidden = true; el('token-import-form').reset(); }
       await readPages(signal);
-      if (current === getContext().generation) el('tokens-status').textContent = 'Изменение сохранено.';
+      if (current === getContext().generation) { el('tokens-status').textContent = ''; return true; }
     } catch (error) {
       if (error.name !== 'AbortError' && current === getContext().generation)
         el('tokens-error').textContent = error instanceof TypeError || error.status >= 500 ?
           'Результат неизвестен. Обновите документ перед повтором.' : (error.diagnostics?.map(d => d.path + ': ' + d.message).join('; ') || (error.code === 'INVALID_TOKEN' && error.detail ? error.message + ' ' + error.detail : error.message));
     } finally {
       if (current === getContext().generation) {
-        el('token-create').inert = el('token-edit').inert = el('token-import-form').inert = false; startLive();
+        el('token-create').inert = el('token-detail').inert = el('token-import-form').inert = false; el('tokens-status').textContent = ''; startLive();
       }
     }
   }
 
   el('new-token-type').addEventListener('change', updateCategoryOptions);
   el('new-token-category').addEventListener('change', updateCreateMode);
-  for (const theme of ['light', 'dark']) {
-    el('new-token-' + theme + '-mode').addEventListener('change', updateCreateMode);
-    el('new-token-' + theme + '-weight-preset').addEventListener('change', () => {
-      const selectedWeight = el('new-token-' + theme + '-weight-preset').value;
-      if (selectedWeight) el('new-token-' + theme).value = selectedWeight;
-    });
-    el('new-token-' + theme + '-picker').addEventListener('input', () => {
-      const input = el('new-token-' + theme), rgb = el('new-token-' + theme + '-picker').value;
-      input.value = rgb + (/^#[0-9a-f]{8}$/i.test(input.value) ? input.value.slice(7) : 'FF');
-    });
-  }
-  el('token-value-picker').addEventListener('input', () => {
-    const input = el('token-value');
-    input.value = el('token-value-picker').value +
-      (/^#[0-9a-f]{8}$/i.test(input.value) ? input.value.slice(7) : 'FF');
-  });
-  el('token-font-weight-preset').addEventListener('change', () => {
-    if (el('token-font-weight-preset').value) el('token-value').value = el('token-font-weight-preset').value;
-  });
-  el('token-theme').addEventListener('change', setEditorFromTheme);
-  el('token-mode').addEventListener('change', refreshSetMode);
   el('token-create').addEventListener('submit', event => {
     event.preventDefault();
     try {
@@ -552,13 +574,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       const name = qualifyTokenName(el('new-token-name').value.trim(), group);
       const error = tokenNameError(name, tokenItems); if (error) throw new Error(error);
       const id = crypto.randomUUID(), values = {};
-      for (const theme of ['Light', 'Dark']) {
-        const prefix = 'new-token-' + theme.toLowerCase();
-        values[theme] = type === 'Typography' && el(prefix + '-mode').value === 'literal'
-          ? saveTypographyFields(prefix)
-          : expressionFor(type, category, el(prefix + '-mode').value,
-            el(prefix).value.trim(), el(prefix + '-alias').value);
-      }
+      for (const [index, theme] of ['Light','Dark'].entries()) values[theme] = readExpression(createControls[index]);
       tokenCommand('add-token', { tokenId: id, name, type: typeIndex(type),
         category: categoryIndex(category), values }, id);
     } catch (error) { el('tokens-error').textContent = error.message; }
@@ -567,31 +583,20 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     if (!selectedToken || !usagesReady || tokenUsages.length) return;
     tokenCommand('delete-token', { tokenId: selectedToken, expectedRevision: getContext().revision });
   });
-  el('token-rename').addEventListener('submit', event => {
+  el('token-rename-open').addEventListener('click', beginRename);
+  el('token-rename-cancel').addEventListener('click', endRename);
+  el('token-name').addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); endRename(); }
+  });
+  el('token-rename').addEventListener('submit', async event => {
     event.preventDefault();
-    const name = el('token-name').value.trim();
-    const error = tokenNameError(name, tokenItems, selectedToken);
+    if (!selected() || !editable() || busy()) return;
+    const name = el('token-name').value.trim(), item = selected();
+    if (name === item.name) { endRename(); return; }
+    const error = tokenNameError(name, tokenItems, item.id);
     if (error) { el('tokens-error').textContent = error; return; }
-    tokenCommand('rename-token', { tokenId: selectedToken, name });
+    if (await tokenCommand('rename-token', { tokenId: item.id, name }) && selectedToken === item.id) endRename();
   });
-  el('token-set').addEventListener('submit', event => {
-    event.preventDefault();
-    try {
-      const item = selected();
-      if (!item) return;
-      const mode = el('token-mode').value, type = typeOf(item), category = categoryOf(item);
-      const value = mode === 'alias' ? (() => {
-        const targetId = el('token-value-alias').value;
-        if (!allowedAliases(type, category, item.id).some(t => t.id === targetId))
-          throw new Error('Выберите совместимый токен для алиаса.');
-        return { expression: 'alias', tokenId: targetId };
-      })() : type === 'Typography' ? saveTypographyFields('token')
-        : literalExpression(type, category, el('token-value').value.trim());
-      tokenCommand('set-token-value', { tokenId: item.id,
-        theme: el('token-theme').value === 'Light' ? 0 : 1, value });
-    } catch (error) { el('tokens-error').textContent = error.message; }
-  });
-  for (const prefix of typographyPrefixes) loadTypographyFields(prefix, null);
   updateCategoryOptions();
   return { reset: resetTokens, read: readTokens, apply: applyTokens,
     readSelectedUsages, applySelectedUsages, refreshAccess, get items() { return tokenItems; } };

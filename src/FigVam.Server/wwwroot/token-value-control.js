@@ -9,17 +9,17 @@ const el = (tag, cls, text) => {
 
 // A reusable property control. It exposes the same read/write/validate contract as
 // literal controls so the inspector and the creation palette share draft handling.
-export function createTokenValueControl(name, definition, model, initial, direct, label, displayLabel = label) {
+export function createTokenValueControl(name, definition, model, initial, direct, label, displayLabel = label, options = {}) {
   const literalType = definition.type.toLowerCase();
-  const theme = 'Light'; // Design and inspector always display the Light theme.
-  const compatible = [...model.tokens.values()].filter(
-    token => compatibleToken(token, definition));
+  const theme = options.theme ?? 'Light';
+  const getCompatible = options.getCompatible ?? (() => [...model.tokens.values()].filter(token => compatibleToken(token, definition)));
+  const resolve = id => options.resolve ? options.resolve(id) : resolvePropertyToken({ type: 'token', tokenId: id }, model.tokens, theme, definition);
   const root = el('div', 'token-value-layout');
   const caption = el('span', 'token-value-label', displayLabel);
   if (displayLabel !== label) caption.title = label;
   const editor = el('div', 'token-value-editor');
   const directHost = el('div', 'token-value-direct');
-  if (definition.type === 'Number') {
+  if (definition.type === 'Number' && !options.customDirect) {
     const input = direct.inputs[0];
     input.setAttribute('aria-label', label);
     directHost.append(input);
@@ -53,7 +53,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
   root.append(caption, editor, popover);
 
   let source = literalType, tokenId = '', readOnly = false;
-  const resolved = () => resolvePropertyToken({ type: 'token', tokenId }, model.tokens, theme, definition);
+  const resolved = () => resolve(tokenId);
 
   function updateView() {
     const linked = source === 'token';
@@ -69,7 +69,7 @@ export function createTokenValueControl(name, definition, model, initial, direct
       referenceHost.removeAttribute('title');
       return;
     }
-    const item = model.tokens.get(tokenId);
+    const item = (options.getToken ? options.getToken(tokenId) : model.tokens.get(tokenId));
     const result = resolved();
     nameText.textContent = item?.name ?? 'Удалённый токен · ' + tokenId.slice(0, 8);
     resolvedText.textContent = (result.error ?? tokenValueText(result.value)) + ' · ' + theme;
@@ -106,20 +106,23 @@ export function createTokenValueControl(name, definition, model, initial, direct
   function renderChoices() {
     choices.replaceChildren();
     const filter = search.value.trim().toLocaleLowerCase();
-    const options = compatible.filter(token => token.name.toLocaleLowerCase().includes(filter));
-    if (!options.length) choices.append(el('p', 'token-value-empty',
+    const compatible = getCompatible();
+    const matches = compatible.filter(token => token.name.toLocaleLowerCase().includes(filter));
+    if (!matches.length) choices.append(el('p', 'token-value-empty',
       compatible.length ? 'По запросу токены не найдены.' : 'Нет совместимых токенов.'));
-    for (const token of options) {
+    for (const token of matches) {
       const option = el('button', 'token-value-option');
       option.type = 'button';
-      const state = resolvePropertyToken({ type: 'token', tokenId: token.id }, model.tokens, theme, definition);
+      const state = resolve(token.id);
       const text = el('span', 'token-value-option-name', token.name);
       const preview = el('small', 'token-value-option-preview', state.error ?? tokenValueText(state.value));
       option.append(text, preview);
-      option.disabled = readOnly;
+      const invalid = Boolean(options.validateChoices && state.error);
+      option.dataset.invalid = String(invalid);
+      option.disabled = readOnly || invalid;
       option.setAttribute('aria-pressed', String(source === 'token' && token.id === tokenId));
       option.addEventListener('click', () => {
-        if (readOnly) return;
+        if (readOnly || invalid) return;
         source = 'token';
         tokenId = token.id;
         close(true);
@@ -157,6 +160,10 @@ export function createTokenValueControl(name, definition, model, initial, direct
   unlink.addEventListener('click', () => {
     if (readOnly || source !== 'token') return;
     const result = resolved();
+    if (options.writeResolved) {
+      options.writeResolved(result);
+      source = literalType; tokenId = ''; close(true); fireChange(); return;
+    }
     if (result.error) {
       // Unresolved references cannot supply a literal. Switch to an empty, invalid
       // draft so the user explicitly enters a value before saving the property.
@@ -199,17 +206,20 @@ export function createTokenValueControl(name, definition, model, initial, direct
     setDisabled(disabled) {
       const wasDisabled = readOnly;
       readOnly = disabled;
-      for (const input of direct.inputs) input.disabled = disabled;
+      if (direct.setDisabled) direct.setDisabled(disabled);
+      else for (const input of direct.inputs) input.disabled = disabled;
       // Viewer may inspect the token without changing it.
       link.disabled = false;
       updateView();
       // Keep the option nodes stable across search blur and focus changes:
       // replacing them on pointerdown prevents their click handlers from firing.
       if (wasDisabled !== readOnly && !popover.hidden) {
-        for (const option of choices.querySelectorAll('button')) option.disabled = readOnly;
+        for (const option of choices.querySelectorAll('button')) option.disabled = readOnly || option.dataset.invalid === 'true';
         unlink.hidden = source !== 'token' || readOnly;
       }
     },
+    refresh() { direct.refresh?.(); updateView(); },
+    dispose() { close(); direct.dispose?.(); },
     validate() {
       if (source !== 'token') return direct.validate();
       const result = resolved();
