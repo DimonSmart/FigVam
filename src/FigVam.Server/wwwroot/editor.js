@@ -1,10 +1,9 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createScreenCapture } from './screen-capture.js';
 import { createApiClient, parseDocumentList } from './api-client.js';
-import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory } from './home-ui.js';
+import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
-import { createEditorShell } from './editor-shell.js';
 import { createVisualScreens } from './visual-screen.js';
 import { createCanvasNodeEditor } from './canvas-node-editor.js';
 import { createVisualNodeEditor } from './visual-node-editor.js';

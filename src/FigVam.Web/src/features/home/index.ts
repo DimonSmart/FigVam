@@ -10,3 +10,5 @@ export { createMembers } from '../collaboration/members';
 export { createScreenVariants } from '../editor/screen-variants';
 export { createDatasets } from '../datasets/datasets';
 export { createDocumentHistory } from '../history/document-history';
+
+export { createEditorShell } from '../editor/editor-shell';

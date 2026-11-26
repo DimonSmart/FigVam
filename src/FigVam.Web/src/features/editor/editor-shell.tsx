@@ -1,104 +1,99 @@
+import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
+import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image } from 'lucide-react';
+import { Button } from '../../ui/button';
+
+function required<T>(value:T|null|undefined, description:string):T {
+  if(value==null) throw new Error('Missing editor shell element: '+description);
+  return value;
+}
+function asElement<T extends HTMLElement>(node:HTMLElement, ctor:{new():T}):T {
+  if(!(node instanceof ctor)) throw new Error('Unexpected element type: '+node.id);
+  return node;
+}
+function section(node:HTMLElement):HTMLElement {return required(node.closest('section'),node.id+' section');}
 // Presentation-only composition. Existing editor modules continue to own documents and commands.
-function el(tag, className, text) {
+function el<K extends keyof HTMLElementTagNameMap>(tag:K, className?:string, text?:string) {
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (text) node.textContent = text;
   return node;
 }
 
-function group(title, ...nodes) {
+function group(title:string, ...nodes:Node[]) {
   const section = el('section', 'editor-group');
   const heading = el('h3', 'editor-group-title', title);
   section.append(heading, ...nodes);
   return section;
 }
 
-function menu(label, className) {
+function menu(label:string, className:string) {
   const details = el('details', 'editor-menu ' + className);
   const summary = el('summary', 'menu-trigger', label);
   details.append(summary);
   return details;
 }
 
-function icon(name) {
-  const paths = {
-    select: '<path d="m5 3 14 9-7 1-3 7z"/>',
-    Frame: '<rect x="4" y="4" width="16" height="16" rx="1"/><path d="M4 8h16M8 4v16"/>',
-    Text: '<path d="M4 6V4h16v2M12 4v16M8 20h8"/>',
-    Button: '<rect x="3" y="6" width="18" height="12" rx="3"/><path d="M9 12h6"/>',
-    TextInput: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 9v6M6 9h4M6 15h4M13 12h5"/>',
-    Image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m4 18 6-6 4 3 3-4 4 5"/>'
-  };
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 24 24');
-  svg.setAttribute('width', '18');
-  svg.setAttribute('height', '18');
-  svg.setAttribute('fill', 'none');
-  svg.setAttribute('stroke', 'currentColor');
-  svg.setAttribute('stroke-width', '1.7');
-  svg.setAttribute('stroke-linecap', 'round');
-  svg.setAttribute('stroke-linejoin', 'round');
-  svg.setAttribute('aria-hidden', 'true');
-  svg.innerHTML = paths[name];
-  return svg;
+const toolIcons={select:MousePointer2, Frame, Text:Type, Button:RectangleHorizontal, TextInput:TextCursorInput, Image};
+type ToolKind=keyof typeof toolIcons;
+function renderToolIcon(host:HTMLElement,name:ToolKind) {
+  const Icon=toolIcons[name],root=createRoot(host);
+  flushSync(()=>root.render(<Icon size={18} strokeWidth={1.7} aria-hidden="true"/>));
 }
 
-function tabs(root, entries, label, beforeSelect = null) {
-  const byId = id => document.getElementById(id);
-  const nav = el('div', 'editor-tabs');
-  nav.setAttribute('role', 'tablist');
-  nav.setAttribute('aria-label', label);
-  const stage = el('div', 'panel-stage');
-  for (const [key, name, panel] of entries) {
+type TabEntry=readonly [key:string,name:string,panel:HTMLElement];
+type BeforeSelect=(previous:string|undefined,next:string,resume:()=>void)=>boolean;
+function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, beforeSelect:BeforeSelect|null=null) {
+  const nav=el('div','editor-tabs');
+  nav.setAttribute('role','tablist');
+  nav.setAttribute('aria-label',label);
+  const stage=el('div','panel-stage');
+  const reactRoot=createRoot(nav);
+  let selected:string|undefined;
+  for(const [key,,panel] of entries) {
     panel.classList.add('panel-page');
-    panel.id ||= 'shell-' + key;
-    const tab = el('button', 'editor-tab', name);
-    tab.type = 'button';
-    tab.id = 'tab-' + key;
-    tab.setAttribute('role', 'tab');
-    tab.setAttribute('aria-controls', panel.id);
-    tab.addEventListener('click', () => select(key));
-    nav.append(tab);
-    panel.setAttribute('role', 'tabpanel');
-    panel.setAttribute('aria-labelledby', tab.id);
+    panel.id ||= 'shell-'+key;
+    panel.setAttribute('role','tabpanel');
+    panel.setAttribute('aria-labelledby','tab-'+key);
     stage.append(panel);
   }
-  function select(key, confirmed = false) {
-    const previous = entries.find(([id]) => byId('tab-' + id)?.getAttribute('aria-selected') === 'true')?.[0];
-    if (!confirmed && beforeSelect && !beforeSelect(previous, key, () => { select(key, true); byId('tab-' + key)?.focus(); })) return false;
-    for (const [id, , panel] of entries) {
-      const selected = id === key;
-      panel.hidden = !selected;
-      const tab = byId('tab-' + id);
-      tab.setAttribute('aria-selected', String(selected));
-      tab.tabIndex = selected ? 0 : -1;
-    }
+  function focus(key:string) {document.getElementById('tab-'+key)?.focus();}
+  function select(key:string,confirmed=false):boolean {
+    if(!confirmed&&beforeSelect&&!beforeSelect(selected,key,()=>{select(key,true);focus(key);})) return false;
+    selected=key;
+    for(const [id,,panel] of entries) panel.hidden=id!==key;
+    flushSync(()=>reactRoot.render(<>{entries.map(([id,name,panel])=><Button key={id} id={'tab-'+id} className="editor-tab" role="tab" aria-controls={panel.id} aria-selected={id===selected} tabIndex={id===selected?0:-1} onClick={()=>select(id)}>{name}</Button>)}</>));
     return true;
   }
-  nav.addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    const active = entries.findIndex(([key]) => byId('tab-' + key) === document.activeElement);
-    if (active < 0) return;
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? entries.length - 1 :
-      (active + (event.key === 'ArrowRight' ? 1 : -1) + entries.length) % entries.length;
+  nav.addEventListener('keydown',event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    const active=entries.findIndex(([key])=>document.getElementById('tab-'+key)===document.activeElement);
+    if(active<0)return;
+    const next=event.key==='Home'?0:event.key==='End'?entries.length-1:(active+(event.key==='ArrowRight'?1:-1)+entries.length)%entries.length;
+    const entry=entries[next];
     event.preventDefault();
-    if (select(entries[next][0])) byId('tab-' + entries[next][0]).focus();
+    if(entry&&select(entry[0]))focus(entry[0]);
   });
-  root.append(nav, stage);
-  select(entries[0][0]);
-  return { select };
+  root.append(nav,stage);
+  const first=entries[0];
+  if(first)select(first[0]);
+  return{select};
 }
 
-export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
+export function createEditorShell({ beforePrototypeLeave = () => true }:{beforePrototypeLeave?:(resume:()=>void)=>boolean} = {}) {
   // Capture original nodes before reparenting them into temporarily detached panels.
-  const shellNodes = new Map([...document.querySelectorAll('[id]')].map(node => [node.id, node]));
-  const byId = id => shellNodes.get(id) ?? document.getElementById(id);
+  const shellNodes = new Map([...document.querySelectorAll<HTMLElement>('[id]')].map(node => [node.id, node]));
+  const byId = (id:string):HTMLElement => required(shellNodes.get(id) ?? document.getElementById(id),id);
+  const input=(id:string)=>asElement(byId(id),HTMLInputElement);
+  const select=(id:string)=>asElement(byId(id),HTMLSelectElement);
+  const form=(id:string)=>asElement(byId(id),HTMLFormElement);
+  const button=(id:string)=>asElement(byId(id),HTMLButtonElement);
   const design = byId('editor-design');
-  const header = design.querySelector(':scope > .document-panel');
-  const workspace = design.querySelector('.workspace');
-  const left = workspace.querySelector('aside:first-child');
-  const right = workspace.querySelector('aside:last-child');
-  const canvas = workspace.querySelector('.canvas');
+  const header = required(design.querySelector<HTMLElement>(':scope > .document-panel'),':scope > .document-panel');
+  const workspace = required(design.querySelector<HTMLElement>('.workspace'),'.workspace');
+  const left = required(workspace.querySelector<HTMLElement>('aside:first-child'),'aside:first-child');
+  const right = required(workspace.querySelector<HTMLElement>('aside:last-child'),'aside:last-child');
+  const canvas = required(workspace.querySelector<HTMLElement>('.canvas'),'.canvas');
   design.classList.add('app-shell');
   header.classList.add('app-toolbar');
   left.classList.add('layers-sidebar');
@@ -114,9 +109,9 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   mcpMenu.append(mcpBody);
   const documentActions = el('div', 'menu-body');
   docMenu.append(documentActions);
-  const exportSection = byId('export-title').closest('section');
-  const versionSection = byId('versions-title').closest('section');
-  const historySection = byId('undo').closest('section');
+  const exportSection = section(byId('export-title'));
+  const versionSection = section(byId('versions-title'));
+  const historySection = section(byId('undo'));
   const rename = byId('document-rename');
   const deletion = byId('delete-document');
   const versionSave = byId('version-save');
@@ -128,7 +123,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   historySection.remove();
 
   const shareActions = el('div', 'menu-body');
-  const presenceSection = byId('presence-title').closest('section');
+  const presenceSection = section(byId('presence-title'));
   const membersSection = byId('member-management');
   shareActions.append(group('Совместная работа', membersSection, presenceSection));
   shareMenu.append(shareActions);
@@ -156,7 +151,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   leftToggle.setAttribute('aria-expanded', 'true');
   rightToggle.setAttribute('aria-expanded', 'true');
   const undo = byId('undo'), redo = byId('redo'), preview = byId('open-preview');
-  for (const [button, label, sign] of [[undo, 'Отменить действие', '↶'], [redo, 'Повторить действие', '↷']]) {
+  for (const [button, label, sign] of [[undo, 'Отменить действие', '↶'], [redo, 'Повторить действие', '↷']] as const) {
     button.textContent = sign;
     button.title = label; button.setAttribute('aria-label', label); button.classList.add('icon-action');
   }
@@ -179,7 +174,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   design.insertBefore(mode, workspace);
   const brand = el('span', 'editor-brand', 'FigVam');
   header.insertBefore(brand, header.firstChild);
-  const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent.trim() === 'Design');
+  const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent?.trim() === 'Design');
   originalMode?.remove();
   headerEnd.append(leftToggle, rightToggle, undo, redo, preview,
     presence, byId('connection-status'), shareMenu, mcpMenu, docMenu, signOut);
@@ -193,7 +188,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   byId('page-create').title = 'Создать страницу';
   byId('page-refresh').title = 'Обновить страницы';
 
-  const screensSection = byId('screens-title').closest('section');
+  const screensSection = section(byId('screens-title'));
   const screenForm = byId('screen-create');
   const screenOptions = menu('+ Экран', 'inline-menu screen-options');
   const preset = document.createElement('select');
@@ -201,14 +196,14 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   preset.setAttribute('aria-label', 'Типовой размер экрана');
   for (const [value, label] of [['1440x900','Desktop · 1440 × 900'], ['390x844','Mobile · 390 × 844'],
       ['768x1024','Tablet · 768 × 1024'], ['custom','Другой размер']]) preset.add(new Option(label, value));
-  const screenWidth = byId('screen-width'), screenHeight = byId('screen-height');
-  const initialPreset = preset.options[0].value;
-  const [defaultWidth, defaultHeight] = initialPreset.split('x');
+  const screenWidth = input('screen-width'), screenHeight = input('screen-height');
+  const initialPreset = required(preset.options[0],'initial preset').value;
+  const [defaultWidth='1440', defaultHeight='900'] = initialPreset.split('x');
   screenWidth.defaultValue = screenWidth.value = defaultWidth;
   screenHeight.defaultValue = screenHeight.value = defaultHeight;
   preset.addEventListener('change', () => {
     if (preset.value === 'custom') return;
-    const [width, height] = preset.value.split('x');
+    const [width='', height=''] = preset.value.split('x');
     screenWidth.value = width;
     screenHeight.value = height;
   });
@@ -224,10 +219,10 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
-  const navigatorMenus = [[screenOptions, screenMenuBody]];
-  function positionNavigatorMenu(menu, body) {
+  const navigatorMenus: [HTMLDetailsElement,HTMLElement][] = [[screenOptions, screenMenuBody]];
+  function positionNavigatorMenu(menu:HTMLDetailsElement, body:HTMLElement) {
     if (!menu.open || !body.getClientRects().length) return;
-    const anchor = menu.querySelector('summary').getBoundingClientRect();
+    const anchor = required(menu.querySelector('summary'),'menu summary').getBoundingClientRect();
     const margin = 8, gap = 6;
     // Keep the automatically suggested creation form below the empty page's row,
     // so that the page's rename and context actions remain directly clickable.
@@ -253,7 +248,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
       for (const [other] of navigatorMenus) {
         if (other !== current) other.open = false;
       }
-      for (const rowMenu of document.querySelectorAll('.navigator-context-menu[open]')) rowMenu.open = false;
+      for (const rowMenu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]')) rowMenu.open = false;
       positionNavigatorMenu(current, body);
     });
   }
@@ -267,7 +262,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   byId('screens').setAttribute('aria-label', 'Экраны выбранной страницы');
   // The screen list is moved under its selected page by renderPages.
   screensSection.remove();
-  const layersSection = byId('layers-title').closest('section');
+  const layersSection = section(byId('layers-title'));
   layersSection.classList.add('layer-tree-group');
   const layersPage = el('div', 'layers-page');
   const master = el('div', 'layers-master');
@@ -281,12 +276,12 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   splitter.setAttribute('aria-orientation', 'horizontal');
   splitter.setAttribute('aria-valuemin', '22');
   splitter.setAttribute('aria-valuemax', '72');
-  function setSplit(percent) {
+  function setSplit(percent:number) {
     const value = Math.round(Math.min(72, Math.max(22, percent)));
     master.style.flexBasis = `${value}%`;
     splitter.setAttribute('aria-valuenow', String(value));
   }
-  function resizeAt(y) {
+  function resizeAt(y:number) {
     const bounds = layersPage.getBoundingClientRect();
     if (bounds.height) setSplit((y - bounds.top) / bounds.height * 100);
   }
@@ -313,12 +308,12 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   layersPage.append(master, splitter, detail);
 
   const componentsPage = el('div', 'components-page');
-  componentsPage.append(byId('components-title').closest('section'));
+  componentsPage.append(section(byId('components-title')));
   const resources = el('div', 'assets-page');
-  const pngHelp = byId('asset-upload-form').nextElementSibling;
+  const pngHelp = required(byId('asset-upload-form').nextElementSibling,'PNG help');
   const assetPanel = group('Изображения', byId('asset-upload-form'), pngHelp, byId('asset-upload-status'),
     byId('asset-upload-error'), byId('asset-upload-retry'));
-  const tokenPage = byId('tokens-title').closest('section');
+  const tokenPage = section(byId('tokens-title'));
   tokenPage.id = 'token-workspace'; tokenPage.classList.add('token-workspace');
   const tokenHeader = el('div', 'token-tree-toolbar');
   const tokenGrid = el('div', 'token-workspace-grid');
@@ -332,7 +327,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   menuButton.setAttribute('aria-label', 'Управление токенами'); menuButton.setAttribute('popovertarget', 'token-menu');
   const tokenMenu = el('div', 'token-menu'); tokenMenu.id = 'token-menu'; tokenMenu.setAttribute('popover', 'auto');
   tokenMenu.setAttribute('role', 'group'); tokenMenu.setAttribute('aria-label', 'Управление токенами');
-  const command = (id, label) => { const b = el('button', '', label); b.id = id; b.type = 'button'; b.addEventListener('click', () => { tokenMenu.hidePopover(); menuButton.focus(); }); return b; };
+  const command = (id:string, label:string) => { const b = el('button', '', label); b.id = id; b.type = 'button'; b.addEventListener('click', () => { tokenMenu.hidePopover(); menuButton.focus(); }); return b; };
   const newToken = command('new-token-open', '+ Новый токен…'); newToken.hidden = true;
   const importButton = command('token-import-open', 'Импорт токенов…'); importButton.hidden = true;
   const exportButton = command('token-export', 'Экспорт токенов…');
@@ -392,9 +387,9 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   design.append(tokenPage);
   const stylesGroup = el('section', 'editor-group');
   stylesGroup.append(stylesPanel);
-  resources.append(assetPanel, byId('datasets-title').closest('section'),
-    stylesGroup, byId('screen-variants-title').closest('section'));
-  function selectMode(tokens) {
+  resources.append(assetPanel, section(byId('datasets-title')),
+    stylesGroup, section(byId('screen-variants-title')));
+  function selectMode(tokens:boolean) {
     if (!tokens && tokenMenu.matches(':popover-open')) tokenMenu.hidePopover();
     workspace.hidden = tokens; tokenPage.hidden = !tokens;
     editorMode.setAttribute('aria-pressed', String(!tokens)); tokenMode.setAttribute('aria-pressed', String(tokens));
@@ -403,7 +398,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   }
   editorMode.addEventListener('click', () => selectMode(false));
   tokenMode.addEventListener('click', () => {
-    if (tokenPage.hidden && byId('tab-prototype')?.getAttribute('aria-selected') === 'true') {
+    if (tokenPage.hidden && document.getElementById('tab-prototype')?.getAttribute('aria-selected') === 'true') {
       if (!beforePrototypeLeave(() => selectMode(true))) return;
     }
     selectMode(true);
@@ -422,13 +417,13 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const nodeDelete = byId('node-delete');
   const metadata = byId('node-metadata');
   const visualInspector = byId('visual-inspector');
-  const screenSize = byId('screen-size-title').closest('section');
+  const screenSize = section(byId('screen-size-title'));
   inspectorPage.append(inspectorTitle, selection, nodeDelete,
     byId('node-delete-status'), byId('node-delete-retry'), visualInspector, metadata, screenSize);
   const prototypePage = el('div', 'prototype-page');
-  prototypePage.append(byId('scenarios-title').closest('section'));
+  prototypePage.append(section(byId('scenarios-title')));
   const diagnosticsPage = el('div', 'diagnostics-page');
-  diagnosticsPage.append(byId('diagnostics-title').closest('section'));
+  diagnosticsPage.append(section(byId('diagnostics-title')));
   right.replaceChildren();
   tabs(right, [['design', 'Дизайн', inspectorPage], ['prototype', 'Prototype', prototypePage],
     ['diagnostics', 'Проверка', diagnosticsPage]], 'Разделы инспектора',
@@ -441,18 +436,18 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const selectTool = el('button', 'drawing-tool selected');
   selectTool.type = 'button'; selectTool.title = 'Выбор и перемещение';
   selectTool.setAttribute('aria-label', 'Выбор и перемещение');
-  selectTool.append(icon('select'));
+  renderToolIcon(selectTool,'select');
   selectTool.addEventListener('click', () => byId('viewport').focus());
   drawing.append(selectTool);
   const palette = byId('visual-palette');
-  const kindSelect = byId('visual-kind');
-  const parentSelect = byId('visual-parent');
-  const addForm = byId('visual-palette-form');
+  const kindSelect = select('visual-kind');
+  const parentSelect = select('visual-parent');
+  const addForm = form('visual-palette-form');
   const detailed = menu('Параметры добавления', 'palette-options');
   detailed.append(palette);
   const toolNames = [['Frame', 'Контейнер'], ['Text', 'Текст'], ['Button', 'Кнопка'],
-    ['TextInput', 'Поле ввода'], ['Image', 'Изображение']];
-  const buttons = [];
+    ['TextInput', 'Поле ввода'], ['Image', 'Изображение']] as const;
+  const buttons:[ToolKind,HTMLButtonElement][] = [];
   function syncTools() {
     const enabled = !palette.hidden && !addForm.hidden && !kindSelect.disabled;
     for (const [kind, button] of buttons) {
@@ -463,18 +458,18 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
     const button = el('button', 'drawing-tool');
     button.type = 'button'; button.title = 'Добавить: ' + label;
     button.setAttribute('aria-label', 'Добавить ' + label.toLowerCase());
-    button.append(icon(kind));
+    renderToolIcon(button,kind);
     button.addEventListener('click', () => {
       if (button.disabled) return;
       kindSelect.value = kind;
       kindSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      if (byId('visual-add').disabled && parentSelect.options.length) {
+      if (asElement(byId('visual-add'),HTMLButtonElement).disabled && parentSelect.options.length) {
         parentSelect.selectedIndex = 0;
         parentSelect.dispatchEvent(new Event('change', { bubbles: true }));
       }
-      if (byId('visual-add').disabled) {
+      if (asElement(byId('visual-add'),HTMLButtonElement).disabled) {
         detailed.open = true;
-        byId('visual-required-properties').querySelector('input, select, textarea')?.focus();
+        byId('visual-required-properties').querySelector<HTMLElement>('input, select, textarea')?.focus();
       } else addForm.requestSubmit();
     });
     buttons.push([kind, button]);
@@ -487,7 +482,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   observer.observe(kindSelect, { childList: true, attributes: true, attributeFilter: ['disabled'] });
   syncTools();
   const compact = matchMedia('(max-width: 1050px)');
-  function resetPanelLayout(narrow) {
+  function resetPanelLayout(narrow:boolean) {
     workspace.classList.toggle('left-collapsed', narrow);
     workspace.classList.toggle('right-collapsed', narrow);
     leftToggle.setAttribute('aria-expanded', String(!narrow));
@@ -498,7 +493,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
 
   const canvasTitle = byId('canvas-title');
   canvasTitle.classList.add('visually-hidden');
-  const viewportControls = canvas.querySelector('.viewport-controls');
+  const viewportControls = required(canvas.querySelector<HTMLElement>('.viewport-controls'),'.viewport-controls');
   canvas.insertBefore(drawing, canvas.firstChild);
   canvas.append(viewportControls);
   canvas.classList.add('design-canvas');
@@ -516,7 +511,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
       byId('page-create').click();
       return;
     }
-    const container = byId('screen-create').closest('details');
+    const container = byId('screen-create').closest<HTMLDetailsElement>('details');
     if (!container || byId('screen-create').hidden) return;
     byId('tab-layers').click();
     workspace.classList.remove('left-collapsed');
@@ -536,17 +531,20 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   // Menus are temporary views. Their controls keep their draft values when closed.
   // Close previously open menus before a pointer action; do not close a menu opened by that click.
   document.addEventListener('pointerdown', event => {
+    if(!(event.target instanceof Element))return;
     const clickedMenu = event.target.closest('details.editor-menu, .navigator-toolbar details, .navigator-context-menu');
-    for (const details of document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')) {
+    for (const details of document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')) {
       if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
     }
   });
   document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    const opened = [...document.querySelectorAll('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')];
+    const opened = [...document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')];
     if (!opened.length) return;
-    opened[opened.length - 1].open = false;
-    opened[opened.length - 1].querySelector('summary')?.focus();
+    const last=opened.at(-1);
+    if(!last)return;
+    last.open=false;
+    last.querySelector<HTMLElement>('summary')?.focus();
     event.preventDefault();
   });
 }
