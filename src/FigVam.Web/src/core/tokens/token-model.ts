@@ -49,6 +49,10 @@ export type ResolvableValue = TokenValue | NodePropertyValue;
 export type TokenMap = ReadonlyMap<string, DesignToken>;
 export interface PropertyDefinition {
   type?: string;
+  enumValues?: string[];
+  required?: boolean;
+  pattern?: string | null;
+  styleType?: number | string | null;
   tokenType?: TokenType | number | null;
   tokenCategory?: TokenCategory | number | null;
   legacyTokenType?: TokenType | number | null;

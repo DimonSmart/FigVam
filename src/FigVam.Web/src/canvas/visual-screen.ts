@@ -1,34 +1,69 @@
-import { reconcileScreen, renderScreen } from './screen-renderer.js';
-import { resolvePropertyToken } from './token-resolution.js';
+import { reconcileScreen, renderScreen, type RenderModel } from './screen-renderer.js';
+import { resolvePropertyToken } from '../core/tokens/token-resolution';
+import { number, node, kind, box, properties, token, nodeProperty } from './render-model';
+import { requiredRecord, text, array, errorMessage, aborted } from '../api/decode';
+import { ApiError, type ApiClient } from '../api/api-client';
+import type { components } from '../api/schema.generated';
+import type { DesignToken, NodePropertyValue, ResolvableValue, Theme } from '../core/tokens/token-model';
+import type { CanvasNode, CanvasKind, LayoutBox, NodeProperties } from './canvas-model';
+type Schema=components['schemas'];
+type PreviewTrigger=Schema['PreviewTrigger'];
+type PreviewAction={type:'setDemoValue';nodeId:string}|{type:'resetPreview'}|{type:'other'};
+interface Scenario {nodeId:string;event:number;actions:PreviewAction[]}
+interface Playback {selection:{screenId:string;datasetId:string|null;variantId:string|null};overlays:string[];values:Record<string,string|null>;canGoBack:boolean}
+interface Asset {id:string;width:number;height:number}
+interface Style {id:string;name:string;type:number|string}
+interface Resources {kinds:Map<string,CanvasKind>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
+interface DrawingModel extends Omit<RenderModel,'theme'|'assets'>, Resources {
+  screen:string;revision:number;scenarios:Scenario[];diagnostics:Diagnostic[];orderedNodes:CanvasNode[];
+}
+interface Diagnostic {objectId:string;property:string;message:string;code:string}
+interface View {host:HTMLElement;status:HTMLElement;diagnostics:HTMLElement;retry:HTMLElement;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null;captureStamp?:string|null}
+interface Screen {id:string;dimensions:{width:number;height:number}}
+interface InputContext {documentId:string|null;revision:number|null;screen?:Screen;selection?:{id:string}|null;tokens:unknown[];styles?:unknown[];variantId:string|null}
+type Context=Omit<InputContext,'documentId'|'revision'|'screen'>&{documentId:string;revision:number;screen:Screen};
+interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():InputContext;closeInaccessibleDocument(status:number):void;onDesignChange():void}
+type Query=Record<string,string|number>;
+interface Page<T>{items:T[];diagnostics:Diagnostic[];overrides:{nodeId:string;properties:NodeProperties}[]}
+function diagnostic(value:unknown):Diagnostic{const d=requiredRecord(value);return{objectId:text(d.objectId),property:text(d.property),message:text(d.message),code:text(d.code)};}
+function scenario(value:unknown):Scenario{const v=requiredRecord(value);return{nodeId:text(v.nodeId),event:number(v.event),actions:array(v.actions,a=>{const x=requiredRecord(a);return x.type==='setDemoValue'?{type:'setDemoValue',nodeId:text(x.nodeId)}:x.type==='resetPreview'?{type:'resetPreview'}:{type:'other'};})};}
+function playbackValue(value:unknown):Playback{const p=requiredRecord(value),selection=requiredRecord(p.selection);return{selection:{screenId:text(selection.screenId),datasetId:selection.datasetId==null?null:text(selection.datasetId),variantId:selection.variantId==null?null:text(selection.variantId)},overlays:array(p.overlays,text),values:Object.fromEntries(Object.entries(requiredRecord(p.values)).map(([id,v])=>[id,v==null?null:text(v)])),canGoBack:p.canGoBack===true};}
+function asset(value:unknown):Asset{const a=requiredRecord(value);return{id:text(a.id),width:number(a.width),height:number(a.height)};}
+function style(value:unknown):Style{const a=requiredRecord(value);return{id:text(a.id),name:text(a.name),type:typeof a.type==='number'?a.type:text(a.type)};}
+function scalar(value:ResolvableValue|null|undefined):unknown{return value&&'value' in value?value.value:undefined;}
+function button(value:HTMLElement):HTMLButtonElement{if(!(value instanceof HTMLButtonElement))throw new Error('Expected button');return value;}
+function newView(host:HTMLElement,status:HTMLElement,diagnostics:HTMLElement,retry:HTMLElement):View{return{host,status,diagnostics,retry,controller:null,key:null,model:null,selected:null};}
+function inputControl(el:Element|null):el is HTMLInputElement|HTMLTextAreaElement{return el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement;}
 
-export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
+
+export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }:Options) {
   const boundary = element('screen-boundary');
   const viewport = element('preview-viewport');
-  const openButton = element('open-preview');
-  const closeButton = element('close-preview');
-  const themeButtons = [...element('preview-theme').querySelectorAll('button[data-theme]')];
-  let previewTheme = 'Light';
-  function selectTheme(theme) {
+  const openButton = button(element('open-preview'));
+  const closeButton = button(element('close-preview'));
+  const themeButtons = [...element('preview-theme').querySelectorAll<HTMLButtonElement>('button[data-theme]')];
+  let previewTheme:Theme = 'Light';
+  function selectTheme(theme:Theme) {
     previewTheme = theme;
     for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === theme));
   }
-  const backButton = element('preview-back');
-  const design = { host: boundary, status: element('design-render-status'), diagnostics: element('design-render-diagnostics'),
-    retry: element('design-render-retry') };
-  const preview = { host: viewport, status: element('preview-render-status'), diagnostics: element('preview-render-diagnostics'),
-    retry: element('preview-render-retry') };
-  let context = null, contextKey = null, controller = null;
-  let isPreview = false, triggers = [], playback = null, playbackRequest = null, resizeTimer = null;
-  let activeScenarios = [];
-  const inputValues = new Map();
-  const screenNodes = new Map(), screenScenarios = new Map(), assetUrls = new Map();
-  let resources = null, loadedResources = null;
-  const propertyPreviews = new Map();
+  const backButton = button(element('preview-back'));
+  const design=newView(boundary,element('design-render-status'),element('design-render-diagnostics'),element('design-render-retry'));
+  const preview=newView(viewport,element('preview-render-status'),element('preview-render-diagnostics'),element('preview-render-retry'));
+  let context:Context|null=null,contextKey:string|null=null,controller:AbortController|null=null;
+  let isPreview=false,triggers:PreviewTrigger[]=[],playback:Playback|null=null,playbackRequest:AbortController|null=null,resizeTimer:ReturnType<typeof setTimeout>|undefined;
+  let activeScenarios:Scenario[]=[];
+  const inputValues=new Map<string,string>();
+  const screenNodes=new Map<string,Promise<Page<CanvasNode>>>(),screenScenarios=new Map<string,Promise<Page<Scenario>>>(),assetUrls=new Map<string,Promise<string>>();
+  let resources:Promise<Resources>|null=null,loadedResources:Resources|null=null;
+  const propertyPreviews=new Map<string,Map<string,NodeProperties>>();
+  function currentContext():Context{if(!context)throw new Error('No active screen');return context;}
+  function documentSignal():AbortSignal{if(!controller)throw new Error('No active screen request');return controller.signal;}
   let previewFrame = 0;
-  const previewKey = (documentId, screen, variantId) => JSON.stringify([documentId, screen, variantId ?? null]);
+  const previewKey = (documentId:string|null, screen:string, variantId:string|null|undefined) => JSON.stringify([documentId, screen, variantId ?? null]);
   const visualProperties = new Set(['visible', 'opacity', 'text', 'textColor', 'textAlignment', 'fontSize', 'fontFamily', 'fontFallback', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wrap', 'enabled', 'placeholder', 'value', 'multiline', 'inputType', 'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius', 'shadow', 'altText', 'fit', 'overflow']);
 
-  function projected(model) {
+  function projected(model:DrawingModel):DrawingModel {
     if (!context || !model) return model;
     const edits = propertyPreviews.get(previewKey(context.documentId, model.screen, context.variantId));
     if (!edits?.size) return model;
@@ -41,26 +76,29 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       nodes.set(id, { ...node, properties: { ...node.properties, ...appearance } });
       overrides.set(id, { ...overrides.get(id), ...appearance });
       const parent = nodes.get(node.parentId);
-      const parentLayout = parent && (parent.properties.layout ?? model.kinds.get(parent.kind)?.properties.layout?.defaultValue)?.value;
+      const parentLayout = parent && scalar(parent.properties.layout ?? model.kinds.get(parent.kind)?.properties.layout?.defaultValue);
       // Do not approximate stack/auto-sizing or container geometry: server layout is authoritative.
       if ((parent && parentLayout !== 'Free') || model.kinds.get(node.kind)?.canContainChildren || !boxes.has(node.parentId)) continue;
-      const parentBounds = boxes.get(node.parentId).bounds, bounds = { ...box.bounds };
-      for (const name of ['x', 'y', 'width', 'height']) {
+      const parentBounds = boxes.get(node.parentId)?.bounds, bounds = { ...box.bounds };
+      if(!parentBounds)continue;
+      for (const name of ['x', 'y', 'width', 'height'] as const) {
         const raw = properties[name];
         if (!raw) continue;
-        if ((name === 'width' || name === 'height') && (node.properties[name + 'Mode'] ?? definitions[name + 'Mode']?.defaultValue)?.value !== 'Fixed') continue;
-        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, 'Light', definitions[name]).value : raw;
-        if (Number.isFinite(value?.value)) bounds[name] = value.value + (name === 'x' || name === 'y' ? parentBounds[name] : 0);
+        if ((name === 'width' || name === 'height') && scalar(node.properties[name + 'Mode'] ?? definitions[name + 'Mode']?.defaultValue) !== 'Fixed') continue;
+        const value = raw.type === 'token' ? resolvePropertyToken(raw, model.tokens, 'Light', definitions[name]??{}).value : raw;
+        const n=scalar(value);
+        if (typeof n==='number'&&Number.isFinite(n)) bounds[name] = n + (name === 'x' || name === 'y' ? parentBounds[name] : 0);
       }
       boxes.set(id, { ...box, bounds });
     }
     return { ...model, nodes, boxes, overrides };
   }
 
-  function setPropertyPreview(target, properties) {
+  function setPropertyPreview(target:{documentId:string|null;screen:string;variantId?:string|null;nodeId:string}, properties:NodeProperties) {
     const key = previewKey(target.documentId, target.screen, target.variantId);
     if (!propertyPreviews.has(key)) propertyPreviews.set(key, new Map());
     const edits = propertyPreviews.get(key);
+    if(!edits)return;
     if (Object.keys(properties).length) edits.set(target.nodeId, properties);
     else edits.delete(target.nodeId);
     if (!edits.size) propertyPreviews.delete(key);
@@ -73,12 +111,12 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     });
   }
 
-  function cancelView(view) {
+  function cancelView(view:View) {
     view.controller?.abort();
     view.key = null;
   }
 
-  function resetView(view) {
+  function resetView(view:View) {
     cancelView(view);
     view.host.replaceChildren();
     view.status.textContent = '';
@@ -87,7 +125,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     if (view === design) design.model = null;
   }
 
-  function showMode(next) {
+  function showMode(next:boolean) {
     isPreview = next;
     element('editor-design').hidden = next;
     element('editor-preview').hidden = !next;
@@ -105,15 +143,16 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   function syncSelection() {
     const id = getContext().selection?.id;
     design.selected?.removeAttribute('data-selected');
-    design.selected = id ? boundary.querySelector(`[data-visual-node="${CSS.escape(id)}"]`) : null;
+    design.selected = id ? boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`) : null;
     if (design.selected) design.selected.dataset.selected = 'true';
     onDesignChange();
   }
 
   function refresh(nodeEdit = false) {
     const next = getContext();
-    const key = next.screen && Number.isSafeInteger(next.revision) ?
-      `${next.documentId}:${next.screen.id}:${next.revision}:${next.variantId ?? "base"}` : null;
+    const nextContext:Context|null=next.screen&&next.documentId&&typeof next.revision==='number'&&Number.isSafeInteger(next.revision)?{...next,screen:next.screen,documentId:next.documentId,revision:next.revision}:null;
+    const key = nextContext ?
+      `${nextContext.documentId}:${nextContext.screen.id}:${nextContext.revision}:${nextContext.variantId ?? "base"}` : null;
     openButton.disabled = !key;
     if (contextKey === key) return;
     const sameScreen = next.documentId === context?.documentId && next.screen?.id === context?.screen.id;
@@ -138,7 +177,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       cancelView(design);
       cancelView(preview);
     }
-    context = key ? next : null;
+    context = nextContext;
     if (!sameScreen || !key) design.model = null;
     onDesignChange();
     if (!context) return;
@@ -146,43 +185,44 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     else renderActive();
   }
 
-  function readPath(path, params, signal) {
-    const revision = context.revision;
-    const base = `/api/v1/documents/${context.documentId}`;
-    const query = new URLSearchParams({ revision, ...params });
-    return request(`${base}/${path}?${query}`, {}, signal).then(result => {
+  function readPath(path:string, params:Query, signal:AbortSignal) {
+    const {revision,documentId}=currentContext();
+    const base = `/api/v1/documents/${documentId}`;
+    const query = new URLSearchParams(Object.entries({ revision, ...params }).map(([k,v])=>[k,String(v)]));
+    return request(`${base}/${path}?${query}`, {}, signal).then(value => {
+      const result=requiredRecord(value);
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
       if (result.revision !== revision) throw new Error('Получен ответ для другой ревизии документа.');
       return result;
     });
   }
 
-  async function readPages(path, params, field, signal) {
-    let total;
-    const items = [], diagnostics = [], overrides = [];
+  async function readPages<T>(path:string, params:Query, field:string, signal:AbortSignal,decode:(v:unknown)=>T):Promise<Page<T>> {
+    let total:number;
+    const items:T[] = [], diagnostics:Diagnostic[] = [], overrides:Page<T>['overrides'] = [];
     do {
       const page = await readPath(path, { ...params, limit: 100, offset: items.length }, signal);
-      total = page.total;
+      total = number(page.total);
       const values = page[field];
       if (!Array.isArray(values) || !Number.isSafeInteger(total) || total < items.length + values.length ||
         page.offset !== items.length || !values.length && items.length < total)
         throw new Error('Сервер вернул неполный список компонентов или геометрии.');
-      if (!items.length) diagnostics.push(...(page.diagnostics ?? []));
-      items.push(...values);
-      overrides.push(...(page.overrides ?? []));
+      if (!items.length) diagnostics.push(...array(page.diagnostics??[],diagnostic));
+      items.push(...values.map(decode));
+      overrides.push(...array(page.overrides??[],value=>{const o=requiredRecord(value);return{nodeId:text(o.nodeId),properties:properties(o.properties)};}));
     } while (items.length < total);
     return { items, diagnostics, overrides };
   }
 
   function readResources() {
     if (resources) return resources;
-    const signal = controller.signal;
-    const tokens = new Map(context.tokens.map(token => [token.id, token]));
-    const styles = new Map((context.styles ?? []).map(style => [style.id, style]));
+    const signal=documentSignal(),ctx=currentContext();
+    const tokens=new Map(ctx.tokens.map(token).map(t=>[t.id,t]));
+    const styles=new Map((ctx.styles??[]).map(style).map(s=>[s.id,s]));
     const loading = Promise.all([readPath('profile', {}, signal), readPath('assets', {}, signal)])
       .then(([profile, manifest]) => {
-        const result = { kinds: new Map(profile.kinds.map(kind => [kind.kind, kind])),
-          assets: new Map(manifest.assets.map(asset => [asset.id, asset])), tokens, styles };
+        const result = { kinds: new Map(array(profile.kinds,kind).map(k=>[k.kind,k])),
+          assets: new Map(array(manifest.assets,asset).map(a=>[a.id,a])), tokens, styles };
         if (resources === loading) loadedResources = result;
         return result;
       }).catch(error => {
@@ -193,7 +233,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     return loading;
   }
 
-  function readCached(cache, key, read) {
+  function readCached<T>(cache:Map<string,Promise<T>>, key:string, read:()=>Promise<T>):Promise<T> {
     if (!cache.has(key)) {
       const loading = read().catch(error => {
         if (cache.get(key) === loading) cache.delete(key);
@@ -201,26 +241,27 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       });
       cache.set(key, loading);
     }
-    return cache.get(key);
+    const result=cache.get(key);if(!result)throw new Error('Missing cached resource');return result;
   }
 
-  function readNodes(screen) {
+  function readNodes(screen:string) {
     return readCached(screenNodes, screen, () => readPages('nodes',
-      { screenId: screen, fields: 'kind,properties,name,parentId,childCount,canContainChildren' }, 'items', controller.signal));
+      { screenId: screen, fields: 'kind,properties,name,parentId,childCount,canContainChildren' }, 'items', documentSignal(),node));
   }
 
   async function readDesignModel() {
-    const current = context;
+    const current = currentContext();
     const variant = current.variantId;
     const [shared, structure, variants] = await Promise.all([
       readResources(), readNodes(current.screen.id),
       variant ? readPath(`screens/${current.screen.id}/variants`,
-        { variantId: variant, offset: 0, limit: 1 }, controller.signal) : null
+        { variantId: variant, offset: 0, limit: 1 }, documentSignal()) : null
     ]);
-    const overrides = new Map();
-    for (const item of variants?.items?.[0]?.overrides ?? []) {
-      if (!overrides.has(item.nodeId)) overrides.set(item.nodeId, {});
-      overrides.get(item.nodeId)[item.property] = item.value;
+    const overrides = new Map<string,NodeProperties>();
+    const variantItem=variants?array(variants.items,requiredRecord)[0]:null;
+    for (const item of array(variantItem?.overrides??[],requiredRecord)) {
+      const id=text(item.nodeId), values=overrides.get(id)??{};
+      values[text(item.property)]=nodeProperty(item.value);overrides.set(id,values);
     }
     return {
       ...shared, overridden: new Map([...overrides].map(([id, values]) => [id, new Set(Object.keys(values))])),
@@ -230,16 +271,16 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     };
   }
 
-  async function readScreen(screen, parameters, signal) {
-    const documentSignal = controller.signal;
+  async function readScreen(screen:string, parameters:Query|null, signal:AbortSignal):Promise<DrawingModel> {
+    const currentSignal = documentSignal();
     const [shared, structure, layout, scenarios] = await Promise.all([
       readResources(),
       readNodes(screen),
-      readPages(`screens/${screen}/layout`, parameters ?? {}, 'boxes', signal),
-      parameters ? readCached(screenScenarios, screen, () => readPages('scenarios', { screenId: screen }, 'items', documentSignal)) : null
+      readPages(`screens/${screen}/layout`, parameters ?? {}, 'boxes', signal,box),
+      parameters ? readCached(screenScenarios, screen, () => readPages('scenarios', { screenId: screen }, 'items', currentSignal,scenario)) : null
     ]);
     return {
-      ...shared, screen, revision: context.revision, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
+      ...shared, screen, revision: currentContext().revision, scenarios: scenarios?.items ?? [], diagnostics: layout.diagnostics,
       orderedNodes: structure.items,
       nodes: new Map(structure.items.map(node => [node.id, {
         ...node, properties: { ...node.properties,
@@ -250,9 +291,9 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     };
   }
 
-  function readAsset(id) {
-    const { documentId, revision } = context;
-    const signal = controller.signal;
+  function readAsset(id:string) {
+    const { documentId, revision } = currentContext();
+    const signal = documentSignal();
     return readCached(assetUrls, id, async () => {
       const data = await request.readPng(`/api/v1/documents/${documentId}/assets/${id}?revision=${revision}`, {}, signal);
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -260,20 +301,20 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     });
   }
 
-  function addDiagnostic(list, description) {
+  function addDiagnostic(list:HTMLElement|DocumentFragment, description:string) {
     if ([...list.children].some(item => item.textContent === description)) return;
     const item = document.createElement('li');
     item.textContent = description;
     list.append(item);
   }
 
-  function displayInput(id, initial) {
-    if (inputValues.has(id)) return inputValues.get(id);
+  function displayInput(id:string, initial:string) {
+    const entered=inputValues.get(id);if(entered!==undefined)return entered;
     return playback && Object.hasOwn(playback.values, id) ? playback.values[id] ?? '' : initial;
   }
 
   function sizePreview() {
-    const { width, height } = context.screen.dimensions;
+    const { width, height } = currentContext().screen.dimensions;
     viewport.style.width = `min(100%, ${width}px)`;
     viewport.style.height = `min(${height}px, max(1px, calc(100dvh - 12rem)))`;
     const bounds = viewport.getBoundingClientRect();
@@ -285,15 +326,15 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     if (isPreview) {
       const size = sizePreview();
       const selection = playback?.selection;
-      const parameters = { previewWidth: size.width, previewHeight: size.height, theme: previewTheme };
+      const parameters:Query = { previewWidth: size.width, previewHeight: size.height, theme: previewTheme };
       if (selection?.datasetId) parameters.datasetId = selection.datasetId;
       loadView(preview, [selection?.screenId ?? context.screen.id, ...(playback?.overlays ?? [])], parameters, selection ? selection.variantId : context.variantId);
     } else loadView(design, [context.screen.id], null, context.variantId);
   }
 
-  async function loadView(view, screens, parameters, variantId) {
+  async function loadView(view:View, screens:string[], parameters:Query|null, variantId:string|null) {
     const previewMode = view === preview;
-    const theme = previewMode ? previewTheme : 'Light';
+    const theme:Theme = previewMode ? previewTheme : 'Light';
     const key = JSON.stringify([screens, parameters, variantId, theme, playback?.values]);
     if (view.key === key) return;
     cancelView(view);
@@ -302,16 +343,16 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     const current = () => !signal.aborted && isPreview === previewMode;
     const drawingContext = context;
     const acceptsInteraction = () => context === drawingContext && isPreview === previewMode &&
-      (!previewMode || screens.at(-1) === (playback?.overlays.at(-1) ?? playback?.selection.screenId ?? context.screen.id));
+      (!previewMode || screens.at(-1) === (playback?.overlays.at(-1) ?? playback?.selection.screenId ?? context?.screen.id));
     if (!view.host.hasChildNodes()) view.status.textContent = 'Загрузка экрана…';
     view.retry.hidden = true;
     try {
-      const reads = new Map();
+      const reads = new Map<string,Promise<DrawingModel>>();
       const models = await Promise.all(screens.map((screen, index) => {
         const variant = index === 0 ? variantId : null;
         const key = `${screen}:${variant ?? ''}`;
         if (!reads.has(key)) reads.set(key, readScreen(screen, variant ? { ...(parameters ?? {}), variantId: variant } : parameters, signal));
-        return reads.get(key);
+        const read=reads.get(key);if(!read)throw new Error('Missing screen read');return read;
       }));
       if (!current()) return;
       const diagnostics = document.createDocumentFragment(), content = document.createDocumentFragment();
@@ -331,7 +372,8 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         });
         if (previewMode) {
           const surface = document.createElement('div');
-          const bounds = boxes.get(screen).bounds;
+          const bounds = boxes.get(screen)?.bounds;
+          if(!bounds)continue;
           surface.className = 'preview-screen';
           surface.dataset.previewScreen = screen;
           surface.style.width = `${bounds.width}px`;
@@ -343,31 +385,32 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         shown = true;
       }
       const focus = view.host.contains(document.activeElement) ? document.activeElement : null;
-      const focusedNode = focus?.closest('[data-visual-node]')?.dataset.visualNode;
-      const selection = focus?.matches('input, textarea') ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] : null;
+      const focusedNode = focus?.closest<HTMLElement>('[data-visual-node]')?.dataset.visualNode;
+      const selection = inputControl(focus) ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] as const : null;
       if (!previewMode && view.host.hasChildNodes()) reconcileScreen(view.host, content);
       else view.host.replaceChildren(content);
       view.diagnostics.replaceChildren(diagnostics);
       view.status.textContent = shown ? '' : 'Геометрию экрана не удалось рассчитать.';
       if (previewMode) {
-        activeScenarios = models.at(-1).scenarios;
+        activeScenarios = models.at(-1)?.scenarios??[];
         onDesignChange();
       }
       else {
-        design.model = shown ? models[0] : null;
+        design.model = shown ? models[0]??null : null;
         syncSelection();
       }
       if (focusedNode) {
         const control = (previewMode ? view.host.lastElementChild : view.host)
-          ?.querySelector(`[data-visual-node="${CSS.escape(focusedNode)}"] > .visual-surface`);
-        if (control && !control.inert && !control.disabled) {
+          ?.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(focusedNode)}"] > .visual-surface`);
+        if (control && !control.inert && !(('disabled' in control)&&control.disabled)) {
           control.focus({ preventScroll: true });
-          if (selection && control.matches('input, textarea')) control.setSelectionRange(...selection);
+          if (selection && inputControl(control)) control.setSelectionRange(selection[0],selection[1],selection[2]??undefined);
         } else if (previewMode) closeButton.focus({ preventScroll: true });
       }
       // Existing image nodes retain their loaded asset and do not fetch it again.
-      for (const surface of view.host.querySelectorAll('img[data-asset-id]')) {
+      for (const surface of view.host.querySelectorAll<HTMLImageElement>('img[data-asset-id]')) {
         const assetId = surface.dataset.assetId;
+        if(!assetId)continue;
         if (surface.dataset.loadedAsset === assetId) continue;
         const report = () => {
           if (current()) addDiagnostic(view.diagnostics, `${surface.alt || assetId} · asset: Не удалось загрузить изображение.`);
@@ -383,34 +426,33 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         }).catch(report);
       }
     } catch (error) {
-      if (!current() || error.name === 'AbortError') return;
-      if (error.status === 403) { closeInaccessibleDocument(403); return; }
+      if (!current() || aborted(error)) return;
+      if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
       view.key = null;
       view.captureStamp = null;
       if (!view.host.hasChildNodes()) view.diagnostics.replaceChildren();
-      view.status.textContent = `Не удалось показать экран. ${error.message}`;
+      view.status.textContent = `Не удалось показать экран. ${errorMessage(error)}`;
       view.retry.hidden = false;
       if (previewMode) onDesignChange();
     }
   }
 
-  async function replay(next, matchingScenarios, afterRefresh = false) {
-    if (playbackRequest || !isPreview) return;
+  async function replay(next:PreviewTrigger[], matchingScenarios:Scenario[]|null, afterRefresh = false) {
+    if (playbackRequest || !isPreview || !context) return;
     const active = playbackRequest = new AbortController();
     const { documentId, revision, screen } = context;
     const size = sizePreview();
     try {
-      const body = {
+      const body:Schema['PreviewPlaybackRequest'] = {
         revision, triggers: next, selection: {
           screenId: screen.id, variantId: context.variantId, datasetId: null, theme: previewTheme === 'Dark' ? 1 : 0,
           viewport: { width: Math.max(1, size.width), height: Math.max(1, size.height) }
         }
       };
-      const result = await request(`/api/v1/documents/${documentId}/preview`,
-        { method: 'POST', body: JSON.stringify(body) }, active.signal);
+      const result = requiredRecord(await request(`/api/v1/documents/${documentId}/preview`,
+        { method: 'POST', body: JSON.stringify(body) }, active.signal));
       if (playbackRequest !== active || active.signal.aborted) return;
-      if (result.revision !== revision || result.documentId !== documentId || !result.session?.selection?.screenId ||
-        !Array.isArray(result.session.overlays) || !result.session.values)
+      if (result.revision !== revision || result.documentId !== documentId)
         throw new Error('Получен некорректный результат сценария.');
       for (const scenario of matchingScenarios ?? []) {
         for (const action of scenario.actions) {
@@ -419,24 +461,24 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         }
       }
       triggers = next;
-      playback = result.session;
+      playback = playbackValue(result.session);
       backButton.disabled = !playback.canGoBack;
       renderActive();
     } catch (error) {
       if (playbackRequest !== active || active.signal.aborted) return;
-      if (error.status === 403) { closeInaccessibleDocument(403); return; }
+      if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
       if (afterRefresh) {
         triggers = [];
         playback = null;
         backButton.disabled = true;
         renderActive();
-      } else preview.status.textContent = `Не удалось выполнить сценарий. ${error.message}`;
+      } else preview.status.textContent = `Не удалось выполнить сценарий. ${errorMessage(error)}`;
     } finally {
       if (playbackRequest === active) playbackRequest = null;
     }
   }
 
-  function trigger(nodeId, event) {
+  function trigger(nodeId:string, event:number) {
     const scenarios = activeScenarios.filter(item => item.nodeId === nodeId && item.event === event);
     if (!scenarios.length) return;
     if (triggers.length >= 128) {
@@ -463,7 +505,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   });
   for (const button of themeButtons) button.addEventListener('click', () => {
     if (previewTheme === button.dataset.theme) return;
-    selectTheme(button.dataset.theme);
+    if(button.dataset.theme==='Light'||button.dataset.theme==='Dark')selectTheme(button.dataset.theme);
     renderActive();
   });
   design.retry.addEventListener('click', renderActive);
