@@ -25,6 +25,7 @@ export default defineConfig({
         'token-value-control': 'src/ui/token-value-control.ts',
         'padding-editor': 'src/ui/padding-editor.ts',
         'layer-caption': 'src/core/layer-caption.ts',
+        scenarios: 'src/features/interactions/scenarios.ts',
         'interaction-editor': 'src/features/interactions/interaction-editor.ts',
         'interaction-catalog': 'src/features/interactions/interaction-catalog.ts',
         'render-model': 'src/canvas/render-model.ts',

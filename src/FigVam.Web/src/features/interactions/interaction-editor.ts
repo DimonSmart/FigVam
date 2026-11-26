@@ -7,7 +7,7 @@ export interface ActionDraft {type:ActionKind|'';screenId?:string;variantId?:str
 export interface ScenarioDraft {id:string;screenId:string;nodeId:string;event:number|null;actions:ActionDraft[]}
 export interface EditorContext {doc:string|null;screen:string|null;node:string|null;revision:number|null;token:string|null;epoch:number;editable:boolean}
 interface Capability {events:number[];actions:string[];potentialActions:string[];demoTargetIds:string[];navigationScreenId:string|null;demoScreenId:string|null}
-export interface Draft extends EditorContext {scenario:ScenarioDraft;creating:boolean;opener:HTMLElement;original:string;conflict:boolean;valid:boolean;capabilityCache:Map<string,Capability>}
+export interface Draft extends EditorContext {scenario:ScenarioDraft;creating:boolean;opener:HTMLElement|null;original:string;conflict:boolean;valid:boolean;capabilityCache:Map<string,Capability>}
 interface EditorOptions {element(id:string):HTMLElement;request:ApiClient;current():EditorContext;catalog():Catalog|null;sourceName(id:string):string;submit(draft:Draft,scenario:ScenarioDraft):void;pending():boolean;onClose():void}
 interface Choice {id:string;label:string;group?:string}
 interface Values {targetId?:string;screenId?:string|null;variantId?:string|null;datasetId?:string|null;demoNodeId?:string;demoValue?:string|null}
@@ -119,7 +119,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
     }
   }
 
-  function open(scenario:ScenarioDraft, opener:HTMLElement, creating = false) {
+  function open(scenario:ScenarioDraft, opener:HTMLElement|null, creating = false) {
     const ctx = current();
     if (!ctx.editable || pending()) return;
     if (draft) close();
