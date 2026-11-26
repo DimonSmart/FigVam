@@ -41,6 +41,11 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response);
     }
 
+    private Task<CallToolResult> ReadThemed(StructureQuery query, string theme, CancellationToken ct) =>
+        theme is "Light" or "Dark"
+            ? Read(query with { Theme = Enum.Parse<TokenTheme>(theme) }, ct)
+            : Task.FromResult(Result("INVALID_THEME", null, "Theme must be Light or Dark."));
+
     [McpServerTool(Name = "get_document"), Description("Read document name, revision and first pages. Use list_pages for more.")]
     public async Task<CallToolResult> GetDocument(CancellationToken ct)
     {
@@ -63,17 +68,17 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public Task<CallToolResult> GetScreen(Guid screenId, long? revision = null, CancellationToken ct = default) =>
         Read(new("screen", screenId, Depth: 1, Fields: "name,dimensions,kind,childCount,parentId", Revision: revision), ct);
 
-    [McpServerTool(Name = "get_node"), Description("Read node kind, properties and child IDs.")]
-    public Task<CallToolResult> GetNode(Guid nodeId, long? revision = null, CancellationToken ct = default) =>
-        Read(new("node", nodeId, Depth: 1, Fields: "name,kind,properties,childCount,parentId", Revision: revision), ct);
+    [McpServerTool(Name = "get_node"), Description("Read node kind, explicitly assigned properties and child IDs. Set includeResolvedProperties for effective properties and defaults in Light or Dark; this is read-only.")]
+    public Task<CallToolResult> GetNode(Guid nodeId, long? revision = null, bool includeResolvedProperties = false, string theme = "Light", CancellationToken ct = default) =>
+        ReadThemed(new("node", nodeId, Depth: 1, Fields: "name,kind,properties,childCount,parentId", Revision: revision, IncludeResolvedProperties: includeResolvedProperties), theme, ct);
 
     [McpServerTool(Name = "list_children"), Description("List ordered children of a screen or container.")]
     public Task<CallToolResult> ListChildren(Guid parentId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default) =>
         Read(new("children", parentId, offset, limit, Fields: "name,kind,childCount,parentId", Revision: revision), ct);
 
-    [McpServerTool(Name = "get_screen_tree"), Description("Read a paginated flat list of screen descendants with parent IDs. Set includeProperties to return explicitly assigned properties in the same format as get_node. This does not modify the document.")]
-    public Task<CallToolResult> GetScreenTree(Guid screenId, int depth = 3, int offset = 0, int limit = 50, long? revision = null, bool includeProperties = false, CancellationToken ct = default) =>
-        Read(new("nodes", Offset: offset, Limit: limit, Fields: includeProperties ? "name,kind,childCount,parentId,properties" : "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision, MaxDepth: depth), ct);
+    [McpServerTool(Name = "get_screen_tree"), Description("Read a paginated flat list of screen descendants with parent IDs. Set includeProperties to return explicitly assigned properties in the same format as get_node. Set includeResolvedProperties independently to return effective properties and defaults for the selected theme. This does not modify the document.")]
+    public Task<CallToolResult> GetScreenTree(Guid screenId, int depth = 3, int offset = 0, int limit = 50, long? revision = null, bool includeProperties = false, bool includeResolvedProperties = false, string theme = "Light", CancellationToken ct = default) =>
+        ReadThemed(new("nodes", Offset: offset, Limit: limit, Fields: includeProperties ? "name,kind,childCount,parentId,properties" : "name,kind,childCount,parentId", ScreenId: screenId, Revision: revision, MaxDepth: depth, IncludeResolvedProperties: includeResolvedProperties), theme, ct);
 
     [McpServerTool(Name = "list_node_types"), Description("List node kinds supported by the document profile.")]
     public async Task<CallToolResult> ListNodeTypes(CancellationToken ct)
