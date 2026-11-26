@@ -330,9 +330,9 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   const search = el('input'); search.id = 'token-search'; search.type = 'search'; search.placeholder = 'Поиск токенов'; search.setAttribute('aria-label', 'Поиск токенов');
   const menuButton = el('button', 'token-menu-button', '…'); menuButton.id = 'token-menu-open'; menuButton.type = 'button';
   menuButton.setAttribute('aria-label', 'Управление токенами'); menuButton.setAttribute('popovertarget', 'token-menu');
-  const menu = el('div', 'token-menu'); menu.id = 'token-menu'; menu.setAttribute('popover', 'auto');
-  menu.setAttribute('role', 'group'); menu.setAttribute('aria-label', 'Управление токенами');
-  const command = (id, label) => { const b = el('button', '', label); b.id = id; b.type = 'button'; b.addEventListener('click', () => { menu.hidePopover(); menuButton.focus(); }); return b; };
+  const tokenMenu = el('div', 'token-menu'); tokenMenu.id = 'token-menu'; tokenMenu.setAttribute('popover', 'auto');
+  tokenMenu.setAttribute('role', 'group'); tokenMenu.setAttribute('aria-label', 'Управление токенами');
+  const command = (id, label) => { const b = el('button', '', label); b.id = id; b.type = 'button'; b.addEventListener('click', () => { tokenMenu.hidePopover(); menuButton.focus(); }); return b; };
   const newToken = command('new-token-open', '+ Новый токен…'); newToken.hidden = true;
   const importButton = command('token-import-open', 'Импорт токенов…'); importButton.hidden = true;
   const exportButton = command('token-export', 'Экспорт токенов…');
@@ -341,20 +341,20 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   for (const b of [exportButton, exportLight, exportDark]) b.disabled = true;
   const typeFilter = el('div', 'token-type-filter'); typeFilter.id = 'token-type-filter';
   typeFilter.setAttribute('role', 'group'); typeFilter.setAttribute('aria-label', 'Отображаемые типы');
-  menu.append(newToken, el('hr'), importButton, exportButton, exportLight, exportDark, el('hr'), typeFilter);
+  tokenMenu.append(newToken, el('hr'), importButton, exportButton, exportLight, exportDark, el('hr'), typeFilter);
   function positionTokenMenu() {
-    if (!menu.matches(':popover-open')) return;
+    if (!tokenMenu.matches(':popover-open')) return;
     const rect = menuButton.getBoundingClientRect();
     const margin = 8;
-    menu.style.left = Math.max(margin, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - margin)) + 'px';
+    tokenMenu.style.left = Math.max(margin, Math.min(rect.right - tokenMenu.offsetWidth, window.innerWidth - tokenMenu.offsetWidth - margin)) + 'px';
     const below = window.innerHeight - rect.bottom - margin, above = rect.top - margin;
-    const openAbove = below < menu.scrollHeight && above > below;
-    menu.style.maxHeight = Math.max(0, openAbove ? above : below) + 'px';
-    menu.style.top = (openAbove ? rect.top - menu.offsetHeight : rect.bottom) + 'px';
+    const openAbove = below < tokenMenu.scrollHeight && above > below;
+    tokenMenu.style.maxHeight = Math.max(0, openAbove ? above : below) + 'px';
+    tokenMenu.style.top = (openAbove ? rect.top - tokenMenu.offsetHeight : rect.bottom) + 'px';
   }
-  menu.addEventListener('toggle', positionTokenMenu);
+  tokenMenu.addEventListener('toggle', positionTokenMenu);
   window.addEventListener('resize', positionTokenMenu);
-  tokenHeader.append(search, menuButton, menu);
+  tokenHeader.append(search, menuButton, tokenMenu);
   tokenSidebar.append(tokenHeader, tokenGroups);
   const importForm = el('form', 'token-import-form'); importForm.id = 'token-import-form'; importForm.hidden = true;
   const modeLabel = el('label', '', 'Формат импорта');
@@ -395,7 +395,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   resources.append(assetPanel, byId('datasets-title').closest('section'),
     stylesGroup, byId('screen-variants-title').closest('section'));
   function selectMode(tokens) {
-    if (!tokens && menu.matches(':popover-open')) menu.hidePopover();
+    if (!tokens && tokenMenu.matches(':popover-open')) tokenMenu.hidePopover();
     workspace.hidden = tokens; tokenPage.hidden = !tokens;
     editorMode.setAttribute('aria-pressed', String(!tokens)); tokenMode.setAttribute('aria-pressed', String(tokens));
     for (const control of [leftToggle, rightToggle]) control.hidden = tokens;
