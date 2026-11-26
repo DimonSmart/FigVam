@@ -11,6 +11,7 @@ export default defineConfig({
         'api-client': 'src/api/api-client.ts',
         session: 'src/core/session.ts',
         'home-ui': 'src/features/home/index.ts',
+        'token-resolution': 'src/core/tokens/token-resolution.ts',
         'token-groups': 'src/core/tokens/token-groups.ts',
         'token-exchange': 'src/core/tokens/token-exchange.ts',
         'canvas-viewport': 'src/canvas/canvas-viewport.ts',
