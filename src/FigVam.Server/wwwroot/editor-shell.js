@@ -358,9 +358,9 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   tokenSidebar.append(tokenHeader, tokenGroups);
   const importForm = el('form', 'token-import-form'); importForm.id = 'token-import-form'; importForm.hidden = true;
   const modeLabel = el('label', '', 'Формат импорта');
-  const mode = el('select'); mode.id = 'token-import-mode';
-  mode.add(new Option('FigVam — обе темы', 'combined')); mode.add(new Option('Два файла DTCG', 'pair'));
-  modeLabel.append(mode); importForm.append(modeLabel);
+  const importMode = el('select'); importMode.id = 'token-import-mode';
+  importMode.add(new Option('FigVam — обе темы', 'combined')); importMode.add(new Option('Два файла DTCG', 'pair'));
+  modeLabel.append(importMode); importForm.append(modeLabel);
   for (const [key, title] of [['combined','FigVam JSON'],['light','DTCG JSON · Light'],['dark','DTCG JSON · Dark']]) {
     const label = el('label', '', title); label.id = 'token-import-' + key + '-label';
     const field = el('textarea'); field.id = 'token-import-' + key; field.rows = 4; label.append(field);
