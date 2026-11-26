@@ -1,7 +1,7 @@
 import { reconcileScreen, renderScreen } from './screen-renderer.js';
 import { resolvePropertyToken } from './token-resolution.js';
 
-export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange, onPreviewMode = () => {} }) {
+export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }) {
   const boundary = element('screen-boundary');
   const viewport = element('preview-viewport');
   const openButton = element('open-preview');
@@ -92,7 +92,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     element('editor-design').hidden = next;
     element('editor-preview').hidden = !next;
     onDesignChange();
-    onPreviewMode(next);
     if (!next) {
       playbackRequest?.abort();
       playbackRequest = null;

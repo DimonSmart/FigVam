@@ -109,9 +109,10 @@ async function renderPng(request, base, task, theme, signal) {
     clone.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
     const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height +
       '"><foreignObject width="100%" height="100%">' + new XMLSerializer().serializeToString(clone) + '</foreignObject></svg>';
-    const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-    urls.push(url);
-    const image = new Image(); image.src = url; await image.decode();
+    // Chromium taints canvas for Blob SVGs with foreignObject; a self-contained
+    // data image is origin-clean. No external resources or script are loaded.
+    const image = new Image(); image.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    await image.decode();
     if (signal.aborted) throw cancelled();
     const canvas = document.createElement('canvas');
     canvas.width = width; canvas.height = height;

@@ -43,14 +43,14 @@ public sealed class McpScreenCaptureProtocolTests
         static string? Code(CallToolResult result) => result.StructuredContent!.Value.GetProperty("code").GetString();
         var page = await Call("create_page", new { name = "Login Prototype" });
         var pageId = page.StructuredContent!.Value.GetProperty("pageId").GetGuid();
-        var created = await Call("create_screen", new { pageId, width = 800, height = 600, name = "Login" });
+        var created = await Call("create_screen", new { pageId, width = 2, height = 1, name = "Login" });
         var screenId = created.StructuredContent!.Value.GetProperty("screenId").GetGuid();
         var revision = created.StructuredContent!.Value.GetProperty("revision").GetInt64();
         Assert.Equal("SCREEN_NOT_FOUND", Code(await Call("render_screen", new { screenId = Guid.NewGuid() })));
-        Assert.Equal("RENDERER_UNAVAILABLE", Code(await Call("render_screen", new { screenId })));
+        Assert.Equal("RENDER_UNAVAILABLE", Code(await Call("render_screen", new { screenId })));
         Assert.Equal("RENDER_REVISION_MISMATCH", Code(await Call("render_screen", new { screenId, revision = revision - 1 })));
 
-        using var connect = new HttpRequestMessage(HttpMethod.Post, path + "/screen-capture/providers/" + screenId);
+        using var connect = new HttpRequestMessage(HttpMethod.Post, path + "/screen-capture/providers");
         using var response = await user.SendAsync(connect, HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();
         using var stream = await response.Content.ReadAsStreamAsync();
@@ -67,12 +67,15 @@ public sealed class McpScreenCaptureProtocolTests
             throw new InvalidOperationException("Capture connection closed");
         }
         var providerId = (await Event("READY")).GetProperty("providerId").GetGuid();
-        var call = Call("render_screen", new { screenId, revision });
+        Assert.Equal("INVALID_THEME", Code(await Call("render_screen", new { screenId, theme = "Sepia" })));
+        var call = Call("render_screen", new { screenId, revision, theme = "Dark" });
         var request = (await Event("CAPTURE")).GetProperty("request");
         Assert.Equal(revision, request.GetProperty("revision").GetInt64());
         Assert.Equal(screenId, request.GetProperty("screenId").GetGuid());
+        Assert.Equal("Dark", request.GetProperty("theme").GetString());
+        Assert.Equal(2, request.GetProperty("width").GetInt32());
         var url = path + "/screen-capture/providers/" + providerId + "/results/" +
-            request.GetProperty("requestId").GetGuid() + "?screenId=" + screenId + "&revision=" + revision;
+            request.GetProperty("requestId").GetGuid() + "?screenId=" + screenId + "&revision=" + revision + "&theme=Dark";
         var bytes = DocumentAssetTests.Png();
         using var wrong = new ByteArrayContent(bytes);
         wrong.Headers.ContentType = new("image/png");
@@ -87,14 +90,15 @@ public sealed class McpScreenCaptureProtocolTests
         Assert.Equal(bytes, block.DecodedData.ToArray());
         Assert.Equal(2, rendered.StructuredContent!.Value.GetProperty("width").GetInt32());
         Assert.Equal(1, rendered.StructuredContent!.Value.GetProperty("height").GetInt32());
+        Assert.Equal("Dark", rendered.StructuredContent!.Value.GetProperty("theme").GetString());
         Assert.Equal(revision, rendered.StructuredContent!.Value.GetProperty("revision").GetInt64());
         Assert.Equal(revision, (await Call("get_document")).StructuredContent!.Value.GetProperty("revision").GetInt64());
 
         call = Call("render_screen", new { screenId });
         await Event("CAPTURE");
         (await user.DeleteAsync(path + "/screen-capture/providers/" + providerId)).EnsureSuccessStatusCode();
-        Assert.Equal("CAPTURE_CANCELLED", Code(await call));
-        Assert.Equal("RENDERER_UNAVAILABLE", Code(await Call("render_screen", new { screenId })));
+        Assert.Equal("RENDER_UNAVAILABLE", Code(await call));
+        Assert.Equal("RENDER_UNAVAILABLE", Code(await Call("render_screen", new { screenId })));
         Assert.NotEqual(true, (await Call("get_document")).IsError);
     }
 }

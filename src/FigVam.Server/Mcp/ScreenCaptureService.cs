@@ -36,18 +36,15 @@ public sealed class ScreenCaptureService : IScreenCaptureService
 
     public sealed class Provider
     {
-        internal Provider(Guid documentId, string userId, string? sessionId, Guid screenId,
-            McpDocumentGrant[] grants, CancellationToken lifetime, Func<bool> sessionActive)
+        internal Provider(Guid documentId, string userId, string? sessionId, CancellationToken lifetime, Func<bool> sessionActive)
         {
-            DocumentId = documentId; UserId = userId; SessionId = sessionId; ScreenId = screenId;
-            Grants = grants; Lifetime = lifetime; SessionActive = sessionActive;
+            DocumentId = documentId; UserId = userId; SessionId = sessionId;
+            Lifetime = lifetime; SessionActive = sessionActive;
         }
         public Guid Id { get; } = Guid.NewGuid();
         public Guid DocumentId { get; }
         public string UserId { get; }
         public string? SessionId { get; }
-        public Guid ScreenId { get; }
-        internal McpDocumentGrant[] Grants { get; }
         internal CancellationToken Lifetime { get; }
         internal Func<bool> SessionActive { get; }
         internal bool Closed { get; set; }
@@ -58,21 +55,19 @@ public sealed class ScreenCaptureService : IScreenCaptureService
             SessionActive();
     }
 
-    internal sealed record Pending(ScreenCaptureRequest Request)
+    internal sealed record Pending(ScreenCaptureRequest Request, McpDocumentGrant Grant)
     {
         public TaskCompletionSource<ScreenCaptureResult> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
-    public Provider? Register(Guid documentId, string userId, string? sessionId, Guid screenId,
-        McpDocumentGrant[] grants, CancellationToken lifetime, Func<bool> sessionActive)
+    public Provider? Register(Guid documentId, string userId, string? sessionId, CancellationToken lifetime, Func<bool> sessionActive)
     {
         lock (sync)
         {
-            if (grants.Any(g => g.DocumentId != documentId || g.UserId != userId ||
-                g.CaptureRevoked.IsCancellationRequested) || lifetime.IsCancellationRequested ||
+            if (lifetime.IsCancellationRequested ||
                 providers.Count >= 128 || providers.Values.Count(p => p.UserId == userId) >= 5)
                 return null;
-            var provider = new Provider(documentId, userId, sessionId, screenId, grants, lifetime, sessionActive);
+            var provider = new Provider(documentId, userId, sessionId, lifetime, sessionActive);
             if (!provider.Available) return null;
             providers.Add(provider.Id, provider);
             return provider;
@@ -99,14 +94,15 @@ public sealed class ScreenCaptureService : IScreenCaptureService
 
     public bool IsPending(Provider provider, Guid requestId)
     {
-        lock (sync) return provider.Available && provider.Pending?.Request.RequestId == requestId;
+        lock (sync) return provider.Available && provider.Pending is { } pending &&
+            pending.Request.RequestId == requestId && !pending.Grant.CaptureRevoked.IsCancellationRequested;
     }
 
     public bool Complete(Provider provider, Guid requestId, Guid screenId, long revision, ScreenCaptureResult result)
     {
         lock (sync)
         {
-            if (!provider.Available || provider.Pending is not { } pending || pending.Request.RequestId != requestId)
+            if (!provider.Available || provider.Pending is not { } pending || pending.Request.RequestId != requestId || pending.Grant.CaptureRevoked.IsCancellationRequested)
                 return false;
             if (result.Code == "OK")
             {
@@ -128,12 +124,12 @@ public sealed class ScreenCaptureService : IScreenCaptureService
         {
             if (grant.CaptureRevoked.IsCancellationRequested) return new("CAPTURE_CANCELLED");
             var candidates = providers.Values.Where(p => p.Available && p.DocumentId == grant.DocumentId &&
-                p.UserId == grant.UserId && (p.Grants.Length == 0 || p.Grants.Contains(grant))).ToArray();
+                p.UserId == grant.UserId).ToArray();
             if (candidates.Length == 0) return new("RENDERER_UNAVAILABLE");
             var idle = candidates.FirstOrDefault(p => p.Pending is null);
             if (idle is null) return new("CAPTURE_FAILED");
             provider = idle;
-            pending = new(new(Guid.NewGuid(), grant.DocumentId, screenId, revision, theme, width, height));
+            pending = new(new(Guid.NewGuid(), grant.DocumentId, screenId, revision, theme, width, height), grant);
             provider.Pending = pending;
             provider.Events.Writer.TryWrite(new("CAPTURE", pending.Request));
         }

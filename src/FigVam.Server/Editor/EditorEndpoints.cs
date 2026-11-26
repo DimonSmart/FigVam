@@ -11,7 +11,7 @@ public static class EditorEndpoints
                 context.Response.Headers.CacheControl = "no-store";
                 context.Response.Headers.XContentTypeOptions = "nosniff";
                 context.Response.Headers["Referrer-Policy"] = "no-referrer";
-                context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src blob:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+                context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src blob: data:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
                 return Results.File(Path.Combine(AppContext.BaseDirectory, "wwwroot", name), contentType);
             }).AllowAnonymous().DisableRateLimiting().ExcludeFromDescription();
         }

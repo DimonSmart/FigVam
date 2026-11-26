@@ -5,7 +5,7 @@ namespace FigVam.Server.Tests;
 public sealed class McpScreenCaptureTests
 {
     [Fact]
-    public async Task RoutesOnlyToTheMatchingScreenAndExactGrant()
+    public async Task RoutesAnyScreenOnlyToTheMatchingDocumentAndUser()
     {
         var registry = new McpAccessRegistry();
         var service = new ScreenCaptureService();
@@ -14,13 +14,10 @@ public sealed class McpScreenCaptureTests
         var alice = registry.Grant(doc, "alice");
         var bob = registry.Grant(doc, "bob");
         Assert.Equal("RENDERER_UNAVAILABLE", (await service.CaptureAsync(alice, screen, 4, default)).Code);
-        var otherScreen = service.Register(doc, "alice", null, Guid.NewGuid(), [alice], default, () => true)!;
-        Assert.Equal("SCREEN_NOT_DISPLAYED", (await service.CaptureAsync(alice, screen, 4, default)).Code);
-        var provider = service.Register(doc, "alice", "session-a", screen, [alice], default, () => true)!;
+        var provider = service.Register(doc, "alice", "session-a", default, () => true)!;
         Assert.Null(service.Find(provider.Id, doc, "bob", "session-a"));
         Assert.Null(service.Find(provider.Id, doc, "alice", "session-b"));
         Assert.Null(service.Find(provider.Id, Guid.NewGuid(), "alice", "session-a"));
-        Assert.Null(service.Register(doc, "alice", null, screen, [bob], default, () => true));
         Assert.Equal("RENDERER_UNAVAILABLE", (await service.CaptureAsync(bob, screen, 4, default)).Code);
         Assert.Equal("RENDERER_UNAVAILABLE", (await service.CaptureAsync(registry.Grant(Guid.NewGuid(), "alice"), screen, 4, default)).Code);
         var call = service.CaptureAsync(alice, screen, 4, default);
@@ -28,7 +25,6 @@ public sealed class McpScreenCaptureTests
         Assert.Equal(doc, request.DocumentId);
         Assert.Equal(screen, request.ScreenId);
         Assert.Equal(4, request.Revision);
-        Assert.False(otherScreen.Reader.TryRead(out _));
         var image = ScreenCaptureResult.FromPng(DocumentAssetTests.Png());
         Assert.Equal("OK", image.Code);
         Assert.False(service.Complete(provider, Guid.NewGuid(), screen, 4, image));
@@ -40,19 +36,18 @@ public sealed class McpScreenCaptureTests
         Assert.Equal(DocumentAssetTests.Png(), result.Png);
         Assert.False(service.Complete(provider, request.RequestId, screen, 4, image));
         service.Disconnect(provider);
-        service.Disconnect(otherScreen);
     }
 
     [Theory]
     [InlineData(false, 3, "RENDER_REVISION_MISMATCH")]
-    [InlineData(true, 4, "SCREEN_NOT_DISPLAYED")]
+    [InlineData(true, 4, "CAPTURE_FAILED")]
     public async Task RejectsMismatchedImageMetadata(bool wrongScreen, long revision, string code)
     {
         var registry = new McpAccessRegistry();
         var service = new ScreenCaptureService();
         var doc = Guid.NewGuid(); var screen = Guid.NewGuid();
         var grant = registry.Grant(doc, "alice");
-        var provider = service.Register(doc, "alice", null, screen, [grant], default, () => true)!;
+        var provider = service.Register(doc, "alice", null, default, () => true)!;
         var call = service.CaptureAsync(grant, screen, 4, default);
         var request = (await provider.Reader.ReadAsync()).Request;
         Assert.True(service.Complete(provider, request.RequestId, wrongScreen ? Guid.NewGuid() : screen, revision,
@@ -70,7 +65,7 @@ public sealed class McpScreenCaptureTests
         var doc = Guid.NewGuid(); var screen = Guid.NewGuid();
         var grant = registry.Grant(doc, "alice");
         var service = new ScreenCaptureService(TimeSpan.FromMilliseconds(100));
-        var provider = service.Register(doc, "alice", null, screen, [grant], default, () => true)!;
+        var provider = service.Register(doc, "alice", null, default, () => true)!;
         var image = ScreenCaptureResult.FromPng(DocumentAssetTests.Png());
         var call = service.CaptureAsync(grant, screen, 4, default);
         var request = (await provider.Reader.ReadAsync()).Request;
@@ -91,7 +86,7 @@ public sealed class McpScreenCaptureTests
         Assert.False(service.Complete(provider, request.RequestId, screen, 4, image));
 
         service = new ScreenCaptureService();
-        provider = service.Register(doc, "alice", null, screen, [grant], default, () => true)!;
+        provider = service.Register(doc, "alice", null, default, () => true)!;
         using var lease = await registry.EnterAsync(grant, default);
         call = service.CaptureAsync(grant, screen, 4, default);
         request = (await provider.Reader.ReadAsync()).Request;
@@ -101,7 +96,7 @@ public sealed class McpScreenCaptureTests
         lease!.Dispose();
         await revoke;
         Assert.Null(registry.Resolve(grant.Token));
-        Assert.Null(service.Register(doc, "alice", null, screen, [grant], default, () => true));
+        Assert.Equal("CAPTURE_CANCELLED", (await service.CaptureAsync(grant, screen, 4, default)).Code);
         service.Disconnect(provider);
     }
 
@@ -125,7 +120,7 @@ public sealed class McpScreenCaptureTests
         var grant = registry.Grant(doc, "alice");
         var service = new ScreenCaptureService();
         var active = true;
-        var provider = service.Register(doc, "alice", "session", screen, [grant], default, () => active)!;
+        var provider = service.Register(doc, "alice", "session", default, () => active)!;
         var call = service.CaptureAsync(grant, screen, 4, default);
         var request = (await provider.Reader.ReadAsync()).Request;
         active = false;

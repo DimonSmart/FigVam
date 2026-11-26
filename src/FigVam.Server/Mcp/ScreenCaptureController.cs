@@ -1,5 +1,4 @@
 using System.Text.Json;
-using FigVam.Application.Documents;
 using FigVam.Server.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
@@ -29,7 +28,7 @@ public sealed class ScreenCaptureController(ScreenCaptureService captures) : Con
             duration = TimeSpan.FromSeconds(Math.Min(duration.TotalSeconds, expiry - DateTimeOffset.UtcNow.ToUnixTimeSeconds()));
         if (duration <= TimeSpan.Zero) return Unauthorized();
         lifetime.CancelAfter(duration);
-        var provider = captures.Register(documentId, actor.Id, sessionId, Guid.Empty, [], lifetime.Token, SessionActive);
+        var provider = captures.Register(documentId, actor.Id, sessionId, lifetime.Token, SessionActive);
         if (provider is null) return Conflict(new { code = "RENDERER_UNAVAILABLE" });
         Response.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-store";
@@ -90,7 +89,7 @@ public sealed class ScreenCaptureController(ScreenCaptureService captures) : Con
         }
         ScreenCaptureResult result;
         if (code is not null && code != "OK")
-            result = new(code is "SCREEN_NOT_DISPLAYED" or "RENDER_REVISION_MISMATCH" or "CAPTURE_CANCELLED" or "IMAGE_TOO_LARGE" or "CAPTURE_TIMEOUT"
+            result = new(code is "RENDER_REVISION_MISMATCH" or "CAPTURE_CANCELLED" or "IMAGE_TOO_LARGE" or "CAPTURE_TIMEOUT"
                 ? code : "CAPTURE_FAILED");
         else if (Request.ContentType != "image/png") result = new("CAPTURE_FAILED");
         else if (Request.ContentLength > ScreenCaptureResult.MaxPngBytes) result = new("IMAGE_TOO_LARGE");

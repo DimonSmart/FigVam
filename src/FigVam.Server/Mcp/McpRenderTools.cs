@@ -39,7 +39,7 @@ public sealed class McpRenderTools(IHttpContextAccessor accessor, IDocumentStruc
             "RENDERER_UNAVAILABLE" => "RENDER_UNAVAILABLE",
             "CAPTURE_TIMEOUT" => "RENDER_TIMEOUT",
             "CAPTURE_CANCELLED" => "RENDER_UNAVAILABLE",
-            "CAPTURE_FAILED" or "SCREEN_NOT_DISPLAYED" => "RENDER_FAILED",
+            "CAPTURE_FAILED" => "RENDER_FAILED",
             _ => result.Code
         });
         if (result.Width != width || result.Height != height || result.Theme is not ("Light" or "Dark") ||

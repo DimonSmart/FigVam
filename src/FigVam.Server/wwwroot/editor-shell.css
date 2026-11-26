@@ -757,6 +757,3 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .theme-segments > button[aria-pressed="true"] { background: var(--ui-selected); color: var(--ui-accent); }
 .theme-segments > button:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
 
-/* The existing MCP menu is reparented into the Preview toolbar while playing. */
-#editor-preview .mcp-menu { position: relative; }
-#editor-preview .mcp-menu > .menu-body { position: absolute; z-index: 30; top: 100%; right: 0; max-height: 70vh; overflow: auto; background: white; color: #172033; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; box-shadow: 0 8px 24px #0002; }
