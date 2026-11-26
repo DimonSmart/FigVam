@@ -4,13 +4,13 @@ import { Button } from '../../ui/Button';
 import type { components } from '../../api/schema.generated';
 import type { ApiClient } from '../../api/api-client';
 
-type Item = components['schemas']['StructureDiagnostic'];
+type Item = Pick<components['schemas']['StructureDiagnostic'], 'code' | 'path' | 'message'> & Partial<Pick<components['schemas']['StructureDiagnostic'], 'property' | 'referenceId'>>;
 interface Context { documentId: string | null; screen: string | null; revision: number | null; token: string | null; navigationEpoch: number }
 interface State { status: string; error: string; items: Item[]; offset: number; total: number; retry: boolean }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 function item(value: unknown): value is Item {
   return record(value) && typeof value.code === 'string' && typeof value.path === 'string' && typeof value.message === 'string' &&
-    (value.property === null || typeof value.property === 'string') && (value.referenceId === null || typeof value.referenceId === 'string');
+    (value.property == null || typeof value.property === 'string') && (value.referenceId == null || typeof value.referenceId === 'string');
 }
 function Diagnostics({state, previous, next, reload}: {state: State; previous(): void; next(): void; reload(): void}) {
   return <>

@@ -183,7 +183,7 @@ test('token grouping helpers handle mixed separators, hierarchy, relative names 
   const { pathToFileURL } = require('node:url');
   const { resolve } = require('node:path');
   const { tokenSegments, buildTokenGroups, shortTokenName, filteredTokens, tokensInGroup, qualifyTokenName, tokenNameError, tokenNameDiagnostics } =
-    await import(pathToFileURL(resolve(__dirname, '../../src/FigVam.Server/wwwroot/token-groups.js')).href);
+    await import(pathToFileURL(resolve(__dirname, '../../src/FigVam.Web/dist/token-groups.js')).href);
   const items = [
     { id:'1', name:'Accent.Button', type:'Color' },
     { id:'2', name:'Accent/Border', type:'Color' },
@@ -420,7 +420,7 @@ test('token controls use readable theme colors in light and dark editor workspac
 
 test('combined envelope preserves raw DTCG validation and rejects ambiguous envelope keys', async () => {
   const {pathToFileURL} = require('node:url'), {resolve} = require('node:path');
-  const {splitTokenBundle} = await import(pathToFileURL(resolve(__dirname,'../../src/FigVam.Server/wwwroot/token-exchange.js')).href);
+  const {splitTokenBundle} = await import(pathToFileURL(resolve(__dirname,'../../src/FigVam.Web/dist/token-exchange.js')).href);
   const raw = '{"format":"figvam-tokens","version":1,"themes":{"Dark":{"a":1,"a":2},"Light":{"x":{"$value":"a, } \\" b"}}}}';
   const parts = splitTokenBundle(raw);
   expect(parts.darkJson).toBe('{"a":1,"a":2}');
