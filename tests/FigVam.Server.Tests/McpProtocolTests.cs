@@ -431,12 +431,12 @@ public sealed class McpProtocolTests
             (await Call("create_node", new { parentId = screenId, kind, properties })).GetProperty("nodeId").GetGuid();
         async Task<JsonElement> Properties(Guid nodeId) =>
             (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties");
-        async Task<Guid[]> RoundTrip(string kind, object compact)
+        async Task<Guid[]> RoundTrip(string kind, object compact, object? initialForEdit = null)
         {
             var source = await Create(kind, compact);
             var properties = await Properties(source);
             var created = await Create(kind, properties);
-            var edited = await Create(kind, compact);
+            var edited = await Create(kind, initialForEdit ?? new { });
             await Call("set_node_properties", new { nodeId = edited, properties });
             Equivalent(properties, await Properties(created));
             Equivalent(properties, await Properties(edited));
@@ -446,7 +446,7 @@ public sealed class McpProtocolTests
             {
                 var input = schema.GetProperty(property.Name).GetProperty("inputSchema");
                 var validator = JsonSchema.Build(input, new BuildOptions { SchemaRegistry = new SchemaRegistry() });
-                Assert.True(validator.EvaluateNode(System.Text.Json.Nodes.JsonNode.Parse(property.Value.GetRawText())).IsValid,
+                Assert.True(validator.EvaluateNode(System.Text.Json.Nodes.JsonNode.Parse(property.Value.GetRawText())!).IsValid,
                     $"Schema for {kind}.{property.Name} rejects {property.Value}");
             }
             return [source, created, edited];
@@ -514,10 +514,11 @@ public sealed class McpProtocolTests
         var styleId = Guid.NewGuid();
         async Task SetStyle(int red)
         {
-            var style = new { id = styleId, name = "button.text", type = "TextStyle",
+            var style = new { id = styleId, name = "button.text", type = 0,
                 fields = new { textColor = new { type = "color", red, green = 30, blue = 40, alpha = 255 } } };
-            (await user.PostAsJsonAsync(root + "/commands/upsert-style", new
-                { commandId = Guid.NewGuid(), expectedRevision = await Revision(), style })).EnsureSuccessStatusCode();
+            using var response = await user.PostAsJsonAsync(root + "/commands/upsert-style", new
+                { commandId = Guid.NewGuid(), expectedRevision = await Revision(), style });
+            Assert.True(response.IsSuccessStatusCode, await response.Content.ReadAsStringAsync());
         }
         await SetStyle(20);
 
@@ -534,7 +535,7 @@ public sealed class McpProtocolTests
                     color = new { type = "color", red = 15, green = 23, blue = 42, alpha = 28 } } });
         await RoundTrip("Text", new { text = "", wrap = false, fontWeight = 450, typography = new { tokenId = composite } });
         await RoundTrip("TextInput", new { placeholder = "Password", inputType = "Password", multiline = false });
-        await RoundTrip("Image", new { asset = new { assetId }, fit = "Cover", altText = "Icon" });
+        await RoundTrip("Image", new { asset = new { assetId }, fit = "Cover", altText = "Icon" }, new { asset = new { assetId } });
 
         // Mixed representations are equivalent to compact forms, including independently
         // tagged/untagged colors nested in shadows and order-independent discriminators.
@@ -563,6 +564,7 @@ public sealed class McpProtocolTests
             Assert.Equal(200.25, box.GetProperty("bounds").GetProperty("width").GetDouble());
             var effective = layout.GetProperty("overrides").EnumerateArray().Single(o => o.GetProperty("nodeId").GetGuid() == button).GetProperty("properties");
             Assert.Equal(99, effective.GetProperty("textColor").GetProperty("red").GetInt32());
+            Assert.Equal(17, effective.GetProperty("backgroundColor").GetProperty("red").GetInt32());
         }
 
         var before = await Revision();
