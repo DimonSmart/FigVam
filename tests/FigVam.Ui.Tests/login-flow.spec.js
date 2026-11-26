@@ -148,7 +148,7 @@ test('designs two linked login screens and previews invalid password through UI'
   await page.getByLabel('Light', { exact: true }).fill('32');
   await page.getByLabel('Dark', { exact: true }).fill('32');
   await page.getByRole('button', { name: 'Создать токен' }).click();
-  await expect(page.locator('#token-values')).toHaveText('Light: 32; Dark: 32');
+  await expect(page.locator('#token-light')).toHaveValue('32'); await expect(page.locator('#token-dark')).toHaveValue('32');
   await show(page, 'layers');
   await selectLayer(page, frame);
   const padding = page.locator('#visual-inspector .padding-editor');

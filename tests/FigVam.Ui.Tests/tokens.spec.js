@@ -6,17 +6,19 @@ async function open(page) {
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await page.getByLabel('Имя нового документа').fill('Tokens'); await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
   await show(page, 'tokens');
-  await expect(page.getByRole('heading', { name: 'Дизайн-токены' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Токены', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Дизайн-токены' })).toHaveCount(0);
 }
 test('creates, renames, updates and follows direct usages', async ({ page, request }) => {
   await open(page); await page.locator('#new-token-open').click(); await page.getByLabel('Имя токена', { exact: true }).fill('Space');
   await page.getByLabel('Тип токена').selectOption('Spacing');
   await page.getByLabel('Light', { exact: true }).fill('8'); await page.getByLabel('Dark', { exact: true }).fill('12');
-  await page.getByRole('button', { name: 'Создать токен' }).click(); await expect(page.locator('#token-values')).toHaveText('Light: 8; Dark: 12');
-  await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByRole('button', { name: 'Переименовать токен' }).click();
+  await page.getByRole('button', { name: 'Создать токен' }).click(); await expect(page.locator('#token-light')).toHaveValue('8'); await expect(page.locator('#token-dark')).toHaveValue('12');
+  await page.getByRole('button', { name: 'Переименовать токен', exact: true }).click();
+  await page.getByLabel('Новое имя токена').fill('Gap'); await page.getByLabel('Новое имя токена').press('Enter');
   await expect(page.locator('#token-detail-title')).toHaveText('Gap');
-  await page.getByRole('region', { name: 'Дизайн-токены' }).getByLabel('Тема', { exact: true }).selectOption('Dark'); await page.getByLabel('Новое значение').fill('24');
-  await page.getByRole('button', { name: 'Сохранить значение' }).click(); await expect(page.locator('#token-values')).toHaveText('Light: 8; Dark: 24');
+  await page.locator('#token-dark').fill('24'); await page.locator('#token-dark').press('Enter');
+  await expect(page.locator('#tokens-list')).toContainText('24 px'); await expect(page.locator('#token-light')).toHaveValue('8');
   const doc = page.url().split('/').pop(), headers = { Authorization: `Bearer ${bearer}` };
   const tokens = await (await request.get(`/api/v1/documents/${doc}/tokens`, { headers })).json();
   const alias = { expression: 'alias', tokenId: tokens.items[0].id };
@@ -38,7 +40,7 @@ test('viewer inspects tokens without mutation controls', async ({ page }) => {
   const literal = { expression: 'literal', value: { type: 'spacing', value: 8 } };
   expect((await page.request.post(`/api/v1/documents/${id}/commands/add-token`, { headers, data: { commandId: randomUUID(), tokenId: randomUUID(), name: 'Space', type: 1, values: { Light: literal, Dark: literal } } })).ok()).toBeTruthy();
   await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'tokens');
-  await page.getByRole('button', { name: 'Space', exact: true }).click(); await expect(page.locator('#token-values')).toContainText('Light: 8');
+  await page.getByRole('button', { name: 'Space', exact: true }).click(); await expect(page.locator('#token-light')).toHaveValue('8'); await expect(page.locator('#token-light')).toBeDisabled();
   await expect(page.locator('#token-usages')).toContainText('Использований нет');
   await expect(page.getByRole('button', { name: 'Создать токен' })).toBeHidden(); await expect(page.getByRole('button', { name: 'Переименовать токен' })).toBeHidden();
 });
@@ -47,9 +49,9 @@ test('creates and updates color values including alpha', async ({ page }) => {
   await open(page); await page.locator('#new-token-open').click(); await page.getByLabel('Имя токена', { exact: true }).fill('Ink');
   await page.getByLabel('Light', { exact: true }).fill('#123456'); await page.getByLabel('Dark', { exact: true }).fill('#ABCDEF80');
   await page.getByRole('button', { name: 'Создать токен' }).click();
-  await expect(page.locator('#token-values')).toHaveText('Light: #123456FF; Dark: #ABCDEF80');
-  await page.getByLabel('Новое значение').fill('#01020304'); await page.getByRole('button', { name: 'Сохранить значение' }).click();
-  await expect(page.locator('#token-values')).toHaveText('Light: #01020304; Dark: #ABCDEF80');
+  await expect(page.locator('#token-light')).toHaveValue('#123456FF'); await expect(page.locator('#token-dark')).toHaveValue('#ABCDEF80');
+  await page.locator('#token-light').fill('#01020304'); await page.locator('#token-light').press('Enter');
+  await expect(page.locator('#tokens-list')).toContainText('#01020304'); await expect(page.locator('#token-dark')).toHaveValue('#ABCDEF80');
 });
 
 test('creates categorized font-size tokens and multi-level theme aliases with the current profile', async ({ page }) => {
@@ -61,22 +63,27 @@ test('creates categorized font-size tokens and multi-level theme aliases with th
   await page.getByLabel('Dark', { exact: true }).fill('18');
   await page.getByRole('button', { name: 'Создать токен' }).click();
   await expect(page.locator('#token-detail-title')).toHaveText('Body Size');
-  await expect(page.locator('#token-values')).toContainText('Light: 16; Dark: 18');
+  await expect(page.locator('#token-light')).toHaveValue('16'); await expect(page.locator('#token-dark')).toHaveValue('18');
   await page.locator('#new-token-open').click(); await page.getByLabel('Имя токена', { exact: true }).fill('Semantic Size');
   await page.locator('#new-token-type').selectOption('Dimension');
   await page.locator('#new-token-category').selectOption('FontSize');
-  await page.locator('#new-token-light-mode').selectOption('alias');
-  await page.locator('#new-token-dark-mode').selectOption('alias');
-  await page.locator('#new-token-light-alias').selectOption({ label: 'Body Size' });
-  await page.locator('#new-token-dark-alias').selectOption({ label: 'Body Size' });
+  for (const theme of ['Light','Dark']) {
+    const row = page.locator('#new-token-values').locator('[data-theme="' + theme + '"]');
+    await row.getByRole('button', { name: 'Привязать токен' }).click();
+    await row.getByRole('button', { name: /Body Size/ }).click();
+  }
   await page.getByRole('button', { name: 'Создать токен' }).click();
-  await expect(page.locator('#token-values')).toContainText('↳ Body Size');
+  await expect(page.locator('#token-values .token-value-name')).toHaveText(['Body Size','Body Size']);
   await expect(page.locator('#tokens-list')).toContainText('Dimension.FontSize');
-  await page.locator('#token-theme').selectOption('Dark');
-  await page.locator('#token-mode').selectOption('literal');
-  await page.getByLabel('Новое значение').fill('20');
-  await page.getByRole('button', { name: 'Сохранить значение' }).click();
-  await expect(page.locator('#token-values')).toContainText('Dark: 20');
+  const dark = page.locator('#token-values [data-theme="Dark"]');
+  await dark.getByRole('button', { name: 'Изменить привязку токена' }).click();
+  await dark.getByRole('button', { name: 'Отвязать токен' }).click();
+  await expect(page.locator('#token-dark')).toHaveValue('18');
+  await expect(page.locator('#token-detail')).not.toHaveAttribute('inert','');
+  await page.locator('#token-dark').fill('20');
+  await page.locator('#token-dark').press('Enter');
+  await expect(page.locator('#tokens-list')).toContainText('20 px');
+  await expect(page.locator('#token-values [data-theme="Light"] .token-value-name')).toHaveText('Body Size');
 });
 
 test('group tree, global search, type filter, conflicts and deletion', async ({ page }) => {
@@ -95,9 +102,9 @@ test('group tree, global search, type filter, conflicts and deletion', async ({ 
   await add('Accent/Border','Color','#000000');
   await add('Spacing.Small','Spacing','8');
   await page.getByRole('button', { name: 'Свернуть все группы', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Accent · 2', exact: true })).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Accent', exact: true })).toBeHidden();
   await page.getByRole('button', { name: 'Раскрыть все группы', exact: true }).click();
-  await page.getByRole('button', { name: 'Accent · 2', exact: true }).click();
+  await page.getByRole('button', { name: 'Accent', exact: true }).click();
   const table = page.locator('#tokens-list');
   await expect(table.getByRole('button', {name:'Button',exact:true})).toBeVisible();
   await expect(table.getByRole('button', {name:'Border',exact:true})).toBeVisible();
@@ -209,12 +216,12 @@ test('hundreds of persisted tokens stay navigable without a domain format change
   });
   expect(imported.ok(), await imported.text()).toBeTruthy();
   await expect(page.locator('#tokens-list tr')).toHaveCount(300);
-  await page.getByRole('button',{name:'Group5 · 30',exact:true}).click();
+  await page.getByRole('button',{name:'Group5',exact:true}).click();
   await expect(page.locator('#tokens-list tr')).toHaveCount(30);
   await page.locator('#token-search').fill('Group7.Item19');
   await expect(page.locator('#tokens-list tr')).toHaveCount(1);
   await page.getByRole('button',{name:'Group7.Item19',exact:true}).click();
-  await expect(page.locator('#token-values')).toContainText('Light: #000000FF');
+  await expect(page.locator('#token-light')).toHaveValue('#000000FF');
   await page.reload();
   await page.getByLabel('Bearer-токен', {exact:true}).fill(bearer);
   await page.getByRole('button',{name:'Продолжить',exact:true}).click();

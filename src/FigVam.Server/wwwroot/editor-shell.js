@@ -352,14 +352,15 @@ export function createEditorShell({ beforePrototypeLeave = () => true } = {}) {
   importForm.append(mappingLabel, importSubmit, importCancel);
   const placeholder = el('p', 'token-placeholder', 'Выберите токен или создайте новый.'); placeholder.id = 'token-placeholder';
   const tokenDiagnostic = el('p', 'token-invalid'); tokenDiagnostic.id = 'token-detail-diagnostic'; tokenDiagnostic.setAttribute('role','status');
-  byId('token-detail-title').after(tokenDiagnostic);
+  byId('token-detail-type').after(tokenDiagnostic);
   const cancelNew = el('button', '', 'Отмена'); cancelNew.id = 'new-token-cancel'; cancelNew.type = 'button'; byId('token-create').append(cancelNew);
   const table = el('table', 'token-table'); table.setAttribute('aria-label','Токены документа');
   const head = table.createTHead().insertRow();
   for (const name of ['Имя','Тип','Light','Dark','Источник','Usages','Статус']) { const th = el('th', '', name); th.scope = 'col'; head.append(th); }
   const body = table.createTBody(); body.id = 'tokens-list';
   byId('tokens-list').remove();
-  tokenHeader.append(byId('tokens-title'), newToken, search, typeFilter, exchange);
+  tokenPage.removeAttribute('aria-labelledby'); tokenPage.setAttribute('aria-label', 'Токены');
+  tokenHeader.append(newToken, search, typeFilter, exchange);
   tokenTable.append(table);
   tokenDetails.append(placeholder, byId('token-create'), byId('token-detail'));
   tokenGrid.append(tokenGroups, tokenTable, tokenDetails);

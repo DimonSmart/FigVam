@@ -336,51 +336,19 @@
               </select>
               <label id="new-token-category-label" for="new-token-category" hidden>Назначение</label>
               <select id="new-token-category" hidden></select>
-              <fieldset><legend>Light</legend>
-                <label for="new-token-light-mode">Источник значения</label>
-                <select id="new-token-light-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
-                <input id="new-token-light" aria-label="Light" required>
-                <div id="new-token-light-typography" class="token-typography-fields" hidden></div>
-                <select id="new-token-light-weight-preset" aria-label="Пресет толщины Light" hidden>
-                  <option value="">Числовое значение</option>
-                  <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
-                  <option value="600">Semibold (600)</option><option value="700">Bold (700)</option>
-                </select>
-                <input id="new-token-light-picker" aria-label="Выбрать цвет Light" type="color" hidden>
-                <select id="new-token-light-alias" aria-label="Токен Light" hidden></select>
-              </fieldset>
-              <fieldset><legend>Dark</legend>
-                <label for="new-token-dark-mode">Источник значения</label>
-                <select id="new-token-dark-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
-                <input id="new-token-dark" aria-label="Dark" required>
-                <div id="new-token-dark-typography" class="token-typography-fields" hidden></div>
-                <select id="new-token-dark-weight-preset" aria-label="Пресет толщины Dark" hidden>
-                  <option value="">Числовое значение</option>
-                  <option value="400">Normal (400)</option><option value="500">Medium (500)</option>
-                  <option value="600">Semibold (600)</option><option value="700">Bold (700)</option>
-                </select>
-                <input id="new-token-dark-picker" aria-label="Выбрать цвет Dark" type="color" hidden>
-                <select id="new-token-dark-alias" aria-label="Токен Dark" hidden></select>
-              </fieldset>
+              <div id="new-token-values" class="token-theme-values"></div>
               <button type="submit">Создать токен</button></form>
-            <div id="token-detail" hidden><h3 id="token-detail-title"></h3>
-              <p id="token-detail-type"></p>
-              <p id="token-values"></p>
-              <div id="token-edit" hidden>
-                <form id="token-rename"><label for="token-name">Новое имя токена</label><input id="token-name" required maxlength="256"><button type="submit">Переименовать токен</button></form>
-                <form id="token-set">
-                  <label for="token-theme">Тема</label><select id="token-theme"><option value="Light">Light</option><option value="Dark">Dark</option></select>
-                  <label for="token-mode">Источник</label><select id="token-mode"><option value="literal">Прямое</option><option value="alias">Другой токен</option></select>
-                  <label for="token-value">Новое значение</label><input id="token-value">
-                   <div id="token-typography" class="token-typography-fields" hidden></div>
-                  <input id="token-value-picker" type="color" aria-label="Выбрать цвет" hidden>
-                  <select id="token-value-alias" aria-label="Ссылка на другой токен" hidden></select>
-                  <select id="token-font-weight-preset" aria-label="Пресет толщины шрифта" hidden>
-                    <option value="">Числовое значение</option><option value="400">Normal (400)</option>
-                    <option value="500">Medium (500)</option><option value="600">Semibold (600)</option><option value="700">Bold (700)</option>
-                  </select>
-                  <button type="submit">Сохранить значение</button>
+            <div id="token-detail" hidden>
+              <div class="token-name-header"><h3 id="token-detail-title"></h3>
+                <button id="token-rename-open" class="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен">✎</button>
+                <form id="token-rename" hidden><input id="token-name" aria-label="Новое имя токена" required maxlength="256">
+                  <button type="submit" class="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя">✓</button>
+                  <button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена">×</button>
                 </form>
+              </div>
+              <p id="token-detail-type"></p>
+              <div id="token-values" class="token-theme-values"></div>
+              <div id="token-edit" hidden>
                 <button id="token-delete" type="button">Удалить неиспользуемый токен</button>
               </div>
               <h4>Использования</h4><ul id="token-usages" aria-label="Прямые и косвенные использования токена"></ul></div>
