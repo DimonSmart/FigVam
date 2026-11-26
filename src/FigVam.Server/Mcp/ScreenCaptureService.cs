@@ -158,6 +158,7 @@ public sealed class ScreenCaptureService : IScreenCaptureService
             Provider? provider = null;
             Pending? pending = null;
             Task? changed = null;
+            var waitForSlot = false;
             lock (sync)
             {
                 if (grant.CaptureRevoked.IsCancellationRequested) return new("CAPTURE_CANCELLED");
@@ -167,10 +168,19 @@ public sealed class ScreenCaptureService : IScreenCaptureService
                 if (candidates.Length > 0)
                 {
                     provider = candidates.FirstOrDefault(p => p.Pending is null);
-                    if (provider is null) return new("CAPTURE_FAILED");
-                    pending = new(new(Guid.NewGuid(), grant.DocumentId, screenId, revision, theme, width, height), grant);
-                    provider.Pending = pending;
-                    provider.Events.Writer.TryWrite(new("CAPTURE", pending.Request));
+                    if (provider is null)
+                    {
+                        // Independent grants can target the same browser. Queue instead of
+                        // rejecting a concurrent render, preserving its own theme and revision.
+                        waitForSlot = true;
+                        changed = providerChanged.Task;
+                    }
+                    else
+                    {
+                        pending = new(new(Guid.NewGuid(), grant.DocumentId, screenId, revision, theme, width, height), grant);
+                        provider.Pending = pending;
+                        provider.Events.Writer.TryWrite(new("CAPTURE", pending.Request));
+                    }
                 }
                 else
                 {
@@ -186,10 +196,11 @@ public sealed class ScreenCaptureService : IScreenCaptureService
             if (changed is not null)
             {
                 var grace = ReconnectGrace - TimeSpan.FromMilliseconds(Environment.TickCount64 - started);
-                var wait = remaining < grace ? remaining : grace;
-                if (wait <= TimeSpan.Zero) return new("RENDERER_UNAVAILABLE");
+                var wait = waitForSlot ? remaining : remaining < grace ? remaining : grace;
+                var timeoutCode = waitForSlot ? "CAPTURE_TIMEOUT" : "RENDERER_UNAVAILABLE";
+                if (wait <= TimeSpan.Zero) return new(timeoutCode);
                 try { await changed.WaitAsync(wait, grantLifetime.Token); }
-                catch (TimeoutException) { return new("RENDERER_UNAVAILABLE"); }
+                catch (TimeoutException) { return new(timeoutCode); }
                 catch (OperationCanceledException) when (!ct.IsCancellationRequested) { return new("CAPTURE_CANCELLED"); }
                 continue;
             }
@@ -220,7 +231,11 @@ public sealed class ScreenCaptureService : IScreenCaptureService
         {
             lock (sync)
             {
-                if (ReferenceEquals(provider.Pending, pending)) provider.Pending = null;
+                if (ReferenceEquals(provider.Pending, pending))
+                {
+                    provider.Pending = null;
+                    SignalProviderChanged();
+                }
                 if (!pending.Completion.Task.IsCompleted)
                     provider.Events.Writer.TryWrite(new("CANCEL", pending.Request));
             }

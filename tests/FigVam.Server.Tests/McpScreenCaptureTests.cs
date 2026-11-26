@@ -121,6 +121,34 @@ public sealed class McpScreenCaptureTests
     }
 
     [Fact]
+    public async Task ConcurrentGrantsQueueIndependentThemesOnOneProvider()
+    {
+        var registry = new McpAccessRegistry();
+        var service = new ScreenCaptureService();
+        var doc = Guid.NewGuid();
+        var screen = Guid.NewGuid();
+        var direct = registry.Grant(doc, "alice");
+        var tunnel = registry.GrantTunnel(doc, "alice")!;
+        var provider = service.Register(doc, "alice", null, default, () => true)!;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var image = ScreenCaptureResult.FromPng(DocumentAssetTests.Png());
+        var light = service.CaptureAsync(direct, screen, 4, deadline.Token, "Light", image.Width, image.Height);
+        var first = (await provider.Reader.ReadAsync(deadline.Token)).Request;
+        var dark = service.CaptureAsync(tunnel, screen, 4, deadline.Token, "Dark", image.Width, image.Height);
+        Assert.False(dark.IsCompleted);
+        Assert.Equal("Light", first.Theme);
+        Assert.True(service.Complete(provider, first.RequestId, screen, 4, image with { Theme = "Light" }));
+        Assert.Equal("Light", (await light).Theme);
+        var second = (await provider.Reader.ReadAsync(deadline.Token)).Request;
+        Assert.NotEqual(first.RequestId, second.RequestId);
+        Assert.Equal("Dark", second.Theme);
+        Assert.False(service.Complete(provider, first.RequestId, screen, 4, image with { Theme = "Light" }));
+        Assert.True(service.Complete(provider, second.RequestId, screen, 4, image with { Theme = "Dark" }));
+        Assert.Equal("Dark", (await dark).Theme);
+        service.Disconnect(provider);
+    }
+
+    [Fact]
     public async Task SharedProviderReconnectsDuringAnAutonomousCapture()
     {
         var registry = new McpAccessRegistry();

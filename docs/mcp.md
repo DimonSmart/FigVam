@@ -46,7 +46,7 @@ AppHost сам подставляет актуальный HTTP loopback endpoin
 В ChatGPT один раз создайте приватный custom MCP plugin: Connection = Tunnel, выберите
 FigVam, Authentication = No authentication, затем установите его. Служебный ключ добавляет сам
 tunnel-client, а не ChatGPT; в плагине не надо вводить ни API key, ни ключ документа.
-Статические схемы 31 инструмента доступны для регистрации ещё до разрешения документа.
+Статические схемы 33 инструментов доступны для регистрации ещё до разрешения документа.
 Без разрешения каждый tools/call отклоняется с MCP_TUNNEL_ACCESS_REQUIRED.
 
 В редакторе откройте нужный документ → **MCP-доступ → ChatGPT Tunnel → Разрешить доступ через ChatGPT**.
@@ -71,7 +71,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 1. Убедитесь, что без TunnelId AppHost запускается как раньше.
 2. Настройте TunnelId и Runtime API key, запустите Aspire, проверьте, что tunnel-client не запущен автоматически.
-3. Запустите ресурс вручную, проверьте логи подключения и наличие 31 tools при добавлении плагина.
+3. Запустите ресурс вручную, проверьте логи подключения и наличие 33 tools при добавлении плагина.
 4. До разрешения вызов get_document должен вернуть MCP_TUNNEL_ACCESS_REQUIRED.
 5. Разрешите документ A, создайте экран через ChatGPT и проверьте изменения в редакторе.
 6. Попробуйте разрешить B, пока A активен: переключение не должно произойти. Отзовите A, убедитесь,
@@ -82,7 +82,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 ## Инструменты
 
-Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_tokens`, `list_scenarios`, `get_screen_layout`.
+Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `list_scenarios`, `get_screen_layout`.
 
 Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
 
@@ -92,7 +92,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 Свойства определяются профилем (get_node_schema). В описании каждого свойства поле inputSchema содержит JSON Schema именно для входного значения create_node / set_node_properties, включая канонические значения, возвращаемые get_node. Для составных значений схемы генерируются из тех же типизированных DTO, которые десериализует сервер. anyOf описывает альтернативные формы, например литерал цвета и ссылку на токен. Проверки существования и совместимости ссылок по-прежнему выполняются в контексте документа. В восьмизначных HEX-цветах альфа-канал находится в конце. Передавайте числа, строки, логические значения, цвета #RRGGBB или #RRGGBBAA, ссылки {"tokenId":"UUID"} и тени {"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}. Канонические формы чисел, строк, логических значений и enum: {"type":"number|string|boolean|enum","value":...} (используйте фактический type). Цвет: {"type":"color","red":37,"green":99,"blue":235,"alpha":255}; внутри тени цвет может быть HEX или RGBA с type=color или без него, у самой тени type=shadow необязателен. Ссылки принимаются с type=token, asset или style и соответствующим tokenId, assetId или styleId, либо без type. Свойства можно смешивать в одном запросе; весь объект properties из get_node можно передать без преобразований совместимому узлу. Ссылки не заменяются вычисленными значениями.
 
-Для create_token и set_token_value доступны компактные значения и выражения из list_tokens: {"expression":"alias","tokenId":"UUID"} и {"expression":"literal","value":{"type":"color","red":37,"green":99,"blue":235,"alpha":255}}. Типизированные значения литералов: color, spacing, geometry (поле radius), dimension, number, fontFamily, fontWeight, typography и typographyFields (атомарные выражения в полях типографики). Компактный create_token с типом Spacing без category сохраняет прежнее поведение (Dimension/Spacing); канонические выражения с типом Spacing сохраняют legacy-тип. Inline typography узла не является редактируемым типом текущего профиля; свойство typography принимает ссылку на токен. Создание и изменение самих стилей и загрузка ассетов не входят в MCP; существующие ссылки на них копируются. create_node и set_node_properties применяют свойства атомарно. move_node использует нулевой индекс и ожидаемого родителя. create_scenario и update_scenario принимают event и список actions, MVP поддерживает navigate со screenId. save_version создаёт именованную неизменяемую версию.
+Начните с `list_token_types` и `get_token_schema` (параметр type). Ответ содержит valueSchema, example, category, сведения о темах и ссылках; для Dimension и Number выбирайте обязательную категорию и соответствующую схему valueSchemaByCategory. Схемы являются операциями чтения; проверка наличия ссылок и циклов выполняется по документу. Для create_token и set_token_value доступны компактные значения и выражения из list_tokens: {"expression":"alias","tokenId":"UUID"} и {"expression":"literal","value":{"type":"color","red":37,"green":99,"blue":235,"alpha":255}}. Типизированные значения литералов: color, spacing, geometry (поле radius), dimension, number, fontFamily, fontWeight, typography и typographyFields (атомарные выражения в полях типографики). Компактный create_token с типом Spacing без category сохраняет прежнее поведение (Dimension/Spacing); канонические выражения с типом Spacing сохраняют legacy-тип. Inline typography узла не является редактируемым типом текущего профиля; свойство typography принимает ссылку на токен. Создание и изменение самих стилей и загрузка ассетов не входят в MCP; существующие ссылки на них копируются. create_node и set_node_properties применяют свойства атомарно. move_node использует нулевой индекс и ожидаемого родителя. create_scenario и update_scenario принимают event и список actions, MVP поддерживает navigate со screenId. save_version создаёт именованную неизменяемую версию.
 
 ## Property validation errors
 

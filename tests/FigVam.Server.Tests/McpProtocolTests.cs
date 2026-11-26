@@ -598,6 +598,104 @@ public sealed class McpProtocolTests
         Equivalent(original, await Properties(mixed));
     }
 
+    [Fact]
+    public async Task PublishedTokenSchemasMatchCreateAndUpdateThroughOfficialClient()
+    {
+        using var key = RSA.Create(2048);
+        var config = ServerTestIdentity.Production(key);
+        config["Storage__Directory"] = Path.Combine(Path.GetTempPath(), "figvam-token-schema-" + Guid.NewGuid().ToString("N"));
+        await using var server = new ServerProcess(config);
+        await server.WaitUntilReadyAsync();
+        using var user = server.CreateClient();
+        user.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "owner"));
+        var documentId = Guid.NewGuid();
+        (await user.PostAsJsonAsync("/api/v1/documents", new { documentId, name = "Token schema test" })).EnsureSuccessStatusCode();
+        using var grant = await user.PostAsync($"/api/v1/documents/{documentId}/mcp-access", null);
+        grant.EnsureSuccessStatusCode();
+        var access = await grant.Content.ReadFromJsonAsync<JsonElement>();
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(access.GetProperty("endpoint").GetString()!),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
+        }));
+        Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
+        bool Valid(JsonElement schema, JsonElement value)
+        {
+            var validator = JsonSchema.Build(schema, new BuildOptions { SchemaRegistry = new SchemaRegistry() });
+            return validator.EvaluateNode(System.Text.Json.Nodes.JsonNode.Parse(value.GetRawText())!).IsValid;
+        }
+        var initial = (await Call("get_document")).GetProperty("revision").GetInt64();
+        var names = (await Call("list_token_types")).GetProperty("types").EnumerateArray().Select(x => x.GetString()!).ToArray();
+        Assert.Equal(Enum.GetNames<FigVam.Domain.Tokens.TokenType>(), names);
+        var definitions = new Dictionary<string, JsonElement>();
+        foreach (var type in names)
+            definitions.Add(type, await Call("get_token_schema", new { type }));
+        Assert.Equal("INVALID_ENUM", (await Call("get_token_schema", new { type = "Unknown" }, true)).GetProperty("code").GetString());
+        Assert.Equal(initial, (await Call("get_document")).GetProperty("revision").GetInt64());
+        var ids = new Dictionary<string, Guid>();
+        foreach (var type in names)
+        {
+            var definition = definitions[type];
+            Assert.Equal(type, definition.GetProperty("type").GetString());
+            var tokenType = Enum.Parse<FigVam.Domain.Tokens.TokenType>(type);
+            var categories = definition.GetProperty("category").GetProperty("allowedValues").EnumerateArray().Select(x => x.GetString()!).ToArray();
+            Assert.Equal(Enum.GetValues<FigVam.Domain.Tokens.TokenCategory>()
+                .Where(c => FigVam.Domain.Tokens.DesignTokenValidator.ValidCategory(tokenType, c)).Select(c => c.ToString()).ToArray(), categories);
+            Assert.Equal(categories.Length > 0, definition.GetProperty("category").GetProperty("required").GetBoolean());
+            var example = definition.GetProperty("example");
+            Assert.True(Valid(definition.GetProperty("valueSchema"), example), type);
+            foreach (var category in categories.Length == 0 ? new string?[] { null } : categories)
+            {
+                var schema = category is null ? definition.GetProperty("valueSchema") : definition.GetProperty("valueSchemaByCategory").GetProperty(category);
+                Assert.True(Valid(schema, example), $"{type}/{category}");
+                var tokenId = (await Call("create_token", new { name = type + "." + category, type, category, light = example, dark = example })).GetProperty("tokenId").GetGuid();
+                ids.Add(type + category, tokenId);
+                await Call("set_token_value", new { tokenId, theme = "Dark", value = example });
+            }
+        }
+        var stored = (await Call("list_tokens", new { limit = 100 })).GetProperty("items");
+        foreach (var token in stored.EnumerateArray())
+        {
+            var type = token.GetProperty("type").GetString()!;
+            var definition = definitions[type];
+            var schema = token.TryGetProperty("category", out var category) && category.ValueKind != JsonValueKind.Null
+                ? definition.GetProperty("valueSchemaByCategory").GetProperty(category.GetString()!)
+                : definition.GetProperty("valueSchema");
+            foreach (var value in token.GetProperty("values").EnumerateObject())
+                Assert.True(Valid(schema, value.Value), $"{type}: {value.Value}");
+        }
+        var typography = definitions["Typography"].GetProperty("valueSchema");
+        var fields = JsonSerializer.SerializeToElement(new
+        {
+            expression = "literal", value = new
+            {
+                type = "typographyFields",
+                fontFamily = new { expression = "alias", tokenId = ids["FontFamily"] },
+                fontSize = new { expression = "alias", tokenId = ids["DimensionFontSize"] },
+                fontWeight = new { expression = "alias", tokenId = ids["FontWeight"] },
+                lineHeight = new { expression = "alias", tokenId = ids["NumberLineHeight"] }
+            }
+        });
+        Assert.True(Valid(typography, fields));
+        await Call("set_token_value", new { tokenId = ids["Typography"], theme = "Dark", value = fields });
+        foreach (var (type, category, value) in new (string, string?, object)[]
+        {
+            ("Color", null, "#xyz"), ("Geometry", null, -1), ("FontFamily", null, " "),
+            ("FontWeight", null, 1001), ("Dimension", "FontSize", 0), ("Number", "Opacity", 2),
+            ("Typography", null, new { fontFamily = "Arial", fontSize = 16, fontWeight = 400 })
+        })
+        {
+            var definition = definitions[type];
+            var schema = category is null ? definition.GetProperty("valueSchema") : definition.GetProperty("valueSchemaByCategory").GetProperty(category);
+            var invalid = JsonSerializer.SerializeToElement(value);
+            Assert.False(Valid(schema, invalid), type);
+            await Call("set_token_value", new { tokenId = ids[type + category], theme = "Light", value = invalid }, true);
+            await Call("create_token", new { name = "invalid." + type, type, category, light = invalid, dark = invalid }, true);
+        }
+        await Call("create_token", new { name = "invalid.category", type = "Color", category = "Opacity", light = "#123456", dark = "#123456" }, true);
+    }
+
     private static async Task<JsonElement> CallAsync(McpClient mcp, string name, object? args, bool error)
     {
         var values = JsonSerializer.SerializeToElement(args ?? new { }).EnumerateObject()
