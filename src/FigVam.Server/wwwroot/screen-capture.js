@@ -68,6 +68,7 @@ async function renderPng(request, base, task, theme, signal) {
   const host = document.createElement('div');
   host.className = 'preview-screen';
   host.setAttribute('aria-hidden', 'true');
+  host.inert = true;
   Object.assign(host.style, { position: 'fixed', left: '-100000px', top: '0', width: width + 'px',
     height: height + 'px', overflow: 'hidden', pointerEvents: 'none' });
   host.append(drawing.root);

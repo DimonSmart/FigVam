@@ -200,175 +200,132 @@ test('MCP builds the login prototype, both editors see changes and restart inval
 });
 
 
-test('MCP capture UI fails closed and delivers a PNG from a simulated browser media stream', async ({ page, request, server }) => {
-  test.setTimeout(120000);
-  // Test-only API doubles: the native browser picker and Element Capture compositor
-  // are deliberately NOT claimed as covered by this test.
+test('Autonomous MCP rendering uses both themes and screens without changing editor state', async ({ page, request, server }, testInfo) => {
+  test.setTimeout(180000);
+  // Even if requested accidentally, the native tab picker must never be used.
   await page.addInitScript(() => {
-    const mock = window.captureMock = { reject: true, stopped: 0, restricted: 0, requested: 0 };
-    Object.defineProperty(window, 'RestrictionTarget', { configurable: true, value: {
-      fromElement: async element => {
-        if (element.id !== 'preview-viewport') throw new Error('Unexpected target');
-        return element;
-      }
-    } });
-    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { configurable: true, value: async options => {
-      if (options.audio || !options.preferCurrentTab) throw new Error('Unexpected capture options');
-      mock.requested++;
-      const canvas = document.createElement('canvas'); canvas.width = 80; canvas.height = 60;
-      const ctx = canvas.getContext('2d');
-      let frame = 0;
-      const draw = () => {
-        const button = document.querySelector('#preview-viewport button');
-        ctx.fillStyle = button ? getComputedStyle(button).backgroundColor : '#fff';
-        ctx.fillRect(0, 0, 80, 60);
-        ctx.fillStyle = frame++ % 2 ? '#000' : '#fff';
-        ctx.fillRect(0, 0, 1, 1);
-      };
-      draw();
-      const stream = canvas.captureStream(20);
-      const track = stream.getVideoTracks()[0];
-      const settings = track.getSettings.bind(track);
-      track.getSettings = () => ({ ...settings(), displaySurface: 'browser' });
-      track.restrictTo = async target => {
-        if (target.id !== 'preview-viewport' || mock.reject) throw new Error('Restriction failed');
-        mock.restricted++;
-      };
-      const timer = setInterval(draw, 50);
-      const stop = track.stop.bind(track);
-      track.stop = () => { clearInterval(timer); mock.stopped++; stop(); };
-      return stream;
-    } });
+    window.displayMediaRequests = 0;
+    if (navigator.mediaDevices) navigator.mediaDevices.getDisplayMedia = () => {
+      window.displayMediaRequests++;
+      throw new Error('Unexpected native capture');
+    };
   });
+  await page.setViewportSize({ width: 1500, height: 1000 });
   await signIn(page, server);
-  await page.getByLabel('Имя нового документа').fill('Capture mock');
+  await page.getByLabel('Имя нового документа').fill('Autonomous Login');
   await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
   const access = await grant(page);
   const call = await connect(request, access.endpoint, access.token);
-  const { pageId } = await call('create_page', { name: 'Login' });
-  const { screenId } = await call('create_screen', { pageId, width: 400, height: 300, name: 'Login' });
-  const { nodeId } = await call('create_node', { parentId: screenId, kind: 'Button', name: 'Login',
-    properties: { text: 'Login', width: 160, height: 40, backgroundColor: '#2563EB' } });
+  const { pageId } = await call('create_page', { name: 'Login flow' });
+  const { screenId: login } = await call('create_screen', { pageId, width: 800, height: 600, name: 'Login' });
+  const { tokenId: bg } = await call('create_token', { name: 'login.background', type: 'Color', light: '#EEF2F7', dark: '#15243A' });
+  const create = async (parentId, kind, properties) => (await call('create_node', { parentId, kind, properties })).nodeId;
+  const background = await create(login, 'Frame', { x: 0, y: 0, width: 800, height: 600,
+    backgroundColor: { tokenId: bg }, borderWidth: 0, cornerRadius: 0 });
+  await create(login, 'Text', { x: 250, y: 80, width: 300, height: 40, text: 'Sign in', fontSize: 26 });
+  await create(login, 'TextInput', { x: 250, y: 140, width: 300, height: 44, placeholder: 'Email', backgroundColor: '#FFFFFF' });
+  const button = await create(login, 'Button', { x: 250, y: 200, width: 300, height: 48, text: 'Login',
+    backgroundColor: '#2563EB', borderWidth: 0, cornerRadius: 8, textColor: '#FFFFFF',
+    shadow: { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000060' } });
+  const { screenId: error } = await call('duplicate_screen', { screenId: login, expectedRevision: (await call('get_document')).revision, name: 'Login Error' });
+  await create(error, 'Text', { x: 250, y: 300, width: 300, height: 40, text: 'Invalid password',
+    fontSize: 22, textColor: '#FF0000' });
+  const { pageId: otherPage } = await call('create_page', { name: 'Other page' });
+  const { screenId: other } = await call('create_screen', { pageId: otherPage, width: 320, height: 240, name: 'Other screen' });
   await show(page, 'layers');
-  await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
-  await expect(page.locator('#screen-boundary')).toContainText('Login');
+  await expect(page.locator('#pages [data-page-id="' + otherPage + '"]')).toBeVisible();
+  // The selected screen is not the requested screen, and is on another page.
+  const otherPageButton = page.locator('#pages [data-page-id="' + otherPage + '"]');
+  if (await otherPageButton.getAttribute('aria-pressed') !== 'true') await otherPageButton.click();
+  await page.locator('#screens [data-screen-id="' + other + '"].screen-select').click();
+  await expect(page.locator('#screens .screen-select[aria-pressed=true]')).toHaveAttribute('data-screen-id', other);
+  await expect(page.locator('#editor-preview')).toBeHidden();
+  await page.locator('#zoom-in').click();
+
+  async function editorState() {
+    return page.evaluate(() => ({
+      page: document.querySelector('#pages .page-select[aria-pressed=true]')?.dataset.pageId,
+      screen: document.querySelector('#screens .screen-select[aria-pressed=true]')?.dataset.screenId,
+      theme: document.querySelector('#preview-theme button[aria-pressed=true]')?.dataset.theme,
+      selection: [...document.querySelectorAll('#layers [aria-selected=true]')].map(x => x.dataset.id),
+      preview: !document.getElementById('editor-preview').hidden,
+      zoom: document.getElementById('zoom-level').textContent,
+      transform: document.getElementById('screen-boundary').style.transform,
+      revision: document.getElementById('revision').textContent,
+      undo: document.getElementById('undo').disabled,
+      redo: document.getElementById('redo').disabled,
+      history: document.getElementById('versions-list').textContent
+    }));
+  }
+  const revision = (await call('get_document')).revision;
+  // Wait for the editor to receive the committed revision before comparing UI state.
+  await expect(page.locator('#revision')).toContainText(String(revision));
+  const before = await editorState();
+  async function inspect(screenId, theme, name, expectedRevision, expectedBackground, expectedError, expectedButton = [37, 99, 235]) {
+    const result = await call.raw('render_screen', { screenId, ...(theme ? { theme } : {}) });
+    expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+    const image = result.content.find(block => block.type === 'image');
+    expect(image?.mimeType).toBe('image/png');
+    expect(result.structuredContent).toEqual({ screenId, theme: theme ?? 'Dark', revision: expectedRevision, width: 800, height: 600 });
+    await testInfo.attach(name, { body: Buffer.from(image.data, 'base64'), contentType: 'image/png' });
+    const pixels = await page.evaluate(async data => {
+      const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
+      const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0);
+      const pixel = (x, y) => [...ctx.getImageData(x, y, 1, 1).data].slice(0, 3);
+      const region = ctx.getImageData(250, 300, 300, 40).data;
+      let red = 0;
+      for (let i = 0; i < region.length; i += 4)
+        if (region[i] > 160 && region[i + 1] < 70 && region[i + 2] < 70) red++;
+      const info = { width: bitmap.width, height: bitmap.height, bg: pixel(10, 10), button: pixel(270, 220), red };
+      bitmap.close(); return info;
+    }, image.data);
+    expect([pixels.width, pixels.height]).toEqual([800, 600]);
+    expect(pixels.bg).toEqual(expectedBackground);
+    expect(pixels.button).toEqual(expectedButton);
+    if (expectedError) expect(pixels.red).toBeGreaterThan(10);
+    else expect(pixels.red).toBe(0);
+  }
+  for (const screenId of [login, error])
+    for (const theme of ['Light', 'Dark'])
+      await inspect(screenId, theme, (screenId === login ? 'login' : 'login-error') + '-' + theme,
+        revision, theme === 'Light' ? [238, 242, 247] : [21, 36, 58], screenId === error);
+  expect(await editorState()).toEqual(before);
+  expect((await call('get_document')).revision).toBe(revision);
+  expect((await call.raw('render_screen', { screenId: login, theme: 'Sepia' })).structuredContent.code).toBe('INVALID_THEME');
+  expect((await call.raw('render_screen', { screenId: '00000000-0000-0000-0000-000000000001' })).structuredContent.code).toBe('SCREEN_NOT_FOUND');
+
+  // Changes are rendered from the server revision, not a stale editor DOM.
+  const changedToken = await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#102030' });
+  await inspect(login, 'Dark', 'changed-token', changedToken.revision, [16, 32, 48], false);
+  const changedButton = await call('set_node_properties', { nodeId: button, properties: { backgroundColor: '#DC2626' } });
+  await inspect(login, 'Dark', 'changed-button', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
+
+  // Preview has no MCP controls and doesn't change the direct grant.
+  const loginPageButton = page.locator('#pages [data-page-id="' + pageId + '"]');
+  await loginPageButton.click();
+  await page.locator('#screens .screen-select[data-screen-id="' + login + '"]').click();
+  await expect(page.locator('#screen-boundary')).toContainText('Sign in');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
-  await expect(page.locator('#preview-viewport')).toContainText('Login');
+  await expect(page.locator('#preview-viewport')).toContainText('Sign in');
+  await expect(page.locator('#editor-preview #mcp-access-menu')).toHaveCount(0);
+  await page.locator('#preview-theme button[data-theme=Dark]').click();
+  await expect(page.locator('#preview-theme button[data-theme=Dark]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#preview-viewport [data-visual-node="' + background + '"] > .visual-surface')).toHaveCSS('background-color', 'rgb(16, 32, 48)');
+  const previewBefore = await editorState();
+  await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false, [220, 38, 38]);
+  await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
+  expect(await editorState()).toEqual(previewBefore);
+  await page.locator('#preview-theme button[data-theme=Light]').click();
+  await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true);
+  await page.getByRole('button', { name: 'Вернуться в Design' }).click();
+  expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
   await page.locator('#mcp-access-menu summary').click();
-  const panel = page.getByRole('region', { name: 'Screen Capture' });
-  const enable = panel.getByRole('button', { name: 'Enable screen capture' });
-  await enable.click();
-  await expect(panel.getByRole('status')).toHaveText('Error');
-  await expect.poll(() => page.evaluate(() => window.captureMock.stopped)).toBe(1);
-  expect((await call.raw('render_screen', { screenId })).structuredContent.code).toBe('RENDERER_UNAVAILABLE');
-  await page.evaluate(() => { window.captureMock.reject = false; });
-  await enable.click();
-  await expect(panel.getByRole('status')).toHaveText('Ready', { timeout: 15000 });
-  const firstRevision = (await call('get_document')).revision;
-  const first = await call.raw('render_screen', { screenId, revision: firstRevision });
-  expect(first.isError).not.toBe(true);
-  expect(first.structuredContent).toEqual({ screenId, revision: firstRevision, width: 80, height: 60 });
-  const firstImage = first.content.find(block => block.type === 'image');
-  expect(firstImage.mimeType).toBe('image/png');
-  expect(Buffer.from(firstImage.data, 'base64').subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
-  const changed = await call('set_node_properties', { nodeId, properties: { backgroundColor: '#DC2626' } });
-  const second = await call.raw('render_screen', { screenId, revision: changed.revision });
-  expect(second.isError, JSON.stringify(second.structuredContent)).not.toBe(true);
-  expect(second.structuredContent.revision).toBe(changed.revision);
-  expect(second.content.find(block => block.type === 'image').data).not.toBe(firstImage.data);
-  expect((await call('get_document')).revision).toBe(changed.revision);
-  expect(await page.evaluate(() => window.captureMock.requested)).toBe(2);
-  await panel.getByRole('button', { name: 'Stop screen capture' }).click();
-  await expect(panel.getByRole('status')).toHaveText('Capture disabled');
-  await expect.poll(async () => (await call.raw('render_screen', { screenId })).structuredContent.code).toBe('RENDERER_UNAVAILABLE');
-  expect((await call('get_document')).revision).toBe(changed.revision);
-});
-
-
-test('native Chromium Element Capture isolates the actual Login Preview and tracks MCP edits', async ({ request, server }, testInfo) => {
-  test.setTimeout(120000);
-  // A disposable browser on the UI test runner, never an existing user browser.
-  // The Chromium test-only switch auto-accepts the current test tab. Production
-  // always invokes the native picker with an explicit user gesture.
-  const { chromium } = require('@playwright/test');
-  const browser = await chromium.launch({ channel: 'chromium', headless: true,
-    args: ['--auto-accept-this-tab-capture'] });
-  try {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await signIn(page, server);
-    await page.getByLabel('Имя нового документа').fill('Native Capture Login');
-    await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
-    await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
-    const access = await grant(page);
-    const call = await connect(request, access.endpoint, access.token);
-    const { pageId } = await call('create_page', { name: 'Login' });
-    const { screenId } = await call('create_screen', { pageId, width: 400, height: 300, name: 'Login' });
-    await call('create_node', { parentId: screenId, kind: 'Frame', name: 'Background',
-      properties: { x: 0, y: 0, width: 400, height: 300, backgroundColor: '#16A34A', borderWidth: 0, cornerRadius: 0 } });
-    await call('create_node', { parentId: screenId, kind: 'Text', name: 'Title',
-      properties: { x: 40, y: 25, width: 320, height: 32, text: 'Sign in', fontSize: 24, textColor: '#FFFFFF' } });
-    await call('create_node', { parentId: screenId, kind: 'TextInput', name: 'Email',
-      properties: { x: 40, y: 75, width: 320, height: 40, placeholder: 'Email', backgroundColor: '#FFFFFF' } });
-    const { nodeId } = await call('create_node', { parentId: screenId, kind: 'Button', name: 'Login',
-      properties: { x: 40, y: 160, width: 320, height: 48, text: 'Login', backgroundColor: '#2563EB', cornerRadius: 8,
-        textColor: '#FFFFFF', shadow: { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000060' } } });
-    await show(page, 'layers');
-    await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
-    await expect(page.locator('#screen-boundary')).toContainText('Login');
-    await page.getByRole('button', { name: 'Preview', exact: true }).click();
-    await expect(page.locator('#preview-viewport')).toContainText('Login');
-    const bounds = await page.locator('#preview-viewport').boundingBox();
-    await page.locator('#mcp-access-menu summary').click();
-    const panel = page.getByRole('region', { name: 'Screen Capture' });
-    await panel.getByRole('button', { name: 'Enable screen capture' }).click();
-    await expect(panel.getByRole('status')).toHaveText('Ready', { timeout: 20000 });
-    await page.locator('#mcp-access-menu summary').click();
-
-    const inspect = async (result, name) => {
-      expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
-      const image = result.content.find(block => block.type === 'image');
-      expect(image?.mimeType).toBe('image/png');
-      const bytes = Buffer.from(image.data, 'base64');
-      await testInfo.attach(name, { body: bytes, contentType: 'image/png' });
-      const decoded = await page.evaluate(async data => {
-        const blob = new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' });
-        const bitmap = await createImageBitmap(blob);
-        const canvas = document.createElement('canvas');
-        canvas.width = bitmap.width; canvas.height = bitmap.height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(bitmap, 0, 0);
-        const pixel = (x, y) => [...ctx.getImageData(Math.floor(x * bitmap.width), Math.floor(y * bitmap.height), 1, 1).data];
-        const info = { width: bitmap.width, height: bitmap.height, background: pixel(.02, .02), button: pixel(.2, .6) };
-        bitmap.close(); return info;
-      }, image.data);
-      expect(decoded.width).toBe(result.structuredContent.width);
-      expect(decoded.height).toBe(result.structuredContent.height);
-      expect(decoded.width).toBeLessThanOrEqual(Math.ceil(bounds.width) + 2);
-      expect(decoded.height).toBeLessThanOrEqual(Math.ceil(bounds.height) + 2);
-      expect(decoded.background[1]).toBeGreaterThan(decoded.background[0] + 45);
-      expect(decoded.background[1]).toBeGreaterThan(decoded.background[2] + 45);
-      return decoded.button;
-    };
-    const firstRevision = (await call('get_document')).revision;
-    const first = await call.raw('render_screen', { screenId, revision: firstRevision });
-    const blue = await inspect(first, 'native-login-before');
-    expect(blue[2]).toBeGreaterThan(blue[0] + 50);
-    // A second request on the same static DOM must not depend on user motion,
-    // an animation, or a document change to produce a fresh frame.
-    const repeated = await call.raw('render_screen', { screenId, revision: firstRevision });
-    expect(repeated.structuredContent.revision).toBe(firstRevision);
-    const repeatedBlue = await inspect(repeated, 'native-login-static-repeat');
-    expect(repeatedBlue[2]).toBeGreaterThan(repeatedBlue[0] + 50);
-    const changed = await call('set_node_properties', { nodeId, properties: { backgroundColor: '#DC2626' } });
-    const second = await call.raw('render_screen', { screenId, revision: changed.revision });
-    expect(second.structuredContent.revision).toBe(changed.revision);
-    const red = await inspect(second, 'native-login-after');
-    expect(red[0]).toBeGreaterThan(red[2] + 50);
-    expect((await call('get_document')).revision).toBe(changed.revision);
-    await page.locator('#mcp-access-menu summary').click();
-    await panel.getByRole('button', { name: 'Stop screen capture' }).click();
-    await expect.poll(async () => (await call.raw('render_screen', { screenId })).structuredContent.code).toBe('RENDERER_UNAVAILABLE');
-    expect((await call('get_document')).revision).toBe(changed.revision);
-  } finally { await browser.close(); }
+  await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Отозвать MCP-доступ' }).click();
+  await expect(page.getByText('Доступ не предоставлен', { exact: true })).toBeVisible();
+  const denied = await request.post(access.endpoint, { headers: { Authorization: 'Bearer ' + access.token, Accept: 'application/json, text/event-stream' },
+    data: { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'render_screen', arguments: { screenId: login } } } });
+  expect(denied.status()).toBe(401);
 });

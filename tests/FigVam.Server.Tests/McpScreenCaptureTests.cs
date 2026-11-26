@@ -58,6 +58,26 @@ public sealed class McpScreenCaptureTests
         service.Disconnect(provider);
     }
 
+    [Theory]
+    [InlineData("Light", 2, 1)]
+    [InlineData("Dark", 3, 1)]
+    [InlineData("Dark", 2, 2)]
+    public async Task RejectsWrongThemeOrDimensions(string submittedTheme, int width, int height)
+    {
+        var registry = new McpAccessRegistry();
+        var service = new ScreenCaptureService();
+        var doc = Guid.NewGuid(); var screen = Guid.NewGuid();
+        var grant = registry.Grant(doc, "alice");
+        var provider = service.Register(doc, "alice", null, default, () => true)!;
+        var call = service.CaptureAsync(grant, screen, 4, default, "Dark", width, height);
+        var request = (await provider.Reader.ReadAsync()).Request;
+        Assert.Equal("Dark", request.Theme);
+        Assert.True(service.Complete(provider, request.RequestId, screen, 4,
+            ScreenCaptureResult.FromPng(DocumentAssetTests.Png()) with { Theme = submittedTheme }));
+        Assert.Equal("CAPTURE_FAILED", (await call).Code);
+        service.Disconnect(provider);
+    }
+
     [Fact]
     public async Task TimeoutCancellationDisconnectAndRevocationNeverReturnLateImages()
     {
