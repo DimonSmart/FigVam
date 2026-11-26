@@ -17,6 +17,7 @@ export default defineConfig({
         'canvas-viewport': 'src/canvas/canvas-viewport.ts',
         'layer-drag': 'src/canvas/layer-drag.ts',
         'canvas-node-editor': 'src/canvas/canvas-node-editor.ts',
+        'screen-renderer': 'src/canvas/screen-renderer.ts',
         'screen-resize': 'src/features/editor/screen-resize.ts',
       },
       formats: ['es'],
