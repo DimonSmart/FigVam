@@ -21,6 +21,7 @@ export default defineConfig({
         'screen-renderer': 'src/canvas/screen-renderer.ts',
         'document-collaboration': 'src/features/collaboration/document-collaboration.ts',
         'document-export': 'src/features/documents/document-export.ts',
+        'node-property-controls': 'src/ui/node-property-controls.ts',
         'token-value-control': 'src/ui/token-value-control.ts',
         'padding-editor': 'src/ui/padding-editor.ts',
         'layer-caption': 'src/core/layer-caption.ts',
