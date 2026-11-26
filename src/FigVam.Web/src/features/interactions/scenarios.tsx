@@ -1,3 +1,6 @@
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
+import { Button } from '../../ui/Button';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, array, text } from '../../api/decode';
@@ -25,6 +28,7 @@ export function createScenarios({
   const operations = new Map<string,Operation>();
   const btn=(id:string)=>typed(element(id),HTMLButtonElement);
   const collapsedGroups = new Set<string>();
+  const listRoot = createPanelRoot(element('scenarios-list'));
   const context = ():EditorContext => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
     revision: workspace.revision, token, epoch: navigationEpoch,
@@ -84,97 +88,55 @@ export function createScenarios({
   });
 
   function renderAction(action:ActionDraft,index:number,total:number) {
-    const item = document.createElement('li');
-    item.className = 'scenario-action';
-    if (total > 1) {
-      const order = document.createElement('span');
-      order.className = 'scenario-action-order';
-      order.textContent = (index + 1) + '.';
-      item.append(order);
-    }
-    if (action.type === 'navigate') {
-      const icon = document.createElement('span'), target = document.createElement('span');
-      icon.className = 'scenario-action-arrow'; icon.textContent = '→'; icon.setAttribute('aria-hidden', 'true');
-      target.className = 'scenario-target';
-      const screen = catalog?.screens.find(s => s.id === action.screenId);
-      const title = document.createElement('span');
-      title.className = 'scenario-target-name';
-      // Keep the catalog's disambiguation suffix, even for identical screen names.
-      const prefix = screen ? screen.pageName + ' / ' : '';
-      title.textContent = screen && screen.label.startsWith(prefix) ? screen.label.slice(prefix.length) : name('screens', action.screenId);
-      target.append(title);
-      if (screen) {
-        const page = document.createElement('span');
-        page.className = 'scenario-target-page'; page.textContent = screen.pageName; target.append(page);
-      }
-      item.title = actionText(action);
-      const accessible = document.createElement('span');
-      accessible.className = 'scenario-sr-only'; accessible.textContent = actionLabels.navigate + ': ';
-      item.append(icon, accessible, target);
-    } else {
-      const label = document.createElement('span'); label.textContent = actionText(action); item.append(label);
-    }
-    return item;
+    const screen = action.type === 'navigate' ? catalog?.screens.find(s => s.id === action.screenId) : undefined;
+    const prefix = screen ? screen.pageName + ' / ' : '';
+    return <li key={index} className="scenario-action" title={action.type === 'navigate' ? actionText(action) : undefined}>
+      {total > 1 && <span className="scenario-action-order">{index + 1}.</span>}
+      {action.type === 'navigate' ? <>
+        <span className="scenario-action-arrow" aria-hidden="true">→</span>
+        <span className="scenario-sr-only">{actionLabels.navigate}: </span>
+        <span className="scenario-target">
+          <span className="scenario-target-name">{screen && screen.label.startsWith(prefix) ? screen.label.slice(prefix.length) : name('screens',action.screenId)}</span>
+          {screen && <span className="scenario-target-page">{screen.pageName}</span>}
+        </span>
+      </> : <span>{actionText(action)}</span>}
+    </li>;
   }
 
   function renderScenario(scenario:ScenarioDraft,c:EditorContext) {
-    const card = document.createElement('li'), title = document.createElement('div'), actions = document.createElement('ol');
-    card.className = 'scenario-entry'; card.dataset.scenarioId = scenario.id;
-    title.className = 'scenario-event';
     const event = eventLabels[scenario.event??-1] ?? 'Неизвестное событие';
     const source = !c.node && catalog?.nodes.find(n => n.id === scenario.nodeId && n.screenId === c.screen);
-    if (source) {
-      const select = document.createElement('button');
-      select.type = 'button'; select.className = 'scenario-source-select'; select.textContent = event;
-      select.setAttribute('aria-label', description(scenario)); select.title = 'Выбрать элемент: ' + sourceName(source.id);
-      select.addEventListener('click', () => selectSource(source, catalog?.nodes.filter(n => n.screenId === c.screen)??[]));
-      title.append(select);
-    } else {
-      const label = document.createElement('span'); label.textContent = event; title.append(label);
-    }
-    actions.className = 'scenario-actions';
-    actions.setAttribute('aria-label', 'Действия по порядку');
-    scenario.actions.forEach((action, index) => actions.append(renderAction(action, index, scenario.actions.length)));
-    card.append(title, actions);
-    if (c.editable && c.node) {
-      const controls = document.createElement('div');
-      controls.className = 'scenario-entry-controls';
-      const edit = document.createElement('button'), remove = document.createElement('button');
-      edit.type = remove.type = 'button'; edit.textContent = 'Изменить'; remove.textContent = 'Удалить';
-      edit.setAttribute('aria-label', 'Изменить сценарий ' + description(scenario));
-      remove.setAttribute('aria-label', 'Удалить сценарий ' + description(scenario));
-      edit.disabled = remove.disabled = opPending() || !!editor.draft;
-      edit.addEventListener('click', () => { editor.open(scenario, edit); render(); });
-      remove.addEventListener('click', () => {
-        if (confirm('Удалить взаимодействие «' + description(scenario) + '»?')) begin('delete', scenario, c.revision);
-      });
-      controls.append(edit, remove); card.append(controls);
-    }
-    return card;
+    return <li key={scenario.id} className="scenario-entry" data-scenario-id={scenario.id}>
+      <div className="scenario-event">{source ?
+        <Button className="scenario-source-select" aria-label={description(scenario)} title={'Выбрать элемент: ' + sourceName(source.id)}
+          onClick={() => selectSource(source,catalog?.nodes.filter(n => n.screenId === c.screen)??[])}>{event}</Button> : <span>{event}</span>}</div>
+      <ol className="scenario-actions" aria-label="Действия по порядку">
+        {scenario.actions.map((action,index)=>renderAction(action,index,scenario.actions.length))}
+      </ol>
+      {c.editable && c.node && <div className="scenario-entry-controls">
+        <Button aria-label={'Изменить сценарий ' + description(scenario)} disabled={opPending() || !!editor.draft}
+          onClick={event=>{editor.open(scenario,event.currentTarget);render();}}>Изменить</Button>
+        <Button aria-label={'Удалить сценарий ' + description(scenario)} disabled={opPending() || !!editor.draft}
+          onClick={()=>{if(confirm('Удалить взаимодействие «' + description(scenario) + '»?')) begin('delete',scenario,c.revision);}}>Удалить</Button>
+      </div>}
+    </li>;
   }
 
   function renderGroup(nodeId:string,entries:ScenarioDraft[],c:EditorContext) {
-    const group = document.createElement('li'), details = document.createElement('details');
-    const summary = document.createElement('summary'), label = document.createElement('span'), count = document.createElement('span');
-    const items = document.createElement('ul');
-    group.className = 'scenario-group'; group.dataset.nodeId = nodeId;
-    details.open = !collapsedGroups.has(nodeId);
-    details.addEventListener('toggle', () => {
-      if (!details.isConnected) return;
-      if (details.open) collapsedGroups.delete(nodeId); else collapsedGroups.add(nodeId);
-    });
-    label.className = 'scenario-group-name'; label.textContent = sourceName(nodeId);
-    count.className = 'scenario-group-count'; count.textContent = String(entries.length);
-    count.setAttribute('aria-label', 'Взаимодействий: ' + entries.length);
-    summary.append(label, count);
-    items.className = 'scenario-group-items';
-    for (const scenario of entries) items.append(renderScenario(scenario, c));
-    details.append(summary, items); group.append(details); return group;
+    return <li key={nodeId} className="scenario-group" data-node-id={nodeId}>
+      <details open={!collapsedGroups.has(nodeId)} onToggle={event=>{
+        if (!event.currentTarget.isConnected) return;
+        if (event.currentTarget.open) collapsedGroups.delete(nodeId); else collapsedGroups.add(nodeId);
+      }}>
+        <summary><span className="scenario-group-name">{sourceName(nodeId)}</span>
+          <span className="scenario-group-count" aria-label={'Взаимодействий: ' + entries.length}>{entries.length}</span></summary>
+        <ul className="scenario-group-items">{entries.map(scenario=>renderScenario(scenario,c))}</ul>
+      </details>
+    </li>;
   }
 
   function render() {
     const c = context(), op = currentOperation(), selected = workspace.layerSelection;
-    const list = element('scenarios-list');
     element('scenarios-title').textContent = selected ? sourceName(selected.id) : 'Взаимодействия';
     element('scenarios-context').textContent = selected ? selected.kind :
       c.screen ? 'Экран ' + (catalog?.screens.find(s => s.id === c.screen)?.name || '') : '';
@@ -192,8 +154,8 @@ export function createScenarios({
     element('scenarios-error').textContent = loadState === 'error' ? 'Не удалось загрузить взаимодействия. Повторите запрос.' : '';
     element('scenarios-number').textContent = '';
     btn('scenarios-previous').disabled = btn('scenarios-next').disabled = true;
-    list.replaceChildren();
     if (loadState !== 'ready') {
+      flushSync(()=>listRoot.render(null));
       element('scenarios-status').textContent = loadState === 'loading' ? 'Загрузка сценариев…' :
         loadState === 'error' ? 'Не удалось загрузить сценарии.' : 'Выберите экран.';
       editor.refreshControls(); return;
@@ -219,7 +181,7 @@ export function createScenarios({
       (offset + 1) + '–' + (offset + items.length) + ' из ' + rows.length : '';
     btn('scenarios-previous').disabled = offset === 0;
     btn('scenarios-next').disabled = offset + items.length >= rows.length;
-    for (const item of items) list.append(Array.isArray(item)?renderGroup(item[0],item[1],c):renderScenario(item,c));
+    flushSync(()=>listRoot.render(<>{items.map(item=>Array.isArray(item)?renderGroup(item[0],item[1],c):renderScenario(item,c))}</>));
     editor.refreshControls();
   }
 
