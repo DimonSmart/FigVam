@@ -92,7 +92,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     public Task<CallToolResult> DuplicateScreen(Guid screenId, long expectedRevision, Guid? commandId = null, Guid? newScreenId = null, string? name = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new DuplicateScreenCommand(DocumentId, id, screenId, newScreenId ?? Guid.NewGuid(), expectedRevision, name), Actor, ct));
 
-    [McpServerTool(Name = "create_node"), Description("Create a node with an optional display name and initial properties atomically. Use get_node_schema for supported properties and their inputSchema.")]
+    [McpServerTool(Name = "create_node"), Description("Create a node with an optional display name and initial properties atomically. Accepts compact or canonical get_node property values, mixed in one request. Use get_node_schema for inputSchema.")]
     public Task<CallToolResult> CreateNode(Guid parentId, string kind, Dictionary<string, JsonElement>? properties = null, Guid? commandId = null, Guid? nodeId = null, string? name = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
         {
@@ -105,7 +105,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     public Task<CallToolResult> RenameNode(Guid nodeId, string name, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new SetNodeNameCommand(DocumentId, id, nodeId, name), Actor, ct));
 
-    [McpServerTool(Name = "set_node_properties"), Description("Atomically set only the supplied node properties. Use get_node_schema and its inputSchema for the node kind to construct values.")]
+    [McpServerTool(Name = "set_node_properties"), Description("Atomically set only the supplied node properties. Accepts compact or canonical get_node property values, mixed in one request. Use get_node_schema for inputSchema.")]
     public Task<CallToolResult> SetNodeProperties(Guid nodeId, Dictionary<string, JsonElement> properties, Guid? expectedParentId = null, long? expectedRevision = null, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
         {
@@ -132,7 +132,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
         Enum.GetNames<T>().Contains(name, StringComparer.Ordinal) ? Enum.Parse<T>(name) :
             throw new McpContractException("INVALID_ENUM", "Expected one of: " + string.Join(", ", Enum.GetNames<T>()));
 
-    [McpServerTool(Name = "create_token"), Description("Create a design token with Light and Dark values. Types include Spacing, Color, Dimension, Number and FontWeight.")]
+    [McpServerTool(Name = "create_token"), Description("Create a design token with Light and Dark values. Accepts compact values or unchanged Light/Dark expressions from list_tokens (literal or alias), including nested typography fields. Hex colors use #RRGGBB or #RRGGBBAA.")]
     public Task<CallToolResult> CreateToken(string name, string type, JsonElement light, JsonElement dark, string? category = null, Guid? commandId = null, Guid? tokenId = null, CancellationToken ct = default) =>
         Run(commandId, id =>
         {
@@ -151,7 +151,7 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
             return handler.HandleAsync(new AddTokenCommand(DocumentId, id, new(tokenId ?? Guid.NewGuid(), name, tokenType, values, tokenCategory)), Actor, ct);
         }, "tokenId");
 
-    [McpServerTool(Name = "set_token_value"), Description("Set a design token value for Light or Dark.")]
+    [McpServerTool(Name = "set_token_value"), Description("Set a design token value for Light or Dark; accepts compact values or unchanged expressions from list_tokens (literal or alias).")]
     public Task<CallToolResult> SetTokenValue(Guid tokenId, string theme, JsonElement value, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
         {

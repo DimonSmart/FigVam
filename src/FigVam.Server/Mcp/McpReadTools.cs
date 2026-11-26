@@ -81,7 +81,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response is null ? null : new { r.Response.Revision, kinds = r.Response.Kinds.Select(k => k.Kind) });
     }
 
-    [McpServerTool(Name = "get_node_schema"), Description("Read supported properties, constraints and JSON input schemas for create_node and set_node_properties.")]
+    [McpServerTool(Name = "get_node_schema"), Description("Read supported properties, constraints and JSON input schemas for compact and canonical values, including mixed representations in create_node and set_node_properties.")]
     public async Task<CallToolResult> GetNodeSchema(string kind, CancellationToken ct)
     {
         var r = await queries.ReadProfileAsync(Grant.DocumentId, null, Actor, ct);

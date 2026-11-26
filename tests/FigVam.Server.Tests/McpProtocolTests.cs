@@ -67,16 +67,17 @@ public sealed class McpProtocolTests
         Assert.Equal(new[] { "blurRadius", "color", "offsetX", "offsetY", "spreadRadius" },
             shadowSchema.GetProperty("required").EnumerateArray().Select(p => p.GetString()!).Order(StringComparer.Ordinal).ToArray());
         var shadowProperties = shadowSchema.GetProperty("properties");
-        Assert.Equal(5, shadowProperties.EnumerateObject().Count());
+        Assert.Equal(6, shadowProperties.EnumerateObject().Count());
+        Assert.Equal("shadow", shadowProperties.GetProperty("type").GetProperty("const").GetString());
         Assert.Equal("number", shadowProperties.GetProperty("blurRadius").GetProperty("type").GetString());
         Assert.Equal(0, shadowProperties.GetProperty("blurRadius").GetProperty("minimum").GetDouble());
         Assert.Equal(256, shadowProperties.GetProperty("blurRadius").GetProperty("maximum").GetDouble());
-        Assert.Equal("string", shadowProperties.GetProperty("color").GetProperty("type").GetString());
-        Assert.Matches(shadowProperties.GetProperty("color").GetProperty("pattern").GetString()!, "#0F172A1C");
-        Assert.DoesNotMatch(shadowProperties.GetProperty("color").GetProperty("pattern").GetString()!, "#xyz");
+        Assert.Equal("string", shadowProperties.GetProperty("color").GetProperty("anyOf")[0].GetProperty("type").GetString());
+        Assert.Matches(shadowProperties.GetProperty("color").GetProperty("anyOf")[0].GetProperty("pattern").GetString()!, "#0F172A1C");
+        Assert.DoesNotMatch(shadowProperties.GetProperty("color").GetProperty("anyOf")[0].GetProperty("pattern").GetString()!, "#xyz");
         var colorAlternatives = buttonSchema.GetProperty("backgroundColor").GetProperty("inputSchema").GetProperty("anyOf");
         Assert.Equal("string", colorAlternatives[0].GetProperty("type").GetString());
-        Assert.True(colorAlternatives[1].GetProperty("properties").TryGetProperty("tokenId", out _));
+        Assert.True(colorAlternatives.EnumerateArray().Last().GetProperty("properties").TryGetProperty("tokenId", out _));
         Assert.True(buttonSchema.GetProperty("textStyle").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("styleId", out _));
         Assert.True(buttonSchema.GetProperty("typography").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("tokenId", out _));
         var opacitySchema = buttonSchema.GetProperty("opacity").GetProperty("inputSchema").GetProperty("anyOf")[0];
@@ -84,7 +85,7 @@ public sealed class McpProtocolTests
         Assert.Equal(1, opacitySchema.GetProperty("maximum").GetDouble());
         var inputSchema = (await Call("get_node_schema", new { kind = "TextInput" })).GetProperty("properties")
             .GetProperty("inputType").GetProperty("inputSchema");
-        Assert.Equal(new[] { "Text", "Password" }, inputSchema.GetProperty("enum").EnumerateArray().Select(v => v.GetString()).ToArray());
+        Assert.Equal(new[] { "Text", "Password" }, inputSchema.GetProperty("anyOf")[0].GetProperty("enum").EnumerateArray().Select(v => v.GetString()).ToArray());
         var imageSchema = (await Call("get_node_schema", new { kind = "Image" })).GetProperty("properties");
         Assert.True(imageSchema.GetProperty("asset").GetProperty("inputSchema").GetProperty("properties").TryGetProperty("assetId", out _));
         foreach (var kind in new[] { "Frame", "Text", "TextInput" })
@@ -115,8 +116,8 @@ public sealed class McpProtocolTests
         foreach (var invalidShadow in new[]
         {
             """{"offsetX":0,"offsetY":8,"blur":24,"spreadRadius":0,"color":"#0F172A1C"}""",
-            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C","type":"shadow"}""",
-            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":15,"green":23,"blue":42,"alpha":28}}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#0F172A1C","type":"color"}""",
+            """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":{"red":256,"green":23,"blue":42,"alpha":28}}""",
             """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":null}""",
             """{"offsetX":0,"offsetY":8,"blurRadius":"24","spreadRadius":0,"color":"#0F172A1C"}""",
             """{"offsetX":0,"offsetY":8,"blurRadius":24,"spreadRadius":0,"color":"#xyz"}""",
