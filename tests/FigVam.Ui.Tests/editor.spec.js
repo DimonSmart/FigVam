@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { fulfillLayerPage } = require('./layer-fixture');
 const { show } = require('./ui-panels');
 
 async function postSuccessfully(request, url, options) {
@@ -296,7 +297,7 @@ test('reads paginated nested layers and clears selection on failures and page ch
     if (mode === 'forbidden') return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
     if (mode === 'missing') return route.fulfill({ status: 404, json: { code: 'PARENT_NOT_FOUND' } });
     const all = parent === screenId ? Array.from({ length: 101 }, (_, i) => ({ id: i === 0 ? root : `node-${i}`, name: i === 0 ? '' : `Layer ${i}`, kind: 'Frame', childCount: i === 0 ? 1 : 0 })) : [{ id: 'child', name: 'Nested', kind: 'Text', childCount: 0 }];
-    await route.fulfill({ json: { items: all.slice(offset, offset + 100), total: all.length } });
+    await fulfillLayerPage(route, all);
   });
   await page.getByRole('button', { name: 'Обновить страницы' }).click();
   const tree = page.getByRole('tree', { name: 'Слои экрана' });
