@@ -12,10 +12,10 @@ public sealed record McpPreviewEvent(Guid NodeId, string Event, string? Value = 
 
 [McpServerToolType]
 public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStructureQueries queries,
-    IDocumentPreviewFactory previews, IDocumentStateReader reader, INodeProfile profile)
+    IDocumentPreviewFactory previews, IDocumentStateReader reader, INodeProfile profile, HeadlessPreviewCapture capture)
 {
     [McpServerTool(Name = "simulate_preview", ReadOnly = true),
-     Description("Replay up to 128 Click, Change or Submit events on an isolated Preview at the specified revision and theme. Change can supply a demonstration value. Events must target nodes on the active screen. Returns execution trace, state and diagnostics without changing the document or the user's editor. Password values are not returned.")]
+     Description("Replay up to 128 Click, Change or Submit events on an isolated Preview at the specified revision and theme. Change can supply a demonstration value. Events must target nodes on the active screen. Returns execution trace, state and diagnostics without changing the document or the user's editor. Set includeImage to render the final screen using a server-owned Chromium renderer. Password values are not returned.")]
     public async Task<CallToolResult> SimulatePreview(Guid screenId, IReadOnlyList<McpPreviewEvent> events,
         string theme = "Light", bool includeImage = false, long? revision = null, CancellationToken ct = default)
     {
@@ -89,15 +89,31 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
             catch (DesignStyleException) { return true; }
         }
 
-        if (includeImage)
-            diagnostics.Add(new { code = "RENDER_UNAVAILABLE", message = "An independent Preview image renderer is not configured." });
-        var response = new { status = failed || includeImage ? "Rejected" : "Completed", revision = pinned,
+        ScreenCaptureResult? image = null;
+        if (includeImage && !failed)
+        {
+            var values = session.Values.ToDictionary(pair => pair.Key, pair => Password(pair.Key) && pair.Value is not null
+                ? new string('•', pair.Value.Length) : pair.Value);
+            image = await capture.CaptureAsync(grant, pinned, session, values, ct);
+            if (image.Png is null)
+            {
+                failed = true;
+                diagnostics.Add(new { code = image.Code, message = "The independent Preview renderer could not render the final state." });
+            }
+        }
+        if (grant.CaptureRevoked.IsCancellationRequested ||
+            !await McpServiceRegistration.CanEditAsync(accessor.HttpContext!.RequestServices, grant.DocumentId, grant.UserId, ct))
+            return McpReadTools.Result("ACCESS_DENIED", null);
+        var response = new { status = failed ? "Rejected" : "Completed", revision = pinned,
             initialScreenId = screenId, activeScreenId = session.Selection.ScreenId, theme = session.Selection.Theme,
             session.Selection.VariantId, session.Selection.DatasetId, session.Overlays, steps, diagnostics,
             demoValues = session.Values.Where(pair => !Password(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value) };
         var result = McpReadTools.Result("OK", response);
-        result.IsError = failed || includeImage;
-        return result;
+        if (image?.Png is { } png && !failed && result.IsError != true)
+            return new CallToolResult { StructuredContent = result.StructuredContent,
+                Content = [ImageContentBlock.FromBytes(png, "image/png"), .. result.Content] };
+        return new CallToolResult { StructuredContent = result.StructuredContent, Content = result.Content,
+            IsError = failed || result.IsError == true };
     }
 
     // Do not echo action values (which may contain passwords) in a trace.

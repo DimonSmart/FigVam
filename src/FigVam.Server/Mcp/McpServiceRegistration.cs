@@ -21,6 +21,7 @@ public static class McpServiceRegistration
     {
         builder.Services.AddSingleton<McpAccessRegistry>();
         builder.Services.AddSingleton<ScreenCaptureService>();
+        builder.Services.AddSingleton<HeadlessPreviewCapture>();
         builder.Services.AddSingleton<IScreenCaptureService>(sp => sp.GetRequiredService<ScreenCaptureService>());
         builder.Services.AddSingleton(McpTunnelCredential.Create(builder.Configuration, builder.Environment));
         builder.Services.AddHttpContextAccessor();

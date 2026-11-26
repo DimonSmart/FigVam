@@ -1,4 +1,4 @@
-const { test: base, expect } = require('@playwright/test');
+const { test: base, expect, chromium } = require('@playwright/test');
 const { spawn } = require('node:child_process');
 const { createWriteStream } = require('node:fs');
 const path = require('node:path');
@@ -21,6 +21,7 @@ async function startServer(testInfo, logName, tunnelKey) {
       Authentication__LocalDevelopment__Token: bearer,
       Storage__Directory: testInfo.outputPath('storage'),
       McpTunnel__Key: tunnelKey,
+      Mcp__ChromiumExecutable: chromium.executablePath(),
       // An end-to-end editing session can exceed 300 validated GETs/minute.
       RateLimiting__ReadPermitLimit: '3000'
     },
