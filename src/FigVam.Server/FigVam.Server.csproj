@@ -29,7 +29,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Include="$(FigVamWebRoot)dist/auth-client.js;$(FigVamWebRoot)dist/api-client.js;$(FigVamWebRoot)dist/session.js"
+    <Content Include="$(FigVamWebRoot)dist/auth-client.js;$(FigVamWebRoot)dist/api-client.js;$(FigVamWebRoot)dist/session.js;$(FigVamWebRoot)dist/home-ui.js"
              Link="wwwroot/%(Filename)%(Extension)"
              TargetPath="wwwroot/%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest"
