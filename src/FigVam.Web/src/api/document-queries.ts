@@ -66,7 +66,7 @@ export function createDocumentQueries(request: ApiClient) {
     return { items, total, revision };
   }
 
-  async function findRole(id: string, signal: AbortSignal): Promise<string | null> {
+  async function findRole(id: string, signal?: AbortSignal): Promise<string | null> {
     let cursor: string | null | undefined = null;
     do {
       const query = new URLSearchParams({ limit: '100' });

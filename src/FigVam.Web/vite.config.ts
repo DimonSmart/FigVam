@@ -7,6 +7,7 @@ export default defineConfig({
   build: {
     lib: {
       entry: {
+        editor: 'src/app/editor.ts',
         'auth-client': 'src/api/auth-client.ts',
         'decode': 'src/api/decode.ts',
         'api-client': 'src/api/api-client.ts',
