@@ -11,7 +11,7 @@ namespace FigVam.Server.Mcp;
 
 // A server-owned browser renders only a revision-pinned local snapshot. It receives
 // no user credentials, tunnel grants, URLs or access to the live editor.
-public sealed class HeadlessPreviewCapture(IConfiguration configuration, IWebHostEnvironment environment,
+public sealed class HeadlessPreviewCapture(IConfiguration configuration,
     IDocumentStructureQueries queries, IDocumentTokenQueries tokens, IDocumentAssets assets)
 {
     private readonly SemaphoreSlim slots = new(1);
@@ -94,8 +94,10 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration, IWebHos
             Directory.CreateDirectory(directory);
             if (!OperatingSystem.IsWindows())
                 File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            foreach (var file in new[] { "screen-capture.js", "screen-renderer.js", "token-resolution.js", "editor.css", "editor-shell.css", "home.css" })
-                File.Copy(Path.Combine(environment.WebRootPath, file), Path.Combine(directory, file));
+            foreach (var file in new[] { "screen-capture.js", "render-model.js", "decode.js", "screen-renderer.js", "token-resolution.js", "editor.css", "editor-shell.css", "home.css" })
+                File.Copy(Path.Combine(AppContext.BaseDirectory, "wwwroot", file), Path.Combine(directory, file));
+            foreach (var chunk in FigVam.Server.Editor.FrontendAssets.Chunks())
+                File.Copy(chunk, Path.Combine(directory, Path.GetFileName(chunk)));
             var snapshot = JsonSerializer.Serialize(new { screen, theme = theme.ToString(), width, height, nodes, boxes,
                 overrides, kinds = profile.Response.Kinds, tokens = tokenItems, assets = manifest.Response.Assets, assetData, values }, Json);
             // The default JSON encoder escapes HTML-sensitive characters, so document text
@@ -109,7 +111,7 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration, IWebHos
                 </script><pre id="result"></pre><script type="module" src="headless-preview.js"></script></body></html>
                 """;
             await File.WriteAllTextAsync(Path.Combine(directory, "index.html"), html, token);
-            File.Copy(Path.Combine(environment.WebRootPath, "headless-preview.js"), Path.Combine(directory, "headless-preview.js"));
+            File.Copy(Path.Combine(AppContext.BaseDirectory, "wwwroot", "headless-preview.js"), Path.Combine(directory, "headless-preview.js"));
             var start = new ProcessStartInfo(executable)
             {
                 UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true

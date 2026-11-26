@@ -1,37 +1,31 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
-import { createUserAdmin } from './user-admin.js';
-import { createMcpAccess } from './mcp-access.js';
-import { createApiClient } from './api-client.js';
+import { createScreenCapture } from './screen-capture.js';
+import { createApiClient, parseDocumentList } from './api-client.js';
+import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
-import { createEditorShell } from './editor-shell.js';
 import { createVisualScreens } from './visual-screen.js';
 import { createCanvasNodeEditor } from './canvas-node-editor.js';
 import { createVisualNodeEditor } from './visual-node-editor.js';
-import { createPresence } from './presence.js';
-import { createMembers } from './members.js';
 import { createLayers } from './layers.js';
-import { createDatasets } from './datasets.js';
-import { createDocumentHistory } from './document-history.js';
 import { createDocumentExport } from './document-export.js';
-import { createComponents } from './components.js';
 import { createScenarios } from './scenarios.js';
-import { createScreenDiagnostics } from './screen-diagnostics.js';
 import { createScreenResize } from './screen-resize.js';
-import { createScreenVariants } from './screen-variants.js';
 import { createTokens } from './tokens.js';
 import { createStyles } from './styles.js';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from './session.js';
 
 const element = id => document.getElementById(id);
+const authenticationView = createAuthenticationView(element('authentication-root'), submitBearerToken);
+const documentListView = createDocumentListView(element('document-list'), deleteCatalogDocument);
+const homeNavigation = createHomeNavigation(element('home-navigation'), selectHomeView);
 createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next) });
 const userAdmin = createUserAdmin(element);
 function selectHomeView(view) {
-  const users = view === 'users' && !element('home-users').hidden;
+  const users = view === 'users' && homeNavigation.isAdmin();
   element('home-documents-content').hidden = users;
   element('home-admin-content').hidden = !users;
-  element('home-documents').setAttribute('aria-current', users ? 'false' : 'page');
-  element('home-users').setAttribute('aria-current', users ? 'page' : 'false');
+  homeNavigation.select(users ? 'users' : 'documents');
 }
 let cursors = [null];
 let pageIndex = 0;
@@ -81,8 +75,8 @@ const request = createApiClient({
   }
 });
 
-const mcpAccess = createMcpAccess({ request, getContext: () => ({ documentId, token, navigationEpoch,
-  role: documentRole, theme: visualScreens.currentTheme }) });
+const mcpContext = () => ({ documentId, token, navigationEpoch, role: documentRole, theme: visualScreens.currentTheme });
+const mcpAccess = createMcpAccess({ request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
@@ -137,7 +131,7 @@ const screenVariants = createScreenVariants({
 });
 const datasets = createDatasets({
   element, request: (...args) => request(...args), pageSize,
-  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation }),
+  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status) {
@@ -182,14 +176,14 @@ function clearSession() {
   setToken('');
   setCsrf('');
   userAdmin.hide();
-  element('home-users').hidden = true;
+  homeNavigation.setAdmin(false);
   selectHomeView('documents');
   documentHistory.clearCommands(); screenResize.clear(); documentHistory.reset();
   visualNodeEditor.clear(); visualScreens.clearPropertyPreviews();
   cancelRequest();
-  element('token').value = '';
+  authenticationView.clearToken();
   element('document-name').value = '';
-  element('document-list').replaceChildren();
+  documentListView.clear();
   documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
   // Detach the nested screen list before clearing its parent page rows.
   const screenList = element('screens');
@@ -213,7 +207,7 @@ function clearSession() {
   element('content').hidden = true;
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
-  element('authentication').hidden = false;
+  authenticationView.setVisible(true);
   element('disconnect').hidden = true;
   cursors = [null]; pageIndex = 0; nextCursor = null;
   retry = null;
@@ -273,7 +267,7 @@ const scenarios = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentRole = role; tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
+  setDocumentRole: role => { documentRole = role; datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
 
@@ -319,7 +313,7 @@ async function loadList(index = 0, cursor = null) {
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
   selectHomeView('documents');
-  element('document-list').replaceChildren();
+  documentListView.clear();
   element('home-empty').hidden = true;
   element('home-count').textContent = '';
   element('home-pagination').hidden = true;
@@ -329,96 +323,43 @@ async function loadList(index = 0, cursor = null) {
   await run(() => loadList(index, cursor), async (signal, current) => {
     const query = new URLSearchParams({ limit: String(pageSize) });
     if (cursor) query.set('cursor', cursor);
-    const result = await request(`/api/v1/documents?${query}`, {}, signal);
+    const result = parseDocumentList(await request(`/api/v1/documents?${query}`, {}, signal));
     if (!current()) return;
     pageIndex = index;
     cursors[index] = cursor;
     cursors.length = index + 1;
     nextCursor = result.nextCursor;
-    for (const item of result.items) {
-      const row = document.createElement('li');
-      const art = document.createElement('div');
-      art.className = 'document-art';
-      art.setAttribute('aria-hidden', 'true');
-      // Neutral placeholder, not a fabricated preview of the document.
-      art.innerHTML = '<div class="document-art-window"><div class="document-art-content"><div class="document-art-rail"></div><div class="document-art-lines"><span></span><span></span><span></span></div></div></div>';
-      const details = document.createElement('div');
-      details.className = 'document-card-meta';
-      const link = document.createElement(item.compatibilityIssue ? 'span' : 'a');
-      if (!item.compatibilityIssue) {
-        link.href = `/documents/${encodeURIComponent(item.documentId)}`;
-        link.dataset.navigation = '';
-      } else link.className = 'document-unavailable-name';
-      link.textContent = item.name;
-      const role = document.createElement('span');
-      role.className = 'document-role';
-      role.textContent = { Owner: 'Владелец', Editor: 'Редактор', Viewer: 'Просмотр' }[item.role] ?? item.role;
-      details.append(link, role);
-      const versions = [
-        item.profileVersion > 0 ? `Профиль: v${item.profileVersion}` : '',
-        item.storageSchemaVersion != null ? `Хранилище: v${item.storageSchemaVersion}` : '',
-        item.revision != null ? `Ревизия: ${item.revision}` : ''
-      ].filter(Boolean);
-      if (versions.length) {
-        const version = document.createElement('span');
-        version.className = 'document-role';
-        version.textContent = versions.join(' · ');
-        if (item.profileId) version.title = item.profileId;
-        details.append(version);
-      }
-      if (item.compatibilityIssue) {
-        const warning = document.createElement('span');
-        warning.className = 'document-compatibility';
-        warning.textContent = item.compatibilityIssue === 'UNSUPPORTED_PROFILE_VERSION'
-          ? `Несовместимый профиль: v${item.profileVersion} (текущий v${item.currentProfileVersion})`
-          : ({ PROFILE_UNAVAILABLE: 'Профиль не установлен', INVALID_PROFILE: 'Некорректный профиль',
-               UNSUPPORTED_STORAGE_SCHEMA: 'Несовместимый формат хранения', METADATA_UNAVAILABLE: 'Метаданные недоступны' }[item.compatibilityIssue] ?? 'Документ недоступен');
-        details.append(warning);
-        if (item.role === 'Owner' && Number.isSafeInteger(item.revision) && item.revision >= 0) {
-          const remove = document.createElement('button');
-          remove.type = 'button';
-          remove.className = 'document-catalog-delete';
-          remove.textContent = 'Удалить документ';
-          remove.setAttribute('aria-label', `Удалить документ «${item.name}»`);
-          let body = null;
-          remove.addEventListener('click', async () => {
-            if (!body && !confirm(`Удалить документ «${item.name}»? Это действие нельзя отменить.`)) return;
-            body ??= JSON.stringify({ commandId: crypto.randomUUID(), expectedRevision: item.revision });
-            remove.disabled = true;
-            const epoch = navigationEpoch;
-            try {
-              const result = await request(`/api/v1/documents/${encodeURIComponent(item.documentId)}/commands/delete-document`, { method: 'POST', body });
-              if (epoch !== navigationEpoch) return;
-              if (result.code !== 'ACCEPTED' || result.commandId?.toLowerCase() !== JSON.parse(body).commandId.toLowerCase() ||
-                  result.documentId?.toLowerCase() !== item.documentId.toLowerCase() || result.revision !== item.revision + 1)
-                throw new TypeError('Некорректное подтверждение');
-              const loading = loadList(), listEpoch = navigationEpoch;
-              await loading;
-              if (token && listEpoch === navigationEpoch) message('Документ удалён.');
-            } catch (error) {
-              if (epoch !== navigationEpoch || !token) return;
-              if ([400, 403, 404, 409].includes(error.status)) {
-                const loading = loadList(), listEpoch = navigationEpoch;
-                await loading;
-                if (token && listEpoch === navigationEpoch) message('', error.message);
-              } else {
-                message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
-                remove.disabled = false;
-              }
-            }
-          });
-          details.append(remove);
-        }
-      }
-      row.append(art, details);
-      element('document-list').append(row);
-    }
+    documentListView.render(result.items);
     element('home-count').textContent = `${result.items.length} на странице`;
     element('home-empty').hidden = result.items.length > 0 || index > 0;
     element('home-pagination').hidden = index === 0 && !nextCursor;
     element('page-number').textContent = `Страница ${index + 1}`;
     message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
   });
+}
+
+async function deleteCatalogDocument(item, command) {
+  const body = JSON.stringify(command);
+  const epoch = navigationEpoch;
+  try {
+    const result = await request(`/api/v1/documents/${encodeURIComponent(item.documentId)}/commands/delete-document`, { method: 'POST', body });
+    if (epoch !== navigationEpoch) return;
+    if (result.code !== 'ACCEPTED' || result.commandId?.toLowerCase() !== command.commandId.toLowerCase() ||
+        result.documentId?.toLowerCase() !== item.documentId.toLowerCase() || result.revision !== command.expectedRevision + 1)
+      throw new TypeError('Некорректное подтверждение');
+    const loading = loadList(), listEpoch = navigationEpoch;
+    await loading;
+    if (token && listEpoch === navigationEpoch) message('Документ удалён.');
+  } catch (error) {
+    if (epoch !== navigationEpoch || !token) return;
+    if ([400, 403, 404, 409].includes(error.status)) {
+      const loading = loadList(), listEpoch = navigationEpoch;
+      await loading;
+      if (token && listEpoch === navigationEpoch) message('', error.message);
+    } else {
+      message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
+    }
+  }
 }
 
 async function findRole(id, signal) {
@@ -898,7 +839,7 @@ async function openDocument(id) {
     element('page-edit').hidden = !['Owner', 'Editor'].includes(role);
     element('screen-create').hidden = !['Owner', 'Editor'].includes(role);
     tokens.refreshAccess();
-    element('dataset-edit').hidden = !['Owner', 'Editor'].includes(role);
+    datasets.refreshAccess();
     documentHistory.prepare();
     await readPages(signal, 0);
     if (!current()) return;
@@ -1045,21 +986,19 @@ function navigate(path) {
   element('content').focus();
 }
 
-element('authentication-form').addEventListener('submit', event => {
-  event.preventDefault();
-  const supplied = element('token').value.trim();
+function submitBearerToken(supplied) {
   if (!supplied || /\s/.test(supplied)) {
     message('', 'Введите токен без пробелов и префикса Bearer.');
     return;
   }
   setToken(supplied);
-  element('token').value = '';
-  element('authentication').hidden = true;
+  authenticationView.clearToken();
+  authenticationView.setVisible(false);
   element('disconnect').hidden = false;
   element('content').hidden = false;
   route();
   element('content').focus();
-});
+}
 element('disconnect').addEventListener('click', async () => {
   if (isGoogleMode()) {
     try {
@@ -1069,7 +1008,7 @@ element('disconnect').addEventListener('click', async () => {
     } catch (error) { message('', error.message); return; }
   }
   clearSession();
-  if (!isGoogleMode()) element('token').focus();
+  if (!isGoogleMode()) authenticationView.focusToken();
 });
 element('create-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -1159,8 +1098,6 @@ element('page-create').addEventListener('click', () => {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
 });
-element('home-documents').addEventListener('click', () => selectHomeView('documents'));
-element('home-users').addEventListener('click', () => selectHomeView('users'));
 element('refresh').addEventListener('click', () => loadList());
 element('previous').addEventListener('click', () => loadList(pageIndex - 1, cursors[pageIndex - 1]));
 element('next').addEventListener('click', () => loadList(pageIndex + 1, nextCursor));
@@ -1187,31 +1124,29 @@ async function initializeAuthentication() {
     const info = await config.json();
     configureAuth(info.mode);
     if (!isGoogleMode()) {
-      element('authentication-help').textContent = 'Для API-режима введите выданный Bearer-токен. Вход через Google настроен отдельно.';
+      authenticationView.setMode('bearer');
       element('disconnect').textContent = 'Забыть токен';
       element('editor-signout').textContent = 'Забыть токен';
       element('editor-signout-menu').textContent = 'Забыть токен';
-      element('authentication-form').hidden = false;
       return;
     }
-    element('authentication-form').hidden = true;
-    element('google-login').hidden = false;
+    authenticationView.setMode('google');
     const authError = new URLSearchParams(location.search).get('auth_error');
-    if (authError) element('authentication-error').textContent = 'Google-аккаунт не подтверждён или доступ к FigVam не разрешён.';
+    if (authError) authenticationView.setError('Google-аккаунт не подтверждён или доступ к FigVam не разрешён.');
     const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
     if (!response.ok) throw new Error('Не удалось восстановить сессию.');
     const session = await response.json();
     if (!session.authenticated) return;
     setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
-    element('authentication').hidden = true;
+    authenticationView.setVisible(false);
     element('disconnect').hidden = false;
     element('content').hidden = false;
     route();
-    element('home-users').hidden = !session.admin;
+    homeNavigation.setAdmin(session.admin);
     await userAdmin.show(session.admin);
   } catch (error) {
-    element('authentication-error').textContent = error.message;
+    authenticationView.setError(error.message);
   }
 }
 initializeAuthentication();

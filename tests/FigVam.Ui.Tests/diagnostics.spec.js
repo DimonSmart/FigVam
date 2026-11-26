@@ -116,7 +116,7 @@ test('rejects a malformed response and retries successfully', async ({ page, req
   const { id } = await setup(request);
   let malformed = true;
   await page.route('**/diagnostics?*', route => {
-    if (!malformed) return response(route, [{ code: 'RECOVERED', message: 'OK' }]);
+    if (!malformed) return response(route, [{ code: 'RECOVERED', path: '/', message: 'OK' }]);
     malformed = false;
     return route.fulfill({ json: { items: [], total: 0 } });
   });
@@ -133,9 +133,9 @@ test('discards an outstanding response after revision changes', async ({ page, r
   await page.route('**/diagnostics?*', async route => {
     if (new URL(route.request().url()).searchParams.get('revision') === '3') {
       entered(); await gate;
-      return response(route, [{ code: 'STALE-REVISION', message: 'stale' }]).catch(() => {});
+      return response(route, [{ code: 'STALE-REVISION', path: '/', message: 'stale' }]).catch(() => {});
     }
-    return response(route, [{ code: 'CURRENT-REVISION', message: 'current' }]);
+    return response(route, [{ code: 'CURRENT-REVISION', path: '/', message: 'current' }]);
   });
   await open(page, id); await page.locator('#screens button').first().click(); await held;
   const changed = await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } });

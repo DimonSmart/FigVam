@@ -1,0 +1,14 @@
+export { createAuthenticationView } from './authentication';
+export { createDocumentListView } from './document-list';
+export { createHomeNavigation } from './navigation';
+export { createUserAdmin } from './user-admin';
+export { createMcpAccess } from '../mcp/mcp-access';
+export { createScreenDiagnostics } from '../editor/screen-diagnostics';
+export { createComponents } from '../components/components';
+export { createPresence } from '../collaboration/presence';
+export { createMembers } from '../collaboration/members';
+export { createScreenVariants } from '../editor/screen-variants';
+export { createDatasets } from '../datasets/datasets';
+export { createDocumentHistory } from '../history/document-history';
+
+export { createEditorShell } from '../editor/editor-shell';

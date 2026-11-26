@@ -1,11 +1,12 @@
 const {test,expect,bearer}=require('./fixtures');
+const { fulfillLayerPage } = require('./layer-fixture');
 const { waitForLayerMoveReady, layerRow } = require('./layer-drag-helper');
 const { show } = require('./ui-panels');
 const a='11111111-1111-1111-1111-111111111111',b='22222222-2222-2222-2222-222222222222',c='33333333-3333-3333-3333-333333333333',d='44444444-4444-4444-4444-444444444444';
 async function setup(page){
  await page.goto('/'); await page.getByLabel('Bearer-токен',{exact:true}).fill(bearer); await page.getByRole('button',{name:'Продолжить',exact:true}).click(); await page.getByLabel('Имя нового документа').fill('Reorder'); await page.getByRole('button',{name:'Создать документ',exact:true}).click(); await page.getByRole('button',{name:'Создать страницу'}).click(); await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600'); await page.getByRole('button',{name:'Создать экран'}).click();
  const screen=await page.locator('#screens button').getAttribute('data-screen-id'); let roots=[a,b],nested=[c,d]; const item=id=>({id,name:id===a?'Parent':id===b?'Second':'Child',kind:'Frame',childCount:id===a?2:0});
- await page.route('**/children/**',route=>{const p=route.request().url().split('/children/')[1].split('?')[0], ids=p===screen?roots:p===a?nested:[]; return route.fulfill({json:{items:ids.map(item),total:ids.length}});});
+ await page.route('**/children/**',route=>{const p=route.request().url().split('/children/')[1].split('?')[0], ids=p===screen?roots:p===a?nested:[]; return fulfillLayerPage(route,ids.map(item));});
  await page.route('**/nodes/*?*',route=>{const id=route.request().url().split('/nodes/')[1].split('?')[0];return route.fulfill({json:{revision:Number(new URL(route.request().url()).searchParams.get('revision')),items:[{id,name:item(id).name,semanticKey:null}]}});});
  await page.getByRole('button',{name:'Обновить страницы'}).click(); return {screen,roots:v=>roots=v,nested:v=>nested=v};
 }

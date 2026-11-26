@@ -14,6 +14,27 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  frontend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/FigVam.Web/package-lock.json
+      - name: Configure npm 11
+        run: npm install --global npm@11
+      - name: Install frontend dependencies
+        working-directory: src/FigVam.Web
+        run: npm ci
+      - name: Typecheck and build
+        working-directory: src/FigVam.Web
+        run: npm run build
+      - name: Frontend unit tests
+        working-directory: src/FigVam.Web
+        run: npm test
+
   server:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -22,10 +43,33 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Configure npm 11
+        run: npm install --global npm@11
       - name: Restore dependencies
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
+      - name: Verify generated OpenAPI contracts
+        working-directory: src/FigVam.Web
+        run: npm run generate:api -- --no-build --check
+      - name: Verify production publish
+        run: |
+          dotnet publish src/FigVam.Server --no-restore -c Release -o "$env:RUNNER_TEMP/figvam-publish"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $published = "$env:RUNNER_TEMP/figvam-publish/wwwroot"
+          if (!(Test-Path (Join-Path $published 'index.html'))) { throw 'Missing published editor shell' }
+          $bundles = @(Get-ChildItem src/FigVam.Web/dist -Filter '*.js' -File)
+          if (!$bundles.Count) { throw 'No generated frontend assets' }
+          foreach ($bundle in $bundles) {
+            $target = Join-Path $published $bundle.Name
+            if (!(Test-Path $target -PathType Leaf)) { throw "Missing published frontend asset: $($bundle.Name)" }
+            if ((Get-FileHash $bundle.FullName).Hash -ne (Get-FileHash $target).Hash) { throw "Published asset differs: $($bundle.Name)" }
+          }
+      - name: Verify editor asset routes
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~EditorUiTests
       - name: MCP protocol smoke
         run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~Mcp
       - name: Server tests
@@ -52,6 +96,8 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: tests/FigVam.Ui.Tests/package-lock.json
+      - name: Configure npm 11
+        run: npm install --global npm@11
       - name: Restore dependencies
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
@@ -65,6 +111,9 @@ jobs:
         run: npx playwright install chromium
       - name: UI test launcher catalog smoke
         run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
+      - name: Frontend bootstrap smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test frontend-bootstrap.spec.js --workers=1 --trace retain-on-failure
       - name: MCP Login Flow smoke
         working-directory: tests/FigVam.Ui.Tests
         run: npx playwright test mcp-login-flow.spec.js mcp-tunnel.spec.js --workers=1 --trace off
@@ -126,6 +175,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Configure npm 11
+        run: npm install --global npm@11
       - name: Restore dependencies
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build AppHost

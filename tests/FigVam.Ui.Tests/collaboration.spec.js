@@ -1,4 +1,5 @@
 const { test, expect, bearer } = require('./fixtures');
+const { fulfillLayerPage } = require('./layer-fixture');
 const { randomUUID } = require('node:crypto');
 const { show } = require('./ui-panels');
 
@@ -86,7 +87,7 @@ test('refreshes the expanded layer tree and selected object, then clears a remot
     const items = parent === screenId
       ? [{ id: 'root', name: 'Fixture group', kind: 'FixtureContainer', childCount: 1 }]
       : [{ id: 'child', name: Number(url.searchParams.get('revision')) >= 3 ? 'Updated fixture' : 'Original fixture', kind: 'FixtureLeaf', childCount: 0 }];
-    await route.fulfill({ json: { items, total: items.length } });
+    await fulfillLayerPage(route, items);
   });
   await expect(page.locator('#screens button')).toHaveCount(1);
   await page.locator('#screens button').click();

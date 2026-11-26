@@ -24,4 +24,36 @@
     <Content Update="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <PropertyGroup>
+    <FigVamWebRoot>$(MSBuildThisFileDirectory)../FigVam.Web/</FigVamWebRoot>
+  </PropertyGroup>
+
+
+  <Target Name="RestoreFigVamFrontend"
+          Inputs="$(FigVamWebRoot)package.json;$(FigVamWebRoot)package-lock.json"
+          Outputs="$(FigVamWebRoot)node_modules/.package-lock.json">
+    <Exec WorkingDirectory="$(FigVamWebRoot)" Command="npm ci" />
+  </Target>
+
+  <Target Name="BuildFigVamFrontend" BeforeTargets="PrepareForBuild"
+          DependsOnTargets="RestoreFigVamFrontend" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Exec WorkingDirectory="$(FigVamWebRoot)" Command="npm run build" />
+  </Target>
+
+  <!-- Enumerate after Vite has built: a clean checkout has no dist directory at evaluation time. -->
+  <Target Name="CollectFigVamFrontend" BeforeTargets="AssignTargetPaths"
+          DependsOnTargets="BuildFigVamFrontend" Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <_FigVamBundle Include="$(FigVamWebRoot)dist/*.js" />
+      <!-- Batch explicitly on the source item so metadata is not evaluated
+           against unrelated Content/None items in the server project. -->
+      <None Include="%(_FigVamBundle.Identity)">
+        <Link>wwwroot/%(_FigVamBundle.Filename)%(_FigVamBundle.Extension)</Link>
+        <TargetPath>wwwroot/%(_FigVamBundle.Filename)%(_FigVamBundle.Extension)</TargetPath>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </None>
+    </ItemGroup>
+  </Target>
+
 </Project>
