@@ -216,14 +216,20 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
   screenHeight.addEventListener('input', syncPreset);
   screenForm.addEventListener('reset', () => { preset.value = initialPreset; });
   const screenMenuBody = el('div', 'screen-options-body');
+  screenMenuBody.setAttribute('popover', 'manual');
   screenMenuBody.append(preset, screenForm);
   screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
   const navigatorMenus: [HTMLDetailsElement,HTMLElement][] = [[screenOptions, screenMenuBody]];
   function positionNavigatorMenu(menu:HTMLDetailsElement, body:HTMLElement) {
-    if (!menu.open || !body.getClientRects().length) return;
-    const anchor = required(menu.querySelector('summary'),'menu summary').getBoundingClientRect();
+    const trigger = required(menu.querySelector('summary'),'menu summary');
+    if (!menu.open || !trigger.getClientRects().length) {
+      if (body.matches(':popover-open')) body.hidePopover();
+      return;
+    }
+    if (!body.matches(':popover-open')) body.showPopover();
+    const anchor = trigger.getBoundingClientRect();
     const margin = 8, gap = 6;
     // Keep the automatically suggested creation form below the empty page's row,
     // so that the page's rename and context actions remain directly clickable.
@@ -245,7 +251,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
   }
   for (const [current, body] of navigatorMenus) {
     current.addEventListener('toggle', () => {
-      if (!current.open) return;
+      if (!current.open) { positionNavigatorMenu(current, body); return; }
       for (const [other] of navigatorMenus) {
         if (other !== current) other.open = false;
       }
@@ -257,6 +263,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
   const navigatorObserver = new ResizeObserver(positionNavigatorMenus);
   navigatorObserver.observe(navigatorToolbar);
   window.addEventListener('resize', positionNavigatorMenus);
+  window.addEventListener('scroll', positionNavigatorMenus, true);
   const screensList = byId('screens');
   pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
   byId('pages').setAttribute('aria-label', 'Страницы и экраны');

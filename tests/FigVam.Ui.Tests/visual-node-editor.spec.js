@@ -1,5 +1,6 @@
 const { test, expect, bearer } = require('./fixtures');
 const { show } = require('./ui-panels');
+const { exposeFrontendModules } = require('./frontend-modules');
 const { randomUUID } = require('node:crypto');
 
 const headers = { Authorization: `Bearer ${bearer}` };
@@ -422,8 +423,9 @@ test('compact numeric control binds, switches and unlinks aliases with automatic
 
 test('token resolver detects missing, cyclic, incompatible and theme-specific values', async ({ page }) => {
   await page.goto('/');
+  await exposeFrontendModules(page, 'token-resolution');
   const result = await page.evaluate(async () => {
-    const { resolveTokenValue } = await import('/token-resolution.js');
+    const { resolveTokenValue } = await import('/__figvam-test/token-resolution.js');
     const tokens = new Map([
       ['a', { id: 'a', type: 'Spacing', values: {
         Light: { expression: 'alias', tokenId: 'b' },
@@ -494,8 +496,9 @@ test('token popover supports keyboard search, Escape and preserves a read-only i
 
 test('an unresolvable token never silently becomes a default literal on unlink', async ({ page }) => {
   await page.goto('/');
+  await exposeFrontendModules(page, 'node-property-controls');
   const result = await page.evaluate(async () => {
-    const { createPropertyControl } = await import('/node-property-controls.js');
+    const { createPropertyControl } = await import('/__figvam-test/node-property-controls.js');
     const definition = {
       type: 'Number', tokenType: 'Spacing',
       defaultValue: { type: 'number', value: 99 }, minimum: 0, maximum: 100
@@ -807,9 +810,10 @@ test('padding editor retains individual controls, tokens, drafts, history and va
 
 test('padding editor preserves missing token feedback and read-only controls', async ({ page }) => {
   await page.goto('/');
+  await exposeFrontendModules(page, 'node-property-controls', 'padding-editor');
   const result = await page.evaluate(async () => {
-    const { createPropertyControl } = await import('/node-property-controls.js');
-    const { paddingProperties, createPaddingEditor, updatePaddingEditor } = await import('/padding-editor.js');
+    const { createPropertyControl } = await import('/__figvam-test/node-property-controls.js');
+    const { paddingProperties, createPaddingEditor, updatePaddingEditor } = await import('/__figvam-test/padding-editor.js');
     const definition = { type: 'Number', tokenType: 'Spacing', defaultValue: { type: 'number', value: 0 }, minimum: 0 };
     const model = { tokens: new Map(), assets: new Map() };
     const fields = new Map(paddingProperties.map(name => [name, createPropertyControl(name, definition, model,
