@@ -78,16 +78,17 @@ test('logout cancels pending presence and its timer before the next session', as
 });
 
 test('clears presence and stops polling after access is lost', async ({ page, request }) => {
-  const id = await create(request); let reads = 0, requests = 0;
+  const id = await create(request); let accessLost = false, requests = 0;
   await page.addInitScript(() => { const original = window.setTimeout; window.setTimeout = (fn, delay, ...args) => original(fn, delay === 10000 ? 250 : delay, ...args); });
   await page.route('**/presence', async route => {
     requests++;
     if (route.request().method() === 'PUT') return route.fulfill({ json: { code: 'UPDATED' } });
-    if (++reads > 1) return route.fulfill({ status: 403 });
+    if (accessLost) return route.fulfill({ status: 403 });
     return route.fulfill({ json: { code: 'PRESENCE', participants: [{ name: 'Другой', color: '#123456', screenId: null, cursor: null, selectedIds: [] }] } });
   });
   await open(page, id);
   await expect(page.locator('#presence-list')).toContainText('Другой');
+  accessLost = true;
   await expect(page.locator('#presence-status')).toContainText('доступ к документу потерян');
   await expect(page.locator('#presence-list li')).toHaveCount(0);
   const requestsAtLoss = requests;
