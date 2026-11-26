@@ -10,6 +10,7 @@ export function createScenarios({
   let controller = null, generation = 0, offset = 0, catalog = null, scenarios = null, key = null;
   let loadState = 'empty', notice = '', errorNotice = '', leave = null, catalogLoading = false;
   const operations = new Map();
+  const collapsedGroups = new Set();
   const context = () => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
     revision: workspace.revision, token, epoch: navigationEpoch,
@@ -68,11 +69,104 @@ export function createScenarios({
     if (editor.save()) closeDialog();
   });
 
+  function renderAction(action, index, total) {
+    const item = document.createElement('li');
+    item.className = 'scenario-action';
+    if (total > 1) {
+      const order = document.createElement('span');
+      order.className = 'scenario-action-order';
+      order.textContent = (index + 1) + '.';
+      item.append(order);
+    }
+    if (action.type === 'navigate') {
+      const icon = document.createElement('span'), target = document.createElement('span');
+      icon.className = 'scenario-action-arrow'; icon.textContent = '→'; icon.setAttribute('aria-hidden', 'true');
+      target.className = 'scenario-target';
+      const screen = catalog.screens.find(s => s.id === action.screenId);
+      const title = document.createElement('span');
+      title.className = 'scenario-target-name';
+      // Keep the catalog's disambiguation suffix, even for identical screen names.
+      const prefix = screen ? screen.pageName + ' / ' : '';
+      title.textContent = screen && screen.label.startsWith(prefix) ? screen.label.slice(prefix.length) : name('screens', action.screenId);
+      target.append(title);
+      if (screen) {
+        const page = document.createElement('span');
+        page.className = 'scenario-target-page'; page.textContent = screen.pageName; target.append(page);
+      }
+      item.title = actionText(action);
+      const accessible = document.createElement('span');
+      accessible.className = 'scenario-sr-only'; accessible.textContent = actionLabels.navigate + ': ';
+      item.append(icon, accessible, target);
+    } else {
+      const label = document.createElement('span'); label.textContent = actionText(action); item.append(label);
+    }
+    return item;
+  }
+
+  function renderScenario(scenario, c) {
+    const card = document.createElement('li'), title = document.createElement('div'), actions = document.createElement('ol');
+    card.className = 'scenario-entry'; card.dataset.scenarioId = scenario.id;
+    title.className = 'scenario-event';
+    const event = eventLabels[scenario.event] ?? 'Неизвестное событие';
+    const source = !c.node && catalog.nodes.find(n => n.id === scenario.nodeId && n.screenId === c.screen);
+    if (source) {
+      const select = document.createElement('button');
+      select.type = 'button'; select.className = 'scenario-source-select'; select.textContent = event;
+      select.setAttribute('aria-label', description(scenario)); select.title = 'Выбрать элемент: ' + sourceName(source.id);
+      select.addEventListener('click', () => selectSource(source, catalog.nodes.filter(n => n.screenId === c.screen)));
+      title.append(select);
+    } else {
+      const label = document.createElement('span'); label.textContent = event; title.append(label);
+    }
+    actions.className = 'scenario-actions';
+    actions.setAttribute('aria-label', 'Действия по порядку');
+    scenario.actions.forEach((action, index) => actions.append(renderAction(action, index, scenario.actions.length)));
+    card.append(title, actions);
+    if (c.editable && c.node) {
+      const controls = document.createElement('div');
+      controls.className = 'scenario-entry-controls';
+      const edit = document.createElement('button'), remove = document.createElement('button');
+      edit.type = remove.type = 'button'; edit.textContent = 'Изменить'; remove.textContent = 'Удалить';
+      edit.setAttribute('aria-label', 'Изменить сценарий ' + description(scenario));
+      remove.setAttribute('aria-label', 'Удалить сценарий ' + description(scenario));
+      edit.disabled = remove.disabled = opPending() || !!editor.draft;
+      edit.addEventListener('click', () => { editor.open(scenario, edit); render(); });
+      remove.addEventListener('click', () => {
+        if (confirm('Удалить взаимодействие «' + description(scenario) + '»?')) begin('delete', scenario, c.revision);
+      });
+      controls.append(edit, remove); card.append(controls);
+    }
+    return card;
+  }
+
+  function renderGroup(nodeId, entries, c) {
+    const group = document.createElement('li'), details = document.createElement('details');
+    const summary = document.createElement('summary'), label = document.createElement('span'), count = document.createElement('span');
+    const items = document.createElement('ul');
+    group.className = 'scenario-group'; group.dataset.nodeId = nodeId;
+    details.open = !collapsedGroups.has(nodeId);
+    details.addEventListener('toggle', () => {
+      if (!details.isConnected) return;
+      if (details.open) collapsedGroups.delete(nodeId); else collapsedGroups.add(nodeId);
+    });
+    label.className = 'scenario-group-name'; label.textContent = sourceName(nodeId);
+    count.className = 'scenario-group-count'; count.textContent = String(entries.length);
+    count.setAttribute('aria-label', 'Взаимодействий: ' + entries.length);
+    summary.append(label, count);
+    items.className = 'scenario-group-items';
+    for (const scenario of entries) items.append(renderScenario(scenario, c));
+    details.append(summary, items); group.append(details); return group;
+  }
+
   function render() {
     const c = context(), op = currentOperation(), selected = workspace.layerSelection;
     const list = element('scenarios-list');
-    element('scenarios-title').textContent = selected ? sourceName(selected.id) + ' · ' + selected.kind :
-      c.screen ? 'Взаимодействия · ' + (catalog?.screens.find(s => s.id === c.screen)?.name || 'Экран') : 'Взаимодействия';
+    element('scenarios-title').textContent = selected ? sourceName(selected.id) : 'Взаимодействия';
+    element('scenarios-context').textContent = selected ? selected.kind :
+      c.screen ? 'Экран ' + (catalog?.screens.find(s => s.id === c.screen)?.name || '') : '';
+    element('scenarios-count').textContent = '';
+    element('scenarios-count').hidden = true;
+    element('scenarios-pagination').hidden = true;
     element('scenario-create').hidden = !c.editable || !c.node || loadState !== 'ready' || !!editor.draft;
     element('scenario-create').disabled = opPending();
     element('scenario-edit-reload').disabled = loadState !== 'ready';
@@ -91,44 +185,27 @@ export function createScenarios({
       editor.refreshControls(); return;
     }
     const visible = c.node ? scenarios.filter(s => s.nodeId === c.node) : scenarios;
-    if (offset >= visible.length) offset = Math.max(0, Math.floor((visible.length - 1) / pageSize) * pageSize);
-    const items = visible.slice(offset, offset + pageSize);
-    element('scenarios-status').textContent = visible.length ? 'Взаимодействия: ' + visible.length :
-      c.node ? 'Нет взаимодействий. Добавьте взаимодействие, чтобы определить поведение элемента.' : 'Сценариев для выбранного экрана нет.';
-    element('scenarios-number').textContent = visible.length ? (offset + 1) + '–' + (offset + items.length) + ' из ' + visible.length : '';
-    element('scenarios-previous').disabled = offset === 0;
-    element('scenarios-next').disabled = offset + items.length >= visible.length;
-    for (const scenario of items) {
-      const card = document.createElement('li'), title = document.createElement('p'), actions = document.createElement('ol');
-      card.dataset.scenarioId = scenario.id;
-      title.textContent = c.node ? eventLabels[scenario.event] : description(scenario);
-      if (!c.node) {
-        const source = catalog.nodes.find(n => n.id === scenario.nodeId && n.screenId === c.screen);
-        if (source) {
-          const select = document.createElement('button'); select.type = 'button'; select.textContent = description(scenario);
-          select.addEventListener('click', () => selectSource(source, catalog.nodes.filter(n => n.screenId === c.screen)));
-          title.replaceChildren(select);
-        }
-      }
-      actions.setAttribute('aria-label', 'Действия по порядку');
-      for (const action of scenario.actions) {
-        const item = document.createElement('li'); item.textContent = actionText(action); actions.append(item);
-      }
-      card.append(title, actions);
-      if (c.editable && c.node) {
-        const edit = document.createElement('button'), remove = document.createElement('button');
-        edit.type = remove.type = 'button'; edit.textContent = 'Изменить'; remove.textContent = 'Удалить';
-        edit.setAttribute('aria-label', 'Изменить сценарий ' + description(scenario));
-        remove.setAttribute('aria-label', 'Удалить сценарий ' + description(scenario));
-        edit.disabled = remove.disabled = opPending() || !!editor.draft;
-        edit.addEventListener('click', () => { editor.open(scenario, edit); render(); });
-        remove.addEventListener('click', () => {
-          if (confirm('Удалить взаимодействие «' + description(scenario) + '»?')) begin('delete', scenario, c.revision);
-        });
-        card.append(edit, remove);
-      }
-      list.append(card);
+    const groups = new Map();
+    if (!c.node) for (const scenario of visible) {
+      if (!groups.has(scenario.nodeId)) groups.set(scenario.nodeId, []);
+      groups.get(scenario.nodeId).push(scenario);
     }
+    // Overview pages contain whole element groups. Selected-element pages contain scenarios.
+    const rows = c.node ? visible : [...groups.entries()];
+    if (offset >= rows.length) offset = Math.max(0, Math.floor((rows.length - 1) / pageSize) * pageSize);
+    const items = rows.slice(offset, offset + pageSize);
+    const count = element('scenarios-count');
+    count.textContent = String(visible.length); count.hidden = false;
+    count.setAttribute('aria-label', 'Взаимодействий: ' + visible.length);
+    element('scenarios-status').textContent = visible.length ? '' :
+      c.node ? (c.editable ? 'Нет взаимодействий. Добавьте взаимодействие, чтобы определить поведение элемента.' : 'Нет взаимодействий.') :
+        'Сценариев для выбранного экрана нет.';
+    element('scenarios-pagination').hidden = rows.length <= pageSize;
+    element('scenarios-number').textContent = rows.length > pageSize ?
+      (offset + 1) + '–' + (offset + items.length) + ' из ' + rows.length : '';
+    element('scenarios-previous').disabled = offset === 0;
+    element('scenarios-next').disabled = offset + items.length >= rows.length;
+    for (const item of items) list.append(c.node ? renderScenario(item, c) : renderGroup(item[0], item[1], c));
     editor.refreshControls();
   }
 
@@ -201,6 +278,7 @@ export function createScenarios({
 
   function reset() {
     controller?.abort(); generation++; controller = null;
+    collapsedGroups.clear();
     key = null; catalog = scenarios = null; catalogLoading = false; offset = 0; loadState = 'empty'; notice = errorNotice = '';
     leave = null; closeDialog(); editor.close(); setInteractiveNodes([]); render();
   }

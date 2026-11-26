@@ -274,7 +274,11 @@
             <button id="visual-data-retry" type="button" hidden>Повторить загрузку свойств</button>
           </section>
           <section aria-labelledby="scenarios-title">
-            <h2 id="scenarios-title">Взаимодействия</h2>
+            <div class="scenarios-heading">
+              <h2 id="scenarios-title">Взаимодействия</h2>
+              <span id="scenarios-count" role="status" hidden></span>
+            </div>
+            <p id="scenarios-context"></p>
             <p id="scenarios-status" role="status" aria-live="polite">Выберите экран.</p>
             <p id="scenarios-error" role="alert"></p>
             <button id="scenarios-retry" type="button" hidden>Повторить загрузку сценариев</button>
@@ -299,7 +303,11 @@
               <button id="scenario-edit-submit" type="submit">Сохранить взаимодействие</button>
               <button id="scenario-edit-cancel" type="button">Отмена</button>
             </form>
-            <div role="group" aria-label="Страницы взаимодействий"><button id="scenarios-previous" type="button" disabled>Предыдущие сценарии</button> <span id="scenarios-number"></span> <button id="scenarios-next" type="button" disabled>Следующие сценарии</button></div>
+            <div id="scenarios-pagination" role="group" aria-label="Страницы взаимодействий" hidden>
+              <button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled>‹</button>
+              <span id="scenarios-number" aria-live="polite"></span>
+              <button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled>›</button>
+            </div>
             <dialog id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
               <h3 id="scenario-leave-title">Несохранённое взаимодействие</h3>
               <p>Сохранить изменения перед сменой контекста?</p>

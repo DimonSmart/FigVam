@@ -582,10 +582,50 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 }
 
 .app-shell .layer-interaction { margin-left: auto; color: #5368c7; font-size: 13px; flex: none; }
-.app-shell #scenarios-list { padding: 0; list-style: none; }
-.app-shell #scenarios-list > li { border: 1px solid #e3e7f0; border-radius: 6px; padding: 8px; margin-block: 6px; }
-.app-shell #scenarios-list > li > p { font-weight: 600; margin: 0 0 6px; }
-.app-shell #scenarios-list ol { padding-left: 18px; }
+.app-shell .scenarios-heading { display: flex; align-items: baseline; gap: 8px; margin: 8px 0 2px; }
+.app-shell .scenarios-heading h2 { flex: 1; min-width: 0; margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.app-shell #scenarios-count, .app-shell #scenarios-context { color: var(--ui-muted); font-size: 11px; }
+.app-shell #scenarios-context { margin: 0 0 12px; overflow-wrap: anywhere; }
+.app-shell .prototype-page :is(#scenarios-context, #scenarios-status, #scenarios-error, #scenario-command-status, #scenario-command-error):empty { display: none; }
+.app-shell #scenarios-status { color: var(--ui-muted); }
+.app-shell #scenarios-list, .app-shell .scenario-group-items, .app-shell .scenario-actions { padding: 0; margin: 0; list-style: none; }
+.app-shell .scenario-group + .scenario-group { margin-top: 8px; }
+.app-shell .scenario-group summary {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 7px;
+  padding: 7px 9px; background: var(--ui-bg); border-radius: var(--ui-radius); cursor: pointer; list-style: none;
+}
+.app-shell .scenario-group summary::-webkit-details-marker { display: none; }
+.app-shell .scenario-group summary::before {
+  content: ''; width: 6px; height: 6px; border-right: 1.5px solid var(--ui-muted);
+  border-bottom: 1.5px solid var(--ui-muted); transform: rotate(-45deg); justify-self: center;
+}
+.app-shell .scenario-group details[open] > summary::before { transform: rotate(45deg); }
+.app-shell .scenario-group summary:hover { background: var(--ui-selected); }
+.app-shell .scenario-group-name { font-weight: 650; overflow-wrap: anywhere; }
+.app-shell .scenario-group-count { color: var(--ui-muted); font-size: 11px; }
+.app-shell .scenario-group-items { margin: 4px 0 0 14px; padding-left: 12px; border-left: 1px solid var(--ui-border); }
+.app-shell .scenario-entry { min-width: 0; padding: 6px 0 8px; }
+.app-shell .scenario-entry + .scenario-entry { border-top: 1px solid var(--ui-border); }
+.app-shell .scenario-event { display: flex; align-items: baseline; gap: 7px; font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.app-shell .scenario-event::before { content: ''; width: 6px; height: 6px; flex: 0 0 6px; border-radius: 50%; background: var(--ui-accent); }
+.app-shell .scenario-event .scenario-source-select {
+  min-height: 24px; padding: 0 2px; border: 0; border-radius: 3px; background: transparent;
+  font: inherit; text-align: start; overflow-wrap: anywhere; min-width: 0;
+}
+.app-shell .scenario-event .scenario-source-select:hover { background: var(--ui-selected); color: var(--ui-accent); }
+.app-shell .scenario-actions { margin: 3px 0 0 13px; display: grid; gap: 4px; font-size: 12px; }
+.app-shell .scenario-action { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.app-shell .scenario-action-order, .app-shell .scenario-action-arrow { flex: none; color: var(--ui-muted); }
+.app-shell .scenario-action-arrow, .app-shell .scenario-target-name { color: var(--ui-accent); }
+.app-shell .scenario-target { min-width: 0; display: grid; gap: 1px; }
+.app-shell .scenario-target-name { font-weight: 600; }
+.app-shell .scenario-target-page { color: var(--ui-muted); font-size: 11px; }
+.app-shell .scenario-entry-controls { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0 13px; }
+.app-shell .scenario-entry-controls button { min-height: 26px; font-size: 11px; padding: 3px 6px; }
+.app-shell #scenarios-pagination { display: flex; justify-content: center; align-items: center; gap: 8px; margin-top: 10px; color: var(--ui-muted); font-size: 11px; }
+.app-shell #scenarios-pagination button { min-height: 26px; width: 28px; padding: 0; font-size: 18px; line-height: 1; }
+.app-shell .scenario-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
 
 .app-shell #scenario-edit { margin-block: 8px; }
 .app-shell #scenario-edit-fields { min-width: 0; border: 0; padding: 0; }
@@ -797,14 +837,20 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .token-theme-values .token-scalar-direct input[type=color] { width:26px; padding:2px; flex:0 0 26px; }
 .token-theme-values .token-scalar-direct select { max-width:75px; padding:3px; }
 
-/* The editor currently has no global dark palette; scope OS dark mode to the token workspace. */
+/* The editor currently has no global dark palette; scope OS dark mode to these workspaces. */
 @media (prefers-color-scheme: dark) {
-  .token-workspace {
+  .token-workspace, .prototype-page {
     color-scheme:dark;
     --ui-bg:#181e29; --ui-surface:#202836; --ui-text:#e2e8f4; --ui-muted:#aab6ca;
     --ui-border:#465164; --ui-accent:#a9baff; --ui-selected:#344263;
     color:var(--ui-text);
   }
+  .app-shell .prototype-page { background: var(--ui-surface); }
+  .app-shell .prototype-page button:hover:not(:disabled) { background: var(--ui-selected); border-color: var(--ui-border); }
+  .app-shell .prototype-page :is(button,input,select,textarea):disabled { background: var(--ui-bg); color: var(--ui-muted); }
+  .app-shell .prototype-page button[type=submit] { background: #4559a5; color: white; border-color: var(--ui-accent); }
+  .app-shell .prototype-page .interaction-action { border-color: var(--ui-border); }
+  .app-shell .prototype-page :is(.interaction-action-error,#scenario-edit-conflict,#scenarios-error,#scenario-command-error) { color: #ff9ca7; }
   .app-shell .token-workspace button:hover:not(:disabled) { background:var(--ui-selected); border-color:var(--ui-border); }
   .app-shell .token-workspace :is(button,input,select,textarea):disabled { background:var(--ui-bg); color:var(--ui-muted); }
   .app-shell .token-workspace button[type=submit] { background:#4559a5; color:white; border-color:var(--ui-accent); }

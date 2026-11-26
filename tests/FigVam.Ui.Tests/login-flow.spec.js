@@ -269,9 +269,9 @@ test('designs two linked login screens and previews invalid password through UI'
   await scenario(page, 'Login', 'По нажатию', 'Login Error', true);
   await scenario(page, 'Password', 'При отправке', 'Login Error');
   await page.locator('#screens .screen-select[aria-pressed="true"]').click();
-  await expect(page.locator('#scenarios-status')).toHaveText('Взаимодействия: 2');
-  await expect(page.locator('#scenarios-list')).toContainText('Login · По нажатию');
-  await expect(page.locator('#scenarios-list')).toContainText('Password · При отправке');
+  await expect(page.locator('#scenarios-count')).toHaveText('2');
+  await expect(page.locator('.scenario-group').filter({ has: page.locator('.scenario-group-name', { hasText: 'Login' }) }).getByRole('button', { name: 'Login · По нажатию' })).toBeVisible();
+  await expect(page.locator('.scenario-group').filter({ has: page.locator('.scenario-group-name', { hasText: 'Password' }) }).getByRole('button', { name: 'Password · При отправке' })).toBeVisible();
   await expect(page.locator('#scenarios-list')).not.toContainText(/[0-9a-f]{8}-[0-9a-f-]{27}/i);
   await expect(page.locator('#layers [data-id="' + loginButton + '"] .layer-interaction')).toBeVisible();
   await expect(page.locator('#layers [data-id="' + password + '"] .layer-interaction')).toBeVisible();
@@ -333,8 +333,8 @@ test('designs two linked login screens and previews invalid password through UI'
     expect(await read()).toEqual(snapshot);
     await reopened.locator('#screens .screen-select').filter({ hasText: /^Login\b(?! Error)/ }).click();
     await show(reopened, 'prototype');
-    await expect(reopened.locator('#scenarios-list')).toContainText('Login · По нажатию');
-    await expect(reopened.locator('#scenarios-list')).toContainText('Password · При отправке');
+    await expect(reopened.locator('.scenario-group').filter({ has: reopened.locator('.scenario-group-name', { hasText: 'Login' }) }).getByRole('button', { name: 'Login · По нажатию' })).toBeVisible();
+    await expect(reopened.locator('.scenario-group').filter({ has: reopened.locator('.scenario-group-name', { hasText: 'Password' }) }).getByRole('button', { name: 'Password · При отправке' })).toBeVisible();
     const restored = reopened.locator('#preview-viewport [data-preview-screen="' + loginScreen + '"]');
     const restoredError = reopened.locator('#preview-viewport [data-preview-screen="' + errorScreen + '"]');
     await reopened.getByRole('button', { name: 'Preview', exact: true }).click();

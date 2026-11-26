@@ -62,7 +62,7 @@ async function layer(page, name) {
 const form = page => page.locator('#scenario-edit');
 const actions = page => page.locator('#scenario-edit-actions > li');
 const save = page => page.getByRole('button', { name: 'Сохранить взаимодействие', exact: true });
-const card = page => page.locator('#scenarios-list > li');
+const card = page => page.locator('#scenarios-list .scenario-entry');
 const refresh = page => page.getByRole('button', { name: 'Обновить страницы' }).click();
 async function create(page, name = 'Source') {
   await layer(page, name);
@@ -149,11 +149,12 @@ test('reads every API page for overview, selected element and indicators', async
     offsets.push(Number(q.get('offset'))); return route.continue();
   });
   await open(page, f);
-  await expect(page.locator('#scenarios-number')).toHaveText('1–20 из 21');
+  await expect(page.locator('#scenarios-count')).toHaveText('21');
+  await expect(page.locator('#scenarios-pagination')).toBeHidden();
+  await expect(page.locator('.scenario-group')).toHaveCount(2);
+  await expect(card(page)).toHaveCount(21);
+  await expect(card(page).last()).toHaveAttribute('data-scenario-id', last.id);
   await expect(page.getByRole('treeitem', { name: /Second, Button/ }).locator('.layer-interaction')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Следующие сценарии' }).click();
-  await expect(page.locator('#scenarios-number')).toHaveText('21–21 из 21');
-  await expect(card(page)).toHaveAttribute('data-scenario-id', last.id);
   expect(offsets).toContain(20);
   await layer(page, 'Second'); await expect(card(page)).toHaveCount(1);
   await layer(page, 'Source'); await expect(card(page)).toHaveCount(20);
@@ -166,7 +167,7 @@ test('rename updates names without changing stable references', async ({ page, r
   await f.command('set-node-name', { nodeId: f.source, name: 'Renamed source' });
   await refresh(page);
   await expect(card(page)).toContainText('Renamed destination');
-  await expect(card(page)).toContainText('Renamed source');
+  await expect(page.locator('.scenario-group-name')).toHaveText('Renamed source');
   expect((await f.catalog()).items).toEqual([original]);
 });
 
@@ -449,4 +450,34 @@ test('actions can be edited using keyboard controls and cannot exceed the action
   await type(page, 31, 'Закрыть оверлей');
   await persist(page, 'update');
   expect((await f.catalog()).items[0].actions.at(-1)).toEqual({ type: 'closeOverlay' });
+});
+
+test('overview groups by element, collapses independently and uses theme tokens', async ({ page, request }) => {
+  const f = await setup(request);
+  await f.add(f.source, [{ type: 'navigate', screenId: f.screens[1] }]);
+  await f.add(f.second);
+  await f.add(f.source, [{ type: 'resetPreview' }, { type: 'closeOverlay' }]);
+  await open(page, f);
+  const groups = page.locator('.scenario-group');
+  await expect(groups).toHaveCount(2);
+  const source = groups.filter({ has: page.locator('.scenario-group-name', { hasText: 'Source' }) });
+  await expect(source.locator('.scenario-group-count')).toHaveText('2');
+  await expect(source.locator('.scenario-entry')).toHaveCount(2);
+  await expect(source.locator('.scenario-target-name')).toHaveText('Destination');
+  await expect(source.locator('.scenario-action-order')).toHaveText(['1.', '2.']);
+  await expect(page.locator('#scenarios-pagination')).toBeHidden();
+  await source.locator('summary').focus();
+  await source.locator('summary').press('Enter');
+  await expect(source.locator('.scenario-group-items')).toBeHidden();
+  await expect(groups.nth(1).locator('.scenario-group-items')).toBeVisible();
+  await source.locator('summary').click();
+  await expect(source.locator('.scenario-group-items')).toBeVisible();
+  await page.emulateMedia({ colorScheme: 'light' });
+  const light = await source.locator('summary').evaluate(el => getComputedStyle(el).backgroundColor);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect.poll(() => source.locator('summary').evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(light);
+  await source.getByRole('button', { name: 'Source · По нажатию' }).first().click();
+  await expect(page.locator('#scenarios-title')).toHaveText('Source');
+  await expect(card(page)).toHaveCount(2);
+  await expect(card(page).first().getByRole('button', { name: /^Изменить сценарий/ })).toBeVisible();
 });
