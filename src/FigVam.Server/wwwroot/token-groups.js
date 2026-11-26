@@ -24,12 +24,18 @@ export function buildTokenGroups(items) {
 export function shortTokenName(name, group) {
   return group.length ? tokenSegments(name).slice(group.length).join('.') : name;
 }
-export function visibleTokens(items, group, search, type, typeOf) {
+export function matchesTokenSearch(item, search) {
   const q = search.trim().toLowerCase();
-  return items.filter(item => (!type || typeOf(item) === type) &&
-    (q ? item.name.toLowerCase().includes(q) || tokenSegments(item.name).join('.').toLowerCase().includes(q) :
-      group.every((segment,i) => tokenSegments(item.name)[i] === segment) && tokenSegments(item.name).length > group.length))
-    .sort((a,b) => a.name.localeCompare(b.name));
+  return !q || item.name.toLowerCase().includes(q) || tokenSegments(item.name).join('.').toLowerCase().includes(q);
+}
+export function filteredTokens(items, search, selectedTypes, typeOf) {
+  return items.filter(item => selectedTypes.has(typeOf(item)) && matchesTokenSearch(item, search));
+}
+export function tokensInGroup(items, group) {
+  return items.filter(item => {
+    const segments = tokenSegments(item.name);
+    return segments.length > group.length && group.every((segment,i) => segments[i] === segment);
+  }).sort((a,b) => a.name.localeCompare(b.name));
 }
 export function qualifyTokenName(name, group) {
   return group.length && !/[./]/.test(name) ? [...group,name].join('.') : name;
