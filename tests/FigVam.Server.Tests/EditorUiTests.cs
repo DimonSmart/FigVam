@@ -20,7 +20,7 @@ public sealed class EditorUiTests
         var routes = new Queue<string>(new[]
         {
             "/", $"/documents/{id}", "/editor.css", "/editor-shell.css", "/home.css", "/editor.js", "/editor-shell.js", "/api-client.js", "/canvas-viewport.js",
-            "/home-ui.js", "/decode.js", "/layer-caption.js", "/datasets.js", "/document-collaboration.js", "/document-export.js", "/document-history.js", "/layers.js", "/scenarios.js", "/screen-resize.js",
+            "/home-ui.js", "/decode.js", "/layer-caption.js", "/document-collaboration.js", "/document-export.js", "/document-history.js", "/layers.js", "/scenarios.js", "/screen-resize.js",
             "/tokens.js", "/token-groups.js", "/token-exchange.js", "/layer-drag.js", "/canvas-node-editor.js", "/screen-capture.js", "/session.js", "/auth-client.js",
             "/visual-node-editor.js", "/node-property-controls.js", "/screen-renderer.js",
             "/token-value-control.js", "/token-resolution.js", "/interaction-catalog.js", "/interaction-editor.js"

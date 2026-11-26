@@ -1,7 +1,7 @@
 import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from './auth-client.js';
 import { createScreenCapture } from './screen-capture.js';
 import { createApiClient, parseDocumentList } from './api-client.js';
-import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants } from './home-ui.js';
+import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets } from './home-ui.js';
 import { createDocumentCollaboration } from './document-collaboration.js';
 import { createCanvasViewport } from './canvas-viewport.js';
 import { createEditorShell } from './editor-shell.js';
@@ -9,7 +9,6 @@ import { createVisualScreens } from './visual-screen.js';
 import { createCanvasNodeEditor } from './canvas-node-editor.js';
 import { createVisualNodeEditor } from './visual-node-editor.js';
 import { createLayers } from './layers.js';
-import { createDatasets } from './datasets.js';
 import { createDocumentHistory } from './document-history.js';
 import { createDocumentExport } from './document-export.js';
 import { createScenarios } from './scenarios.js';
@@ -134,7 +133,7 @@ const screenVariants = createScreenVariants({
 });
 const datasets = createDatasets({
   element, request: (...args) => request(...args), pageSize,
-  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation }),
+  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status) {
@@ -270,7 +269,7 @@ const scenarios = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentRole = role; tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
+  setDocumentRole: role => { documentRole = role; datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
 
@@ -842,7 +841,7 @@ async function openDocument(id) {
     element('page-edit').hidden = !['Owner', 'Editor'].includes(role);
     element('screen-create').hidden = !['Owner', 'Editor'].includes(role);
     tokens.refreshAccess();
-    element('dataset-edit').hidden = !['Owner', 'Editor'].includes(role);
+    datasets.refreshAccess();
     documentHistory.prepare();
     await readPages(signal, 0);
     if (!current()) return;

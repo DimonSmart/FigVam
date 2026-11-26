@@ -37,7 +37,6 @@ public static class EditorEndpoints
         MapFile("/token-resolution.js", "token-resolution.js", "text/javascript; charset=utf-8");
         MapFile("/screen-renderer.js", "screen-renderer.js", "text/javascript; charset=utf-8");
 
-        MapFile("/datasets.js", "datasets.js", "text/javascript; charset=utf-8");
 
 
         MapFile("/document-collaboration.js", "document-collaboration.js", "text/javascript; charset=utf-8");

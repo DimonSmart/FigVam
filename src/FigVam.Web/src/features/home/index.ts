@@ -8,3 +8,4 @@ export { createComponents } from '../components/components';
 export { createPresence } from '../collaboration/presence';
 export { createMembers } from '../collaboration/members';
 export { createScreenVariants } from '../editor/screen-variants';
+export { createDatasets } from '../datasets/datasets';
