@@ -33,9 +33,9 @@ test('two clients converge through authenticated events while local commands ret
   await open(page, id); await open(second, id); await connected(second);
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(second.locator('#pages > li > .page-select')).toHaveCount(1);
-  await show(page, 'page');
-  await page.getByLabel('Имя выбранной страницы', { exact: true }).fill('Renamed remotely');
-  await page.locator('#page-rename button').click();
+  await page.getByRole('button', { name: /Переименовать страницу/ }).click();
+  await page.getByLabel('Имя страницы', { exact: true }).fill('Renamed remotely');
+  await page.getByRole('button', { name: 'Сохранить название страницы' }).click();
   await expect(second.locator('#pages > li > .page-select')).toHaveText('Renamed remotely');
   await show(second, 'screen');
   await second.getByLabel('Ширина экрана').fill('640');

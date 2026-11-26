@@ -147,17 +147,24 @@ for (const viewport of [{ width: 1200, height: 800 }, { width: 390, height: 500 
     }
 
     await expectUnclipped('.screen-options-body');
+    await page.locator('#pages > li > .navigator-rename-action').click({ trial: true });
+    await page.locator('#pages > li > .navigator-context-menu > summary').click({ trial: true });
     await page.getByLabel('Типовой размер экрана').selectOption('390x844');
     await expect(page.getByLabel('Ширина экрана')).toHaveValue('390');
     await expect(page.getByLabel('Высота экрана')).toHaveValue('844');
     await page.locator('#screen-create button[type=submit]').click();
     await expect(page.locator('#screens .screen-select')).toHaveCount(1);
 
-    await page.locator('.page-options > summary').click();
-    await expectUnclipped('.navigator-page-menu');
+    await page.locator('#pages > li > .navigator-context-menu > summary').click();
+    await expectUnclipped('#pages > li > .navigator-context-menu > .navigator-context-body');
     await page.keyboard.press('Escape');
-    await expect(page.locator('.navigator-page-menu')).toBeHidden();
-    await expect(page.locator('.page-options > summary')).toBeFocused();
+    await expect(page.locator('#pages > li > .navigator-context-menu > .navigator-context-body')).toBeHidden();
+    await expect(page.locator('#pages > li > .navigator-context-menu > summary')).toBeFocused();
+    await page.locator('#screens .navigator-context-menu > summary').click();
+    await expectUnclipped('#screens .navigator-context-body');
+    await expect(page.getByRole('button', { name: /Дублировать экран/ })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#screens .navigator-context-body')).toBeHidden();
   });
 }
 

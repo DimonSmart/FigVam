@@ -57,7 +57,7 @@ function leaveDeletion() {
   element('delete-message').textContent = `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.`;
 }
 let selectedScreen = null, screensOffset = 0, screensTotal = 0, screensItems = [];
-let editingScreenName = null;
+let editingPageName = null, editingScreenName = null;
 let pageExpanded = true;
 let statusDismissTimer = null;
 const diagnostics = createScreenDiagnostics({
@@ -143,7 +143,7 @@ function closeInaccessibleDocument(status) {
   scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingScreenName = null; pageExpanded = true;
+  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingPageName = editingScreenName = null; pageExpanded = true;
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
@@ -194,7 +194,7 @@ function clearSession() {
   screenList.remove();
   element('pages').replaceChildren();
   element('pages').closest('.editor-group').append(screenList);
-  selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingScreenName = null;
+  selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingPageName = editingScreenName = null;
   screenList.replaceChildren();
   layers.reset();
   tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
@@ -432,9 +432,149 @@ async function findRole(id, signal) {
   return null;
 }
 
+function navigatorCanEdit() {
+  return ['Owner', 'Editor'].includes(documentRole);
+}
+function navigatorEditState(kind) {
+  return kind === 'page' ? editingPageName : editingScreenName;
+}
+function setNavigatorEditState(kind, value) {
+  if (kind === 'page') editingPageName = value;
+  else editingScreenName = value;
+}
+function renderNavigatorKind(kind) {
+  if (kind === 'page') renderPages();
+  else renderScreens();
+}
+function startNavigatorNameEdit(kind, item, name) {
+  if (!navigatorCanEdit() || element('page-edit').inert) return;
+  const other = kind === 'page' ? 'screen' : 'page';
+  if (navigatorEditState(other)) {
+    setNavigatorEditState(other, null);
+    renderNavigatorKind(other);
+  }
+  setNavigatorEditState(kind, { id: item.id, value: name });
+  renderNavigatorKind(kind);
+  const input = element(kind + '-name-input');
+  input?.focus();
+  input?.select();
+}
+function navigatorRenameForm(kind, item, name) {
+  const noun = kind === 'page' ? 'страницы' : 'экрана';
+  const form = document.createElement('form');
+  form.className = 'navigator-rename-form';
+  const input = document.createElement('input');
+  input.id = kind + '-name-input';
+  input.type = 'text'; input.required = true; input.maxLength = 256; input.autocomplete = 'off';
+  input.setAttribute('aria-label', 'Имя ' + noun);
+  input.value = navigatorEditState(kind).value;
+  input.addEventListener('input', () => {
+    navigatorEditState(kind).value = input.value;
+    input.setCustomValidity('');
+  });
+  const save = document.createElement('button');
+  save.type = 'submit'; save.className = 'navigator-rename-confirm';
+  save.textContent = '✓'; save.title = 'Сохранить название';
+  save.setAttribute('aria-label', 'Сохранить название ' + noun);
+  const cancel = document.createElement('button');
+  cancel.type = 'button'; cancel.className = 'navigator-rename-cancel';
+  cancel.textContent = '×'; cancel.title = 'Отменить переименование';
+  cancel.setAttribute('aria-label', 'Отменить переименование ' + noun);
+  const discard = () => {
+    setNavigatorEditState(kind, null);
+    renderNavigatorKind(kind);
+    document.querySelector('[data-' + kind + '-rename-id="' + item.id + '"]')?.focus({ preventScroll: true });
+  };
+  cancel.addEventListener('click', discard);
+  input.addEventListener('keydown', event => {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard(); }
+  });
+  form.addEventListener('submit', event => {
+    event.preventDefault();
+    if (!navigatorCanEdit() || element('page-edit').inert) return;
+    const newName = input.value.trim();
+    if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
+      input.setCustomValidity('Укажите непустое имя без управляющих символов.');
+      input.reportValidity();
+      return;
+    }
+    discard();
+    if (newName !== name) pageCommand('rename-' + kind, { [kind + 'Id']: item.id, name: newName });
+  });
+  form.append(input, save, cancel);
+  return form;
+}
+function appendNavigatorActions(row, kind, item, name, actions) {
+  if (!navigatorCanEdit()) return;
+  const noun = kind === 'page' ? 'страницу' : 'экран';
+  const rename = document.createElement('input');
+  rename.type = 'button'; rename.value = '✎'; rename.className = 'navigator-rename-action';
+  rename.dataset[kind + 'RenameId'] = item.id;
+  rename.title = 'Переименовать ' + noun;
+  rename.setAttribute('aria-label', rename.title + ' «' + name + '»');
+  rename.addEventListener('click', () => startNavigatorNameEdit(kind, item, name));
+  const menu = document.createElement('details');
+  menu.className = 'navigator-context-menu';
+  const trigger = document.createElement('summary');
+  trigger.title = kind === 'page' ? 'Действия со страницей' : 'Действия с экраном';
+  trigger.setAttribute('aria-label', trigger.title + ' «' + name + '»');
+  trigger.textContent = '⋯';
+  const body = document.createElement('div');
+  body.className = 'navigator-context-body';
+  body.setAttribute('popover', 'manual');
+  for (const action of actions) {
+    const control = document.createElement('input');
+    control.type = 'button'; control.value = action.label;
+    control.setAttribute('aria-label', action.accessibleLabel);
+    if (action.destructive) control.classList.add('navigator-danger-action');
+    control.addEventListener('click', () => {
+      menu.open = false;
+      if (body.matches(':popover-open')) body.hidePopover();
+      if (navigatorCanEdit() && !element('page-edit').inert) action.run();
+    });
+    body.append(control);
+  }
+  menu.append(trigger, body);
+  const position = () => {
+    if (!menu.open || !menu.isConnected) return;
+    if (!body.matches(':popover-open')) body.showPopover();
+    const anchor = trigger.getBoundingClientRect(), margin = 8, gap = 4;
+    const below = Math.max(0, innerHeight - anchor.bottom - gap - margin);
+    const above = Math.max(0, anchor.top - gap - margin);
+    body.style.maxHeight = '';
+    const openAbove = body.offsetHeight > below && above > below;
+    body.style.maxHeight = (openAbove ? above : below) + 'px';
+    body.style.left = Math.max(margin, Math.min(anchor.right - body.offsetWidth, innerWidth - body.offsetWidth - margin)) + 'px';
+    body.style.top = (openAbove ? anchor.top - gap - body.offsetHeight : anchor.bottom + gap) + 'px';
+  };
+  menu.addEventListener('toggle', () => {
+    if (!menu.open) {
+      if (body.matches(':popover-open')) body.hidePopover();
+      return;
+    }
+    if (element('page-edit').inert || !trigger.getClientRects().length) { menu.open = false; return; }
+    for (const other of document.querySelectorAll('.navigator-context-menu[open], .navigator-toolbar details[open]'))
+      if (other !== menu) other.open = false;
+    position();
+  });
+  row.addEventListener('contextmenu', event => {
+    if (event.target.closest('.page-tree-item, .screen-row') !== row ||
+        event.target.closest('input, summary, .navigator-context-body') ||
+        element('page-edit').inert) return;
+    event.preventDefault();
+    menu.open = true;
+    position();
+    body.firstElementChild?.focus({ preventScroll: true });
+  });
+  row.append(rename, menu);
+}
+
 function renderPages() {
   const list = element('pages');
   const screensList = element('screens');
+  const previousInput = document.activeElement?.id === 'page-name-input' ? document.activeElement : null;
+  const selection = previousInput ? [previousInput.selectionStart, previousInput.selectionEnd] : null;
+  if (editingPageName && (!pagesItems.some(item => item.id === editingPageName.id) || !navigatorCanEdit())) editingPageName = null;
   // Preserve the same live screen list (and its handlers) as the selected page changes.
   screensList.remove();
   list.replaceChildren();
@@ -442,49 +582,50 @@ function renderPages() {
     const selected = item.id === selectedPage;
     const row = document.createElement('li');
     row.className = 'page-tree-item';
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'page-select';
-    button.dataset.pageId = item.id;
-    button.textContent = item.name;
-    button.setAttribute('aria-pressed', String(selected));
-    button.setAttribute('aria-expanded', String(selected && pageExpanded));
-    button.addEventListener('click', () => {
-      if (selectedPage !== item.id && !scenarios.requestLeave(() => button.click())) return;
-      if (selectedPage === item.id) {
-        pageExpanded = !pageExpanded;
-        renderPages();
-        element('pages').querySelector('[data-page-id="' + item.id + '"]')?.focus();
-        return;
-      }
-      layers.onScreenContextChanged();
-      selectedPage = item.id;
-      selectedScreen = null;
-      screensItems = []; screensTotal = 0;
-      pageExpanded = true;
-      diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
-      renderPages(); renderScreens(); refreshPages();
-    });
-    row.append(button);
+    if (editingPageName?.id === item.id) {
+      row.append(navigatorRenameForm('page', item, item.name));
+    } else {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'page-select';
+      button.dataset.pageId = item.id;
+      button.textContent = item.name;
+      button.setAttribute('aria-pressed', String(selected));
+      button.setAttribute('aria-expanded', String(selected && pageExpanded));
+      button.addEventListener('click', () => {
+        if (selectedPage !== item.id && !scenarios.requestLeave(() => button.click())) return;
+        if (selectedPage === item.id) {
+          pageExpanded = !pageExpanded;
+          renderPages();
+          element('pages').querySelector('[data-page-id="' + item.id + '"]')?.focus();
+          return;
+        }
+        layers.onScreenContextChanged();
+        selectedPage = item.id;
+        selectedScreen = null;
+        screensItems = []; screensTotal = 0;
+        pageExpanded = true;
+        diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
+        renderPages(); renderScreens(); refreshPages();
+      });
+      row.append(button);
+      appendNavigatorActions(row, 'page', item, item.name, [{
+        label: 'Удалить', accessibleLabel: 'Удалить страницу', destructive: true,
+        run: () => {
+          if (confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
+            pageCommand('delete-page', { pageId: item.id, expectedRevision: revision }, selectedPage === item.id ? null : undefined);
+        }
+      }]);
+    }
     if (selected && pageExpanded) row.append(screensList);
     list.append(row);
   }
   if (!screensList.isConnected) list.closest('.editor-group').append(screensList);
   screensList.hidden = !selectedPage || !pageExpanded;
-  const selected = pagesItems.find(item => item.id === selectedPage);
-  element('page-name').value = selected?.name ?? '';
-  element('page-rename').querySelector('button').disabled = !selected;
-  element('page-name').disabled = !selected;
-  element('page-delete').disabled = !selected;
-}
-
-function startScreenNameEdit(id, name) {
-  if (!['Owner', 'Editor'].includes(documentRole)) return;
-  editingScreenName = { id, value: name };
-  renderScreens();
-  const input = element('screen-name-input');
-  input?.focus();
-  input?.select();
+  if (selection && editingPageName) {
+    const input = element('page-name-input');
+    if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
+  }
 }
 
 function renderScreens() {
@@ -500,47 +641,7 @@ function renderScreens() {
     const row = document.createElement('li');
     row.className = 'screen-row';
     if (editingScreenName?.id === item.id) {
-      const form = document.createElement('form');
-      form.className = 'screen-rename-form';
-      const input = document.createElement('input');
-      input.id = 'screen-name-input';
-      input.type = 'text';
-      input.required = true;
-      input.maxLength = 256;
-      input.autocomplete = 'off';
-      input.setAttribute('aria-label', 'Имя экрана');
-      input.value = editingScreenName.value;
-      input.addEventListener('input', () => {
-        editingScreenName.value = input.value;
-        input.setCustomValidity('');
-      });
-      const save = document.createElement('button');
-      save.type = 'submit'; save.className = 'screen-rename-confirm';
-      save.textContent = '✓'; save.title = 'Сохранить название';
-      save.setAttribute('aria-label', 'Сохранить название экрана');
-      const cancel = document.createElement('button');
-      cancel.type = 'button'; cancel.className = 'screen-rename-cancel';
-      cancel.textContent = '×'; cancel.title = 'Отменить переименование';
-      cancel.setAttribute('aria-label', 'Отменить переименование экрана');
-      const discard = () => { editingScreenName = null; renderScreens(); };
-      cancel.addEventListener('click', discard);
-      input.addEventListener('keydown', event => {
-        if (event.key === 'Escape') { event.preventDefault(); discard(); }
-      });
-      form.addEventListener('submit', event => {
-        event.preventDefault();
-        const newName = input.value.trim();
-        if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
-          input.setCustomValidity('Укажите непустое имя без управляющих символов.');
-          input.reportValidity();
-          return;
-        }
-        editingScreenName = null;
-        renderScreens();
-        if (newName !== name) pageCommand('rename-screen', { screenId: item.id, name: newName });
-      });
-      form.append(input, save, cancel);
-      row.append(form);
+      row.append(navigatorRenameForm('screen', item, name));
     } else {
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'screen-select'; button.dataset.screenId = item.id;
@@ -558,38 +659,13 @@ function renderScreens() {
         renderCanvas();
       });
       row.append(button);
-      if (['Owner', 'Editor'].includes(documentRole)) {
-        const rename = document.createElement('input');
-        rename.type = 'button'; rename.value = '✎'; rename.className = 'screen-rename-action';
-        rename.title = 'Переименовать экран';
-        rename.setAttribute('aria-label', `Переименовать экран «${name}»`);
-        rename.addEventListener('click', () => startScreenNameEdit(item.id, name));
-        row.append(rename);
-        const menu = document.createElement('details');
-        menu.className = 'screen-context-menu';
-        const trigger = document.createElement('summary');
-        trigger.setAttribute('aria-label', `Действия с экраном «${name}»`);
-        trigger.title = 'Действия с экраном';
-        trigger.textContent = '⋯';
-        const duplicate = document.createElement('input');
-        duplicate.type = 'button';
-        duplicate.value = 'Duplicate';
-        duplicate.setAttribute('aria-label', `Дублировать экран «${name}»`);
-        duplicate.addEventListener('click', () => {
-          menu.open = false;
+      appendNavigatorActions(row, 'screen', item, name, [{
+        label: 'Дублировать', accessibleLabel: 'Дублировать экран «' + name + '»',
+        run: () => {
           const newScreenId = crypto.randomUUID();
-          pageCommand('duplicate-screen', { screenId: item.id, newScreenId, expectedRevision: revision },
-            undefined, newScreenId);
-        });
-        menu.append(trigger, duplicate);
-        row.addEventListener('contextmenu', event => {
-          if (event.target.closest('input, button, summary')) return;
-          event.preventDefault();
-          menu.open = true;
-          duplicate.focus({ preventScroll: true });
-        });
-        row.append(menu);
-      }
+          pageCommand('duplicate-screen', { screenId: item.id, newScreenId, expectedRevision: revision }, undefined, newScreenId);
+        }
+      }]);
     }
     list.append(row);
   }
@@ -613,7 +689,7 @@ function renderScreens() {
   if (selectedScreen || screensItems.length > 0 || pagesItems.length > 1) screenMenu.open = false;
   else if (selectedPage && pagesItems.length === 1 &&
       (documentRole === 'Owner' || documentRole === 'Editor') &&
-      !element('page-edit').querySelector('.page-options').open) screenMenu.open = true;
+      !document.querySelector('.navigator-context-menu[open]') && !editingPageName) screenMenu.open = true;
 }
 
 
@@ -803,7 +879,7 @@ async function openDocument(id) {
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const result = await request(`/api/v1/documents/${encodeURIComponent(id)}?fields=name`, {}, signal);
     const role = await findRole(id, signal);
@@ -944,7 +1020,6 @@ async function pageCommand(command, data, selection, screenSelection) {
     if (screenSelection) selectedScreen = screenSelection;
     await readPages(signal);
     if (current === generation) {
-      if (command === 'rename-page') element('page-edit').querySelector('.page-options').open = false;
       message('Изменения подтверждены в общем черновике.');
     }
   } catch (error) {
@@ -1073,21 +1148,15 @@ element('screen-create').addEventListener('submit', event => {
   const screenId = crypto.randomUUID();
   pageCommand('add-screen', { pageId: selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 });
+function closeNavigatorContextMenus() {
+  for (const menu of document.querySelectorAll('.navigator-context-menu[open]')) menu.open = false;
+}
+element('pages').addEventListener('scroll', closeNavigatorContextMenus);
+window.addEventListener('resize', closeNavigatorContextMenus);
 element('page-refresh').addEventListener('click', () => refreshPages());
 element('page-create').addEventListener('click', () => {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
-});
-element('page-rename').addEventListener('submit', event => {
-  event.preventDefault();
-  const name = element('page-name').value.trim();
-  if (!name || /[\u0000-\u001f\u007f-\u009f]/.test(name)) { message('', 'Укажите непустое имя без управляющих символов.'); return; }
-  pageCommand('rename-page', { pageId: selectedPage, name });
-});
-element('page-delete').addEventListener('click', () => {
-  const page = pagesItems.find(item => item.id === selectedPage);
-  if (page && confirm(`Удалить страницу «${page.name}»? Её экраны и их содержимое будут удалены.`))
-    pageCommand('delete-page', { pageId: page.id, expectedRevision: revision }, null);
 });
 element('home-documents').addEventListener('click', () => selectHomeView('documents'));
 element('home-users').addEventListener('click', () => selectHomeView('users'));

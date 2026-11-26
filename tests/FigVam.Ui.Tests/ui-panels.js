@@ -18,7 +18,7 @@ async function show(page, panel) {
   const menus = {
     document: '.document-menu', share: '.share-menu',
     palette: '.palette-options', screen: '.screen-options',
-    page: '#page-edit > .inline-menu'
+    page: '#pages > li:has(> .page-select[aria-pressed="true"]) > .navigator-context-menu'
   };
   if (tabs[panel]) {
     const tab = page.locator('#' + tabs[panel]);
@@ -37,7 +37,7 @@ async function show(page, panel) {
   if (panel === 'screen' || panel === 'page') await show(page, 'layers');
   // A newly added page is selected only after the server has committed the command.
   // Opening the form before that transition can make its controls disappear mid-fill.
-  if (panel === 'screen') {
+  if (panel === 'screen' || panel === 'page') {
     await expect(page.locator('#pages > li > .page-select[aria-pressed="true"]')).toHaveCount(1);
     await expect(page.locator('#page-edit')).not.toHaveAttribute('inert', '');
   }
