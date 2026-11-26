@@ -54,6 +54,22 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   const el = element;
   let items = [], selectedId = null, busy = false, tokenSignature = '';
   let styleUsages = [], styleUsageRequest = 0;
+  let formId, formSnapshot, timer, activeAuto = null, epoch = 0;
+  const drafts = new Map();
+  const equal = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+  const fieldValue = (style, key) => key.startsWith('fields.')
+    ? style?.fields?.[key.slice(7)] : style?.[key];
+  function withValue(style, key, value) {
+    if (!key.startsWith('fields.')) return { ...style, [key]: value };
+    const fields = { ...style.fields }, field = key.slice(7);
+    if (value == null) delete fields[field];
+    else fields[field] = value;
+    return { ...style, fields };
+  }
+  function draftStyle(style, draft) {
+    for (const [key, change] of draft?.changes ?? []) style = withValue(style, key, change.value);
+    return style;
+  }
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole);
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
@@ -169,7 +185,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       active.addEventListener('change', sync);
       source.addEventListener('change', sync);
       row.append(flag, source, direct, ref); editor.append(row); sync();
-      rows.push({ field, label, active, source, direct, ref, inline });
+      rows.push({ field, label, active, source, direct, ref, inline, element: row });
     }
   }
 
@@ -183,16 +199,32 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     const writable = editable();
     el('styles-form').hidden = !writable;
     el('styles-delete').hidden = !writable || !selected;
+    el('styles-save').hidden = Boolean(selected);
     el('styles-save').disabled = !writable || busy;
     el('styles-delete').disabled = busy;
-    el('styles-name').value = selected?.name ?? '';
-    el('styles-type').value = type;
-    el('styles-type').disabled = Boolean(selected);
-    const parent = el('styles-based-on');
-    choices(parent, items.filter(item => styleType(item) === type && item.id !== selected?.id), 'Без родителя');
-    choose(parent, selected?.basedOnStyleId);
-    buildFields(selected, type);
-    renderPreview(selected);
+    const draft = drafts.get(selectedId);
+    if (formId !== selectedId || !draft && activeAuto?.id !== selectedId) {
+      const focused = document.activeElement;
+      const focusKey = el('styles-form').contains(focused) ? focused.getAttribute('aria-label') || focused.id : '';
+      const selection = focusKey && focused.matches('input[type=text], input:not([type])')
+        ? [focused.selectionStart, focused.selectionEnd] : null;
+      const display = selected ? draftStyle(selected, draft) : null;
+      formId = selectedId; formSnapshot = selected;
+      el('styles-name').value = display?.name ?? '';
+      el('styles-type').value = type;
+      el('styles-type').disabled = Boolean(selected);
+      const parent = el('styles-based-on');
+      choices(parent, items.filter(item => styleType(item) === type && item.id !== selected?.id), 'Без родителя');
+      choose(parent, display?.basedOnStyleId);
+      buildFields(display, type);
+      if (focusKey && selected && !el('styles-form').contains(focused)) {
+        const replacement = [...el('styles-form').querySelectorAll('input,select')].find(control =>
+          (control.getAttribute('aria-label') || control.id) === focusKey && !control.hidden && !control.closest('[hidden]'));
+        replacement?.focus({ preventScroll: true });
+        if (selection && replacement?.matches('input[type=text], input:not([type])')) replacement.setSelectionRange(...selection);
+      }
+    }
+    renderPreview(selected ? draftStyle(selected, draft) : null);
     const usageList = el('styles-usages');
     usageList.replaceChildren();
     for (const indirect of [false, true]) {
@@ -256,6 +288,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   }
 
   function reset() {
+    epoch++; clearTimeout(timer); drafts.clear(); activeAuto = null; formId = undefined; formSnapshot = null;
     items = []; selectedId = null; busy = false; tokenSignature = '';
     styleUsages = []; styleUsageRequest++;
     el('styles-error').textContent = ''; el('styles-status').textContent = '';
@@ -291,6 +324,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
 
   async function write(endpoint, payload, id = selectedId) {
     if (!editable() || busy) return;
+    const startedEpoch = epoch;
     busy = true;
     const { signal, current } = startRequest();
     stopLive();
@@ -306,10 +340,14 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       await readPages(signal);
       el('styles-status').textContent = 'Стиль сохранён.';
     } catch (error) {
-      if (error.name !== 'AbortError') el('styles-error').textContent =
+      if (startedEpoch === epoch && current === getContext().generation && error.name !== 'AbortError') el('styles-error').textContent =
         error.status >= 500 || error instanceof TypeError ? 'Результат неизвестен. Обновите документ.' : error.message;
     } finally {
-      busy = false; render(); startLive();
+      if (startedEpoch === epoch) {
+        busy = false; render();
+        if (current === getContext().generation) startLive();
+        schedule(0);
+      }
     }
   }
 
@@ -338,9 +376,161 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       if (generation === styleUsageRequest) el('styles-error').textContent = error.message;
     }
   }
+  function readRow(row) {
+    if (!row.active.checked) return null;
+    const value = row.source.value === 'alias'
+      ? (row.ref.value ? { type: 'token', tokenId: row.ref.value } : null)
+      : row.inline ? row.inline.value() : literalOf(row.field, row.direct.value);
+    if (!value) throw new Error('Выберите токен для ' + row.label);
+    return value;
+  }
+
+  function schedule(delay = 500) {
+    clearTimeout(timer);
+    timer = setTimeout(flush, delay);
+  }
+
+  function capture(target, immediate) {
+    const saved = chosen();
+    if (!saved || !editable() || !formSnapshot || formSnapshot.id !== saved.id) return;
+    let key, read;
+    if (target === el('styles-name')) {
+      key = 'name';
+      read = () => {
+        const name = target.value.trim();
+        if (!name || name.length > 256) throw new Error('Введите название стиля.');
+        return name;
+      };
+    } else if (target === el('styles-based-on')) {
+      key = 'basedOnStyleId'; read = () => target.value || null;
+    } else {
+      const row = rows.find(item => item.element.contains(target));
+      if (!row) return;
+      key = 'fields.' + row.field; read = () => readRow(row);
+    }
+    let draft = drafts.get(saved.id);
+    if (!draft) {
+      draft = { id: saved.id, changes: new Map(), invalid: new Set(), blocked: false };
+      drafts.set(saved.id, draft);
+    }
+    try {
+      const value = read();
+      const previous = draft.changes.get(key);
+      const base = draft.blocked ? fieldValue(saved, key) : previous ? previous.base : fieldValue(formSnapshot, key);
+      draft.invalid.delete(key);
+      target.removeAttribute('aria-invalid');
+      if (equal(value, base) && !(activeAuto?.id === saved.id && activeAuto.sent.has(key))) draft.changes.delete(key);
+      else draft.changes.set(key, { base, value });
+      draft.blocked = false;
+      if (!draft.invalid.size) el('styles-error').textContent = '';
+    } catch (error) {
+      draft.changes.delete(key);
+      draft.invalid.add(key);
+      target.setAttribute('aria-invalid', 'true');
+      el('styles-error').textContent = error.message;
+    }
+    renderPreview(draftStyle(saved, draft));
+    if (!draft.changes.size && !draft.invalid.size && activeAuto?.id !== saved.id) drafts.delete(saved.id);
+    schedule(immediate ? 0 : 500);
+  }
+
+  async function flush() {
+    clearTimeout(timer);
+    if (busy || !editable()) return;
+    const draft = [...drafts.values()].find(item => !item.blocked && item.changes.size);
+    if (!draft) return;
+    const saved = items.find(item => item.id === draft.id);
+    if (!saved) {
+      draft.blocked = true;
+      el('styles-error').textContent = 'Стиль удалён другим участником.';
+      schedule(0);
+      return;
+    }
+    const sent = new Map();
+    let style = saved;
+    for (const [key, change] of draft.changes) {
+      const current = fieldValue(saved, key);
+      if (equal(current, change.value)) { draft.changes.delete(key); continue; }
+      if (!equal(current, change.base)) {
+        draft.blocked = true;
+        el('styles-error').textContent = 'Стиль изменился другим участником. Проверьте значение и отредактируйте его снова.';
+        schedule(0);
+        return;
+      }
+      sent.set(key, change);
+      style = withValue(style, key, change.value);
+    }
+    if (!sent.size) {
+      if (!draft.invalid.size) drafts.delete(draft.id);
+      schedule(0); return;
+    }
+    const context = getContext(), startedEpoch = epoch;
+    const { signal, current } = startRequest();
+    stopLive();
+    const op = { id: draft.id, sent };
+    activeAuto = op; busy = true;
+    el('styles-save').disabled = el('styles-delete').disabled = true;
+    el('styles-status').textContent = 'Сохранение…';
+    const stillCurrent = () => startedEpoch === epoch && current === getContext().generation &&
+      context.documentId === getContext().documentId && !signal.aborted;
+    try {
+      const result = await request('/api/v1/documents/' + encodeURIComponent(context.documentId) + '/commands/upsert-style',
+        { method: 'POST', body: JSON.stringify({
+          commandId: crypto.randomUUID(), expectedRevision: context.revision,
+          style: { ...style, type: styleType(style) === 'TextStyle' ? 0 : 1 }
+        }) }, signal);
+      if (!stillCurrent()) throw new DOMException('Cancelled', 'AbortError');
+      if (!Number.isSafeInteger(result.revision) || !await readPages(signal, 0, result.revision))
+        throw new Error('Не удалось подтвердить состояние стиля. Обновите документ.');
+      if (!stillCurrent()) throw new DOMException('Cancelled', 'AbortError');
+      const confirmed = items.find(item => item.id === draft.id);
+      for (const [key, change] of sent) {
+        const currentChange = draft.changes.get(key);
+        const value = fieldValue(confirmed, key);
+        if (currentChange === change) draft.changes.delete(key);
+        else if (currentChange) currentChange.base = value;
+        if (formSnapshot?.id === draft.id) formSnapshot = withValue(formSnapshot, key, value);
+      }
+      if (!draft.changes.size && !draft.invalid.size) drafts.delete(draft.id);
+      el('styles-status').textContent = 'Стиль сохранён.';
+    } catch (error) {
+      if (startedEpoch === epoch && context.documentId === getContext().documentId) {
+        draft.blocked = true;
+        el('styles-status').textContent = '';
+        el('styles-error').textContent = error.name === 'AbortError' || error.status >= 500 || error instanceof TypeError
+          ? 'Результат неизвестен. Обновите документ перед повторной попыткой.' : error.message;
+      }
+    } finally {
+      if (startedEpoch === epoch) {
+        activeAuto = null; busy = false; render();
+        if (current === getContext().generation) startLive();
+        schedule(0);
+      }
+    }
+  }
+
+  const form = el('styles-form');
+  form.addEventListener('input', event => {
+    if (!event.isComposing && event.target.matches('input:not([type=checkbox])')) capture(event.target, false);
+  });
+  form.addEventListener('change', event => capture(event.target, true));
+  form.addEventListener('focusout', event => {
+    if (event.target.matches('input:not([type=checkbox])')) capture(event.target, true);
+  });
+  form.addEventListener('keydown', event => {
+    if (event.isComposing || !selectedId || !event.target.matches('input:not([type=checkbox])')) return;
+    if (event.key === 'Enter') { event.preventDefault(); capture(event.target, true); }
+    else if (event.key === 'Escape' && !activeAuto && event.target === el('styles-name')) {
+      event.preventDefault(); event.stopPropagation();
+      event.target.value = chosen().name;
+      capture(event.target, true);
+    }
+  });
+
   el('styles-list').addEventListener('change', () => {
     selectedId = el('styles-list').value || null;
-    loadUsages();
+    formId = undefined;
+    loadUsages(); schedule(0);
   });
   el('styles-type').addEventListener('change', () => {
     const type = el('styles-type').value;
@@ -349,6 +539,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   });
   el('styles-form').addEventListener('submit', event => {
     event.preventDefault();
+    if (chosen()) { schedule(0); return; }
     try {
       const existing = chosen();
       const name = el('styles-name').value.trim();
@@ -356,12 +547,8 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       const type = el('styles-type').value;
       const fields = {};
       for (const row of rows) {
-        if (!row.active.checked) continue;
-        const value = row.source.value === 'alias'
-          ? (row.ref.value ? { type: 'token', tokenId: row.ref.value } : null)
-          : row.inline ? row.inline.value() : literalOf(row.field, row.direct.value);
-        if (!value) throw new Error('Выберите токен для ' + row.label);
-        fields[row.field] = value;
+        const value = readRow(row);
+        if (value != null) fields[row.field] = value;
       }
       const id = existing?.id ?? crypto.randomUUID();
       write('upsert-style', { style: { id, name, type: type === 'TextStyle' ? 0 : 1,
