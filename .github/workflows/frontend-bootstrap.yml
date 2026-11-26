@@ -15,10 +15,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Update npm to supported v11
+        run: npm install --global npm@11
       - name: Resolve dependency lock
         working-directory: src/FigVam.Web
         run: |
-          npm install --package-lock-only --ignore-scripts
+          npm install --package-lock-only --ignore-scripts --no-audit
           node -e "const s=require('node:fs').readFileSync('package-lock.json').toString('base64'); for(let i=0;i<s.length;i+=4000) console.log('FIGVAM_LOCK:'+s.slice(i,i+4000));"
       - name: Install and verify
         working-directory: src/FigVam.Web
