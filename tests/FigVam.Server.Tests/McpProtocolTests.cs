@@ -396,8 +396,10 @@ public sealed class McpProtocolTests
         Assert.Equal(beforeInvalidTypography, (await Call("get_document")).GetProperty("revision").GetInt64());
     }
 
-    [Fact]
-    public async Task CanonicalValuesRoundTripThroughOfficialMcpClient()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CanonicalValuesRoundTripThroughOfficialMcpClient(bool tokenExpressionsOnly)
     {
         using var key = RSA.Create(2048);
         var config = ServerTestIdentity.Production(key);
@@ -500,8 +502,13 @@ public sealed class McpProtocolTests
             }
         };
         var composite = await Token("type.fields", "Typography", fields, fields);
-        foreach (var id in new[] { color, width, family, weight, opacity, spacing, geometry, legacySpacing, alias, typography, composite })
-            await RoundTripToken(id);
+        // Keep the two independent protocol cases below the production MCP rate limit.
+        if (tokenExpressionsOnly)
+        {
+            foreach (var id in new[] { color, width, family, weight, opacity, spacing, geometry, legacySpacing, alias, typography, composite })
+                await RoundTripToken(id);
+            return;
+        }
 
         // MCP has no asset upload or style mutation tools. Seed these resources via REST;
         // all node creation, reads and copies below use the public MCP transport.
