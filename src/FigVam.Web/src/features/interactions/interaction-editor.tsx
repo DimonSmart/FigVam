@@ -26,7 +26,7 @@ export const actionLabels:Record<ActionKind,string> = {
 };
 const noValue = '__null__';
 const id = (value:unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-const clone = <T>(value:T):T => structuredClone(value);
+const clone = <T,>(value:T):T => structuredClone(value);
 const isActionKind=(value:string):value is ActionKind=>Object.hasOwn(actionLabels,value);
 function setChoices(select:HTMLSelectElement, items:Choice[], value:string|null|undefined, placeholder = 'Выберите значение') {
   const options:Choice[] = [{ id: '', label: placeholder }, ...items];
