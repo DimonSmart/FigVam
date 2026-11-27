@@ -1,20 +1,17 @@
-import { createCommandBody, postDocumentCommand } from '../api/document-commands';
-import type { ApiClient } from '../api/api-client';
-import type { components } from '../api/schema.generated';
+import { createDocumentCommand, type DocumentCommandRequest } from '../api/document-commands';
 
-type Schema = components['schemas'];
-export interface PageCommandData {
-  'add-page': Omit<Schema['AddPageRequest'], 'commandId'>;
-  'rename-page': Omit<Schema['RenamePageRequest'], 'commandId'>;
-  'delete-page': Omit<Schema['DeletePageRequest'], 'commandId'>;
-  'add-screen': Omit<Schema['AddScreenRequest'], 'commandId'>;
-  'rename-screen': Omit<Schema['RenameScreenRequest'], 'commandId'>;
-  'duplicate-screen': Omit<Schema['DuplicateScreenRequest'], 'commandId'>;
+type PageCommandName = 'add-page' | 'rename-page' | 'delete-page' | 'add-screen' | 'rename-screen' | 'duplicate-screen';
+export type PageCommandData = { [K in PageCommandName]: Omit<DocumentCommandRequest<K>, 'commandId'> };
+
+export function preparePageCommand<K extends PageCommandName>(documentId: string, command: K, data: PageCommandData[K]) {
+  return createDocumentCommand(documentId, command, data);
 }
-/** The caller owns command lifetime and refresh. A new command id is created
- * once per intentional user action, never on an implicit retry. */
-export function postPageCommand<K extends keyof PageCommandData>(
-  request: ApiClient, documentId: string, command: K, data: PageCommandData[K], signal: AbortSignal,
-): Promise<unknown> {
-  return postDocumentCommand(request, documentId, command, createCommandBody(data), signal);
+
+import type { ApiClient } from '../api/api-client';
+export async function postPageCommand<K extends PageCommandName>(request: ApiClient, documentId: string, command: K, data: PageCommandData[K], signal: AbortSignal): Promise<unknown> {
+  const operation=preparePageCommand(documentId,command,data);
+  const result=await operation.execute({request,signal,isCurrent:()=>!signal.aborted,synchronize:async()=>true});
+  if(result.kind==='confirmed')return result.confirmation;
+  if('error' in result)throw result.error;
+  throw new DOMException('Cancelled','AbortError');
 }
