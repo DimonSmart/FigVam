@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Ellipsis, PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
+import { PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
 import { createPanelStore } from '../../app/panel-store';
 import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
@@ -43,20 +43,8 @@ function TabBar<K extends string>({entries,label,selected,select}:{entries:reado
 function clampSplit(value:number){return Math.round(Math.min(72,Math.max(22,value)));}
 
 function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
-  const menu=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),importForm=useRef<HTMLFormElement>(null);
-  function closeMenu(){if(menu.current?.matches(':popover-open'))menu.current.hidePopover();trigger.current?.focus();}
-  function position(){
-    const popover=menu.current,button=trigger.current;
-    if(!popover?.matches(':popover-open')||!button)return;
-    const rect=button.getBoundingClientRect(),margin=8;
-    popover.style.left=Math.max(margin,Math.min(rect.right-popover.offsetWidth,window.innerWidth-popover.offsetWidth-margin))+'px';
-    const below=window.innerHeight-rect.bottom-margin,above=rect.top-margin;
-    const openAbove=below<popover.scrollHeight&&above>below;
-    popover.style.maxHeight=Math.max(0,openAbove?above:below)+'px';
-    popover.style.top=(openAbove?rect.top-popover.offsetHeight:rect.bottom)+'px';
-  }
-  useEffect(()=>{window.addEventListener('resize',position);return()=>window.removeEventListener('resize',position);},[]);
-  useEffect(()=>{if(!active&&menu.current?.matches(':popover-open'))menu.current.hidePopover();},[active]);
+  const importForm=useRef<HTMLFormElement>(null);
+  useEffect(()=>{const menu=document.getElementById('token-menu');if(!active&&menu?.matches(':popover-open'))menu.hidePopover();},[active]);
   return (
     <section id="token-workspace" className="token-workspace" aria-label="Токены" hidden={!active}>
       <p id="tokens-status" role="status" aria-live="polite"/>
@@ -95,19 +83,7 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
         <div className="token-sidebar">
           <div className="token-tree-toolbar">
             <input id="token-search" type="search" placeholder="Поиск токенов" aria-label="Поиск токенов"/>
-            <button id="token-menu-open" className="token-menu-button" type="button" aria-label="Управление токенами" popoverTarget="token-menu" ref={trigger}>
-              <Ellipsis size={16} aria-hidden="true"/>
-            </button>
-            <div className="token-menu" id="token-menu" popover="auto" role="group" aria-label="Управление токенами" ref={menu} onToggle={position}>
-              <button id="new-token-open" type="button" hidden onClick={closeMenu}>{"+ Новый токен…"}</button>
-              <hr/>
-              <button id="token-import-open" type="button" hidden onClick={closeMenu}>{"Импорт токенов…"}</button>
-              <button id="token-export" type="button" onClick={closeMenu}>{"Экспорт токенов…"}</button>
-              <button id="token-export-light" type="button" onClick={closeMenu}>{"Экспорт Light"}</button>
-              <button id="token-export-dark" type="button" onClick={closeMenu}>{"Экспорт Dark"}</button>
-              <hr/>
-              <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы"/>
-            </div>
+            <views.tokens.menu.Component/>
           </div>
           <nav id="token-groups" className="token-groups" aria-label="Группы токенов"><views.tokens.groups.Component/></nav>
         </div>

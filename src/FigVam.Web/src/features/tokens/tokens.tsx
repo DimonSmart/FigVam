@@ -1,3 +1,5 @@
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Ellipsis, ChevronDown, ChevronRight, CornerDownRight } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
@@ -103,7 +105,7 @@ function TokenGroups({tree,group,collapsed,toggle,select}:{tree:TokenGroup;group
       return <div key={key} className="token-group-branch" style={{display:'contents'}}>
         <div className="token-group-row">
           {node.children.size ? <Button aria-label={(expanded?'Свернуть ':'Раскрыть ')+(node.segments.join('.')||'все группы')}
-            aria-expanded={expanded} onClick={()=>toggle(key)}>{expanded?'▾':'▸'}</Button> : <span aria-hidden="true"/>}
+            aria-expanded={expanded} onClick={()=>toggle(key)}>{expanded?<ChevronDown size={14}/>:<ChevronRight size={14}/>}</Button> : <span aria-hidden="true"/>}
           <Button className="token-group-select" aria-pressed={key===groupKey(group)} onClick={()=>select(node.segments)}>{node.segments.at(-1)??'Все токены'}</Button>
         </div>
         {expanded && <div className="token-group-children">{[...node.children.values()].sort((a,b)=>(a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??'')).map(drawGroup)}</div>}
@@ -137,7 +139,7 @@ function TokenTable({tokenItems,displayed,group,search,selectedToken,usagesReady
           {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
           {alias?<><Button className="token-alias-link" title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
             selectAlias(expression.tokenId);
-          }}>{'↳ '+nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
+          }}><CornerDownRight size={12} aria-hidden="true"/>{nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
         </td>;
       });
       return <tr key={item.id} data-selected={String(item.id===selectedToken)}>
@@ -151,10 +153,48 @@ function TokenTable({tokenItems,displayed,group,search,selectedToken,usagesReady
 
   return <>{rows.length?rows:<tr><td colSpan={7}>{hasTypes?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>}</>;
 }
+interface TokenMenuProps {
+  editable:boolean; selectedTypes:ReadonlySet<TokenType>;toggleAll():void;toggleType(type:TokenType,checked:boolean):void;
+  create():void;importTokens():void;exportTokens(theme?:Theme):void;
+}
+function TokenMenu({editable,selectedTypes,toggleAll,toggleType,create,importTokens,exportTokens}:TokenMenuProps){
+  const menu=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),all=useRef<HTMLInputElement>(null);
+  const allSelected=selectedTypes.size===types.length;
+  useLayoutEffect(()=>{if(all.current)all.current.indeterminate=selectedTypes.size>0&&!allSelected;},[selectedTypes,allSelected]);
+  function position(){
+    const popover=menu.current,button=trigger.current;
+    if(!popover?.matches(':popover-open')||!button)return;
+    const rect=button.getBoundingClientRect(),margin=8;
+    popover.style.left=Math.max(margin,Math.min(rect.right-popover.offsetWidth,window.innerWidth-popover.offsetWidth-margin))+'px';
+    const below=window.innerHeight-rect.bottom-margin,above=rect.top-margin;
+    const openAbove=below<popover.scrollHeight&&above>below;
+    popover.style.maxHeight=Math.max(0,openAbove?above:below)+'px';
+    popover.style.top=(openAbove?rect.top-popover.offsetHeight:rect.bottom)+'px';
+  }
+  useEffect(()=>{window.addEventListener('resize',position);return()=>window.removeEventListener('resize',position);},[]);
+  function run(action:()=>void){if(menu.current?.matches(':popover-open'))menu.current.hidePopover();trigger.current?.focus();action();}
+  return <>
+    <button ref={trigger} id="token-menu-open" type="button" className="token-menu-button" data-filtered={String(!allSelected)}
+      aria-label={allSelected?'Управление токенами':'Управление токенами (активен фильтр)'} popoverTarget="token-menu"><Ellipsis size={16} aria-hidden="true"/></button>
+    <div ref={menu} className="token-menu" id="token-menu" popover="auto" role="group" aria-label="Управление токенами" onToggle={position}>
+      <Button id="new-token-open" hidden={!editable} onClick={()=>run(create)}>+ Новый токен…</Button><hr/>
+      <Button id="token-import-open" hidden={!editable} onClick={()=>run(importTokens)}>Импорт токенов…</Button>
+      <Button id="token-export" disabled={!editable} onClick={()=>run(()=>exportTokens())}>Экспорт токенов…</Button>
+      <Button id="token-export-light" disabled={!editable} onClick={()=>run(()=>exportTokens('Light'))}>Экспорт Light</Button>
+      <Button id="token-export-dark" disabled={!editable} onClick={()=>run(()=>exportTokens('Dark'))}>Экспорт Dark</Button><hr/>
+      <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы">
+        <div className="token-filter-heading" aria-hidden="true">Отображаемые типы</div>
+        <label><input ref={all} type="checkbox" value="" checked={allSelected} onChange={toggleAll}/>Все типы</label>
+        {types.map(type=><label key={type}><input type="checkbox" value={type} checked={selectedTypes.has(type)} onChange={event=>toggleType(type,event.currentTarget.checked)}/>{type}</label>)}
+      </div>
+    </div>
+  </>;
+}
+
 function ThemeFields({fields}:{fields:ValueField[]}){
   return <>{fields.map((field,index)=><div className="token-theme-row" key={field.id} data-theme={themes[index]} onKeyDown={event=>{if(!event.nativeEvent.isComposing&&event.key==='Enter'&&event.target instanceof HTMLInputElement&&event.target.matches('input:not([type=search]):not([type=color])')){event.preventDefault();event.target.blur();}}}><FieldValue field={field}/></div>)}</>;
 }
-export function createTokenModels(){return {groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages),createFields:createViewModel(ThemeFields),detailFields:createViewModel(ThemeFields)};}
+export function createTokenModels(){return {menu:createViewModel(TokenMenu),groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages),createFields:createViewModel(ThemeFields),detailFields:createViewModel(ThemeFields)};}
 
 export function createTokens({ models, selectLayer, showEditor, element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
   let tokenItems:DesignToken[]=[],selectedToken:string|null=null,tokenUsages:Usage[]=[],tokenLoad=0,rendered=false;
@@ -168,8 +208,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
   let activeThemeSave:ThemeSave|null=null;
   const busy = () => el('token-create').inert;
   function refreshAccess() {
-    el('new-token-open').hidden = el('token-import-open').hidden = !editable();
-    for (const id of ['token-export','token-export-light','token-export-dark']) btn(id).disabled = !editable();
+    syncTypeFilter();
     if (!editable()) { creating = false; pendingThemeValues.clear(); el('token-import-form').hidden = true; }
     el('token-edit').hidden = !editable();
     if (!editable()) endRename();
@@ -192,32 +231,11 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     input('new-token-name').value = group.length ? group.join('.') + '.' : '';
     updateDetailVisibility(); el('new-token-name').focus();
   }
-  el('new-token-open').addEventListener('click', beginCreate);
   el('new-token-cancel').addEventListener('click', () => { creating = false; updateDetailVisibility(); });
-  const filter = el('token-type-filter');
-  const checks=new Map<TokenType,HTMLInputElement>();
-  const filterHeading = document.createElement('div');
-  filterHeading.className = 'token-filter-heading'; filterHeading.textContent = 'Отображаемые типы';
-  filterHeading.setAttribute('aria-hidden', 'true'); filter.append(filterHeading);
-  function checkbox(label:string,value:string,change:()=>void) {
-    const wrapper = document.createElement('label'), input = document.createElement('input');
-    input.type = 'checkbox'; input.value = value; input.addEventListener('change', change);
-    wrapper.append(input, label); filter.append(wrapper); return input;
-  }
-  const allTypes = checkbox('Все типы', '', () => {
-    selectedTypes = selectedTypes.size === types.length ? new Set() : new Set(types);
-    syncTypeFilter(); renderTokens(false);
-  });
-  for (const type of types) checks.set(type, checkbox(type, type, () => {
-    if (checks.get(type)?.checked) selectedTypes.add(type); else selectedTypes.delete(type);
-    syncTypeFilter(); renderTokens(false);
-  }));
-  function syncTypeFilter() {
-    allTypes.checked = selectedTypes.size === types.length;
-    allTypes.indeterminate = selectedTypes.size > 0 && !allTypes.checked;
-    for (const [type, input] of checks) input.checked = selectedTypes.has(type);
-    el('token-menu-open').dataset.filtered = String(!allTypes.checked);
-    el('token-menu-open').setAttribute('aria-label', allTypes.checked ? 'Управление токенами' : 'Управление токенами (активен фильтр)');
+  function syncTypeFilter(writable=editable()){
+    models.menu.publish({editable:writable,selectedTypes:new Set(selectedTypes),create:beginCreate,importTokens:toggleImport,exportTokens:theme=>void exportTokens(theme),
+      toggleAll:()=>{selectedTypes=selectedTypes.size===types.length?new Set():new Set(types);syncTypeFilter();renderTokens(false);},
+      toggleType:(type,checked)=>{if(checked)selectedTypes.add(type);else selectedTypes.delete(type);syncTypeFilter();renderTokens(false);}});
   }
   syncTypeFilter();
   el('token-search').addEventListener('input', () => { group = []; renderTokens(false); });
@@ -231,9 +249,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
   }
   el('token-import-mode').addEventListener('change', syncImportMode);
   syncImportMode();
-  el('token-import-open').addEventListener('click', () => {
-    if (editable() && !busy()) el('token-import-form').hidden = !el('token-import-form').hidden;
-  });
+  function toggleImport(){if(editable()&&!busy())el('token-import-form').hidden=!el('token-import-form').hidden;}
   for (const theme of ['combined','light','dark']) {
     const field=area('token-import-'+theme),fileInput=input('token-import-'+theme+'-file');
     let fileLoad = 0;
@@ -296,9 +312,6 @@ export function createTokens({ models, selectLayer, showEditor, element, request
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) { if (active()) el('tokens-error').textContent = errorMessage(error); }
   }
-  el('token-export').addEventListener('click', () => exportTokens());
-  el('token-export-light').addEventListener('click', () => exportTokens('Light'));
-  el('token-export-dark').addEventListener('click', () => exportTokens('Dark'));
   const nameOf = (id:string) => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
   // The shared control owns the literal/reference interaction; this adapter only
   // translates its values to the token command's literal/alias expression.
@@ -423,7 +436,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     input('token-search').value = ''; selectedTypes = new Set(types); syncTypeFilter();
     models.groups.clear(); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
-    el('new-token-open').hidden = el('token-import-open').hidden = true; for (const id of ['token-export','token-export-light','token-export-dark']) btn(id).disabled = true;
+    syncTypeFilter(false);
     showEditor(); updateDetailVisibility();
     el('token-create').inert = el('token-detail').inert = false;
     models.table.clear();models.usage.clear();
