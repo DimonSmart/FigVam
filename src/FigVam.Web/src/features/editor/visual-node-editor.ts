@@ -10,7 +10,7 @@ interface Context {documentId:string|null;documentRole:string|null;revision:numb
 interface Target extends Context {documentId:string;screen:string;revision:number;nodeId:string}
 interface Model extends PropertyModel {nodes:ReadonlyMap<string,CanvasNode>;kinds:ReadonlyMap<string,CanvasKind & {kind:string}>;overridden?:ReadonlyMap<string,ReadonlySet<string>>}
 interface Selection {nodeId:string;previousId?:string}
-interface Options {models:ReturnType<typeof createPropertyFieldModels>;element(id:string):HTMLElement;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
+interface Options {models:ReturnType<typeof createPropertyFieldModels>;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
 interface Draft {values:Map<string,RawValue>;error:string;status:string;coordinateParentId?:string}
 interface Palette extends Draft {kind:string;parent:string|null|undefined;selectionId?:string;uploadStatus?:string;uploadError?:string}
 interface Field extends ValueField {baseline:RawValue;signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
@@ -21,7 +21,6 @@ interface Body {nodeId:string;parentId?:string;kind?:string;properties?:NodeProp
 interface Operation {key:string;command:Command;state:'ready'|'pending'|'uncertain';draft:Draft;documentId:string;screen:string;selectionId?:string;body:Body & {commandId:string};auto?:boolean;sent:Map<string,EditValue>;canvas?:boolean;settlePreview?:((confirmed:boolean)=>void)|null}
 interface Upload {documentId:string;token:string|null;epoch:number;assetId:string;commandId:string;file:File;draft:Palette;state?:'pending'|'uncertain'}
 interface GeometryCommand {nodeId:string;expectedParentId:string;expectedRevision:number;properties:NodeProperties}
-function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected inspector element '+node.id);return node;}
 function propertyValue(value:ResolvableValue|undefined):NodePropertyValue|undefined{
   if(!value)return undefined;
   switch(value.type){case 'color':case 'shadow':case 'string':case 'enum':case 'boolean':case 'asset':case 'style':case 'token':return value;case 'number':return {type:'number',value:value.value};case 'typography':if('value' in value)return value;}
@@ -39,12 +38,10 @@ const scopeKey = (context:Context) => context.documentId && context.screen && Nu
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  models, element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
+  models, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
 }:Options) {
-  const input=(id:string)=>typed(element(id),HTMLInputElement),button=(id:string)=>typed(element(id),HTMLButtonElement);
-  const kindSelect=typed(element('visual-kind'),HTMLSelectElement),parentSelect=typed(element('visual-parent'),HTMLSelectElement);
-  const paletteDetails=typed(element('visual-optional-details'),HTMLDetailsElement);
-  const inspectorProperties = element('visual-properties');
+  let assetFile:File|null=null,fileReset=0,optionalOpen=false,optionalHidden=true,addDisabled=true,paletteBlocked=true;
+  function resetAssetFile(){assetFile=null;fileReset++;}
   const textStyledFields = new Set(['textColor', 'fontFamily', 'fontSize', 'fontWeight',
     'lineHeight', 'letterSpacing', 'fontStyle', 'fontFallback']);
   const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius']);
@@ -129,7 +126,7 @@ export function createVisualNodeEditor({
       queued = false;
       context = getContext();
       if (uploadDocument !== context.documentId) {
-        input('asset-upload-file').value = '';
+        resetAssetFile();
         uploadDocument = context.documentId;
       }
       const scope = scopeKey(context);
@@ -173,12 +170,6 @@ export function createVisualNodeEditor({
     });
   }
 
-  function sameChoices(select:HTMLSelectElement,choices:readonly {value:string;text:string}[]) {
-    return select.options.length === choices.length &&
-      choices.every((choice, index) =>
-        select.options[index]?.value === choice.value && select.options[index]?.text === choice.text);
-  }
-
   function render() {
     const focus = document.activeElement?.id;
     if (!model && focus) loadingFocus = { id: focus, key: loadedKey };
@@ -191,27 +182,13 @@ export function createVisualNodeEditor({
     const key = node && `${scope}:${context.variantId ?? "base"}:${node.id}`;
     if (key && !inspectorDrafts.has(key)) inspectorDrafts.set(key, draft());
     inspector=key?inspectorDrafts.get(key):undefined;
-    element('visual-palette').hidden = !scope || !editable;
-    element('visual-inspector').hidden = !scope || !selected;
-    element('visual-palette-form').hidden = !model?.kinds.size;
-    element('visual-properties-form').hidden = !definition;
     if(model?.kinds.size&&editable&&palette&&context.screen) {
       const kinds = [...model.kinds.keys()];
-      const options = kinds.map(kind => ({ value: kind, text: kind }));
-      if (!sameChoices(kindSelect, options))
-        kindSelect.replaceChildren(...kinds.map(kind => new Option(kind, kind)));
       if (!model.kinds.has(palette.kind)) palette.kind=kinds[0]??'';
-      kindSelect.value = palette.kind;
-      const choices = [{ value: context.screen, text: 'Выбранный экран' }];
-      if (selected && node)
-        choices.push({ value: selected.id, text: `Выбранный слой · ${selected.name?.trim() || selected.kind}` });
-      if (!sameChoices(parentSelect, choices))
-        parentSelect.replaceChildren(...choices.map(option => new Option(option.text, option.value)));
       if (palette.selectionId !== selected?.id) {
         palette.selectionId = selected?.id;
         palette.parent = selected?.id;
       }
-      parentSelect.value = node && palette.parent === node.id ? node.id : context.screen;
       renderRequiredFields();
     }
     if (inspectorControlKey !== key) {
@@ -232,7 +209,7 @@ export function createVisualNodeEditor({
     if (paletteControlKey !== key) {
       paletteFields = new Map();
       paletteOptionalFields = new Map();
-      paletteDetails.open = false;
+      optionalOpen = false;
       paletteControlKey = key;
     }
     const properties = model?.kinds.get(palette.kind)?.properties ?? {};
@@ -242,11 +219,11 @@ export function createVisualNodeEditor({
       .filter(([, definition]) => definition && !definition.required && definition.tokenType != null &&
         (definition.type === 'Color' || definition.type === 'Number' ||
           definition.type === 'String' || definition.type === 'Enum')));
-    paletteDetails.hidden = !Object.keys(optional).length;
+    optionalHidden = !Object.keys(optional).length;
     paletteOptionalFields = renderFields(models.optional, optional, null, palette,
       'visual-optional', paletteOptionalFields);
     if ([...paletteOptionalFields.keys()].some(name => palette?.values.has(name)))
-      paletteDetails.open = true;
+      optionalOpen = true;
   }
 
   function renderFields(view:ReturnType<typeof createPropertyFieldModels>['inspector'],definitions:PropertyDefinitions|undefined,values:NodeProperties|null|undefined,state:Draft|undefined,prefix:string,existing=new Map<string,Field>()):Map<string,Field>{
@@ -361,8 +338,9 @@ export function createVisualNodeEditor({
     return fields;
   }
 
+  function currentParent(){return node&&palette?.parent===node.id?node.id:context.screen??'';}
   function eligibleParent() {
-    const id = parentSelect.value;
+    const id = currentParent();
     return id === context.screen || model?.kinds.get(model.nodes.get(id)?.kind??'')?.canContainChildren === true;
   }
 
@@ -377,13 +355,9 @@ export function createVisualNodeEditor({
     const blocked = !editable || Boolean(op) || Boolean(modelKey && resolvedModelKey !== modelKey);
     const upload = uploads.get(context.documentId??'');
     const uploading = upload?.state === 'pending';
-    input('asset-upload-file').disabled = !editable || Boolean(upload);
-    button('asset-upload').disabled = !editable || Boolean(upload);
-    element('asset-upload-retry').hidden = !editable || upload?.state !== 'uncertain';
-    element('asset-upload-status').textContent = uploading ? 'Загрузка изображения…' :
-      upload?.state === 'uncertain' ? 'Подтверждение не получено. Повторите загрузку.' : palette?.uploadStatus || '';
-    element('asset-upload-error').textContent = palette?.uploadError || '';
-    kindSelect.disabled = parentSelect.disabled = blocked;
+    models.asset.publish({disabled:!editable||!!upload,fileReset,choose:file=>{assetFile=file;if(palette)palette.uploadError=palette.uploadStatus='';updateControls();},submit:submitAsset,retry:retryAsset,retryHidden:!editable||upload?.state!=='uncertain',
+      status:uploading?'Загрузка изображения…':upload?.state==='uncertain'?'Подтверждение не получено. Повторите загрузку.':palette?.uploadStatus||'',error:palette?.uploadError||''});
+    paletteBlocked=blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
     for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(op && !op.canvas && !op.auto));
@@ -392,19 +366,9 @@ export function createVisualNodeEditor({
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
     const optionalReady = [...paletteOptionalFields].every(([name, field]) =>
       !palette?.values.has(name) || field.validate(false).value !== undefined);
-    button('visual-add').disabled = blocked || !validParent || !requiredReady || !optionalReady;
-    const autoEntry = (inspector?automatic.get(inspector):undefined);
-    element('visual-properties-reset').hidden = !editable || !inspector?.values.size;
-    button('visual-properties-reset').disabled = blocked;
-    element('visual-add-retry').hidden = !editable || !adding || op.state !== 'uncertain';
-    element('visual-save-retry').hidden = !editable || !(editing && op?.state==='uncertain' || autoEntry?.rejected && autoEntry.fields.size);
-    element('visual-palette-retry').hidden = element('visual-data-retry').hidden = !loadError;
-    element('visual-palette-error').textContent = loadError || palette?.error || '';
-    element('visual-inspector-error').textContent = loadError || inspector?.error || '';
-    element('canvas-edit-error').textContent = canvas?.error || '';
-    element('canvas-edit-status').textContent = op?.canvas ?
-      operationStatus(op, 'Сохранение геометрии…') : canvas?.status || '';
-    element('canvas-edit-retry').hidden = !editable || !op?.canvas || op.state !== 'uncertain';
+    addDisabled=blocked||!validParent||!requiredReady||!optionalReady;
+    const autoEntry = inspector?automatic.get(inspector):undefined;
+    models.canvasFeedback.publish({error:canvas?.error||'',status:op?.canvas?operationStatus(op,'Сохранение геометрии…'):canvas?.status||'',retryHidden:!editable||!op?.canvas||op.state!=='uncertain',retry:()=>retryOperation(false)});
     const defaults = model?.kinds.get(palette?.kind??'')?.properties;
     const geometry = ['width', 'height', 'x', 'y'].map(name => definitionValue(defaults?.[name]?.defaultValue));
     const geometryHint = geometry.every(Number.isFinite) ?
@@ -413,12 +377,18 @@ export function createVisualNodeEditor({
     const paletteStatus = !validParent && model?.kinds.size ?
       'Выбранный слой не допускает дочерние элементы. Укажите экран или выберите контейнер.' :
       model && !model.kinds.size ? 'Профиль документа не содержит визуальных видов.' : geometryHint;
-    element('visual-palette-status').textContent = adding ?
-      operationStatus(op, 'Добавление элемента…') : loading || [palette?.status, paletteStatus].filter(Boolean).join(' ');
-    element('visual-inspector-status').textContent = editing ?
-      operationStatus(op,'Сохранение свойств…') : loading || (autoEntry?.fields.size && !autoEntry.rejected ? 'Сохранение свойств…' : inspector?.status || '');
-    onDrawingToolsChanged(!element('visual-palette').hidden && !element('visual-palette-form').hidden && !kindSelect.disabled
-      ? [...kindSelect.options].map(option => option.value) : []);
+    const kinds=[...model?.kinds.keys()??[]],parents=context.screen?[{value:context.screen,text:'Выбранный экран'}]:[];
+    if(node&&context.selection)parents.push({value:node.id,text:`Выбранный слой · ${context.selection.name?.trim()||context.selection.kind}`});
+    const hidden=!scopeKey(context)||!editable,formHidden=!model?.kinds.size;
+    models.palette.publish({hidden,formHidden,blocked,addDisabled,kind:palette?.kind??'',kinds,parent:currentParent(),parents,optionalHidden,optionalOpen,
+      Required:models.required.Component,Optional:models.optional.Component,changeKind,changeParent,toggleOptional:open=>{optionalOpen=open;},submit:submitPalette,
+      loadRetryHidden:!loadError,loadRetry:retryLoad,retryHidden:!editable||!adding||op.state!=='uncertain',retry:()=>retryOperation(false),
+      error:loadError||palette?.error||'',status:adding?operationStatus(op,'Добавление элемента…'):loading||[palette?.status,paletteStatus].filter(Boolean).join(' ')});
+    models.inspectorPanel.publish({hidden:!scopeKey(context)||!context.selection,formHidden:!node||!model?.kinds.has(node.kind),blocked,resetHidden:!editable||!inspector?.values.size,
+      Fields:models.inspector.Component,submit:()=>finishApply(inspector),reset:resetInspector,loadRetryHidden:!loadError,loadRetry:retryLoad,
+      retryHidden:!editable||!(editing&&op?.state==='uncertain'||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
+      status:editing?operationStatus(op,'Сохранение свойств…'):loading||(autoEntry?.fields.size&&!autoEntry.rejected?'Сохранение свойств…':inspector?.status||'')});
+    onDrawingToolsChanged(!hidden&&!formHidden&&!blocked?kinds:[]);
   }
 
   function operationStatus(op:Operation|undefined,pending:string) {
@@ -437,13 +407,8 @@ export function createVisualNodeEditor({
     return failed?null:properties;
   }
 
-  element('asset-upload-file').addEventListener('change', () => {
-    if (palette) palette.uploadError = palette.uploadStatus = '';
-    updateControls();
-  });
-  element('asset-upload-form').addEventListener('submit', event => {
-    event.preventDefault();
-    const current = getContext(), file=input('asset-upload-file').files?.[0];
+  function submitAsset(){
+    const current=getContext(),file=assetFile;
     const scope = scopeKey(current);
     if(!file||!scope||!current.documentId||!canEdit(current.documentRole)||uploads.has(current.documentId)) return;
     // Uploads may start before the async palette render finishes. Bind the
@@ -454,11 +419,11 @@ export function createVisualNodeEditor({
     const op:Upload={documentId:current.documentId,token:current.token,epoch:current.navigationEpoch,assetId:crypto.randomUUID(),commandId:crypto.randomUUID(),file,draft:currentDraft};
     uploads.set(op.documentId, op);
     sendUpload(op);
-  });
-  element('asset-upload-retry').addEventListener('click', () => {
+  }
+  function retryAsset(){
     const op = uploads.get(getContext().documentId??'');
     if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) sendUpload(op);
-  });
+  }
 
   async function sendUpload(op:Upload) {
     const view = getContext();
@@ -477,7 +442,7 @@ export function createVisualNodeEditor({
         return;
       }
       uploads.delete(op.documentId);
-      input('asset-upload-file').value = '';
+      resetAssetFile();
       op.draft.uploadStatus = 'Изображение загружено. Выберите его в поле «Ассет».';
     } catch (error) {
       if (!(error instanceof ApiError) || classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
@@ -491,23 +456,21 @@ export function createVisualNodeEditor({
     } finally { startLive(); refresh(); }
   }
 
-  function changeKind() {
-    if(!palette||palette.kind===kindSelect.value) return;
-    palette.kind = kindSelect.value;
+  function changeKind(kind:string) {
+    if(!palette||palette.kind===kind||!model?.kinds.has(kind)) return;
+    palette.kind = kind;
     palette.values.clear();
     palette.error = palette.status = '';
     renderRequiredFields();
     updateControls();
   }
-  kindSelect.addEventListener('change', changeKind);
-  function changeParent() {
-    if(!palette)return;palette.parent=parentSelect.value;
+  function changeParent(parent:string) {
+    if(!palette)return;palette.parent=parent;
     palette.error = palette.status = '';
     updateControls();
   }
-  parentSelect.addEventListener('change', changeParent);
   function submitPalette() {
-    const kind = model?.kinds.get(kindSelect.value);
+    const kind = model?.kinds.get(palette?.kind??'');
     if(!palette||!kind||!eligibleParent() || !canEdit(getContext().documentRole)) return;
     const properties = readProperties(paletteFields, paletteFields.keys());
     if (!properties) return;
@@ -515,32 +478,18 @@ export function createVisualNodeEditor({
     const selected = readProperties(paletteOptionalFields, optionalNames);
     if (!selected) return;
     begin('add-node', {
-      nodeId: crypto.randomUUID(), parentId: parentSelect.value, kind: kind.kind,
+      nodeId: crypto.randomUUID(), parentId: currentParent(), kind: kind.kind,
       properties: { ...properties, ...selected }
     }, palette);
   }
-  element('visual-palette-form').addEventListener('submit', event => {
-    event.preventDefault();
-    submitPalette();
-  });
-  function addFromToolbar(kind: string): boolean {
-    if (kindSelect.disabled || element('visual-palette').hidden || element('visual-palette-form').hidden ||
-        ![...kindSelect.options].some(option => option.value === kind)) return true;
-    kindSelect.value = kind;
-    changeKind();
-    if (button('visual-add').disabled && parentSelect.options.length) {
-      parentSelect.selectedIndex = 0;
-      changeParent();
-    }
-    if (button('visual-add').disabled) return false;
-    submitPalette();
-    return true;
+  function addFromToolbar(kind:string):boolean {
+    if(paletteBlocked||!scopeKey(context)||!canEdit(context.documentRole)||!model?.kinds.has(kind))return true;
+    changeKind(kind);
+    if(addDisabled&&context.screen)changeParent(context.screen);
+    if(addDisabled)return false;
+    submitPalette();return true;
   }
-  element('visual-properties-form').addEventListener('submit', event => {
-    event.preventDefault();
-    finishApply(inspector);
-  });
-  element('visual-properties-reset').addEventListener('click', () => {
+  function resetInspector(){
     if (!inspector || operations.has(scopeKey(getContext())??'') || !canEdit(getContext().documentRole)) return;
     const entry = (inspector?automatic.get(inspector):undefined);
     if (entry) previewProperties(entry.target, {});
@@ -549,16 +498,14 @@ export function createVisualNodeEditor({
     inspector.coordinateParentId = undefined;
     inspector.error = inspector.status = '';
     render();
-    inspectorProperties.querySelector<HTMLElement>('input, select, textarea')?.focus();
-  });
-  for (const id of ['visual-palette-retry', 'visual-data-retry'])
-    element(id).addEventListener('click', () => { load(modelKey); updateControls(); });
-  for (const id of ['visual-add-retry', 'visual-save-retry', 'canvas-edit-retry'])
-    element(id).addEventListener('click', () => {
-      const op = operations.get(scopeKey(getContext())??'');
-      if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) send(op);
-      else if(id==='visual-save-retry'&&inspector){const entry=automatic.get(inspector);if(entry?.rejected){entry.rejected=false;finishApply(inspector);}}
-    });
+    requestAnimationFrame(()=>document.getElementById('visual-properties')?.querySelector<HTMLElement>('input, select, textarea')?.focus());
+  }
+  function retryLoad(){load(modelKey);updateControls();}
+  function retryOperation(inspectorRetry:boolean){
+    const op=operations.get(scopeKey(getContext())??'');
+    if(op?.state==='uncertain'&&canEdit(getContext().documentRole))send(op);
+    else if(inspectorRetry&&inspector){const entry=automatic.get(inspector);if(entry?.rejected){entry.rejected=false;finishApply(inspector);}}
+  }
 
   function begin(command:Command,body:Body,state:Draft|undefined,canvas:((confirmed:boolean)=>void)|null=null) {
     const current = getContext(), key = scopeKey(current);

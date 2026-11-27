@@ -432,7 +432,7 @@ const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreen
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
   models: views.propertyFields,
-  element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
+  request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, screen: selectionState.selectedScreen,

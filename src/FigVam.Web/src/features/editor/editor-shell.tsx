@@ -267,17 +267,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="assets-page panel-page" id="shell-assets" role="tabpanel" aria-labelledby="tab-assets" hidden={leftTab!=="assets"}>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Изображения"}</h3>
-                <form id="asset-upload-form">
-                  <label>
-                    {"Изображение PNG "}
-                    <input id="asset-upload-file" type="file" accept="image/png" required/>
-                  </label>
-                  <Button id="asset-upload" type="submit">{"Загрузить изображение"}</Button>
-                </form>
-                <p>{"PNG до 5 МиБ; сервер проверяет формат и размеры изображения."}</p>
-                <p id="asset-upload-status" role="status"/>
-                <p id="asset-upload-error" role="alert"/>
-                <Button id="asset-upload-retry" type="button" hidden>{"Повторить загрузку изображения"}</Button>
+                <views.propertyFields.asset.Component/>
               </section>
               <section aria-labelledby="datasets-title"><views.datasets.Component/></section>
               <section className="editor-group">
@@ -292,29 +282,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <DrawingTools available={availableTools} onSelect={()=>document.getElementById('viewport')?.focus()} onAdd={addFromToolbar}/>
             <details className="editor-menu palette-options" ref={paletteMenu}>
               <summary className="menu-trigger">{"Параметры добавления"}</summary>
-              <section id="visual-palette" aria-labelledby="visual-palette-title" hidden>
-                <h2 id="visual-palette-title">{"Добавить элемент"}</h2>
-                <form id="visual-palette-form" noValidate hidden>
-                  <label>
-                    {"Вид элемента "}
-                    <select id="visual-kind"/>
-                  </label>
-                  <label>
-                    {"Куда добавить "}
-                    <select id="visual-parent"/>
-                  </label>
-                  <div id="visual-required-properties"><views.propertyFields.required.Component/></div>
-                  <details id="visual-optional-details" hidden>
-                    <summary>{"Токены и оформление"}</summary>
-                    <div id="visual-optional-properties"><views.propertyFields.optional.Component/></div>
-                  </details>
-                  <Button id="visual-add" type="submit">{"Добавить элемент"}</Button>
-                </form>
-                <p id="visual-palette-status" role="status"/>
-                <p id="visual-palette-error" role="alert"/>
-                <Button id="visual-palette-retry" type="button" hidden>{"Повторить загрузку палитры"}</Button>
-                <Button id="visual-add-retry" type="button" hidden>{"Повторить добавление"}</Button>
-              </section>
+              <views.propertyFields.palette.Component/>
             </details>
           </div>
           <h2 id="canvas-title" className="visually-hidden">{"Холст"}</h2>
@@ -333,9 +301,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div id="presence-markers" aria-hidden="true"><views.presence.markers.Component/></div>
           </div>
           <p id="canvas-edit-hint" role="status"/>
-          <p id="canvas-edit-status" role="status"/>
-          <p id="canvas-edit-error" role="alert"/>
-          <Button id="canvas-edit-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</Button>
+          <views.propertyFields.canvasFeedback.Component/>
           <div className="viewport-controls" role="group" aria-label="Управление холстом">
             <Button id="zoom-out" type="button" title="Уменьшить">{"Уменьшить"}</Button>
             <output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{"100%"}</output>
@@ -351,17 +317,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               <h2 id="inspector-title">{"Инспектор"}</h2>
               <views.layers.caption.Component/>
               <views.layers.deletion.Component/>
-              <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
-                <h3 id="visual-inspector-title">{"Свойства элемента"}</h3>
-                <form id="visual-properties-form" noValidate hidden>
-                  <div id="visual-properties"><views.propertyFields.inspector.Component/></div>
-                  <Button id="visual-properties-reset" type="button" hidden>{"Сбросить изменения свойств"}</Button>
-                </form>
-                <p id="visual-inspector-status" role="status"/>
-                <p id="visual-inspector-error" role="alert"/>
-                <Button id="visual-save-retry" type="button" hidden>{"Повторить сохранение свойств"}</Button>
-                <Button id="visual-data-retry" type="button" hidden>{"Повторить загрузку свойств"}</Button>
-              </section>
+              <views.propertyFields.inspectorPanel.Component/>
               <views.layers.metadata.Component/>
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
