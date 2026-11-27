@@ -43,7 +43,7 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(38, tools.Count);
+        Assert.Equal(41, tools.Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
@@ -520,7 +520,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(41, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>
@@ -610,7 +610,7 @@ public sealed class McpProtocolTests
             return;
         }
 
-        // MCP has no asset upload or style mutation tools. Seed these resources via REST;
+        // Seed resources via REST to verify shared resource references;
         // all node creation, reads and copies below use the public MCP transport.
         var assetId = Guid.NewGuid();
         using (var upload = new ByteArrayContent(DocumentAssetTests.Png()))
@@ -798,6 +798,101 @@ public sealed class McpProtocolTests
             await Call("create_token", new { name = "invalid." + type, type, category, light = invalid, dark = invalid }, true);
         }
         await Call("create_token", new { name = "invalid.category", type = "Color", category = "Opacity", light = "#123456", dark = "#123456" }, true);
+    }
+
+    [Fact]
+    public async Task ResourcesUploadThroughSharedCommandStreamAndRemainDocumentScoped()
+    {
+        using var key = RSA.Create(2048);
+        var config = ServerTestIdentity.Production(key);
+        var directory = Path.Combine(Path.GetTempPath(), "figvam-mcp-assets-" + Guid.NewGuid().ToString("N"));
+        config["Storage__Directory"] = directory;
+        await using var server = new ServerProcess(config);
+        await server.WaitUntilReadyAsync();
+        using var user = server.CreateClient();
+        user.DefaultRequestHeaders.Authorization = new("Bearer", ServerTestIdentity.Token(key, subject: "owner"));
+        var documentId = Guid.NewGuid();
+        var otherId = Guid.NewGuid();
+        foreach (var id in new[] { documentId, otherId })
+            (await user.PostAsJsonAsync("/api/v1/documents", new { documentId = id, name = "Resources" })).EnsureSuccessStatusCode();
+        var root = $"/api/v1/documents/{documentId}";
+        var otherRoot = $"/api/v1/documents/{otherId}";
+        using var grant = await user.PostAsync(root + "/mcp-access", null);
+        grant.EnsureSuccessStatusCode();
+        var access = await grant.Content.ReadFromJsonAsync<JsonElement>();
+        var token = access.GetProperty("token").GetString()!;
+        await using var mcp = await McpClient.CreateAsync(new HttpClientTransport(new HttpClientTransportOptions
+        {
+            Endpoint = new Uri(access.GetProperty("endpoint").GetString()!),
+            TransportMode = HttpTransportMode.StreamableHttp,
+            AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
+        }));
+        Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
+        var tools = await mcp.ListToolsAsync();
+        Assert.Contains(tools, t => t.Name == "upload_asset");
+        Assert.Contains(tools, t => t.Name == "list_assets");
+        Assert.Contains(tools, t => t.Name == "get_asset_info");
+
+        var initial = await Call("list_assets");
+        Assert.Empty(initial.GetProperty("assets").EnumerateArray());
+        Assert.Contains(initial.GetProperty("supportedContentTypes").EnumerateArray(), t => t.GetString() == "image/png");
+        var revision = initial.GetProperty("revision").GetInt64();
+        // Incompressible RGB pixels force the request above the old 16 KiB MCP limit.
+        var raw = new byte[128 * (128 * 3 + 1)];
+        for (var y = 0; y < 128; y++)
+            RandomNumberGenerator.Fill(raw.AsSpan(y * (128 * 3 + 1) + 1, 128 * 3));
+        var png = DocumentAssetTests.Png(width: 128, height: 128, raw: raw);
+        Assert.True(png.Length > 16 * 1024);
+        var contentBase64 = Convert.ToBase64String(png);
+        var assetId = Guid.NewGuid();
+        var commandId = Guid.NewGuid();
+        var args = new { contentType = "image/png", contentBase64, assetId, commandId };
+        var accepted = await Call("upload_asset", args);
+        Assert.Equal(assetId, accepted.GetProperty("assetId").GetGuid());
+        Assert.Equal(revision + 1, accepted.GetProperty("revision").GetInt64());
+        Assert.Equal(accepted.GetRawText(), (await Call("upload_asset", args)).GetRawText());
+        Assert.Equal(png, await user.GetByteArrayAsync(root + $"/assets/{assetId}"));
+        var manifest = await Call("list_assets");
+        Assert.Single(manifest.GetProperty("assets").EnumerateArray());
+        Assert.Equal(revision + 1, manifest.GetProperty("revision").GetInt64());
+        var info = await Call("get_asset_info", new { assetId });
+        Assert.Equal(png.Length, info.GetProperty("asset").GetProperty("byteLength").GetInt32());
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(png)), info.GetProperty("asset").GetProperty("sha256").GetString());
+        Assert.Empty((await Call("list_assets", new { revision })).GetProperty("assets").EnumerateArray());
+        Assert.Equal("ASSET_NOT_FOUND", (await Call("get_asset_info", new { assetId, revision }, true)).GetProperty("code").GetString());
+
+        foreach (var invalid in new[] { "", "!!!!", "AAAA AAA", "data:image/png;base64,AAAA", Convert.ToBase64String(new byte[] { 1, 2, 3 }) })
+            Assert.Equal("INVALID_ASSET", (await Call("upload_asset", new { contentType = "image/png", contentBase64 = invalid }, true)).GetProperty("code").GetString());
+        Assert.Equal("INVALID_ASSET", (await Call("upload_asset", new { contentType = "font/woff2", contentBase64 }, true)).GetProperty("code").GetString());
+        // 5 MiB + 1 has the same encoded length as 5 MiB, so the decoded bound must be checked too.
+        var oversized = Convert.ToBase64String(new byte[FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes + 1]);
+        Assert.Equal("ASSET_TOO_LARGE", (await Call("upload_asset", new { contentType = "image/png", contentBase64 = oversized }, true)).GetProperty("code").GetString());
+        Assert.Equal(revision + 1, (await Call("list_assets")).GetProperty("revision").GetInt64());
+
+        using (var otherUpload = new ByteArrayContent(png))
+        {
+            otherUpload.Headers.ContentType = new("image/png");
+            var foreignAsset = Guid.NewGuid();
+            (await user.PutAsync(otherRoot + $"/assets/{foreignAsset}?commandId={Guid.NewGuid()}", otherUpload)).EnsureSuccessStatusCode();
+            Assert.Equal("ASSET_NOT_FOUND", (await Call("get_asset_info", new { assetId = foreignAsset }, true)).GetProperty("code").GetString());
+        }
+        using (var absent = await user.GetAsync(otherRoot + $"/assets/{assetId}"))
+            Assert.Equal(HttpStatusCode.NotFound, absent.StatusCode);
+        var pageId = (await Call("create_page")).GetProperty("pageId").GetGuid();
+        var screenId = (await Call("create_screen", new { pageId, width = 128, height = 128 })).GetProperty("screenId").GetGuid();
+        var nodeId = (await Call("create_node", new { parentId = screenId, kind = "Image",
+            properties = new { asset = new { assetId }, fit = "Contain", altText = "Uploaded" } })).GetProperty("nodeId").GetGuid();
+        var node = await Call("get_node", new { nodeId });
+        Assert.Equal(assetId, node.GetProperty("items")[0].GetProperty("properties").GetProperty("asset").GetProperty("assetId").GetGuid());
+        var history = await user.GetFromJsonAsync<JsonElement>(root + "/reconnect?lastSeenRevision=0");
+        Assert.Contains(history.GetProperty("events").EnumerateArray(), e =>
+            e.GetProperty("type").GetString() == "UPLOAD_ASSET" && e.GetProperty("source").GetString() == "MCP");
+        (await user.DeleteAsync(root + "/mcp-access")).EnsureSuccessStatusCode();
+        using var revoked = server.CreateClient();
+        revoked.DefaultRequestHeaders.Authorization = new("Bearer", token);
+        using var denied = await revoked.PostAsJsonAsync("/mcp", new { jsonrpc = "2.0", id = 1, method = "tools/call",
+            @params = new { name = "upload_asset", arguments = new { contentType = "image/png", contentBase64 = Convert.ToBase64String(DocumentAssetTests.Png()) } } });
+        Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
     }
 
     private static async Task<JsonElement> CallAsync(McpClient mcp, string name, object? args, bool error)

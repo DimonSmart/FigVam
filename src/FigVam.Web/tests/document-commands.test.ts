@@ -111,6 +111,13 @@ describe('prepared asset upload',()=>{
     expect(request.mock.calls[0]).toEqual(request.mock.calls[1]);
     expect(request).toHaveBeenCalledWith('/api/v1/documents/doc/assets/asset?commandId=same',{method:'PUT',headers:{'Content-Type':'image/png'},body:file},undefined);
   });
+  it('preserves resource MIME type without changing the command transport',async()=>{
+    const font=new Blob([new Uint8Array([1,2,3])],{type:'font/woff2'});
+    const op=prepareAssetUpload('doc','asset',font,'same');
+    const request=vi.fn().mockResolvedValue(response);
+    await op.execute({request,isCurrent:()=>true,synchronize:async()=>true});
+    expect(request).toHaveBeenCalledWith('/api/v1/documents/doc/assets/asset?commandId=same',{method:'PUT',headers:{'Content-Type':'font/woff2'},body:font},undefined);
+  });
   it('refreshes without uploading again after confirmation in a former document context',async()=>{
     const op=make();let current=true;
     const request=vi.fn(async()=>{current=false;return response;});

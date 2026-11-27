@@ -83,7 +83,7 @@ public sealed class McpTunnelProtocolTests
             Assert.Equal(HttpStatusCode.Forbidden, (await unauthenticated.SendAsync(wrongOrigin)).StatusCode);
 
             await using var mcp = await Connect(server, McpTunnelCredential.Header, key);
-            Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
+            Assert.Equal(41, (await mcp.ListToolsAsync()).Count);
             await Denied(mcp);
             var status = await alice.GetFromJsonAsync<JsonElement>(PathFor(a));
             Assert.True(status.GetProperty("tunnel").GetProperty("configured").GetBoolean());
@@ -103,6 +103,9 @@ public sealed class McpTunnelProtocolTests
             (await alice.DeleteAsync(TunnelFor(b))).EnsureSuccessStatusCode();
             Assert.Equal(a, (await Call(mcp, "get_document")).GetProperty("documentId").GetGuid());
             var pageA = (await Call(mcp, "create_page")).GetProperty("pageId").GetGuid();
+            var asset = (await Call(mcp, "upload_asset", new { contentType = "image/png",
+                contentBase64 = Convert.ToBase64String(DocumentAssetTests.Png()) })).GetProperty("assetId").GetGuid();
+            Assert.Equal(DocumentAssetTests.Png(), await alice.GetByteArrayAsync($"/api/v1/documents/{a}/assets/{asset}"));
 
             using var directGrant = await alice.PostAsync(PathFor(b), null);
             directGrant.EnsureSuccessStatusCode();
@@ -117,6 +120,7 @@ public sealed class McpTunnelProtocolTests
 
             (await alice.PostAsync(TunnelFor(b), null)).EnsureSuccessStatusCode();
             Assert.Equal(b, (await Call(mcp, "get_document")).GetProperty("documentId").GetGuid());
+            await Call(mcp, "get_asset_info", new { assetId = asset }, error: true);
             await Call(mcp, "create_screen", new { pageId = pageA, width = 800, height = 600 }, error: true);
             (await alice.DeleteAsync(PathFor(b))).EnsureSuccessStatusCode();
             Assert.Equal(b, (await Call(mcp, "get_document")).GetProperty("documentId").GetGuid());
@@ -156,7 +160,7 @@ public sealed class McpTunnelProtocolTests
         {
             await restarted.WaitUntilReadyAsync();
             await using var mcp = await Connect(restarted, McpTunnelCredential.Header, key);
-            Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
+            Assert.Equal(41, (await mcp.ListToolsAsync()).Count);
             await Denied(mcp);
             using var alice = AsUser(restarted, "alice");
             var status = await alice.GetFromJsonAsync<JsonElement>(PathFor(a));

@@ -24,7 +24,7 @@ async function connect(request, endpoint, token) {
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
   const tools = (await rpc('tools/list', {})).tools;
-  expect(tools).toHaveLength(38);
+  expect(tools).toHaveLength(41);
   const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
   expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
   expect(renderSchema.required).not.toContain('theme');
@@ -468,4 +468,50 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   const denied = await request.post(access.endpoint, { headers: { Authorization: 'Bearer ' + access.token, Accept: 'application/json, text/event-stream' },
     data: { jsonrpc: '2.0', id: 99, method: 'tools/call', params: { name: 'render_screen', arguments: { screenId: login } } } });
   expect(denied.status()).toBe(401);
+});
+
+
+test('MCP-uploaded resource renders in an already open editor, Preview and screen capture', async ({ page, request, server }) => {
+  await page.setViewportSize({ width: 1700, height: 1100 });
+  await signIn(page, server);
+  await page.getByLabel('Имя нового документа').fill('MCP Resource Prototype');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+  const { token, endpoint } = await grant(page);
+  const call = await connect(request, endpoint, token);
+  const { pageId } = await call('create_page');
+  const { screenId } = await call('create_screen', { pageId, width: 200, height: 100 });
+  await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
+  const contentBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAAD0lEQVR4nGP4z8DA8J8BAAf/Af8Bf4mnAAAAAElFTkSuQmCC';
+  const { assetId } = await call('upload_asset', { contentType: 'image/png', contentBase64 });
+  const { nodeId } = await call('create_node', { parentId: screenId, kind: 'Image',
+    properties: { asset: { assetId }, x: 0, y: 0, width: 200, height: 100, fit: 'Contain', altText: 'MCP image' } });
+  const design = page.locator('#screen-boundary [data-visual-node="' + nodeId + '"] img');
+  await expect(design).toBeVisible();
+  await expect.poll(() => design.evaluate(img => img.naturalWidth)).toBe(2);
+  const capture = await call.raw('render_screen', { screenId });
+  expect(capture.isError).not.toBe(true);
+  const image = capture.content.find(item => item.type === 'image');
+  expect(image?.mimeType).toBe('image/png');
+  const pixels = await page.evaluate(async data => {
+    const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
+    const canvas = document.createElement('canvas');
+    canvas.width = bitmap.width; canvas.height = bitmap.height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0);
+    const left = [...ctx.getImageData(10, 50, 1, 1).data];
+    const right = [...ctx.getImageData(190, 50, 1, 1).data];
+    bitmap.close();
+    return { width: canvas.width, height: canvas.height, left, right };
+  }, image.data);
+  expect(pixels.width).toBe(200);
+  expect(pixels.height).toBe(100);
+  expect(pixels.left[0]).toBeGreaterThan(200);
+  expect(pixels.left[1]).toBeLessThan(55);
+  expect(pixels.right[1]).toBeGreaterThan(200);
+  expect(pixels.right[0]).toBeLessThan(55);
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const preview = page.locator('#preview-viewport [data-visual-node="' + nodeId + '"] img');
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate(img => img.naturalWidth)).toBe(2);
 });
