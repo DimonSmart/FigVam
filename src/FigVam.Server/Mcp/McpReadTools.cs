@@ -125,13 +125,13 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public CallToolResult ListTokenTypes() =>
         Result("OK", new { types = Enum.GetNames<TokenType>() });
 
-    [McpServerTool(Name = "get_token_schema", ReadOnly = true), Description("Read the value schema, categories, constraints, examples, aliases and theme semantics for a design token type.")]
-    public CallToolResult GetTokenSchema(string type)
+    [McpServerTool(Name = "get_token_schema", ReadOnly = true), Description("Read the value schema, categories, constraints, examples, aliases and theme semantics for a design token type. Use compact=true for shared expression formats and literal constraints.")]
+    public CallToolResult GetTokenSchema(string type, bool compact = false)
     {
         if (!Enum.GetNames<TokenType>().Contains(type, StringComparer.Ordinal))
             return Result("INVALID_ENUM", null, "Expected one of: " + string.Join(", ", Enum.GetNames<TokenType>()));
         var tokenType = Enum.Parse<TokenType>(type);
-        return Result("OK", McpTokenSchemas.Describe(tokenType));
+        return Result("OK", McpTokenSchemas.Describe(tokenType, compact));
     }
 
     [McpServerTool(Name = "list_tokens"), Description("List design tokens and Light/Dark values.")]

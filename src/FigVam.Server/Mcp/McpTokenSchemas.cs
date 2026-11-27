@@ -1,11 +1,13 @@
+using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using FigVam.Domain.Tokens;
 
 namespace FigVam.Server.Mcp;
 
 internal static class McpTokenSchemas
 {
-    internal static object Describe(TokenType type)
+    internal static object Describe(TokenType type, bool compact = false)
     {
         var categories = Enum.GetValues<TokenCategory>().Where(c => DesignTokenValidator.ValidCategory(type, c)).ToArray();
         var noCategory = DesignTokenValidator.ValidCategory(type, null);
@@ -25,7 +27,7 @@ internal static class McpTokenSchemas
             TokenType.Typography => new { fontFamily = "Arial", fontSize = 16, fontWeight = 400, lineHeight = 1.25 },
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
-        return new
+        var full = new
         {
             type = type.ToString(),
             description = type switch
@@ -65,5 +67,55 @@ internal static class McpTokenSchemas
                 compactCreateValueSchema = McpPropertyContracts.LegacySpacingCreateSchema()
             } : null
         };
+        if (!compact) return full;
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        {
+            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+        };
+        var response = JsonSerializer.SerializeToNode(full, options)!.AsObject();
+        response.Remove("valueSchema");
+        response.Remove("valueSchemaByCategory");
+        response["compact"] = true;
+        response["category"]!["description"] = noCategory ? "Omit category." : "Required; use literalSchemaByCategory for both themes.";
+        response["formats"] = JsonSerializer.SerializeToNode(new
+        {
+            compactAlias = new { tokenId = "UUID" },
+            canonicalAlias = new { expression = "alias", tokenId = "UUID" },
+            canonicalLiteral = "{expression:literal,value:<canonical value>}",
+            scalarCanonicalValue = "{type:<canonicalTag>,<payloadField>:<compact literal>}",
+            nestedField = "Canonical alias or canonical literal expression. A nested field must match its documented type and category."
+        }, options);
+        if (noCategory)
+            response["literalSchema"] = McpPropertyContracts.CompactTokenLiteral(type);
+        else
+            response["literalSchemaByCategory"] = new JsonObject(categories.Select(c =>
+                KeyValuePair.Create<string, JsonNode?>(c.ToString(), McpPropertyContracts.CompactTokenLiteral(type, c))));
+        if (type == TokenType.Typography)
+        {
+            response["canonicalTag"] = "typography";
+            response["canonicalValue"] = "Add type:typography to the compact literal; alternatively use type:typographyFields and the field expressions below.";
+            var fields = response["references"]!["typographyFields"]!.AsObject();
+            foreach (var (name, contract) in DesignTokenValidator.TypographyFieldTypes)
+            {
+                var field = fields[name]!.AsObject();
+                var canonical = McpPropertyContracts.CanonicalTokenLiteral(contract.Type, contract.Category);
+                field["canonicalTag"] = canonical["properties"]!["type"]!["const"]!.DeepClone();
+                field["payloadField"] = "value";
+                field["literalSchema"] = McpPropertyContracts.CompactTokenLiteral(contract.Type, contract.Category);
+                field["required"] = name != "letterSpacing";
+                if (name == "letterSpacing") field["default"] = 0;
+            }
+        }
+        else if (type is TokenType.Color or TokenType.Shadow)
+            response["canonicalValueSchema"] = McpPropertyContracts.CanonicalTokenLiteral(type);
+        else
+        {
+            var canonical = McpPropertyContracts.CanonicalTokenLiteral(type, categories.Length > 0 ? categories[0] : null);
+            var properties = canonical["properties"]!.AsObject();
+            response["canonicalTag"] = properties["type"]!["const"]!.DeepClone();
+            response["payloadField"] = properties.Single(p => p.Key != "type").Key;
+        }
+        return response;
     }
 }

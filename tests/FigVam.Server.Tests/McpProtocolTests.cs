@@ -42,7 +42,7 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(34, tools.Count);
+        Assert.Equal(37, tools.Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
@@ -121,6 +121,15 @@ public sealed class McpProtocolTests
             { shadow = new { offsetX = 0, offsetY = 3, blurRadius = 8, spreadRadius = 0, color = "#2563EB" } } });
         var colorTokenId = (await Call("create_token", new { name = "login.primary", type = "Color", light = "#2563EB", dark = "#60A5FA" })).GetProperty("tokenId").GetGuid();
         await Call("set_node_properties", new { nodeId, properties = new { backgroundColor = new { tokenId = colorTokenId } } });
+        var useRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        var tokenUsages = await Call("get_token_usages", new { tokenId = colorTokenId, revision = useRevision });
+        Assert.Contains(tokenUsages.GetProperty("items").EnumerateArray(), u => u.GetProperty("ownerId").GetGuid() == nodeId);
+        var refused = await Call("delete_token", new { tokenId = colorTokenId, expectedRevision = useRevision }, true);
+        Assert.Equal("TOKEN_IN_USE", refused.GetProperty("code").GetString());
+        Assert.True(refused.GetProperty("referenceCount").GetInt32() > 0);
+        Assert.Equal(useRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
+        var renamed = await Call("rename_token", new { tokenId = colorTokenId, name = "login.renamed", expectedRevision = useRevision });
+        Assert.Equal(colorTokenId, renamed.GetProperty("tokenId").GetGuid());
         var storedProperties = (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties");
         Assert.Equal(255, storedProperties.GetProperty("shadow").GetProperty("color").GetProperty("alpha").GetInt32());
         Assert.Equal(colorTokenId, storedProperties.GetProperty("backgroundColor").GetProperty("tokenId").GetGuid());
@@ -473,7 +482,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(34, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(37, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>

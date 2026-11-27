@@ -158,7 +158,7 @@ internal static class McpPropertyContracts
         return schema;
     }
 
-    private static JsonObject CompactTokenLiteral(TokenType type, TokenCategory? category = null)
+    internal static JsonObject CompactTokenLiteral(TokenType type, TokenCategory? category = null)
     {
         var schema = type switch
         {
@@ -179,7 +179,7 @@ internal static class McpPropertyContracts
         return ApplyRange(schema, type, category);
     }
 
-    private static JsonObject CanonicalTokenLiteral(TokenType type, TokenCategory? category = null)
+    internal static JsonObject CanonicalTokenLiteral(TokenType type, TokenCategory? category = null)
     {
         if (type == TokenType.Color)
         {
