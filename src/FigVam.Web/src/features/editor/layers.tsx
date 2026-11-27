@@ -1,6 +1,8 @@
 import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
 import type { ReactElement } from 'react';
 import { flushSync } from 'react-dom';
+import { Button } from '../../ui/Button';
+import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
 import { ChevronDown, ChevronRight, ArrowUpRight } from 'lucide-react';
 import type { ApiClient } from '../../api/api-client';
@@ -22,7 +24,6 @@ interface DeleteOperation {doc:string;screen:string;name:string;body:{commandId:
 interface MoveOperation {doc:string;screen:string;name:string;reveal:string[];body:Schema['MoveNodeRequest'] & {position:number;expectedRevision:number};state:State}
 interface Snapshot {screen:string|null;roots:LayerItem[];children:Map<string,LayerItem[]>;expanded:Set<string>;initialExpansion:Set<string>}
 interface SnapshotOptions {base:string;screen:string|null;revision:number;signal:AbortSignal;isCurrent:()=>boolean;reveal:string[];shouldReportFailure:()=>boolean}
-function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected layer element '+node.id);return node;}
 function layer(value:unknown,parentId?:string):LayerItem{
   const v=requiredRecord(value),props=v.properties==null?{}:requiredRecord(v.properties);
   const childCount=v.childCount==null?0:v.childCount;
@@ -72,14 +73,47 @@ function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,sele
     }
   return <>{renderBranch(layerRoots)}</>;
 }
-export function createLayersModel() { return createViewModel(LayerTree); }
+interface MetadataViewProps {
+  visible: boolean; readOnly: boolean; name: string; keyValue: string; status: string; error: string; retryHidden: boolean;
+  change(kind:MetadataKind,value:string):void; submit(kind:MetadataKind):void; cancel(kind:MetadataKind):void; retry():void;
+}
+function MetadataView(p:MetadataViewProps) {
+  return <div id="node-metadata" hidden={!p.visible}>
+    <p id="node-metadata-status" role="status">{p.status}</p>
+    <p id="node-metadata-error" role="alert">{p.error}</p>
+    {(['name','key'] as const).map(kind=><form key={kind} id={'node-'+kind+'-form'} onSubmit={event=>{event.preventDefault();p.submit(kind);}}>
+      <label>{kind==='name'?'Имя слоя ':'Semantic key '}
+        <TextInput id={'node-'+kind} maxLength={256} aria-describedby={kind==='key'?'node-key-help':undefined}
+          value={kind==='name'?p.name:p.keyValue} readOnly={p.readOnly}
+          onChange={event=>p.change(kind,event.currentTarget.value)} onBlur={()=>p.submit(kind)}
+          onKeyDown={event=>{if(event.nativeEvent.isComposing)return;if(event.key==='Enter'){event.preventDefault();p.submit(kind);}else if(event.key==='Escape')p.cancel(kind);}}/>
+      </label>
+      {kind==='key'&&<p id="node-key-help">Пустое значение удаляет semantic key.</p>}
+    </form>)}
+    <Button id="node-metadata-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>Повторить неподтверждённую команду</Button>
+  </div>;
+}
+function LayerDeletion(p:{hidden:boolean;disabled:boolean;retryHidden:boolean;status:string;remove():void;retry():void}) {
+  return <><Button id="node-delete" type="button" hidden={p.hidden} disabled={p.disabled} onClick={p.remove}>Удалить слой</Button>
+    <p id="node-delete-status" role="alert">{p.status}</p><Button id="node-delete-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>Повторить удаление слоя</Button></>;
+}
+function LayerOrder(p:{retryHidden:boolean;status:string;retry():void}) {
+  return <><p id="node-order-status" role="status" tabIndex={-1}>{p.status}</p>
+    <Button id="node-order-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>Повторить перемещение слоя</Button></>;
+}
+export function createLayersModel() {
+  return {...createViewModel(LayerTree), metadata:createViewModel(MetadataView), deletion:createViewModel(LayerDeletion), order:createViewModel(LayerOrder),
+    status:createViewModel(({text}:{text:string})=><p id="layers-status" role="status" aria-live="polite">{text}</p>),
+    caption:createViewModel(({text}:{text:string})=><p id="inspector-selection">{text}</p>)};
+}
 
 export function createLayers({
   model, element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
   closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected, beforeSelectionChange = () => true
 }:Options) {
   let layerController:AbortController|null=null,layerGeneration=0,layerSelection:LayerItem|null=null;
-  const input=(id:string)=>typed(element(id),HTMLInputElement),btn=(id:string)=>typed(element(id),HTMLButtonElement);
+  const setLayerStatus=(text:string)=>model.status.publish({text});
+  const setCaption=(text:string)=>model.caption.publish({text});
   let nodeReadGeneration=0,nodeMetadata:Metadata|null=null;
   const nodeOperations=new Map<string,MetadataOperation>();
   const metadataDrafts=new Map<string,Map<MetadataKind,string>>();
@@ -99,8 +133,8 @@ export function createLayers({
     layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
     renderLayers();
-    element('layers-status').textContent = 'Выберите экран.';
-    element('inspector-selection').textContent = 'Выберите слой.';
+    setLayerStatus('Выберите экран.');
+    setCaption('Выберите слой.');
     nodeReadGeneration++; nodeMetadata = null; renderNodeMetadata();
   }
 
@@ -119,8 +153,7 @@ export function createLayers({
       renderNodeMetadata();
     }
     const caption = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
-    if (element('inspector-selection').textContent !== caption)
-      element('inspector-selection').textContent = caption;
+    setCaption(caption);
     renderNodeOrder();
     renderLayers();
   }
@@ -130,31 +163,25 @@ export function createLayers({
     renderNodeOrder();
     let op = nodeDeletions.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
-    element('node-delete').hidden = !layerSelection || !editable;
-    btn('node-delete').disabled = !!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id)));
-    element('node-delete-retry').hidden = !editable || op?.state !== 'uncertain';
-    element('node-delete-status').textContent = op?.state === 'pending' ? 'Удаление слоя…' : op?.state === 'uncertain' ? `Результат удаления слоя «${op.name}» неизвестен. Повторите ту же команду.` : op?.error || '';
+    model.deletion.publish({hidden:!layerSelection||!editable,
+      disabled:!!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id))),
+      retryHidden:!editable || op?.state !== 'uncertain',
+      status:op?.state === 'pending' ? 'Удаление слоя…' : op?.state === 'uncertain' ? `Результат удаления слоя «${op.name}» неизвестен. Повторите ту же команду.` : op?.error || '',
+      remove:deleteNode,retry:retryNodeDeletion});
   }
   function renderNodeMetadata() {
     renderNodeDeletion();
     const selected=layerSelection,op=selected?nodeOperations.get(nodeOperationKey(workspace.documentId, selected.id)):undefined;
     const visible = !!selected;
-    element('node-metadata').hidden = !visible;
-    if (!visible) return;
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
-    const ready = nodeMetadata?.id === selected.id;
-    for (const id of ['node-name','node-key']) input(id).readOnly = !editable || !ready || !!op;
-    const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id));
-    if (ready && nodeMetadata) {
-      const name = (editable ? drafts?.get('name') : undefined) ?? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata.name) ?? '';
-      const key = (editable ? drafts?.get('key') : undefined) ?? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata.semanticKey) ?? '';
-      if (input('node-name').value !== name) input('node-name').value = name;
-      if (input('node-key').value !== key) input('node-key').value = key;
-    }
-    else { input('node-name').value = editable ? drafts?.get('name') ?? '' : ''; input('node-key').value = editable ? drafts?.get('key') ?? '' : ''; }
-    element('node-metadata-status').textContent = op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready ? 'Загрузка слоя…' : '');
-    element('node-metadata-error').textContent = op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? '');
-    element('node-metadata-retry').hidden = !editable || op?.state !== 'uncertain';
+    const ready = !!selected && nodeMetadata?.id === selected.id;
+    const drafts = selected ? metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id)) : undefined;
+    const name = (editable ? drafts?.get('name') : undefined) ?? (ready ? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata?.name) : '') ?? '';
+    const keyValue = (editable ? drafts?.get('key') : undefined) ?? (ready ? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata?.semanticKey) : '') ?? '';
+    model.metadata.publish({visible,readOnly:!editable||!ready||!!op,name,keyValue,
+      status:op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready && !nodeMetadata?.error ? 'Загрузка слоя…' : ''),
+      error:op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? ''),
+      retryHidden:!editable||op?.state!=='uncertain',change:changeNodeMetadata,submit:submitNodeMetadata,cancel:cancelNodeMetadata,retry:retryNodeMetadata});
   }
   async function loadNodeMetadata() {
     const current = ++nodeReadGeneration, doc = workspace.documentId, screen = workspace.selectedScreen, node = layerSelection?.id, atRevision = workspace.revision, epoch = workspace.navigationEpoch, requestToken = workspace.token;
@@ -172,8 +199,6 @@ export function createLayers({
       if (!active()) return;
       if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
       nodeMetadata = { error: errorMessage(error) || 'Не удалось загрузить слой.' }; renderNodeMetadata();
-      element('node-metadata-status').textContent = '';
-      element('node-metadata-error').textContent = errorMessage(error) || 'Не удалось загрузить слой.';
     }
   }
   function submitNodeMetadata(kind:MetadataKind) {
@@ -188,40 +213,34 @@ export function createLayers({
       drafts?.delete(kind); return;
     }
     if (value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value) || (kind === 'key' && value !== '' && !value.trim())) {
-      element('node-metadata-error').textContent = 'Проверьте значение: не более 256 символов, без управляющих символов; semantic key не может состоять из пробелов.'; return;
+      nodeMetadata.error = 'Проверьте значение: не более 256 символов, без управляющих символов; semantic key не может состоять из пробелов.'; renderNodeMetadata(); return;
     }
     const body={commandId:crypto.randomUUID(),nodeId:node};
     const op:MetadataOperation=kind==='name'?{kind,body:{...body,name:value},state:'pending'}:{kind,body:{...body,semanticKey:value===''?null:value},state:'pending'};
     nodeOperations.set(key, op); sendNodeMetadata(doc, screen, node, op);
   }
-  for (const [kind, id] of [['name', 'node-name'], ['key', 'node-key']] as const) {
-    const field=input(id);
-    field.addEventListener('input', () => {
-      if (!layerSelection || nodeMetadata?.id !== layerSelection.id || field.readOnly) return;
-      const key = nodeOperationKey(workspace.documentId, layerSelection.id);
-      if (!metadataDrafts.has(key)) metadataDrafts.set(key, new Map());
-      metadataDrafts.get(key)?.set(kind,field.value);
-      clearTimeout(metadataTimer);
-      metadataTimer = setTimeout(() => {
-        if (layerSelection && key === nodeOperationKey(workspace.documentId, layerSelection.id)) submitNodeMetadata(kind);
-      }, 500);
-    });
-    field.addEventListener('blur', () => submitNodeMetadata(kind));
-    field.addEventListener('keydown', event => {
-      if (event.isComposing) return;
-      if (event.key === 'Enter') { event.preventDefault(); submitNodeMetadata(kind); }
-      if (event.key === 'Escape' && layerSelection) {
-        clearTimeout(metadataTimer);
-        metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id))?.delete(kind);
-        renderNodeMetadata();
-      }
-    });
-    element(id + '-form').addEventListener('submit', event => { event.preventDefault(); submitNodeMetadata(kind); });
+  function changeNodeMetadata(kind:MetadataKind,value:string) {
+    if (!layerSelection || nodeMetadata?.id !== layerSelection.id || !['Owner','Editor'].includes(workspace.documentRole??'')) return;
+    const key = nodeOperationKey(workspace.documentId, layerSelection.id);
+    if (nodeOperations.has(key)) return;
+    if (!metadataDrafts.has(key)) metadataDrafts.set(key, new Map());
+    metadataDrafts.get(key)?.set(kind,value);
+    clearTimeout(metadataTimer);
+    metadataTimer = setTimeout(() => {
+      if (layerSelection && key === nodeOperationKey(workspace.documentId, layerSelection.id)) submitNodeMetadata(kind);
+    }, 500);
+    renderNodeMetadata();
   }
-  element('node-metadata-retry').addEventListener('click', () => {
+  function cancelNodeMetadata(kind:MetadataKind) {
+    if(!layerSelection)return;
+    clearTimeout(metadataTimer);
+    metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id))?.delete(kind);
+    renderNodeMetadata();
+  }
+  function retryNodeMetadata() {
     const op = layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id));
     if(op?.state==='uncertain'&&workspace.documentId&&workspace.selectedScreen&&layerSelection)void sendNodeMetadata(workspace.documentId,workspace.selectedScreen,layerSelection.id,op);
-  });
+  }
   async function sendNodeMetadata(doc:string,screen:string,node:string,op:MetadataOperation) {
     const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionEpoch = layerSelectionEpoch;
     // Rereading metadata for the same selected node must not invalidate a command.
@@ -251,30 +270,28 @@ export function createLayers({
         if (error.code === 'NODE_NOT_FOUND') {
           const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
           await runPageRefresh(signal => readCurrentPages(signal, currentContext));
-          if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible() && !layerSelection) element('layers-status').textContent = 'Слой больше не существует.';
+          if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible() && !layerSelection) setLayerStatus('Слой больше не существует.');
           return;
         }
         if (nodeMetadata) nodeMetadata.error = error.message;
         renderNodeMetadata();
-        const field=input(op.kind==='name'?'node-name':'node-key');
-        field.value = (op.kind === 'name' ? op.body.name : op.body.semanticKey) ?? '';
         return;
       }
     } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible()) renderNodeMetadata(); }
   }
 
-  element('node-delete').addEventListener('click', () => {
+  function deleteNode() {
     const node = layerSelection, doc = workspace.documentId, screen = workspace.selectedScreen, key = `${doc}:${screen}`;
     if (!doc || !screen || !node || !['Owner', 'Editor'].includes(workspace.documentRole??'') || (nodeDeletions.has(key) && nodeDeletions.get(key)?.state !== 'rejected') || nodeOperations.has(nodeOperationKey(doc, node.id))) return;
     const name = node.name?.trim() || 'Без имени';
     if (!confirm(`Удалить слой «${name}»? Будет удалено всё его поддерево.`)) return;
     const op:DeleteOperation = { doc, screen, name, body: { commandId: crypto.randomUUID(), nodeId: node.id }, state: 'ready' };
     nodeDeletions.set(key, op); sendNodeDeletion(op);
-  });
-  element('node-delete-retry').addEventListener('click', () => {
+  }
+  function retryNodeDeletion() {
     const op = nodeDeletions.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     if (op?.state === 'uncertain') sendNodeDeletion(op);
-  });
+  }
   async function sendNodeDeletion(op:DeleteOperation) {
     const key = `${op.doc}:${op.screen}`;
     if (nodeDeletions.get(key) !== op || op.state === 'pending') return;
@@ -319,8 +336,7 @@ export function createLayers({
     const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     element('layers').classList.toggle('layer-move-enabled', editable && !op);
-    element('node-order-retry').hidden = !editable || op?.state !== 'uncertain';
-    element('node-order-status').textContent = !editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || '';
+    model.order.publish({retryHidden:!editable||op?.state!=='uncertain',retry:retryNodeOrder,status:!editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || ''});
   }
 
   const drag = createLayerDrag({
@@ -361,10 +377,10 @@ export function createLayers({
     nodeMoves.set(key, op);
     sendNodeMove(op);
   }
-  element('node-order-retry').addEventListener('click', () => {
+  function retryNodeOrder() {
     const op = nodeMoves.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     if (op?.state === 'uncertain') sendNodeMove(op);
-  });
+  }
   async function refreshNodeMoveTree(active:()=>boolean,reveal:string[]=[]) {
     let synced = false;
     await runPageRefresh(async (signal, current) => {
@@ -475,7 +491,7 @@ export function createLayers({
     if (aborted(error) || current !== layerGeneration) return;
     if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
     reset();
-    element('layers-status').textContent = error instanceof TypeError ? 'Не удалось загрузить слои. Проверьте соединение и обновите страницы.' : `${errorMessage(error)} Обновите страницы.`;
+    setLayerStatus(error instanceof TypeError ? 'Не удалось загрузить слои. Проверьте соединение и обновите страницы.' : `${errorMessage(error)} Обновите страницы.`);
   }
 
   function findLayer(id:string|undefined,items:LayerItem[]=layerRoots):LayerItem|undefined {
@@ -495,7 +511,7 @@ export function createLayers({
     layerExpanded.add(item.id);
     try {
       if (!layerChildren.has(item.id)) {
-        element('layers-status').textContent = 'Загрузка слоёв…';
+        setLayerStatus('Загрузка слоёв…');
         if(!workspace.documentId||!layerController)return;
         const base=`/api/v1/documents/${encodeURIComponent(workspace.documentId)}`,signal=layerController.signal;
         const latest=requiredRecord(await request(`${base}/pages?limit=1&fields=name`,{},signal));
@@ -506,7 +522,7 @@ export function createLayers({
         layerChildren.set(item.id, items);
       }
       renderLayers(item.id);
-      element('layers-status').textContent = 'Стрелки перемещают выбор, Enter выбирает слой.';
+      setLayerStatus('Стрелки перемещают выбор, Enter выбирает слой.');
     } catch (error) { layerFailure(error, current); }
   }
 
@@ -574,11 +590,11 @@ export function createLayers({
       nodeReadGeneration++;
       nodeMetadata = null;
       renderNodeMetadata();
-      element('inspector-selection').textContent = 'Выберите слой.';
+      setCaption('Выберите слой.');
       onSelectionCleared();
     }
     renderLayers();
-    element('layers-status').textContent = screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.';
+    setLayerStatus(screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.');
   }
 
   function selectFromCanvas(rawItem:unknown,rawNodes:unknown[],confirmed=false) {
@@ -614,7 +630,7 @@ export function createLayers({
       if (!layerSelection) return;
       layerSelection = null; layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
       drag.cancel(); renderNodeMetadata(); renderNodeOrder(); renderLayers();
-      element('inspector-selection').textContent = 'Выберите слой.';
+      setCaption('Выберите слой.');
       onSelectionCleared();
     },
     onScreenContextChanged: () => { drag.cancel(); screenContextEpoch++; },

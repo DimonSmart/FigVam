@@ -356,10 +356,9 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               <div className="layers-detail">
                 <section aria-labelledby="layers-title" className="layer-tree-group">
                   <h2 id="layers-title">{state.layersTitle}</h2>
-                  <p id="layers-status" role="status" aria-live="polite">{"Выберите экран."}</p>
+                  <views.layers.status.Component/>
                   <div id="layers" role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
-                  <p id="node-order-status" role="status" tabIndex={-1}/>
-                  <Button id="node-order-retry" type="button" hidden>{"Повторить перемещение слоя"}</Button>
+                  <views.layers.order.Component/>
                 </section>
               </div>
             </div>
@@ -475,10 +474,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <div className="panel-stage">
             <div className="inspector-page panel-page" id="shell-design" role="tabpanel" aria-labelledby="tab-design" hidden={rightTab!=="design"}>
               <h2 id="inspector-title">{"Инспектор"}</h2>
-              <p id="inspector-selection">{"Выберите слой."}</p>
-              <Button id="node-delete" type="button" hidden>{"Удалить слой"}</Button>
-              <p id="node-delete-status" role="alert"/>
-              <Button id="node-delete-retry" type="button" hidden>{"Повторить удаление слоя"}</Button>
+              <views.layers.caption.Component/>
+              <views.layers.deletion.Component/>
               <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
                 <h3 id="visual-inspector-title">{"Свойства элемента"}</h3>
                 <form id="visual-properties-form" noValidate hidden>
@@ -490,24 +487,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <Button id="visual-save-retry" type="button" hidden>{"Повторить сохранение свойств"}</Button>
                 <Button id="visual-data-retry" type="button" hidden>{"Повторить загрузку свойств"}</Button>
               </section>
-              <div id="node-metadata" hidden>
-                <p id="node-metadata-status" role="status"/>
-                <p id="node-metadata-error" role="alert"/>
-                <form id="node-name-form">
-                  <label>
-                    {"Имя слоя "}
-                    <input id="node-name" maxLength={256}/>
-                  </label>
-                </form>
-                <form id="node-key-form">
-                  <label>
-                    {"Semantic key "}
-                    <input id="node-key" maxLength={256} aria-describedby="node-key-help"/>
-                  </label>
-                  <p id="node-key-help">{"Пустое значение удаляет semantic key."}</p>
-                </form>
-                <Button id="node-metadata-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</Button>
-              </div>
+              <views.layers.metadata.Component/>
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
             <div className="prototype-page panel-page" id="shell-prototype" role="tabpanel" aria-labelledby="tab-prototype" hidden={rightTab!=="prototype"}>
