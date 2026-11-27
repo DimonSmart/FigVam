@@ -685,3 +685,7 @@ Server logs are attached to each result. Browser tests use one worker and no ret
 ### ChatGPT MCP Tunnel
 
 Настройка приватного туннеля, ручной запуск из Aspire Dashboard и разрешение конкретного документа описаны в [docs/mcp.md](docs/mcp.md#chatgpt-через-openai-secure-mcp-tunnel-локальный-aspire).
+
+### Frontend architecture verification
+
+The web client owns authentication per application instance and uses prepared document commands, revision-aware synchronization and React-owned shell state. See [frontend architecture and verification](src/FigVam.Web/README.md) for ownership and the browser comparison procedure.

@@ -24,3 +24,7 @@ The drawing toolbar uses the shared Base UI Button with Lucide glyphs (18px, 1.7
 ### Shell and state ownership
 
 Prefer controlled React inputs and explicit actions for normal forms, feedback and navigation. Use the application/document shell models for route visibility, form drafts and access; do not read these values back from DOM IDs. Native file inputs are an exception: select the File through the React event and reset via the file-picker key. Use the shared Button and feedback components in new or migrated panels; retain native controls for browser-specific semantics. Feature controllers publish immutable view snapshots; shared controls must not allocate command IDs or implement transport retries. The MCP panel follows the typed editor-menu state; it does not observe native details toggle events as its state source. Navigator rename uses a shared Lucide IconButton and one workspace draft. Native popover positioning and focus remain browser integrations, not sources of business state.
+
+## Ownership boundary
+
+Shared Button, IconButton, Inputs, Feedback, Pagination and ResourceUsages components retain their existing contracts. Feature-specific token and layer views render model snapshots. The layer move class is driven by document shell state, not controller DOM mutation. Direct style writes are reserved for popup geometry; ordinary property inputs must not introduce an Apply action.

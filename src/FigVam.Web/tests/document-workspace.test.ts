@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDocumentRevisionState, readDocumentStructure } from '../src/app/document-workspace';
+import { createDocumentRevisionState, readDocumentStructure, type DocumentStructure } from '../src/app/document-workspace';
+import { createDocumentSync } from '../src/app/document-sync';
 import type { createDocumentQueries } from '../src/api/document-queries';
 
 function queries() {
@@ -45,5 +46,36 @@ describe('document workspace', () => {
     state.reset();
     expect(state.revision).toBeNull();
     expect(state.catalogRevision).toBeNull();
+  });
+});
+
+describe('document synchronization', () => {
+  it('publishes concurrent complete snapshots once without skipping explicit refreshes', async () => {
+    const view = { documentId: 'doc', page: 'page', screen: 'screen', navigationEpoch: 1, revision: 6, catalogRevision: 6 };
+    const layers = {
+      readSnapshot: vi.fn(async () => ({ screen: 'screen', roots: [], children: new Map(), expanded: new Set<string>(), initialExpansion: new Set<string>() })),
+      isExpansionCurrent: vi.fn(() => true)
+    };
+    const tokens = {
+      read: vi.fn(async () => ({ items: [], selection: null, usages: [] })),
+      readSelectedUsages: vi.fn(async () => ({ selection: null, usages: [] }))
+    };
+    const styles = { read: vi.fn(async () => []) };
+    const applyStructure = vi.fn((structure: DocumentStructure) => {
+      view.revision = structure.revision;
+      view.catalogRevision = structure.revision;
+    });
+    const sync = createDocumentSync({
+      context: () => ({ ...view }), shouldReportFailure: () => false,
+      queries: queries(), layers, tokens, styles, applyNodeEdit: vi.fn(), applyStructure
+    });
+    const signal = new AbortController().signal;
+    expect(await Promise.all([sync.readPages(signal, 0, 7), sync.readPages(signal, 0, 7)])).toEqual([true, true]);
+    expect(applyStructure).toHaveBeenCalledOnce();
+    await sync.readPages(signal, 0, 7);
+    expect(applyStructure).toHaveBeenCalledTimes(2);
+    view.catalogRevision = 6;
+    await sync.readPages(signal, 0, 7);
+    expect(applyStructure).toHaveBeenCalledTimes(3);
   });
 });

@@ -1,3 +1,4 @@
+import { toApiScenario, readScenario } from './scenario-codec';
 import { prepareDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { useLayoutEffect,useRef,type ComponentType } from 'react';
 import { ChevronLeft,ChevronRight } from 'lucide-react';
@@ -15,25 +16,7 @@ interface Workspace { isEditorVisible(): boolean; documentId:string|null;selecte
 interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void;prototypeVisible():boolean;subscribePrototype(listener:()=>void):()=>void}
 type CommandKind='create'|'update'|'delete';
 type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain'|'sync';mutation:DocumentCommandOperation;token:string|null;doc:string;screen:string};
-function toApiScenario(scenario:ScenarioDraft):components['schemas']['PreviewScenario']{
-  if(scenario.event===null)throw new TypeError('Выберите событие');
-  return {id:scenario.id,screenId:scenario.screenId,nodeId:scenario.nodeId,event:scenario.event,actions:scenario.actions.map((action):components['schemas']['PreviewAction']=>{
-    switch(action.type){
-      case 'navigate':case 'openOverlay':
-        if(!action.screenId)throw new TypeError('Выберите экран');
-        return {type:action.type,screenId:action.screenId};
-      case 'showVariant':return {type:action.type,variantId:action.variantId??null};
-      case 'selectDataset':return {type:action.type,datasetId:action.datasetId??null};
-      case 'setDemoValue':
-        if(!action.nodeId)throw new TypeError('Выберите элемент');
-        return {type:action.type,nodeId:action.nodeId,value:action.value??null};
-      case 'closeOverlay':case 'resetPreview':return {type:action.type};
-      default:throw new TypeError('Выберите действие');
-    }
-  })};
-}
 const retryable=(op:Operation|undefined)=>op?.state==='uncertain'||op?.state==='sync';
-function readScenario(value:unknown):ScenarioDraft{const s=requiredRecord(value);if(typeof s.event!=='number'||!Number.isInteger(s.event))throw new TypeError('Некорректное взаимодействие');return{id:text(s.id),screenId:text(s.screenId),nodeId:text(s.nodeId),event:s.event,actions:array(s.actions,a=>{const v=requiredRecord(a),type=text(v.type);if(!Object.hasOwn(actionLabels,type))throw new TypeError('Неизвестное действие');switch(type){case 'navigate':case 'openOverlay':return{type,screenId:text(v.screenId)};case 'showVariant':return{type,variantId:v.variantId==null?null:text(v.variantId)};case 'selectDataset':return{type,datasetId:v.datasetId==null?null:text(v.datasetId)};case 'setDemoValue':return{type,nodeId:text(v.nodeId),value:v.value==null?null:text(v.value)};case 'closeOverlay':case 'resetPreview':return{type};default:throw new TypeError('Неизвестное действие');}})};}
 import { layerDisplayName } from '../../core/layer-caption';
 import { readInteractionCatalog, interactionObjectName } from './interaction-catalog';
 import { createInteractionEditor, createInteractionModel, eventLabels, actionLabels } from './interaction-editor';

@@ -17,8 +17,9 @@ interface Context {
   documentId: string | null;
   screen: string | null;
   page: string | null;
-  generation: number;
+  navigationEpoch: number;
   revision: number | null;
+  catalogRevision: number | null;
 }
 interface Dependencies {
   context(): Context;
@@ -42,7 +43,7 @@ export function createDocumentSync(deps: Dependencies) {
     if (!start.documentId || (start.revision !== null && newRevision < start.revision)) return;
     const valid = () => {
       const now = context();
-      return !signal.aborted && start.generation === now.generation && start.revision === now.revision &&
+      return !signal.aborted && start.navigationEpoch === now.navigationEpoch && start.revision === now.revision &&
         start.documentId === now.documentId && start.screen === now.screen && isCurrent();
     };
     const base = `/api/v1/documents/${encodeURIComponent(start.documentId)}`;
@@ -64,7 +65,7 @@ export function createDocumentSync(deps: Dependencies) {
     if (!start.documentId) return;
     const valid = () => {
       const now = context();
-      return !signal.aborted && start.documentId === now.documentId && start.generation === now.generation && start.page===now.page && start.screen===now.screen && isCurrent();
+      return !signal.aborted && start.documentId === now.documentId && start.navigationEpoch === now.navigationEpoch && start.page===now.page && start.screen===now.screen && isCurrent();
     };
     const base = `/api/v1/documents/${encodeURIComponent(start.documentId)}`;
     const structure = await readDocumentStructure(queries, start.documentId, signal, valid, targetRevision,
@@ -78,6 +79,10 @@ export function createDocumentSync(deps: Dependencies) {
     ]);
     const name = await queries.readName(start.documentId, signal, revision, valid);
     if (!valid() || revision < (context().revision ?? -1)) return;
+    // A concurrent live update or command refresh may already have published this complete revision.
+    // Avoid rebuilding the tree (and cancelling a newly started gesture) for that duplicate snapshot.
+    // Explicit refreshes and command-specific reveal/selection intents still apply normally.
+    if (start.catalogRevision !== revision && context().catalogRevision === revision && !reveal.length && !change) return true;
     if (!layers.isExpansionCurrent(snapshot)) return readPages(signal, 0, revision, isCurrent, reveal, change);
     deps.applyStructure(structure, snapshot, tokenSnapshot, styleSnapshot, name, change);
     return true;

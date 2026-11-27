@@ -1,3 +1,4 @@
+import { definitions, typographyParts, palette, styleType, literalOf, literalText, makeTypographyDraft, typographyValue, type StyleType, type DesignStyle, type ValueDraft, type TypographyDraft, type FieldDraft, createStyleDraft, rebaseStyleDraft, sameStyleDraft, type StyleDraft } from './style-values';
 import type { ComponentType } from 'react';
 import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
@@ -10,69 +11,12 @@ import { requiredRecord, array, text, errorMessage } from '../../api/decode';
 import { nodeProperty } from '../../canvas/render-model';
 import type { DesignToken, NodePropertyValue, TokenType, TokenCategory, Theme, TokenValue, TypographyFieldsValue, TypographyField } from '../../core/tokens/token-model';
 
-type StyleType='TextStyle'|'BorderStyle';
-interface DesignStyle {id:string;name:string;type:number|string;fields:Record<string,NodePropertyValue>;basedOnStyleId:string|null}
 interface Usage {label?:string;kind:string;property?:string;theme?:string|number|null;indirect?:boolean;ownerId:string;chain?:string[]}
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number;navigationEpoch:number}
 interface Options {models:ReturnType<typeof createStyleModels>;selectLayer(id:string):void;request:ApiClient;getContext():Context;getTokens():DesignToken[];startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 function style(value:unknown):DesignStyle{const s=requiredRecord(value);return{id:text(s.id),name:text(s.name),type:typeof s.type==='number'?s.type:text(s.type),fields:Object.fromEntries(Object.entries(requiredRecord(s.fields)).map(([name,v])=>[name,nodeProperty(v)])),basedOnStyleId:s.basedOnStyleId==null?null:text(s.basedOnStyleId)};}
 function usage(value:unknown):Usage{const v=requiredRecord(value);return{kind:text(v.kind),ownerId:text(v.ownerId),label:v.label==null?undefined:text(v.label),property:v.property==null?undefined:text(v.property),theme:v.theme==null?null:typeof v.theme==='number'?v.theme:text(v.theme),indirect:v.indirect===true,chain:array(v.chain??[],text)};}
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, resolveInlineTypography, tokenValueText } from '../../core/tokens/token-resolution';
-
-const definitions:Record<StyleType,Record<string,[string,TokenType|null,TokenCategory|null]>> = {
-  TextStyle: {
-    typography: ['Типографика', 'Typography', null],
-    textColor: ['Цвет текста', 'Color', null],
-    fontStyle: ['Начертание', null, null],
-    fontFallback: ['Запасной шрифт', null, null]
-  },
-  BorderStyle: {
-    borderColor: ['Цвет рамки', 'Color', null],
-    borderWidth: ['Толщина рамки', 'Dimension', 'BorderWidth'],
-    cornerRadius: ['Радиус углов', 'Dimension', 'Radius']
-  }
-};
-const typographyParts:Record<TypographyField,[string,TokenType,TokenCategory|null,string]> = {
-  fontFamily: ['Семейство', 'FontFamily', null, 'Arial'],
-  fontSize: ['Размер', 'Dimension', 'FontSize', '16'],
-  fontWeight: ['Толщина', 'FontWeight', null, '400'],
-  lineHeight: ['Интерлиньяж', 'Number', 'LineHeight', '1.25'],
-  letterSpacing: ['Межбуквенный интервал', 'Dimension', 'LetterSpacing', '0']
-};
-const palette:Record<string,string[]> = {
-  fontStyle: ['Normal', 'Italic'],
-  fontFallback: ['SansSerif', 'Serif', 'Monospace']
-};
-const styleType = (style:DesignStyle|null|undefined):StyleType => !style || style.type === 0 || style.type === 'TextStyle' ? 'TextStyle' : 'BorderStyle';
-
-function literalOf(field:string, text:string):NodePropertyValue {
-  if (field === 'textColor' || field === 'borderColor') {
-    if (!/^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(text)) throw new Error('Введите цвет в формате #RRGGBB или #RRGGBBAA.');
-    const hex = text.slice(1) + (text.length === 7 ? 'FF' : '');
-    const [red=0, green=0, blue=0, alpha=255] = [0, 2, 4, 6].map(i => parseInt(hex.slice(i, i + 2), 16));
-    return { type: 'color', red, green, blue, alpha };
-  }
-  const options=palette[field];
-  if (options) {
-    if (!options.includes(text)) throw new Error('Выберите допустимое значение.');
-    return { type: 'enum', value: text };
-  }
-  if (!text.trim() || !Number.isFinite(Number(text))) throw new Error('Введите число.');
-  const number = Number(text);
-  if (number < 0 || number > 1000000) throw new Error('Значение вне допустимого диапазона.');
-  return { type: 'number', value: number };
-}
-
-function literalText(_field:string, value:NodePropertyValue|null|undefined) {
-  if (!value) return '';
-  if (value.type === 'color') return '#' + [value.red, value.green, value.blue, value.alpha]
-    .map(channel => channel.toString(16).padStart(2, '0')).join('').toUpperCase();
-  return String('value' in value?value.value??'':'');
-}
-
-type ValueDraft={mode:'literal'|'alias';direct:string;alias:string};
-type TypographyDraft=Record<TypographyField,ValueDraft>;
-interface FieldDraft extends ValueDraft {field:string;label:string;active:boolean;tokenType:TokenType|null;category:TokenCategory|null;inline:TypographyDraft|null;fallback:string}
 
 interface StyleFieldProps {rows:FieldDraft[];tokens:DesignToken[];updateDraft(part:ValueDraft,key:'mode'|'direct'|'alias',value:string):void;setActive(field:string,active:boolean):void}
 function StyleFields({rows,tokens,updateDraft,setActive}:StyleFieldProps){
@@ -156,83 +100,57 @@ export function createStyleModels(){return {panel:createViewModel(StylePanel),fi
 
 export function createStyles({ models, selectLayer, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
-  const pendingCommands=new Map<string,{operation:DocumentCommandOperation;selection:string|null;running:boolean}>();
+  type Entry={operation:DocumentCommandOperation;selection:string|null;running:boolean;draftKey:string;submitted:StyleDraft};
+  const pendingCommands=new Map<string,Entry>();
   const pending=()=>pendingCommands.get(getContext().documentId??'');
   let draftName='',draftType:StyleType='TextStyle',draftParent='',status='',error='',lastWritable=false;
   let styleUsages:Usage[]=[],styleUsageRequest=0;
+  let usageController: AbortController | null = null;
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
   let rows:FieldDraft[]=[];
 
-  function makeTypographyDraft(existing:TokenValue|null|undefined):TypographyDraft {
-    const make=(field:TypographyField):ValueDraft=>{
-      const fallback=typographyParts[field][3];
-      const part=existing?.type==='typographyFields'?existing[field]:null;
-      const old=existing?.type==='typography'?existing[field]:null;
-      return {mode:part?.expression==='alias'?'alias':'literal',
-        direct:part?.expression==='literal'?String('value' in part.value?part.value.value??fallback:fallback):old==null?fallback:String(old),
-        alias:part?.expression==='alias'?part.tokenId:''};
-    };
-    return {fontFamily:make('fontFamily'),fontSize:make('fontSize'),fontWeight:make('fontWeight'),lineHeight:make('lineHeight'),letterSpacing:make('letterSpacing')};
-  }
-  function typographyValue(draft:TypographyDraft):NodePropertyValue {
-    const value:TypographyFieldsValue={type:'typographyFields'};
-    for(const field of Object.keys(typographyParts) as TypographyField[]){
-      const [,type]=typographyParts[field],part=draft[field];
-      if(part.mode==='alias'){
-        if(!part.alias)throw new Error('Выберите токен для '+field+'.');
-        value[field]={expression:'alias',tokenId:part.alias};
-      }else{
-        const raw=part.direct.trim();
-        let data:TokenValue;
-        if(type==='FontFamily'){
-          if(!/^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$/u.test(raw)||raw.length>128)throw new Error('Некорректное имя шрифта.');
-          data={type:'fontFamily',value:raw};
-        }else{
-          if(!raw||!Number.isFinite(Number(raw)))throw new Error('Недопустимое число для '+field+'.');
-          const number=Number(raw);
-          if(type==='FontWeight'&&(!Number.isInteger(number)||number<1||number>1000))throw new Error('Недопустимая толщина шрифта.');
-          if(field==='letterSpacing'&&Math.abs(number)>100)throw new Error('Межбуквенный интервал должен быть от -100 до 100 px.');
-          data={type:type==='Dimension'?'dimension':type==='FontWeight'?'fontWeight':'number',value:number};
-        }
-        value[field]={expression:'literal',value:data};
-      }
-    }
-    return {type:'typography',value};
-  }
   function updateDraft(part:ValueDraft, key:'mode'|'direct'|'alias', value:string) {
     if(key==='mode')part.mode=value==='alias'?'alias':'literal';else part[key]=value;
     renderFields();
   }
   function renderFields(){models.fields.publish({rows,tokens:tokens(),updateDraft,
       setActive:(field,active)=>{const row=rows.find(item=>item.field===field);if(row){row.active=active;renderFields();}}});}
-  function buildFields(style:DesignStyle|null|undefined,type:StyleType){
-    rows=Object.entries(definitions[type]).map(([field,[label,tokenType,category]])=>{
-      const saved=style?.fields?.[field],options=palette[field];
-      const direct=options?(saved?.type==='enum'?saved.value:options[0]??''):
-        saved&&saved.type!=='token'?literalText(field,saved):field.endsWith('Color')?'#000000FF':field==='cornerRadius'?'6':'1';
-      return {field,label,tokenType,category,active:saved!=null,mode:saved?.type==='token'?'alias':'literal',
-        direct,alias:saved?.type==='token'?saved.tokenId:'',
-        inline:field==='typography'?makeTypographyDraft(saved?.type==='typography'?saved.value:null):null,
-        fallback:style?.basedOnStyleId?' (наследуется при отключении)':' (значение по умолчанию)'};
-    });
+  let baseline=createStyleDraft(null);
+  const drafts=new Map<string,{base:StyleDraft;local:StyleDraft}>();
+  const draftKey=()=> (getContext().documentId??'')+':'+(selectedId??'new');
+  const snapshot=():StyleDraft=>({name:draftName,type:draftType,parent:draftParent,rows});
+  function persistDraft(){
+    const local=snapshot();
+    if(sameStyleDraft(baseline,local))drafts.delete(draftKey());
+    else drafts.set(draftKey(),{base:structuredClone(baseline),local:structuredClone(local)});
+  }
+  function restoreDraft(){
+    baseline=createStyleDraft(chosen());
+    const saved=drafts.get(draftKey());
+    const next=saved?rebaseStyleDraft(saved.base,saved.local,baseline):structuredClone(baseline);
+    draftName=next.name;draftType=next.type;draftParent=next.parent;rows=next.rows;
     renderFields();
   }
+  function buildFields(style:DesignStyle|null|undefined,type:StyleType){
+    rows=createStyleDraft(style,type).rows;renderFields();
+  }
+
 
   function publishPanel() {
     lastWritable=editable();
     models.panel.publish({items,selectedId,name:draftName,type:draftType,parentId:draftParent,writable:lastWritable,busy:busy||!!pending(),retryVisible:lastWritable&&!!pending()&&!pending()?.running,retry:()=>{const op=pending();if(op)void executeStyleCommand(op);},preview:previewText(chosen()),error,status,
       Fields:models.fields.Component,Usages:models.usage.Component,
-      select:id=>{selectedId=id||null;void loadUsages();},
+      select:id=>{persistDraft();selectedId=id||null;render(true);void loadUsages();},
       changeName:value=>{draftName=value;publishPanel();},
       changeType:value=>{draftType=value;draftParent='';buildFields(chosen(),value);publishPanel();},
       changeParent:value=>{draftParent=value;publishPanel();},save:saveStyle,remove:deleteStyle});
   }
-  function render() {
-    const selected = chosen();
-    draftType=styleType(selected);draftName=selected?.name??'';draftParent=selected?.basedOnStyleId??'';
-    buildFields(selected,draftType);
+  function render(resetDraft = false) {
+    if (resetDraft) {
+      restoreDraft();
+    } else renderFields();
     publishPanel();
     models.usage.publish({usages:styleUsages,name:id=>items.find(item=>item.id===id)?.name??id,selectLayer});
   }
@@ -265,10 +183,11 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   }
 
   function reset() {
-    items = []; selectedId = null; busy = false; tokenSignature = '';
+    drafts.clear(); items = []; selectedId = null; busy = false; tokenSignature = '';
+    usageController?.abort(); usageController=null;
     styleUsages = []; styleUsageRequest++;
     error = ''; status = '';
-    render();
+    render(true);
   }
 
   async function read(base:string,revision:number,signal:AbortSignal,isCurrent:()=>boolean) {
@@ -290,10 +209,12 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       [token.id, token.name, token.type, token.category]));
     const changed = JSON.stringify(items) !== JSON.stringify(next) ||
       tokenSignature !== nextTokenSignature;
+    const previous=JSON.stringify(chosen());
+    persistDraft();
     tokenSignature = nextTokenSignature;
     items = next;
-    if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
-    if (changed || lastWritable !== editable()) render();
+    if (selectedId && !items.some(item => item.id === selectedId)) {drafts.delete(draftKey());selectedId = null;}
+    if (changed || lastWritable !== editable()) render(previous!==JSON.stringify(chosen()));
     if (changed && selectedId) loadUsages();
   }
 
@@ -308,10 +229,10 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       }else if(endpoint==='delete-style'&&payload.styleId){
         operation=createDocumentCommand(documentId,endpoint,{expectedRevision:revision,styleId:payload.styleId});
       }else throw new TypeError('Некорректная команда стиля');
-      const entry={operation,selection:id,running:false};pendingCommands.set(documentId,entry);await executeStyleCommand(entry);
+      const entry={operation,selection:id,running:false,draftKey:draftKey(),submitted:structuredClone(snapshot())};pendingCommands.set(documentId,entry);await executeStyleCommand(entry);
     }catch(failure){error=errorMessage(failure);publishPanel();}
   }
-  async function executeStyleCommand(entry:{operation:DocumentCommandOperation;selection:string|null;running:boolean}){
+  async function executeStyleCommand(entry:Entry){
     const doc=entry.operation.documentId,epoch=getContext().navigationEpoch;
     if(entry.running||!editable()||getContext().documentId!==doc||pendingCommands.get(doc)!==entry)return;
     entry.running=true;busy=true;let generation=getContext().generation;const originSelection=selectedId;stopLive();error='';status='Сохранение…';publishPanel();
@@ -320,7 +241,10 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
         synchronize:async confirmation=>{
           const {signal,current}=startRequest();generation=current;
-          if(selectedId===originSelection)selectedId=entry.selection;
+          persistDraft();
+          const stored=drafts.get(entry.draftKey);
+          if(stored&&sameStyleDraft(stored.local,entry.submitted))drafts.delete(entry.draftKey);
+          if(selectedId===originSelection){selectedId=entry.selection;render(true);}
           const refreshed=await readPages(signal);
           return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
         }});
@@ -339,13 +263,15 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
 
   async function loadUsages() {
     const id = selectedId, doc = getContext().documentId, revision = getContext().revision;
+    usageController?.abort();
+    const controller=new AbortController(); usageController=controller;
     const generation = ++styleUsageRequest;
     styleUsages = []; render();
     if (!id || !doc || !Number.isSafeInteger(revision)) return;
     try {
       const found:Usage[]=[];let total:number;
       do {
-        const response=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(doc)+'/styles/'+encodeURIComponent(id)+'/usages?revision='+revision+'&offset='+found.length+'&limit=100'));
+        const response=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(doc)+'/styles/'+encodeURIComponent(id)+'/usages?revision='+revision+'&offset='+found.length+'&limit=100',{},controller.signal));
         if (response.revision !== revision || response.offset !== found.length ||
             !Array.isArray(response.items)||typeof response.total!=='number')throw new Error('Некорректный ответ использований стиля.');
         found.push(...response.items.map(usage)); total = response.total;
@@ -357,7 +283,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
         render();
       }
     } catch (failure) {
-      if (generation === styleUsageRequest) { error = errorMessage(failure); publishPanel(); }
+      if (!controller.signal.aborted && generation === styleUsageRequest) { error = errorMessage(failure); publishPanel(); }
     }
   }
   function saveStyle() {
@@ -383,6 +309,6 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   function deleteStyle() {
     if (selectedId) void write('delete-style', { styleId: selectedId }, null);
   }
-  render();
-  return { reset, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read, apply, get items() { return items; } };
+  render(true);
+  return { reset, clearCommands:()=>{pendingCommands.clear();drafts.clear();},discardDocument:(doc:string)=>{pendingCommands.delete(doc);for(const key of drafts.keys())if(key.startsWith(doc+':'))drafts.delete(key);}, read, apply, get items() { return items; } };
 }

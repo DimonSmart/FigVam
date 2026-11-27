@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { createViewModel } from '../../app/view-model';
-import { authHeaders, credentialsMode } from '../../api/auth-client';
+import type { AuthPolicy } from '../../api/auth-client';
 import { Button } from '../../ui/Button';
 
 interface User {
@@ -15,10 +15,10 @@ function isUser(value: unknown): value is User {
     && 'enabled' in value && typeof value.enabled === 'boolean'
     && 'isAdmin' in value && typeof value.isAdmin === 'boolean';
 }
-async function call(path: string, signal: AbortSignal, options: RequestInit = {}): Promise<unknown> {
+async function call(auth: AuthPolicy, path: string, signal: AbortSignal, options: RequestInit = {}): Promise<unknown> {
   const response = await fetch(path, {
-    ...options, signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
-    headers: { ...authHeaders('', options.method), ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+    ...options, signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error',
+    headers: { ...auth.authHeaders('', options.method), ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
   });
   if (!response.ok) throw new Error(response.status === 409
     ? 'Конфликт: пользователь уже существует или это последний администратор.'
@@ -78,7 +78,7 @@ function UserAdminView({visible,epoch,...props}:{visible:boolean;epoch:number}&P
   return <section id="user-admin" hidden={!visible} aria-labelledby="user-admin-title"><UserAdmin key={epoch} {...props}/></section>;
 }
 export function createUserAdminModel(){return createViewModel(UserAdminView);}
-export function createUserAdmin(model:ReturnType<typeof createUserAdminModel>) {
+export function createUserAdmin(model:ReturnType<typeof createUserAdminModel>, auth: AuthPolicy) {
   let visible=false;
   let controller: AbortController | null = null;
   let users: User[] = [], feedback = '';
@@ -87,7 +87,7 @@ export function createUserAdmin(model:ReturnType<typeof createUserAdminModel>) {
   const active = (current: AbortController) => controller === current && !current.signal.aborted;
   async function refresh(current: AbortController) {
     if (!active(current)) return;
-    const value = await call('/api/users', current.signal);
+    const value = await call(auth, '/api/users', current.signal);
     if (!active(current)) return;
     if (!value || typeof value !== 'object' || !('users' in value) || !Array.isArray(value.users) || !value.users.every(isUser))
       throw new TypeError('Некорректный список пользователей.');
@@ -98,7 +98,7 @@ export function createUserAdmin(model:ReturnType<typeof createUserAdminModel>) {
     const current = controller;
     if (!current) return false;
     try {
-      await call('/api/users', current.signal, { method: 'POST', body: JSON.stringify({ email }) });
+      await call(auth, '/api/users', current.signal, { method: 'POST', body: JSON.stringify({ email }) });
       if (!active(current)) return false;
       feedback = 'Приглашение добавлено.';
       await refresh(current);
@@ -112,7 +112,7 @@ export function createUserAdmin(model:ReturnType<typeof createUserAdminModel>) {
     const current = controller;
     if (!current) return;
     try {
-      await call('/api/users/' + encodeURIComponent(user.id), current.signal,
+      await call(auth, '/api/users/' + encodeURIComponent(user.id), current.signal,
         { method: 'PUT', body: JSON.stringify({ enabled, admin }) });
       if (active(current)) feedback = 'Изменения сохранены.';
     } catch (error) { if (active(current)) feedback = errorMessage(error); }

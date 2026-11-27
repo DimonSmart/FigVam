@@ -35,7 +35,7 @@ test('catalog reports errors and can retry without blocking the editor', async (
   fail = false; await page.getByRole('button', { name: 'Повторить загрузку каталога' }).click(); await expect(page.locator('#components-status')).toHaveText('Компоненты не найдены.');
 });
 
-test('catalog ignores a late search response', async ({ page }) => {
+test('catalog cancels a superseded search and preserves the current result', async ({ page }) => {
   const id = randomUUID(), headers = { Authorization: `Bearer ${bearer}` };
   expect((await page.request.post('/api/v1/documents', { headers, data: { documentId: id, name: 'Catalog race' } })).ok()).toBeTruthy();
   let releaseSlow, slowStarted;
@@ -45,14 +45,15 @@ test('catalog ignores a late search response', async ({ page }) => {
     const search = new URL(route.request().url()).searchParams.get('search');
     if (search === 'slow') { slowStarted(); await slow; }
     const name = search === 'slow' ? 'Old result' : search === 'fast' ? 'Current result' : 'Initial result';
-    await route.fulfill({ json: { items: [{ id: randomUUID(), name }], total: 1 } });
+    try { await route.fulfill({ json: { items: [{ id: randomUUID(), name }], total: 1 } }); } catch (error) { if (search !== 'slow') throw error; }
   });
   await page.goto(`/documents/${id}`); await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer); await page.getByRole('button', { name: 'Продолжить', exact: true }).click(); await show(page, 'components');
   await expect(page.locator('#components-list')).toContainText('Initial result');
   await page.getByLabel('Поиск компонентов').fill('slow'); await page.getByRole('button', { name: 'Найти компоненты' }).click(); await started;
+  const cancelled = page.waitForEvent('requestfailed', { predicate: req => new URL(req.url()).searchParams.get('search') === 'slow' });
   await page.getByLabel('Поиск компонентов').fill('fast'); await page.getByRole('button', { name: 'Найти компоненты' }).click();
   await expect(page.locator('#components-list')).toContainText('Current result');
-  const oldResponse = page.waitForResponse(response => new URL(response.url()).searchParams.get('search') === 'slow');
-  releaseSlow(); await oldResponse;
+  expect((await cancelled).failure()?.errorText).toMatch(/abort|cancel/i);
+  releaseSlow();
   await expect(page.locator('#components-list')).toHaveText('Current result');
 });

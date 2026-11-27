@@ -1,9 +1,9 @@
-import { authHeaders, credentialsMode } from '../../api/auth-client.js';
+import type { AuthPolicy } from '../../api/auth-client.js';
 import { createExportModel, type ExportFormat } from './document-export-view';
 interface ExportContext { token: string | null; documentId: string | null; revision: number | null; documentRole: string | null; navigationEpoch: number }
-interface ExportOptions { model: ReturnType<typeof createExportModel>; isEditorVisible(): boolean; getContext(): ExportContext; onUnauthorized(): void }
+interface ExportOptions { auth: AuthPolicy; model: ReturnType<typeof createExportModel>; isEditorVisible(): boolean; getContext(): ExportContext; onUnauthorized(): void }
 
-export function createDocumentExport({ model, isEditorVisible, getContext, onUnauthorized }: ExportOptions) {
+export function createDocumentExport({ auth, model, isEditorVisible, getContext, onUnauthorized }: ExportOptions) {
   let exportController: AbortController | null = null;
   let status = '', errorMessage = '';
   function reset() {
@@ -28,7 +28,7 @@ export function createDocumentExport({ model, isEditorVisible, getContext, onUna
     errorMessage = ''; status = `Подготовка ревизии ${atRevision}…`; render();
     try {
       const response = await fetch(`/api/v1/documents/${encodeURIComponent(id)}/${format}?revision=${atRevision}`, {
-        signal: controller.signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: authHeaders(requestToken)
+        signal: controller.signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers: auth.authHeaders(requestToken)
       });
       if (!active()) return;
       if (response.status === 401) { onUnauthorized(); return; }

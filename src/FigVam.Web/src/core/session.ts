@@ -4,6 +4,7 @@ export function createSessionLifecycle() {
   let token = '', generation = 0, navigationEpoch = 0, sessionEpoch = 0;
   let pending: AbortController | null = null;
   let lifetime = new AbortController();
+  let navigationLifetime = new AbortController();
   function cancelRequest(): void {
     pending?.abort();
     pending = null;
@@ -14,10 +15,14 @@ export function createSessionLifecycle() {
     cancelRequest();
     token = value;
     sessionEpoch++;
-    navigationEpoch++;
+    advanceNavigation();
     lifetime = new AbortController();
   }
-  function advanceNavigation(): void { navigationEpoch++; }
+  function advanceNavigation(): void {
+    navigationLifetime.abort();
+    navigationLifetime = new AbortController();
+    navigationEpoch++;
+  }
   function replacePendingRequest(): AbortSignal {
     cancelRequest();
     pending = new AbortController();
@@ -33,6 +38,7 @@ export function createSessionLifecycle() {
     get navigationEpoch() { return navigationEpoch; },
     get sessionEpoch() { return sessionEpoch; },
     get signal() { return lifetime.signal; },
+    get navigationSignal() { return navigationLifetime.signal; },
     setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest,
   };
 }

@@ -1,4 +1,4 @@
-import { authHeaders, credentialsMode } from '../../api/auth-client';
+import type { AuthPolicy } from '../../api/auth-client';
 import type { ApiClient } from '../../api/api-client';
 import { record } from '../../api/decode';
 import type { SessionLifecycle } from '../../core/session';
@@ -6,6 +6,7 @@ import type { ApplicationShellModel } from '../../app/application-shell-state';
 import type { Retry, Work } from '../../app/request-runner';
 
 interface Options {
+  auth: AuthPolicy;
   shellState: ApplicationShellModel;
   session: Pick<SessionLifecycle, 'token' | 'navigationEpoch' | 'signal'>;
   request: ApiClient;
@@ -17,7 +18,7 @@ interface Options {
 }
 
 /** Owns document creation and the import operation for the current session. */
-export function createDocumentCreation({shellState, request, run, message, navigate, loadList, onUnauthorized, session}: Options) {
+export function createDocumentCreation({auth, shellState, request, run, message, navigate, loadList, onUnauthorized, session}: Options) {
   let importOperation: { token: string; epoch: number } | null = null;
 
   async function createDocument() {
@@ -49,8 +50,8 @@ export function createDocumentCreation({shellState, request, run, message, navig
     shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
     try {
       const response = await fetch(`/api/v1/documents/import/${format}`, {
-        method: 'POST', body: file, signal: session.signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
-        headers: { ...authHeaders(operation.token, 'POST'), 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
+        method: 'POST', body: file, signal: session.signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error',
+        headers: { ...auth.authHeaders(operation.token, 'POST'), 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
       });
       if (!active()) return;
       if (response.status === 401) { onUnauthorized(); return; }

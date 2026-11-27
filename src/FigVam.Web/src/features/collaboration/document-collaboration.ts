@@ -1,13 +1,16 @@
-import { authHeaders, credentialsMode } from '../../api/auth-client.js';
+import type { AuthPolicy } from '../../api/auth-client.js';
 import { ApiError } from '../../api/api-client.js';
 type CaptureEvent = Record<string, unknown> & { code: string };
 interface CollaborationOptions {
+  auth: AuthPolicy;
   request(path: string, options: RequestInit, signal: AbortSignal): Promise<unknown>;
   workspace: { documentId: string | null; revision: number | null; token: string | null };
   isEditorVisible(): boolean;
   readRevision(signal: AbortSignal, revision: number): Promise<unknown>;
   onConnectionStatus(status: string): void;
   onAccessLost(status: number): void;
+  readRole(id: string, signal: AbortSignal): Promise<string | null>;
+  onRoleChanged(role: string): void;
   onUnauthorized(): void;
   onCaptureEvent?(event: CaptureEvent, signal: AbortSignal): void;
   onCaptureDisconnect?(signal: AbortSignal): void;
@@ -20,7 +23,7 @@ function isRevision(value: unknown): value is number {
 }
 
 export function createDocumentCollaboration({
-  request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, onUnauthorized, onCaptureEvent, onCaptureDisconnect
+  auth, request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, readRole, onRoleChanged, onUnauthorized, onCaptureEvent, onCaptureDisconnect
 }: CollaborationOptions) {
   let liveController: AbortController | null = null;
   function stop() {
@@ -41,6 +44,12 @@ export function createDocumentCollaboration({
     const signal = controller.signal, base = `/api/v1/documents/${encodeURIComponent(id)}`;
     const active = () => !signal.aborted && liveController === controller && workspace.documentId === id;
     let delay = 1000;
+    async function reconcileRole() {
+      const role=await readRole(id,signal);
+      if(!active())return;
+      if(role===null)throw new ApiError(403,{});
+      onRoleChanged(role);
+    }
     async function frame(raw: string) {
       const data = raw.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
       if (!data || !active()) return;
@@ -49,6 +58,7 @@ export function createDocumentCollaboration({
       if (event.code.startsWith('SCREEN_CAPTURE_')) { onCaptureEvent?.({ ...event, code: event.code }, signal); return; }
       if (event.code === 'FORBIDDEN') { throw new ApiError(403, {}); }
       if (event.code === 'RECONNECT_REQUIRED') throw new Error('Требуется восстановление');
+      if (event.code === 'HEARTBEAT') { await reconcileRole(); return; }
       if (event.code !== 'CHANGE') return;
       if (!isRevision(event.revision) || !isRecord(event.change) || typeof event.change.documentId !== 'string' || event.change.documentId.toLowerCase() !== id.toLowerCase()) throw new Error('Некорректное событие');
       const current = workspace.revision;
@@ -70,7 +80,7 @@ export function createDocumentCollaboration({
         if (recovery.revision > workspace.revision) await readRevision(signal, recovery.revision);
         if (!active()) return;
         const response = await fetch(`${base}/events?lastSeenRevision=${workspace.revision}`, {
-          signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: { ...authHeaders(workspace.token ?? ''), ...(onCaptureEvent ? { 'X-FigVam-Screen-Capture': '1' } : {}) }
+          signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers: { ...auth.authHeaders(workspace.token ?? ''), ...(onCaptureEvent ? { 'X-FigVam-Screen-Capture': '1' } : {}) }
         });
         if (!active()) return;
         if (response.status === 401) { onUnauthorized(); return; }

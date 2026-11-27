@@ -32,7 +32,65 @@ function countCalls(ast: ts.SourceFile, names: ReadonlySet<string>): number {
   visit(ast);
   return count;
 }
+
+function boundaryViolations(path:string,ast:ts.SourceFile):string[]{
+  const violations:string[]=[];
+  const positions:Record<string,string>={
+    'src/features/editor/editor-shell.tsx':'positionNavigatorMenu',
+    'src/features/editor/document-navigator.tsx':'position',
+    'src/features/tokens/token-views.tsx':'position',
+  };
+  const appOrFeature=/^src\/(app|features)\//.test(path);
+  if(['src/api/auth-client.ts','src/core/session.ts'].includes(path)){
+    for(const statement of ast.statements)
+      if(ts.isVariableStatement(statement)&&!(statement.declarationList.flags&ts.NodeFlags.Const))
+        violations.push('module-level mutable session state');
+  }
+  function enclosingFunction(node:ts.Node):string|undefined{
+    for(let parent=node.parent;parent;parent=parent.parent)
+      if(ts.isFunctionDeclaration(parent))return parent.name?.text;
+    return undefined;
+  }
+  function visit(node:ts.Node){
+    if(appOrFeature&&ts.isCallExpression(node)&&ts.isPropertyAccessExpression(node.expression)){
+      const {name,expression}=node.expression;
+      if(['replaceChildren','setAttribute','removeAttribute','insertAdjacentHTML'].includes(name.text)||
+        (ts.isPropertyAccessExpression(expression)&&expression.name.text==='classList'&&['add','remove','toggle','replace'].includes(name.text)))
+        violations.push('imperative UI mutation: '+name.text);
+    }
+    if(appOrFeature&&ts.isBinaryExpression(node)&&ts.isPropertyAccessExpression(node.left)&&
+      node.operatorToken.kind>=ts.SyntaxKind.FirstAssignment&&node.operatorToken.kind<=ts.SyntaxKind.LastAssignment){
+      const {name,expression}=node.left;
+      if(['innerHTML','outerHTML','className'].includes(name.text))violations.push('imperative UI assignment: '+name.text);
+      if(ts.isPropertyAccessExpression(expression)&&expression.name.text==='style'&&
+        !(positions[path]===enclosingFunction(node)&&['left','top','maxHeight'].includes(name.text)))
+        violations.push('imperative CSS assignment: '+name.text);
+    }
+    if(path!=='src/api/document-commands.ts'&&ts.isCallExpression(node)&&node.arguments.length>=2){
+      const [url,options]=node.arguments;
+      if(url&&options&&url.getText(ast).includes('/assets/')&&ts.isObjectLiteralExpression(options)&&options.properties.some(p=>
+        ts.isPropertyAssignment(p)&&p.name.getText(ast).replace(/['"]/g,'')==='method'&&ts.isStringLiteral(p.initializer)&&/^(PUT|POST|PATCH)$/i.test(p.initializer.text)))
+        violations.push('asset upload outside prepared operation');
+    }
+    ts.forEachChild(node,visit);
+  }
+  visit(ast);
+  return violations;
+}
+
 describe('frontend architecture', () => {
+  it('enforces session, DOM and asset mutation boundaries',()=>{
+    expect(source.flatMap(({path,ast})=>boundaryViolations(path,ast).map(reason=>path+': '+reason))).toEqual([]);
+  });
+  it.each([
+    ['src/api/auth-client.ts','let csrf = null;','module-level mutable session state'],
+    ['src/features/editor/example.ts','element("layers").classList.toggle("active", true);','imperative UI mutation'],
+    ['src/app/example.ts','element("layers").style.display = "none";','imperative CSS assignment'],
+    ['src/features/editor/example.ts','request("/documents/id/assets/image", {method:"PUT"});','asset upload outside prepared operation'],
+  ])('rejects forbidden ownership in %s',(path,code,expected)=>{
+    const ast=ts.createSourceFile(path,code,ts.ScriptTarget.Latest,true);
+    expect(boundaryViolations(path,ast).join('; ')).toContain(expected);
+  });
   it('does not ship handwritten JavaScript source or legacy scripts in wwwroot', () => {
     expect([...src, ...wwwroot].filter(path => /\.[cm]?jsx?$/.test(path))).toEqual([]);
   });

@@ -11,7 +11,7 @@ const output = process.env.FIGVAM_BENCH_OUTPUT;
 if (!output) throw new Error('Set FIGVAM_BENCH_OUTPUT to an absolute output directory');
 
 test('compare browser editor on a deterministic document', async ({ page, request }, info) => {
-  test.setTimeout(180000);
+  test.setTimeout(300000);
   const size = 100;
   const documentId=id(1), pageId=id(2), screen=id(3), target=id(4), base='/api/v1/documents/'+documentId;
   const headers = { Authorization: 'Bearer '+bearer };
@@ -111,7 +111,7 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await page.screenshot({path:path.join(output,'preview-dark-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   await page.getByRole('button',{name:'Вернуться в Design'}).click();
   // Capture chrome states only after their model-driven surfaces are visible.
-  const capture=async name=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(output,name+'-'+info.repeatEachIndex+'.png'),animations:'disabled'});};
+  const capture=async name=>{if(name!=='catalog')await expect(page.locator('#status')).toHaveText('',{timeout:10000});await page.evaluate(async()=>{await document.fonts.ready;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});await page.screenshot({path:path.join(output,name+'-'+info.repeatEachIndex+'.png'),animations:'disabled'});};
   for(const menu of ['share','mcp','file']){
     const trigger=page.locator('[data-editor-menu="'+menu+'"] > summary');
     await trigger.click();
@@ -128,7 +128,7 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await page.locator('#document-mode-editor').click();
   await page.locator('#tab-assets').click();
   await expect(page.locator('#styles-total')).toHaveText('Стили: 1');
-  await page.locator('#styles-list').selectOption(styleId);
+  await Promise.all([page.waitForResponse(response=>response.url().includes('/styles/'+styleId+'/usages')&&response.ok()),page.locator('#styles-list').selectOption(styleId)]);
   await expect(page.locator('#styles-name')).toHaveValue('Benchmark text style');
   await capture('styles');
   await page.locator('#tab-layers').click();
@@ -162,8 +162,34 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   });
   await cdp.send('HeapProfiler.collectGarbage');
   times.heapAfterNavigationBytes=(await cdp.send('Runtime.getHeapUsage')).usedSize;
-  await cdp.detach();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:path.join(output,'mobile-'+info.repeatEachIndex+'.png'),animations:'disabled'});
+  await page.setViewportSize({width:1800,height:1100});
+  const memory=[];
+  const measure=async cycle=>{await cdp.send('HeapProfiler.collectGarbage');const heap=await cdp.send('Runtime.getHeapUsage');memory.push({cycle,usedSize:heap.usedSize});};
+  await measure(0);
+  for(let cycle=1;cycle<=20;cycle++){
+    await page.getByRole('button',{name:'Preview',exact:true}).click();
+    await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
+    await page.getByRole('button',{name:'Вернуться в Design'}).click();
+    await page.locator('#editor-design a[href="/"]').click();
+    const link=page.locator('a[href="/documents/'+documentId+'"]');
+    await expect(link).toBeVisible();await link.click();
+    await page.locator('#screens button.screen-select').first().click();
+    await expect(page.locator('#screen-boundary [data-visual-node]')).toHaveCount(size+1);
+    await expect(page.locator('#connection-status')).toContainText('Подключено',{timeout:15000});
+    await page.locator('[data-visual-node="'+target+'"] .visual-surface').click();
+    await expect(page.locator('#visual-property-text')).toBeVisible();
+    if(cycle%5===0)await measure(cycle);
+  }
+  const sustained=memory.slice(2).every((m,i)=>m.usedSize>memory[i+1].usedSize)&&memory[4].usedSize>memory[1].usedSize*1.15+1048576;
+  fs.writeFileSync(path.join(output,'memory-'+info.repeatEachIndex+'.json'),JSON.stringify({samples:memory,sustained},null,2));
+  if(sustained){
+    const snapshot=path.join(output,'heap-'+info.repeatEachIndex+'.heapsnapshot');
+    fs.writeFileSync(snapshot,'');
+    cdp.on('HeapProfiler.addHeapSnapshotChunk',event=>fs.appendFileSync(snapshot,event.chunk));
+    await cdp.send('HeapProfiler.takeHeapSnapshot');
+  }
+  await cdp.detach();
   fs.writeFileSync(path.join(output,'metrics-'+info.repeatEachIndex+'.json'),JSON.stringify(times,null,2));
 });

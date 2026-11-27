@@ -8,7 +8,8 @@ type Endpoint<K extends DocumentCommandName> = paths[`/api/v1/documents/{documen
 export type DocumentCommandRequest<K extends DocumentCommandName> = Endpoint<K>['requestBody']['content']['application/json'];
 export type DocumentCommandResponse<K extends DocumentCommandName> = Endpoint<K>['responses'][200]['content']['application/json'];
 type CommandBody = { commandId: string };
-type Transport = (path: string, options: RequestInit, signal?: AbortSignal | null, isCurrent?: () => boolean) => Promise<unknown>;
+type Send = (path: string, options: RequestInit, signal?: AbortSignal | null, isCurrent?: () => boolean) => Promise<unknown>;
+type Transport = Send & { command?: Send };
 export type CommandConfirmation = Omit<components['schemas']['CommandResponse'], 'revision'> & {revision: number};
 
 export function createCommandBody<T extends object>(data: T, commandId: string = crypto.randomUUID()): T & CommandBody {
@@ -32,8 +33,8 @@ export function decodeCommandConfirmation(raw: unknown, documentId: string, comm
 }
 
 export type CommandFailure = 'rejected' | 'conflict' | 'uncertain';
-export function classifyCommandFailure(error: unknown, current = true, timeoutIsUncertain = true): CommandFailure {
-  if (!current || !(error instanceof ApiError) || error.status >= 500 || (timeoutIsUncertain && error.status === 408)) return 'uncertain';
+export function classifyCommandFailure(error: unknown, _current = true, timeoutIsUncertain = true): CommandFailure {
+  if (!(error instanceof ApiError) || error.status >= 500 || (timeoutIsUncertain && error.status === 408)) return 'uncertain';
   return error.status === 409 || error.code === 'REVISION_CONFLICT' ? 'conflict' : 'rejected';
 }
 
@@ -66,7 +67,7 @@ function preparedOperation<C extends DocumentCommandName | 'upload-asset'>(docum
       else {
         state = {kind:'pending'};
         try {
-          const value = await execution.request(path, options(), execution.signal);
+          const value = await (execution.request.command ?? execution.request)(path, options(), execution.signal);
           confirmation = decodeCommandConfirmation(value, documentId, commandId);
           execution.validate?.(confirmation);
         } catch (error) {

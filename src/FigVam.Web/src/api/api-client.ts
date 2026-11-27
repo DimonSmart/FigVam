@@ -1,6 +1,7 @@
-import { authHeaders, credentialsMode } from './auth-client.js';
+import { createAuthContext, type AuthPolicy } from './auth-client.js';
 
 export interface ApiClientOptions {
+  auth?: AuthPolicy;
   getToken: () => string;
   getSessionEpoch?: () => number;
   getSessionSignal?: () => AbortSignal;
@@ -74,37 +75,40 @@ type RequestArgs = [
 export interface ApiClient {
   (...args: RequestArgs): Promise<unknown>;
   readPng(...args: RequestArgs): Promise<Blob>;
+  command?(...args: RequestArgs): Promise<unknown>;
 }
 
-export function createApiClient({ getToken, getSessionEpoch, getSessionSignal, onUnauthorized }: ApiClientOptions): ApiClient {
+export function createApiClient({ auth = createAuthContext(), getToken, getSessionEpoch, getSessionSignal, onUnauthorized }: ApiClientOptions): ApiClient {
   async function readResponse(
     path: string, options?: RequestInit, signal?: AbortSignal | null,
-    isCurrent: () => boolean = () => true,
+    isCurrent: () => boolean = () => true, retainCommandOutcome = false,
   ): Promise<{ response: Response; assertCurrent: () => void }> {
     const requestToken = getToken();
     const epoch = getSessionEpoch?.();
     const operationSignal = signal === undefined ? options?.signal : signal;
     const sessionSignal = getSessionSignal?.();
     const requestSignal = sessionSignal && operationSignal ? AbortSignal.any([sessionSignal, operationSignal]) : sessionSignal ?? operationSignal;
+    const current = () => !requestSignal?.aborted && requestToken === getToken() && epoch === getSessionEpoch?.() && isCurrent();
     const assertCurrent = () => {
-      if (requestSignal?.aborted || requestToken !== getToken() || epoch !== getSessionEpoch?.() || !isCurrent())
+      if (!current())
         throw new DOMException('Cancelled', 'AbortError');
     };
     assertCurrent();
-    const headers = new Headers(authHeaders(requestToken, options?.method));
+    const headers = new Headers(auth.authHeaders(requestToken, options?.method));
     if (options?.body) headers.set('Content-Type', 'application/json');
     new Headers(options?.headers).forEach((value, key) => headers.set(key, value));
     const response = await fetch(path, {
-      ...options, signal: requestSignal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers,
+      ...options, signal: requestSignal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers,
     });
-    assertCurrent();
+    if (!retainCommandOutcome) assertCurrent();
     if (response.status === 401) {
-      onUnauthorized();
+      if (current()) onUnauthorized();
+      if (retainCommandOutcome) throw new ApiError(401, {});
       throw new Error('Сессия завершена. Войдите повторно.');
     }
     if (!response.ok) {
       const body: unknown = await response.json().catch(() => ({}));
-      assertCurrent();
+      if (!retainCommandOutcome) assertCurrent();
       throw new ApiError(response.status, parseError(body));
     }
     return { response, assertCurrent };
@@ -114,6 +118,10 @@ export function createApiClient({ getToken, getSessionEpoch, getSessionSignal, o
     const value: unknown = await response.json();
     assertCurrent();
     return value;
+  };
+  request.command = async (path: string, options?: RequestInit, signal?: AbortSignal | null, isCurrent?: () => boolean): Promise<unknown> => {
+    const { response } = await readResponse(path, options, signal, isCurrent, true);
+    return response.json();
   };
   request.readPng = async (...args: RequestArgs): Promise<Blob> => {
     const { response, assertCurrent } = await readResponse(...args);
