@@ -1,5 +1,6 @@
 import { memo, useSyncExternalStore } from 'react';
 import { Button } from '../ui/Button';
+import { RenderFeedback } from '../features/editor/render-feedback';
 import { TextInput } from '../ui/Inputs';
 import { Moon, Sun } from 'lucide-react';
 import type { ApplicationShellModel, ApplicationShellActions } from './application-shell-state';
@@ -12,6 +13,7 @@ const StableEditorShell = memo(EditorShell);
 export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellController;views:ApplicationViews;model:ApplicationShellModel;actions:ApplicationShellActions}){
   const state=useSyncExternalStore(model.subscribe,model.getSnapshot);
   const catalog=state.catalog;
+  const preview=useSyncExternalStore(shell.previewChrome.subscribe,shell.previewChrome.getSnapshot);
   const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   return <>
@@ -115,27 +117,25 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
       </div>
       <div id="editor-view" hidden={state.view !== 'editor'}>
         <StableEditorShell shell={shell} views={views}/>
-        <section id="editor-preview" aria-labelledby="preview-title" hidden>
+        <section id="editor-preview" aria-labelledby="preview-title" hidden={!preview.active}>
           <header className="document-panel">
             <h1 id="preview-title">{"Preview"}</h1>
-            <Button id="close-preview" type="button">{"Вернуться в Design"}</Button>
-            <Button id="preview-back" type="button" disabled>{"Назад по сценарию"}</Button>
-            <Button id="preview-reset" type="button">{"Сбросить Preview"}</Button>
+            <Button id="close-preview" type="button" onClick={shell.closePreview}>{"Вернуться в Design"}</Button>
+            <Button id="preview-back" type="button" disabled={!preview.canGoBack} onClick={shell.previewBack}>{"Назад по сценарию"}</Button>
+            <Button id="preview-reset" type="button" onClick={shell.resetPreview}>{"Сбросить Preview"}</Button>
             <div className="preview-theme-control">
               <span id="preview-theme-label">{"Тема"}</span>
               <div id="preview-theme" className="theme-segments" role="group" aria-labelledby="preview-theme-label">
-                <Button type="button" data-theme="Light" aria-pressed="true" aria-label="Светлая тема" title="Светлая тема (Light)">
+                <Button type="button" data-theme="Light" aria-pressed={preview.theme==='Light'} onClick={()=>shell.changePreviewTheme('Light')} aria-label="Светлая тема" title="Светлая тема (Light)">
                   <Sun size={18} strokeWidth={1.8} aria-hidden="true"/>
                 </Button>
-                <Button type="button" data-theme="Dark" aria-pressed="false" aria-label="Тёмная тема" title="Тёмная тема (Dark)">
+                <Button type="button" data-theme="Dark" aria-pressed={preview.theme==='Dark'} onClick={()=>shell.changePreviewTheme('Dark')} aria-label="Тёмная тема" title="Тёмная тема (Dark)">
                   <Moon size={18} strokeWidth={1.8} aria-hidden="true"/>
                 </Button>
               </div>
             </div>
           </header>
-          <p id="preview-render-status" role="status"/>
-          <Button id="preview-render-retry" type="button" hidden>{"Повторить загрузку Preview"}</Button>
-          <ul id="preview-render-diagnostics" aria-label="Диагностика Preview"/>
+          <RenderFeedback model={shell.previewChrome.preview} mode="preview" retry={shell.retryRender}/>
           <div id="preview-viewport" role="region" aria-label="Экран Preview"/>
         </section>
       </div>

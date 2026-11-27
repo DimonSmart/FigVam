@@ -5,9 +5,14 @@ import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from
 import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
+import { RenderFeedback } from './render-feedback';
+import type { PreviewChrome } from '../../app/preview-chrome';
+import type { Theme } from '../../core/tokens/token-model';
 import { TextInput, NumberInput } from '../../ui/Inputs';
 
 interface ShellActions {
+  previewChrome:PreviewChrome;
+  openPreview():void;closePreview():void;changePreviewTheme(theme:Theme):void;resetPreview():void;previewBack():void;retryRender():void;
   beforePrototypeLeave(resume:()=>void):boolean;
   addTool(kind:DrawingToolKind):boolean;
   signOut():void;
@@ -61,6 +66,7 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
 }
 export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
+  const preview=useSyncExternalStore(shell.previewChrome.subscribe,shell.previewChrome.getSnapshot);
   const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
   const canEdit=canEditDocument(state.role);
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
@@ -137,7 +143,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     return()=>{compact.removeEventListener('change',onChange);observer.disconnect();window.removeEventListener('resize',positionNavigatorMenu);window.removeEventListener('scroll',positionNavigatorMenu,true);document.removeEventListener('pointerdown',pointer);document.removeEventListener('keydown',key);};
   },[]);
   return (
-    <div id="editor-design" className="app-shell">
+    <div id="editor-design" className="app-shell" hidden={preview.active}>
       <header className="document-panel app-toolbar" aria-label="Панель документа">
         <span className="editor-brand">{"FigVam"}</span>
         <a href="/" data-navigation="">{"← Документы"}</a>
@@ -147,7 +153,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть слои" aria-label="Показать или скрыть слои" aria-expanded={!leftCollapsed} hidden={tokensMode} onClick={()=>setLeftCollapsed(value=>!value)}><PanelLeft size={18} aria-hidden="true"/></Button>
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть инспектор" aria-label="Показать или скрыть инспектор" aria-expanded={!rightCollapsed} hidden={tokensMode} onClick={()=>setRightCollapsed(value=>!value)}><PanelRight size={18} aria-hidden="true"/></Button>
           <views.history.toolbar.Component/>
-          <Button id="open-preview" type="button" disabled>{"Preview"}</Button>
+          <Button id="open-preview" type="button" disabled={!preview.available} onClick={shell.openPreview}>{"Preview"}</Button>
           <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"><views.presence.list.Component/></ul>
           <p id="connection-status" aria-live="polite">{state.connectionStatus}</p>
           <details className="editor-menu share-menu">
@@ -289,9 +295,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <h2 id="canvas-title" className="visually-hidden">{"Холст"}</h2>
           <p id="canvas-selection" className="canvas-caption">{"Выберите экран, чтобы показать его на холсте."}</p>
           <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
-          <p id="design-render-status" role="status"/>
-          <Button id="design-render-retry" type="button" hidden>{"Повторить загрузку экрана"}</Button>
-          <ul id="design-render-diagnostics" aria-label="Диагностика отображения"/>
+          <RenderFeedback model={shell.previewChrome.design} mode="design" retry={shell.retryRender}/>
           <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen}>
             <h2>{"Нет выбранного экрана"}</h2>
             <p>{state.hasPage?"Выберите экран слева или создайте новый, чтобы начать работу.":"Создайте первую страницу, затем добавьте экран."}</p>

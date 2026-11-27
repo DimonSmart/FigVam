@@ -19,6 +19,8 @@ import { token, generation, pending, navigationEpoch, setToken, advanceNavigatio
 
 import { element, required } from './dom';
 import { createElement } from 'react';
+import { flushSync } from 'react-dom';
+import { createPreviewChrome } from './preview-chrome';
 import { disposeApplicationRoot, mountApplicationRoot } from './application-root';
 import { ApplicationShell } from './application-shell';
 import { createDocumentShellModel, createDeletionViewModel, canEditDocument } from './document-shell-state';
@@ -54,7 +56,8 @@ const requestRunner = createRequestRunner({
 });
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
 
-const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage, document: documentShell, deletion: deletionView, renameDocument, deleteDocument, retryDeletion, createScreen, refreshPages: () => { void refreshPages(); } });
+const previewChrome=createPreviewChrome();
+const editorShell = createEditorShell({ previewChrome, openPreview:()=>visualScreens.openPreview(), closePreview:()=>visualScreens.closePreview(), changePreviewTheme:theme=>visualScreens.changeTheme(theme), resetPreview:()=>visualScreens.resetPreview(), previewBack:()=>visualScreens.goBack(), retryRender:()=>visualScreens.retry(), beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage, document: documentShell, deletion: deletionView, renameDocument, deleteDocument, retryDeletion, createScreen, refreshPages: () => { void refreshPages(); } });
 const views = createApplicationViews();
 mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views, model: shellState, actions: {
   createDocument: () => { void documentCreation.createDocument(); }, changeDocumentName: documentName => shellState.patch({ documentName }),
@@ -427,6 +430,7 @@ const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasView
   setPresenceCursor: presence.setCursor
 });
 const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreens({
+  chrome:previewChrome,publishMode:active=>{if(previewChrome.getSnapshot().active!==active)flushSync(()=>previewChrome.patch({active}));},
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
   getContext: () => ({ documentId, revision: revisions.revision, screen: selectionState.activeScreen,
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
