@@ -17,7 +17,7 @@ import { createTokens } from '../features/tokens/tokens';
 import { createStyles } from '../features/styles/styles';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
 
-import { element, required } from './dom';
+import { element } from './dom';
 import { createElement } from 'react';
 import { flushSync } from 'react-dom';
 import { createCanvasChrome } from './canvas-chrome';
@@ -208,6 +208,7 @@ function message(status = '', error = '') {
 }
 
 function clearSession() {
+  editorShell.menu.publish(null);
   mcpAccess.reset();
   documentCreation.reset();
   resetDeletion();
@@ -403,14 +404,13 @@ function renderScreens() {
   documentShell.patch({ layersTitle: activeScreen
     ? `Слои · ${activeScreen.name ?? 'Экран ' + (selectionState.screens.indexOf(activeScreen) + 1)}`
     : 'Слои выбранного экрана' });
-  const screenMenu = required(element('screen-preset').closest('details'));
   // Only suggest creation on the first empty page. Opening the popover on every
   // navigation obscures the page tree, and closing a user-opened menu mid-command
   // makes the form unusable while the page creation is still being committed.
-  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) screenMenu.open = false;
+  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) editorShell.menu.close('screen-create');
   else if (selectionState.selectedPage && selectionState.pages.length === 1 &&
       (getDocumentRole() === 'Owner' || getDocumentRole() === 'Editor') &&
-      !document.querySelector('.navigator-context-menu[open]') && !selectionState.renameDraft('page')) screenMenu.open = true;
+      !editorShell.menu.getSnapshot()?.startsWith('page:') && !editorShell.menu.getSnapshot()?.startsWith('screen:') && !selectionState.renameDraft('page')) editorShell.menu.publish('screen-create');
 }
 
 
@@ -699,6 +699,7 @@ function createScreen() {
   pageCommand('add-screen', { pageId: selectionState.selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 }
 const navigatorView = createDocumentNavigator(views.navigator, {
+  menu:editorShell.menu,
   isBusy: () => documentShell.getSnapshot().pageBusy || !navigatorCanEdit(),
   selectPage, selectScreen,
   startRename: startNavigatorNameEdit,
@@ -721,11 +722,6 @@ const navigatorView = createDocumentNavigator(views.navigator, {
   },
 });
 renderPages();
-function closeNavigatorContextMenus() {
-  for (const menu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]')) menu.open = false;
-}
-element('pages').addEventListener('scroll', closeNavigatorContextMenus);
-window.addEventListener('resize', closeNavigatorContextMenus);
 function createPage() {
   if (documentShell.getSnapshot().pageBusy) return;
   const pageId = crypto.randomUUID();

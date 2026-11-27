@@ -91,8 +91,16 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await cdp.detach();
   await page.getByRole('button',{name:'Preview',exact:true}).click();
   await expect(page.locator('#editor-preview')).toBeVisible();
+  await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
+  await expect(page.locator('#preview-render-status')).toHaveText('');
   await page.screenshot({path:path.join(output,'preview-'+info.repeatEachIndex+'.png'),animations:'disabled'});
+  const lightScreen=await page.locator('#preview-viewport .preview-screen').elementHandle();
+  expect(lightScreen).not.toBeNull();
   await page.getByRole('group',{name:'Тема',exact:true}).getByRole('button',{name:'Тёмная тема'}).click();
+  await page.waitForFunction(screen=>!screen.isConnected,lightScreen);
+  await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
+  await expect(page.locator('#preview-render-status')).toHaveText('');
+  await lightScreen.dispose();
   await page.screenshot({path:path.join(output,'preview-dark-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   await page.getByRole('button',{name:'Вернуться в Design'}).click();
   await page.setViewportSize({width:390,height:844});

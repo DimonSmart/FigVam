@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
+import type { EditorMenu, MenuId } from '../../app/editor-menu';
 import { createViewModel } from '../../app/view-model';
 import { flushSync } from 'react-dom';
 import { Check, X, Ellipsis } from 'lucide-react';
@@ -17,6 +18,7 @@ interface NavigatorState {
   editingPageName: RenameDraft | null; editingScreenName: RenameDraft | null;
 }
 interface NavigatorActions {
+  menu:EditorMenu;
   isBusy(): boolean;
   selectPage(id: string): void; selectScreen(id: string): void;
   startRename(kind: NavigatorKind, id: string, name: string): void;
@@ -62,6 +64,9 @@ function NavigatorRow({ kind, id, name, canEdit, selected, expanded, label, draf
   expanded?: boolean; label: string; draft: RenameDraft | null; actions: NavigatorActions;
   menuActions: RowAction[]; children?: ReactNode;
 }) {
+  const activeMenu=useSyncExternalStore(actions.menu.subscribe,actions.menu.getSnapshot);
+  const menuId:MenuId=`${kind}:${id}`;
+  const active=activeMenu===menuId;
   const menu = useRef<HTMLDetailsElement>(null), trigger = useRef<HTMLElement>(null), body = useRef<HTMLDivElement>(null);
   const noun = kind === 'page' ? 'страницу' : 'экран';
   const triggerLabel = kind === 'page' ? 'Действия со страницей' : 'Действия с экраном';
@@ -82,20 +87,18 @@ function NavigatorRow({ kind, id, name, canEdit, selected, expanded, label, draf
     const b = body.current;
     if (b?.matches(':popover-open')) b.hidePopover();
   }
-  function toggle() {
-    const m = menu.current;
-    if (!m?.open) { hide(); return; }
-    if (actions.isBusy() || !trigger.current?.getClientRects().length) { m.open = false; return; }
-    for (const other of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open], .navigator-toolbar details[open]'))
-      if (other !== m) other.open = false;
+  useLayoutEffect(()=>{
+    if(!active){hide();return;}
+    if(actions.isBusy()||!trigger.current?.getClientRects().length){actions.menu.close(menuId);return;}
     position();
-  }
+    return hide;
+  },[active]);
   function context(event: MouseEvent<HTMLLIElement>) {
     if (!canEdit || !menu.current || !(event.target instanceof Element)
       || event.target.closest('.page-tree-item, .screen-row') !== event.currentTarget
       || event.target.closest('input, summary, .navigator-context-body') || actions.isBusy()) return;
-    event.preventDefault(); menu.current.open = true; position();
-    body.current?.querySelector<HTMLElement>('input')?.focus({ preventScroll: true });
+    event.preventDefault(); actions.menu.publish(menuId);
+    requestAnimationFrame(()=>body.current?.querySelector<HTMLElement>('input')?.focus({ preventScroll: true }));
   }
   return <li className={kind === 'page' ? 'page-tree-item' : 'screen-row'} onContextMenu={context}>
     {draft?.id === id ? <RenameForm kind={kind} draft={draft} name={name} actions={actions}/> : <>
@@ -108,12 +111,12 @@ function NavigatorRow({ kind, id, name, canEdit, selected, expanded, label, draf
           data-page-rename-id={kind === 'page' ? id : undefined} data-screen-rename-id={kind === 'screen' ? id : undefined}
           title={'Переименовать ' + noun} aria-label={'Переименовать ' + noun + ' «' + name + '»'}
           onClick={() => { if (!actions.isBusy()) actions.startRename(kind, id, name); }}/>
-        <details className="navigator-context-menu" ref={menu} onToggle={toggle}>
-          <summary ref={trigger} title={triggerLabel} aria-label={triggerLabel + ' «' + name + '»'}><Ellipsis size={16} aria-hidden="true"/></summary>
+        <details className="navigator-context-menu" ref={menu} data-editor-menu={menuId} open={active}>
+          <summary ref={trigger} onClick={event=>{event.preventDefault();if(!actions.isBusy())actions.menu.toggle(menuId);}} title={triggerLabel} aria-label={triggerLabel + ' «' + name + '»'}><Ellipsis size={16} aria-hidden="true"/></summary>
           <div ref={body} className="navigator-context-body" popover="manual">
             {menuActions.map(action => <input key={action.label} type="button" value={action.label}
               aria-label={action.accessibleLabel} className={action.destructive ? 'navigator-danger-action' : undefined}
-              onClick={() => { if (menu.current) menu.current.open = false; hide(); if (!actions.isBusy()) action.run(); }}/>)}
+              onClick={() => { actions.menu.close(menuId); if (!actions.isBusy()) action.run(); }}/>)}
           </div>
         </details>
       </>}
@@ -137,7 +140,7 @@ function ScreenList({state, actions, hidden = false}: {state: NavigatorState; ac
 function NavigatorView({state, actions}: {state: NavigatorState; actions: NavigatorActions}) {
   const nested = state.pageExpanded && state.pages.some(item => item.id === state.selectedPage);
   return <>
-    <ul id="pages" aria-label="Страницы и экраны">
+    <ul id="pages" aria-label="Страницы и экраны" onScroll={()=>actions.menu.closeRows()}>
       {state.pages.map(item => {
         const selected = item.id === state.selectedPage;
         return <NavigatorRow key={item.id} kind="page" id={item.id} name={item.name} label={item.name}

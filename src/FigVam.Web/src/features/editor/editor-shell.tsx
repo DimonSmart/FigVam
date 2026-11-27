@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { PanelLeft, PanelRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { createEditorMenu, type MenuId } from '../../app/editor-menu';
 import { createPanelStore } from '../../app/panel-store';
 import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from '../../app/document-shell-state';
 import type { ApplicationViews } from '../../app/application-views';
@@ -30,8 +31,8 @@ interface ShellActions {
 export function createEditorShell(actions:ShellActions) {
   const drawingTools=createPanelStore<readonly string[]>([]);
   const signoutLabel=createPanelStore('Выйти');
-  const mode=createPanelStore(false),rightTab=createPanelStore<RightTab>('design');
-  return {...actions, drawingTools, signoutLabel, mode,rightTab, showEditor:()=>mode.publish(false),
+  const mode=createPanelStore(false),rightTab=createPanelStore<RightTab>('design'),menu=createEditorMenu();
+  return {...actions, drawingTools, signoutLabel, mode,rightTab,menu, showEditor:()=>mode.publish(false),
     setSignoutLabel(label:string){signoutLabel.publish(label);},
     setDrawingTools(available:readonly string[]){
       const current=drawingTools.getSnapshot();
@@ -73,6 +74,8 @@ function CanvasToolbar({shell}:{shell:EditorShellController}){const state=useSyn
   <Button id="zoom-in" type="button" title="Увеличить" disabled={!state.available} onClick={shell.zoomIn}>Увеличить</Button><Button id="fit-screen" type="button" title="Вместить экран в холст" disabled={!state.available} onClick={shell.fitCanvas}>Вместить экран</Button><Button id="actual-size" type="button" disabled={!state.available} onClick={shell.actualSize}>100%</Button></div>;}
 export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
+  const activeMenu=useSyncExternalStore(shell.menu.subscribe,shell.menu.getSnapshot);
+  function menuClick(id:MenuId){return (event:React.MouseEvent)=>{event.preventDefault();shell.menu.toggle(id);};}
   const preview=useSyncExternalStore(shell.previewChrome.subscribe,shell.previewChrome.getSnapshot);
   const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
   const canEdit=canEditDocument(state.role);
@@ -116,18 +119,15 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     body.style.left=`${Math.max(margin,Math.min(anchor.left,window.innerWidth-body.offsetWidth-margin))}px`;
     body.style.top=`${openAbove?anchor.top-gap-body.offsetHeight:lowerEdge+gap}px`;
   }
-  function onScreenMenuToggle(){
-    if(screenMenu.current?.open)for(const rowMenu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]'))rowMenu.open=false;
-    positionNavigatorMenu();
-  }
+  function onScreenMenuToggle(){positionNavigatorMenu();}
   function openCreateScreen(){
     if(canEdit&&!state.hasPage){shell.createPage();return;}
     if(!screenMenu.current||!canEdit)return;
-    setLeftTab('layers');setLeftCollapsed(false);screenMenu.current.open=true;
+    setLeftTab('layers');setLeftCollapsed(false);shell.menu.publish('screen-create');
     requestAnimationFrame(()=>{positionNavigatorMenu();screenWidth.current?.focus();});
   }
   function addFromToolbar(kind:DrawingToolKind){
-    if(!shell.addTool(kind)&&paletteMenu.current){paletteMenu.current.open=true;paletteMenu.current.querySelector<HTMLElement>('#visual-required-properties input, #visual-required-properties select, #visual-required-properties textarea')?.focus();}
+    if(!shell.addTool(kind)&&paletteMenu.current){shell.menu.publish('palette');requestAnimationFrame(()=>paletteMenu.current?.querySelector<HTMLElement>('#visual-required-properties input, #visual-required-properties select, #visual-required-properties textarea')?.focus());}
   }
   useEffect(()=>{
     const compact=matchMedia('(max-width: 1050px)');
@@ -135,19 +135,20 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     compact.addEventListener('change',onChange);
     const observer=new ResizeObserver(positionNavigatorMenu);
     if(navigatorToolbar.current)observer.observe(navigatorToolbar.current);
-    window.addEventListener('resize',positionNavigatorMenu);window.addEventListener('scroll',positionNavigatorMenu,true);
+    const resize=()=>{shell.menu.closeRows();positionNavigatorMenu();};
+    window.addEventListener('resize',resize);window.addEventListener('scroll',positionNavigatorMenu,true);
     const pointer=(event:PointerEvent)=>{
       if(!(event.target instanceof Element))return;
-      const clicked=event.target.closest('details.editor-menu, .navigator-toolbar details, .navigator-context-menu');
-      for(const details of document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]'))if(details!==clicked&&!details.contains(event.target))details.open=false;
+      const clicked=event.target.closest('[data-editor-menu]');
+      if(clicked?.getAttribute('data-editor-menu')!==shell.menu.getSnapshot())shell.menu.publish(null);
     };
     const key=(event:KeyboardEvent)=>{
       if(event.key!=='Escape')return;
-      const last=[...document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')].at(-1);
-      if(!last)return;last.open=false;last.querySelector<HTMLElement>('summary')?.focus();event.preventDefault();
+      const id=shell.menu.getSnapshot();if(!id)return;
+      shell.menu.publish(null);document.querySelector<HTMLElement>('[data-editor-menu="'+CSS.escape(id)+'"] > summary')?.focus();event.preventDefault();
     };
     document.addEventListener('pointerdown',pointer);document.addEventListener('keydown',key);
-    return()=>{compact.removeEventListener('change',onChange);observer.disconnect();window.removeEventListener('resize',positionNavigatorMenu);window.removeEventListener('scroll',positionNavigatorMenu,true);document.removeEventListener('pointerdown',pointer);document.removeEventListener('keydown',key);};
+    return()=>{compact.removeEventListener('change',onChange);observer.disconnect();window.removeEventListener('resize',resize);window.removeEventListener('scroll',positionNavigatorMenu,true);document.removeEventListener('pointerdown',pointer);document.removeEventListener('keydown',key);};
   },[]);
   return (
     <div id="editor-design" className="app-shell" hidden={preview.active}>
@@ -163,8 +164,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <Button id="open-preview" type="button" disabled={!preview.available} onClick={shell.openPreview}>{"Preview"}</Button>
           <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"><views.presence.list.Component/></ul>
           <p id="connection-status" aria-live="polite">{state.connectionStatus}</p>
-          <details className="editor-menu share-menu">
-            <summary className="menu-trigger">{"Поделиться"}</summary>
+          <details className="editor-menu share-menu" data-editor-menu="share" open={activeMenu==='share'}>
+            <summary className="menu-trigger" onClick={menuClick('share')}>{"Поделиться"}</summary>
             <div className="menu-body">
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Совместная работа"}</h3>
@@ -177,12 +178,12 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
             </div>
           </details>
-          <details className="editor-menu mcp-menu" id="mcp-access-menu">
-            <summary className="menu-trigger">{"MCP-доступ"}</summary>
+          <details className="editor-menu mcp-menu" id="mcp-access-menu" data-editor-menu="mcp" open={activeMenu==='mcp'}>
+            <summary className="menu-trigger" onClick={menuClick('mcp')}>{"MCP-доступ"}</summary>
             <div className="menu-body" id="mcp-access-body"><views.mcp.Component/></div>
           </details>
-          <details className="editor-menu document-menu">
-            <summary className="menu-trigger">{"Файл"}</summary>
+          <details className="editor-menu document-menu" data-editor-menu="file" open={activeMenu==='file'}>
+            <summary className="menu-trigger" onClick={menuClick('file')}>{"Файл"}</summary>
             <div className="menu-body">
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Документ"}</h3>
@@ -238,8 +239,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     <div id="page-edit" hidden={!canEdit} inert={state.pageBusy}>
                       <Button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</Button>
                     </div>
-                    <details className="editor-menu inline-menu screen-options" hidden={!canEdit} ref={screenMenu} onToggle={onScreenMenuToggle}>
-                      <summary className="menu-trigger">{"+ Экран"}</summary>
+                    <details className="editor-menu inline-menu screen-options" hidden={!canEdit} ref={screenMenu} onToggle={onScreenMenuToggle} data-editor-menu="screen-create" open={activeMenu==='screen-create'}>
+                      <summary className="menu-trigger" onClick={menuClick('screen-create')}>{"+ Экран"}</summary>
                       <div className="screen-options-body" popover="manual" ref={screenMenuBody}>
                         <select id="screen-preset" aria-label="Типовой размер экрана" onChange={event=>shell.document.setScreenPreset(event.currentTarget.value)} value={state.screenPreset}>
                           <option value="1440x900">{"Desktop · 1440 × 900"}</option>
@@ -294,8 +295,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
         <section className="canvas design-canvas" aria-labelledby="canvas-title">
           <div className="drawing-toolbar">
             <DrawingTools available={availableTools} onSelect={()=>document.getElementById('viewport')?.focus()} onAdd={addFromToolbar}/>
-            <details className="editor-menu palette-options" ref={paletteMenu}>
-              <summary className="menu-trigger">{"Параметры добавления"}</summary>
+            <details className="editor-menu palette-options" ref={paletteMenu} data-editor-menu="palette" open={activeMenu==='palette'}>
+              <summary className="menu-trigger" onClick={menuClick('palette')}>{"Параметры добавления"}</summary>
               <views.propertyFields.palette.Component/>
             </details>
           </div>
