@@ -1,4 +1,4 @@
-import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from '../api/auth-client';
+import { authHeaders, credentialsMode, isGoogleMode, setCsrf } from '../api/auth-client';
 import { createScreenCapture } from '../canvas/screen-capture';
 import { ApiError, createApiClient, parseDocumentList, type ApiClient } from '../api/api-client';
 import { createDocumentQueries, type PageItem, type ScreenItem } from '../api/document-queries';
@@ -24,8 +24,9 @@ import type { DeleteCatalogCommand } from '../features/home/document-list';
 import type { components } from '../api/schema.generated';
 import { postPageCommand, type PageCommandData } from './page-commands';
 
-type Work = (signal: AbortSignal, current: () => boolean) => Promise<unknown>;
-type Retry = () => Promise<unknown>;
+import { createRequestRunner } from './request-runner';
+import { createNavigation } from './navigation';
+import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
 type SelectionChange = { nodeId: string; previousId?: string };
 type ImportOperation = { token: string; epoch: number };
@@ -46,7 +47,6 @@ function selectHomeView(view: 'users' | 'documents') {
 let cursors: (string | null | undefined)[] = [null];
 let pageIndex = 0;
 let nextCursor: string | null | undefined = null;
-let retry: Retry | null = null;
 const pageSize = 20;
 let documentId: string | null = null, documentRole: string | null = null, revision: number | null = null, selectedPage: string | null = null, pagesOffset = 0, pagesTotal = 0;
 let catalogRevision: number | null = null;
@@ -171,7 +171,7 @@ function message(status = '', error = '') {
   statusDismissTimer = undefined;
   element('status').textContent = status;
   element('error').textContent = error;
-  element('retry').hidden = !error || !retry;
+  element('retry').hidden = !error || !requestRunner.canRetry;
   // Progress and errors are persistent; successful editor notifications expire.
   if (status && !error && !status.endsWith('…') && !element('editor-view').hidden) {
     statusDismissTimer = setTimeout(() => {
@@ -224,7 +224,7 @@ function clearSession() {
   authenticationView.setVisible(true);
   element('disconnect').hidden = true;
   cursors = [null]; pageIndex = 0; nextCursor = null;
-  retry = null;
+  requestRunner.clearRetry();
   message();
 }
 
@@ -284,35 +284,16 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   closeInaccessibleDocument
 });
 
-async function run(action: Retry | null, work: Work, { create = false, quiet = false } = {}): Promise<void> {
-  stopLive();
-  const { signal, current } = startRequest();
-  retry = create ? null : action;
-  if (!quiet) {
-    message(create ? 'Создание документа…' : 'Загрузка…');
-    element('content').setAttribute('aria-busy', 'true');
-  }
-  required(element('create-form').querySelector('button')).disabled = true;
-  element('next').disabled = true;
-  element('previous').disabled = true;
-  try {
-    await work(signal, () => current === generation);
-  } catch (error) {
-    if (aborted(error)) return;
-    // A 401 clears the whole session, including its generation.
-    if (current !== generation && token) return;
-    const explanation = error instanceof TypeError ? 'Не удалось связаться с сервером. Проверьте соединение.' : errorMessage(error);
-    message('', explanation + (create && token ? ' Перед повторным созданием обновите список: запрос мог успеть выполниться.' : ''));
-  } finally {
-    if (current === generation) {
-      if (!quiet) element('content').setAttribute('aria-busy', 'false');
-      required(element('create-form').querySelector('button')).disabled = false;
-      element('previous').disabled = pageIndex === 0;
-      element('next').disabled = !nextCursor;
-      startLive();
-    }
-  }
-}
+const requestRunner = createRequestRunner({
+  stopLive, startLive, message,
+  setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
+  setControlsDisabled(disabled) {
+    required(element('create-form').querySelector('button')).disabled = disabled;
+    element('previous').disabled = disabled || pageIndex === 0;
+    element('next').disabled = disabled || !nextCursor;
+  },
+});
+const run = requestRunner.run;
 
 async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
   mcpAccess.reset();
@@ -763,21 +744,19 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
   }
 }
 
-function route() {
-  if (!token) return;
-  const match = location.pathname.match(/^\/documents\/([0-9a-f-]+)\/?$/i);
-  return match?.[1] ? openDocument(match[1]) : loadList();
-}
-
-function navigate(path: string) {
-  if (!scenarios.requestLeave(() => navigate(path))) return;
-  history.pushState(null, '', path);
-  route();
-  element('content').focus();
-}
+const navigation = createNavigation({
+  isAuthenticated: () => !!token,
+  openDocument, loadList,
+  requestLeave: resume => scenarios.requestLeave(resume),
+  currentDocument: () => documentId,
+  focusContent: () => element('content').focus(),
+  hasDirtyDraft: () => scenarios.hasDirtyDraft(),
+});
+function route() { return navigation.route(); }
+function navigate(path: string) { navigation.navigate(path); }
 
 function submitBearerToken(supplied: string) {
-  if (!supplied || /\s/.test(supplied)) {
+  if (!isValidBearerToken(supplied)) {
     message('', 'Введите токен без пробелов и префикса Bearer.');
     return;
   }
@@ -792,9 +771,7 @@ function submitBearerToken(supplied: string) {
 element('disconnect').addEventListener('click', async () => {
   if (isGoogleMode()) {
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST', cache: 'no-store',
-        credentials: 'same-origin', redirect: 'error', headers: authHeaders('', 'POST') });
-      if (!response.ok) throw new Error('Не удалось завершить серверную сессию.');
+      await logoutGoogleSession();
     } catch (error) { message('', errorMessage(error)); return; }
   }
   clearSession();
@@ -916,33 +893,15 @@ element('page-create').addEventListener('click', () => {
 element('refresh').addEventListener('click', () => loadList());
 element('previous').addEventListener('click', () => loadList(pageIndex - 1, cursors[pageIndex - 1]));
 element('next').addEventListener('click', () => loadList(pageIndex + 1, nextCursor));
-element('retry').addEventListener('click', () => retry?.());
-document.addEventListener('click', event => {
-  const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[data-navigation]') : null;
-  if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  const href = link.getAttribute('href');
-  if (href) navigate(href);
-});
-window.addEventListener('popstate', () => {
-  const destination = location.pathname;
-  if (scenarios.requestLeave(() => navigate(destination))) route();
-  else history.replaceState(null, '', documentId ? '/documents/' + documentId : '/');
-});
-window.addEventListener('beforeunload', event => {
-  if (scenarios.hasDirtyDraft()) { event.preventDefault(); event.returnValue = ''; }
-});
+element('retry').addEventListener('click', () => requestRunner.retry());
+navigation.attach();
 window.addEventListener('pagehide', event => {
   try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
 });
 async function initializeAuthentication() {
   try {
-    const config = await fetch('/api/auth/config', { credentials: 'same-origin', cache: 'no-store' });
-    if (!config.ok) throw new Error('Режим аутентификации недоступен.');
-    const info = requiredRecord(await config.json());
-    if (info.mode !== 'bearer' && info.mode !== 'google') throw new TypeError('Некорректный режим аутентификации.');
-    configureAuth(info.mode);
-    if (!isGoogleMode()) {
+    const mode = await readAuthenticationMode();
+    if (mode === 'bearer') {
       authenticationView.setMode('bearer');
       element('disconnect').textContent = 'Забыть токен';
       element('editor-signout').textContent = 'Забыть токен';
@@ -952,11 +911,9 @@ async function initializeAuthentication() {
     authenticationView.setMode('google');
     const authError = new URLSearchParams(location.search).get('auth_error');
     if (authError) authenticationView.setError('Google-аккаунт не подтверждён или доступ к FigVam не разрешён.');
-    const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
-    if (!response.ok) throw new Error('Не удалось восстановить сессию.');
-    const session = requiredRecord(await response.json());
-    if (session.authenticated !== true) return;
-    setCsrf(text(session.csrfToken));
+    const session = await restoreGoogleSession();
+    if (!session) return;
+    setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
     element('disconnect').hidden = false;
