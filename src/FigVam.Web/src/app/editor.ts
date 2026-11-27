@@ -33,6 +33,17 @@ type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
+const requestRunner = createRequestRunner({
+  stopLive: () => stopLive(), startLive: () => startLive(), message,
+  setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
+  setControlsDisabled(disabled) {
+    required(element('create-form').querySelector('button')).disabled = disabled;
+    element('previous').disabled = disabled || pageIndex === 0;
+    element('next').disabled = disabled || !nextCursor;
+  },
+});
+function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
+
 const authenticationView = createAuthenticationView(element('authentication-root'), submitBearerToken);
 const documentListView = createDocumentListView(element('document-list'), deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(element('home-navigation'), selectHomeView);
@@ -283,17 +294,6 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   setDocumentRole: role => { documentRole = role; datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
-
-const requestRunner = createRequestRunner({
-  stopLive, startLive, message,
-  setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
-  setControlsDisabled(disabled) {
-    required(element('create-form').querySelector('button')).disabled = disabled;
-    element('previous').disabled = disabled || pageIndex === 0;
-    element('next').disabled = disabled || !nextCursor;
-  },
-});
-const run = requestRunner.run;
 
 async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
   mcpAccess.reset();
