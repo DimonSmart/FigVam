@@ -148,10 +148,14 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response);
     }
 
-    [McpServerTool(Name = "get_screen_layout"), Description("Read computed bounds and layout diagnostics.")]
-    public async Task<CallToolResult> GetScreenLayout(Guid screenId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default)
+    [McpServerTool(Name = "get_screen_layout"), Description("Read computed bounds and layout diagnostics for Light (default) or Dark at the selected revision.")]
+    public async Task<CallToolResult> GetScreenLayout(Guid screenId, int offset = 0, int limit = 50, long? revision = null, string theme = "Light", CancellationToken ct = default)
     {
-        var r = await queries.ReadScreenLayoutAsync(Grant.DocumentId, new(screenId, revision, offset, limit), Actor, ct);
-        return Result(r.Code, r.Response);
+        if (theme is not ("Light" or "Dark")) return Result("INVALID_THEME", null, "Theme must be Light or Dark.");
+        var r = await queries.ReadScreenLayoutAsync(Grant.DocumentId, new(screenId, revision, offset, limit, Theme: Enum.Parse<TokenTheme>(theme)), Actor, ct);
+        if (r.Response is null) return Result(r.Code, null);
+        var response = JsonSerializer.SerializeToNode(r.Response, ResponseOptions)!.AsObject();
+        response["theme"] = theme;
+        return Result(r.Code, response);
     }
 }

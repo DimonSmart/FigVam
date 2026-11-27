@@ -67,6 +67,7 @@ public sealed class VisualNodeProfile : INodeProfile
             ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
             ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(14, White),
+            ("lineHeight", Number(1.25, 0.1, 10) with { DefaultValue = null }),
             .. Decoration(new(47, 87, 191), 0, Transparent, 6)
         ]),
         Kind("TextInput", NodeSemanticRole.TextInput, 220, 40, events: [PreviewEvent.Change, PreviewEvent.Submit], demoValue: true, properties:
@@ -80,6 +81,7 @@ public sealed class VisualNodeProfile : INodeProfile
             ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
             ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(14, Ink),
+            ("lineHeight", Number(1.25, 0.1, 10) with { DefaultValue = null }),
             .. Decoration(White, 1, Outline, 6)
         ]),
         Kind("Image", NodeSemanticRole.Image, 160, 120, properties:

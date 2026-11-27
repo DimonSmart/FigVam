@@ -201,6 +201,8 @@ public sealed class McpProtocolTests
         {
             var simulation = await Call("simulate_preview", new { screenId, theme, events = new[] { new { nodeId, @event = "Click" } } });
             Assert.Equal("Completed", simulation.GetProperty("status").GetString());
+            Assert.Equal("Completed", simulation.GetProperty("simulationStatus").GetString());
+            Assert.Equal("NotRequested", simulation.GetProperty("render").GetProperty("status").GetString());
             Assert.Equal(target, simulation.GetProperty("activeScreenId").GetGuid());
             Assert.Equal(theme, simulation.GetProperty("theme").GetString());
             Assert.Equal("navigate", simulation.GetProperty("steps")[0].GetProperty("executedActions")[0].GetProperty("type").GetString());
@@ -218,7 +220,8 @@ public sealed class McpProtocolTests
         await Call("list_node_types");
         await Call("get_node_schema", new { kind = "Button" });
         await Call("list_tokens");
-        await Call("get_screen_layout", new { screenId });
+        Assert.Equal("Light", (await Call("get_screen_layout", new { screenId })).GetProperty("theme").GetString());
+        Assert.Equal("Dark", (await Call("get_screen_layout", new { screenId, theme = "Dark" })).GetProperty("theme").GetString());
         await Call("move_node", new { nodeId, expectedParentId = screenId, targetParentId = screenId, position = 0 });
         await Call("delete_node", new { nodeId });
         Assert.Equal(updated.GetRawText(), (await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } })).GetRawText());

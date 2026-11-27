@@ -92,6 +92,7 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
             catch (DesignStyleException) { return true; }
         }
 
+        var simulationStatus = failed ? "Rejected" : "Completed";
         ScreenCaptureResult? image = null;
         if (includeImage && !failed)
         {
@@ -101,13 +102,15 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
             if (image.Png is null)
             {
                 failed = true;
-                diagnostics.Add(new { code = image.Code, message = "The independent Preview renderer could not render the final state." });
+                diagnostics.Add(new { code = image.Code, message = RenderMessage(image.Code) });
             }
         }
         if (grant.CaptureRevoked.IsCancellationRequested ||
             !await McpServiceRegistration.CanEditAsync(accessor.HttpContext!.RequestServices, grant.DocumentId, grant.UserId, ct))
             return McpReadTools.Result("ACCESS_DENIED", null);
-        var response = new { status = failed ? "Rejected" : "Completed", revision = pinned,
+        var render = new { status = !includeImage ? "NotRequested" : image is null ? "Skipped" : image.Png is null ? "Failed" : "Completed",
+            code = image?.Code };
+        var response = new { status = failed ? "Rejected" : "Completed", simulationStatus, render, revision = pinned,
             initialScreenId = screenId, activeScreenId = session.Selection.ScreenId, theme = session.Selection.Theme,
             session.Selection.VariantId, session.Selection.DatasetId, session.Overlays, steps, diagnostics,
             demoValues = session.Values.Where(pair => !Password(pair.Key)).ToDictionary(pair => pair.Key, pair => pair.Value) };
@@ -118,6 +121,15 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
         return new CallToolResult { StructuredContent = result.StructuredContent, Content = result.Content,
             IsError = failed || result.IsError == true };
     }
+
+    private static string RenderMessage(string code) => code switch
+    {
+        "RENDER_UNAVAILABLE" => "Configure Mcp:ChromiumExecutable with the absolute path of an installed Chromium executable on the server.",
+        "PREVIEW_OVERLAY_RENDER_UNSUPPORTED" => "Independent rendering of an overlay stack is not supported.",
+        "CAPTURE_TIMEOUT" => "The independent renderer exceeded its time limit.",
+        "IMAGE_TOO_LARGE" => "The final screen exceeds the independent renderer's image limits.",
+        _ => "The independent Preview renderer could not render the final state."
+    };
 
     // Do not echo action values (which may contain passwords) in a trace.
     private static object ActionSummary(PreviewAction action) => action switch

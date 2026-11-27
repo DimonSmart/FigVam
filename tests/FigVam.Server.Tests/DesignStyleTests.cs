@@ -84,6 +84,39 @@ public sealed class DesignStyleTests
         Assert.Equal(new NodeNumberValue(24), updated["fontSize"]);
     }
 
+    [Theory]
+    [InlineData("Text")]
+    [InlineData("Button")]
+    [InlineData("TextInput")]
+    public void TypographyFieldsAreSupportedByEveryTextRole(string kind)
+    {
+        var tokenId = Guid.NewGuid();
+        var aliasId = Guid.NewGuid();
+        var styleId = Guid.NewGuid();
+        var typography = new DesignToken(tokenId, "type.control", TokenType.Typography,
+            Both(new TypographyValue("Arial", 14, 350, 1.3), new TypographyValue("Verdana", 18, 650, 1.6)));
+        var alias = new DesignToken(aliasId, "type.alias", TokenType.Typography,
+            Enum.GetValues<TokenTheme>().ToDictionary(t => t, _ => (TokenExpression)new TokenAlias(tokenId)));
+        var style = new DesignStyle(styleId, "type.style", DesignStyleType.TextStyle,
+            new Dictionary<string, NodePropertyValue> { ["typography"] = new NodeTokenValue(aliasId) });
+        var doc = Document([style], [typography, alias]);
+        var resolver = new DesignStyleResolver(doc, Profile);
+        foreach (var theme in Enum.GetValues<TokenTheme>())
+        foreach (var property in new[] { ("typography", (NodePropertyValue)new NodeTokenValue(aliasId)),
+            ("textStyle", (NodePropertyValue)new NodeStyleValue(styleId)) })
+        {
+            var node = Node(kind, property);
+            var effective = resolver.EffectiveNode(node, theme);
+            foreach (var (name, value) in effective)
+                Assert.Null(NodePropertyValidator.Validate(Profile, kind, name, value));
+            Assert.Equal(new NodeNumberValue(theme == TokenTheme.Light ? 1.3 : 1.6), effective["lineHeight"]);
+            Assert.Equal(new NodeNumberValue(theme == TokenTheme.Light ? 350 : 650), effective["fontWeight"]);
+            var overridden = resolver.EffectiveNode(node, theme,
+                new Dictionary<string, NodePropertyValue> { ["lineHeight"] = new NodeNumberValue(2) });
+            Assert.Equal(new NodeNumberValue(2), overridden["lineHeight"]);
+        }
+    }
+
     [Fact]
     public void ExplicitNodeSizeOverridesStyleAndResetRemovesOnlyLocalField()
     {

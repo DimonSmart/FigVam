@@ -7,6 +7,9 @@ var storageDirectory = Path.GetFullPath(builder.Configuration["Storage:Directory
 var server = builder.AddProject<Projects.FigVam_Server>("server")
     .WithEnvironment("Storage__Directory", storageDirectory);
 
+if (builder.Configuration["Mcp:ChromiumExecutable"] is { Length: > 0 } chromiumExecutable)
+    server.WithEnvironment("Mcp__ChromiumExecutable", chromiumExecutable);
+
 // Local orchestration only. An unconfigured checkout runs exactly as before.
 var tunnelId = builder.Configuration["McpTunnel:TunnelId"];
 if (builder.ExecutionContext.IsRunMode && !string.IsNullOrWhiteSpace(tunnelId))
