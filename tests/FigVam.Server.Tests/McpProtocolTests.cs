@@ -520,7 +520,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(37, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>
