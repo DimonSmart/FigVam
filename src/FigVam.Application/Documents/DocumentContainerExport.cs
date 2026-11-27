@@ -28,9 +28,9 @@ public sealed class DocumentContainerExporter(IDocumentJsonExporter documents, I
             byte[]? content;
             try { content = await assets.ReadAssetContentAsync(documentId, asset, cancellationToken); }
             catch (InvalidDataException) { return new("EXPORT_DEPENDENCY_UNAVAILABLE"); }
-            if (content is null || SafeRasterImage.Inspect(asset.Id, asset.ContentType, content) != asset)
+            if (content is null || DocumentAssetContentFormat.Inspect(asset.Id, asset.ContentType, content) != asset)
                 return new("EXPORT_DEPENDENCY_UNAVAILABLE");
-            files.Add((DocumentContainerFormat.AssetPath(asset.Id), content));
+            files.Add((DocumentContainerFormat.AssetPath(asset), content));
         }
         var manifest = JsonSerializer.SerializeToUtf8Bytes(new
         {

@@ -24,7 +24,7 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
         var actor = User.GetDocumentActor();
         if (!await authorization.CanEditAsync(actor, documentId, ct)) return Error("FORBIDDEN");
         if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var contentType) ||
-            !contentType.MediaType.Equals("image/png", StringComparison.OrdinalIgnoreCase))
+            !DocumentAssetContentFormat.IsSupported(contentType.MediaType.ToString().ToLowerInvariant()))
         {
             await Request.Body.CopyToAsync(Stream.Null, ct);
             return StatusCode(415, ApiErrors.Create(415));
@@ -36,7 +36,7 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
         await Request.Body.CopyToAsync(body, ct);
         if (body.Length > DocumentAssetValidator.MaxAssetBytes) return Error("ASSET_TOO_LARGE");
         var result = await handler.HandleAsync(new UploadDocumentAssetCommand(documentId, commandId, assetId,
-            "image/png", body.ToArray()), actor, ct);
+            contentType.MediaType.ToString().ToLowerInvariant(), body.ToArray()), actor, ct);
         return result.Accepted ? Ok(new CommandResponse(result.Code, documentId, commandId, result.Revision!.Value,
             null, null, null, null, result.AffectedIds!)) : Error(result.Code);
     }

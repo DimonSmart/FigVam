@@ -72,7 +72,7 @@ public sealed partial class DocumentCommandHandler
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
             if (command.AssetId == Guid.Empty) return new(Result("INVALID_ID"), null);
             if (content is null) return new(Result(command.Content is null ? "INVALID_ASSET" : "ASSET_TOO_LARGE"), null);
-            if (SafeRasterImage.Inspect(command.AssetId, command.ContentType, content) is not { } asset) return new(Result("INVALID_ASSET"), null);
+            if (DocumentAssetContentFormat.Inspect(command.AssetId, command.ContentType, content) is not { } asset) return new(Result("INVALID_ASSET"), null);
             var document = state.Document with { Assets = [.. state.Document.Assets, asset] };
             if (!DocumentAssetValidator.IsValid(document.Assets)) return new(Result(state.Document.Assets.Any(a => a.Id == asset.Id) ? "DUPLICATE_ID" : "ASSET_LIMIT_EXCEEDED"), null);
             var errors = DocumentStructureValidator.Validate(document, profile);
