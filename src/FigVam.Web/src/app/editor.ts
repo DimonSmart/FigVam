@@ -167,7 +167,7 @@ const tokens: ReturnType<typeof createTokens> = createTokens({
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
   models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
@@ -220,7 +220,7 @@ function clearSession() {
   mcpAccess.reset();
   documentCreation.reset();
   pageCommands.clear();
-  catalogDeletions.clear(); renames.clear(); datasets.clearCommands(); screenVariants.clearCommands();
+  catalogDeletions.clear(); renames.clear(); datasets.clearCommands(); screenVariants.clearCommands(); tokens.clearCommands(); styles.clearCommands();
   resetDeletion();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
