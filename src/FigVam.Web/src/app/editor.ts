@@ -36,6 +36,7 @@ import { createPageCommands } from './page-commands';
 import { createRequestRunner } from './request-runner';
 import { createDocumentCatalog } from './document-catalog';
 import { createNavigation } from './navigation';
+import { createWorkspaceNavigation } from './workspace-navigation';
 import { createDocumentRevisionState } from './document-workspace';
 import { createWorkspaceSelection } from './workspace-selection';
 import { createDocumentSync, type SelectionChange } from './document-sync';
@@ -45,7 +46,7 @@ const sessionState = createSessionLifecycle();
 const auth = createAuthContext();
 const { setToken, advanceNavigation, cancelRequest, startRequest } = sessionState;
 // Synchronization reads must not supersede unrelated foreground work.
-const startSynchronization = () => ({signal:sessionState.navigationSignal,current:sessionState.generation});
+const startSynchronization = () => ({signal:sessionState.navigationSignal,current:sessionState.navigationEpoch});
 const catalog = createDocumentCatalog();
 const shellState = createApplicationShellState();
 const documentShell = createDocumentShellModel();
@@ -154,12 +155,12 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
   models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),request,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.navigationEpoch, navigationEpoch: sessionState.navigationEpoch }),
   startRequest: startSynchronization, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
   models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.navigationEpoch, navigationEpoch: sessionState.navigationEpoch }),
   startRequest: startSynchronization, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
@@ -179,7 +180,7 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
   model: views.datasets, request, pageSize,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token: sessionState.token, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token: sessionState.token, generation: sessionState.navigationEpoch, navigationEpoch: sessionState.navigationEpoch }),
   startRequest: startSynchronization, stopLive, startLive, readPages, run
 });
 function discardDocumentEdits(id: string) {
@@ -193,16 +194,18 @@ function setDocumentRole(role: string) {
   const previous=getDocumentRole();
   if(previous===role||!documentId)return;
   documentShell.patch({role});
+  const id=documentId,epoch=sessionState.navigationEpoch;
   if(canEditDocument(previous)&&!canEditDocument(role)){
     discardDocumentEdits(documentId);
     scenarios.reset(); datasets.reset(); tokens.reset(); styles.reset();
-    screenResize.resetDraft(); documentExport.reset(); mcpAccess.reset();
+    screenResize.resetDraft(); documentExport.reset(); mcpAccess.reset(); resetDocumentRename(); documentHistory.reset();
     documentShell.patch({pageBusy:false,renameBusy:false});
-    // Retain the document and selection but reload authoritative read-only data.
-    void readPages(sessionState.navigationSignal).catch(error=>{
-      if(!aborted(error)&&getDocumentRole()===role)message('',errorMessage(error));
-    });
   }
+  // Reload read-only data on demotion and restore controls on promotion.
+  void readPages(sessionState.navigationSignal,0,null,()=>documentId===id&&sessionState.navigationEpoch===epoch&&getDocumentRole()===role).catch(error=>{
+    if(!aborted(error)&&documentId===id&&sessionState.navigationEpoch===epoch&&getDocumentRole()===role)message('',errorMessage(error));
+  });
+  documentHistory.prepare(); void documentHistory.load();
   members.prepare(role);
   datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability();
   renderPages(); screenResize.render(); visualNodeEditor.refresh(); documentExport.render();
@@ -338,29 +341,8 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   closeInaccessibleDocument
 });
 
-async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
-  mcpAccess.reset();
-  documentMutations.leaveDeletion();
-  if (!sessionState.token) return;
-  presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
-  stopLive();
-  layers.reset();
-  documentHistory.reset(); tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
-  selectionState.reset(); renderCanvas();
-  shellState.patch({ view: 'documents' });
-  selectHomeView('documents');
-  documentListView.clear();
-  shellState.patch({ catalog: null });
-  document.title = 'FigVam — документы';
-  catalog.beginLoad();
-  await run(() => loadList(index, cursor), async (signal, current) => {
-    const result = await catalog.read(request, index, cursor, pageSize, signal, current);
-    if (!result) return;
-    documentListView.render(result.items);
-    shellState.patch({ catalog: { count: result.items.length, index, canGoBack: catalog.canGoBack, canGoForward: catalog.canGoForward } });
-    message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
-  });
-}
+function loadList(index=0,cursor:string|null|undefined=null){return workspaceNavigation.loadList(index,cursor);}
+function openDocument(id:string){return workspaceNavigation.openDocument(id);}
 
 function deleteCatalogDocument(item:DocumentListItem,command:DeleteCatalogCommand){return documentMutations.deleteCatalogDocument(item,command);}
 
@@ -479,7 +461,7 @@ const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeE
 });
 function renderCanvas(nodeEdit = false) {
   canvasViewport.render();
-  documentShell.patch({ hasPage: Boolean(selectionState.selectedPage), hasScreen: Boolean(selectionState.selectedScreen) });
+  documentShell.patch({ hasPage: Boolean(selectionState.selectedPage), hasScreen: Boolean(selectionState.selectedScreen), selectedPageEmpty: Boolean(selectionState.selectedPage) && selectionState.screens.length===0 });
   visualScreens.refresh(nodeEdit);
   visualNodeEditor.refresh();
 }
@@ -534,40 +516,7 @@ function resetDocumentRename() {
   documentShell.patch({ renameName: '', renameBusy: false, renameStatus: '', renameError: '' });
 }
 
-async function openDocument(id: string): Promise<void> {
-  mcpAccess.reset();
-  documentMutations.leaveDeletion();
-  if (documentMutations.deletingId === id) {
-    history.replaceState(null, '', '/');
-    return loadList();
-  }
-  presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
-  stopLive();
-  resetDocumentRename();
-  shellState.patch({ view: 'none' });
-  document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
-  await run(() => openDocument(id), async (signal, current) => {
-    const name = await documentQueries.readName(id, signal);
-    const role = await findRole(id, signal);
-    if (!current()) return;
-    documentShell.patch({ role, title: name, renameName: name });
-    members.prepare(role);
-    document.title = `${name} — FigVam`;
-    tokens.refreshAccess();
-    datasets.refreshAccess();
-    documentHistory.prepare();
-    await readPages(signal, 0);
-    if (!current()) return;
-    shellState.patch({ view: 'editor' });
-    presence.start();
-    layers.refreshMoveAvailability();
-    documentHistory.load();
-    if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
-    message();
-    pageCommands.resume();
-  });
-}
+
 
 const documentMutations=createDocumentMutations({
   sessionState,shellState,documentShell,deletionView,request,getDocumentId:()=>documentId,getRevision:()=>revisions.revision,
@@ -595,6 +544,38 @@ const pageCommands = createPageCommands({
   refresh:(signal,current)=>readPages(signal,0,null,current),
 });
 const pageCommand=pageCommands.start;
+
+const workspaceNavigation = createWorkspaceNavigation({
+  request,queries:documentQueries,catalog,run,pageSize,
+  authenticated:()=>Boolean(sessionState.token),
+  leaveDeletion:()=>{mcpAccess.reset();documentMutations.leaveDeletion();},
+  deletingId:()=>documentMutations.deletingId,
+  replaceCatalogRoute:()=>history.replaceState(null,'','/'),
+  transition:id=>{
+    presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
+    stopLive();
+    if(id!==null){resetDocumentRename();shellState.patch({view:'none'});document.title='FigVam — открытие документа';}
+    documentHistory.reset();tokens.reset();styles.reset();components.reset();datasets.reset();screenVariants.reset();screenResize.resetDraft();
+    documentId=id;documentShell.patch({role:null,pageBusy:false});revisions.reset();selectionState.reset();layers.reset();renderCanvas();
+  },
+  showCatalog:()=>{
+    shellState.patch({view:'documents'});selectHomeView('documents');documentListView.clear();
+    shellState.patch({catalog:null});document.title='FigVam — документы';
+  },
+  publishCatalog:(items,index,canGoBack,canGoForward)=>{
+    documentListView.render(items);shellState.patch({catalog:{count:items.length,index,canGoBack,canGoForward}});
+  },
+  prepareDocument:(name,role)=>{
+    documentShell.patch({role,title:name,renameName:name});members.prepare(role);document.title=`${name} — FigVam`;
+    tokens.refreshAccess();datasets.refreshAccess();documentHistory.prepare();
+  },
+  readPages:signal=>readPages(signal,0),
+  showDocument:()=>{
+    shellState.patch({view:'editor'});presence.start();layers.refreshMoveAvailability();documentHistory.load();
+    if(selectionState.selectedScreen)requestAnimationFrame(fitScreen);
+    message();pageCommands.resume();
+  },
+});
 
 const navigation = createNavigation({
   isAuthenticated: () => !!sessionState.token,

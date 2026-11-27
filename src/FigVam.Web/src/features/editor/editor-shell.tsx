@@ -110,7 +110,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     if(!body.matches(':popover-open'))body.showPopover();
     const anchor=trigger.getBoundingClientRect(),margin=8,gap=6;
     const selectedPageRow=document.querySelector('#pages > li > .page-select[aria-pressed="true"]')?.parentElement;
-    const emptyPage=selectedPageRow&&!selectedPageRow.querySelector('.screen-row');
+    const emptyPage=selectedPageRow&&state.selectedPageEmpty;
     const lowerEdge=emptyPage?Math.max(anchor.bottom,selectedPageRow.getBoundingClientRect().bottom):anchor.bottom;
     const below=Math.max(0,window.innerHeight-lowerEdge-gap-margin),above=Math.max(0,anchor.top-gap-margin);
     body.style.maxHeight='';

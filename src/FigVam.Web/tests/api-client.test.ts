@@ -36,7 +36,7 @@ describe('API transport', () => {
     const a = createAuthContext(), b = createAuthContext();
     a.configureAuth('google'); a.setCsrf('first');
     b.configureAuth('google'); b.setCsrf('second');
-    const fetch = vi.fn().mockResolvedValue(Response.json({}));
+    const fetch = vi.fn(async (_path:string,_options:RequestInit) => Response.json({}));
     vi.stubGlobal('fetch', fetch);
     const first = createApiClient({auth:a,getToken:()=>'',onUnauthorized:vi.fn()});
     const second = createApiClient({auth:b,getToken:()=>'',onUnauthorized:vi.fn()});

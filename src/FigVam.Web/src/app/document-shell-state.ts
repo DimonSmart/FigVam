@@ -11,6 +11,7 @@ export interface DocumentShellState {
   renameError: string;
   pageBusy: boolean;
   layerMoveEnabled: boolean;
+  selectedPageEmpty: boolean;
   hasPage: boolean;
   hasScreen: boolean;
   layersTitle: string;
@@ -22,7 +23,7 @@ export function canEditDocument(role: string | null) { return role === 'Owner' |
 export function createDocumentShellModel() {
   const initial: DocumentShellState = {
     role: null, title: '', revisionLabel: '', connectionStatus: '', renameName: '', renameBusy: false, renameStatus: '', renameError: '',
-    pageBusy: false, layerMoveEnabled: false, hasPage: false, hasScreen: false, layersTitle: 'Слои выбранного экрана', screenPreset: '1440x900', screenWidth: '1440', screenHeight: '900',
+    pageBusy: false, layerMoveEnabled: false, selectedPageEmpty: false, hasPage: false, hasScreen: false, layersTitle: 'Слои выбранного экрана', screenPreset: '1440x900', screenWidth: '1440', screenHeight: '900',
   };
   const store = createPanelStore(initial);
   return {
