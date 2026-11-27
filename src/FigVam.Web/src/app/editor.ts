@@ -262,7 +262,11 @@ const members: ReturnType<typeof createMembers> = createMembers({ model: views.m
 });
 
 const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
-  request, pageSize, refreshPages,
+  request, pageSize, refreshPages: async () => {
+    let synced=false;
+    await run(() => refreshPages(), async (signal,current) => { synced=await readPages(signal,0,null,current)===true; });
+    return synced;
+  },
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },
