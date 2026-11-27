@@ -335,9 +335,9 @@ function navigatorEditState(kind: NavigatorKind) {
 function setNavigatorEditState(kind: NavigatorKind, value: RenameDraft | null) {
   selectionState.setRenameDraft(kind, value);
 }
-function renderNavigatorKind(kind: NavigatorKind) {
-  if (kind === 'page') renderPages();
-  else renderScreens();
+function renderNavigatorKind(kind: NavigatorKind, synchronous=false) {
+  if (kind === 'page') renderPages(synchronous);
+  else {renderScreens();if(synchronous)renderPages(true);}
 }
 function startNavigatorNameEdit(kind: NavigatorKind, id: string, name: string) {
   if (!navigatorCanEdit() || documentShell.getSnapshot().pageBusy) return;
@@ -347,17 +347,17 @@ function startNavigatorNameEdit(kind: NavigatorKind, id: string, name: string) {
 }
 function discardNavigatorRename(kind: NavigatorKind, id: string) {
   setNavigatorEditState(kind, null);
-  renderNavigatorKind(kind);
+  renderNavigatorKind(kind,true);
   document.querySelector<HTMLElement>('[data-' + kind + '-rename-id="' + id + '"]')?.focus({ preventScroll: true });
 }
-function renderPages() {
-  navigatorView.render(selectionState.navigatorState(navigatorCanEdit()));
+function renderPages(synchronous=false) {
+  navigatorView.render(selectionState.navigatorState(navigatorCanEdit()),synchronous);
 }
 function selectPage(id: string) {
   if (selectionState.selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
   if (selectionState.selectedPage === id) {
     selectionState.togglePage();
-    renderPages();
+    renderPages(true);
     element('pages').querySelector<HTMLElement>('[data-page-id="' + id + '"]')?.focus();
     return;
   }

@@ -158,8 +158,8 @@ export function createDocumentNavigatorModel() { return createViewModel(Navigato
 
 export function createDocumentNavigator(model: ReturnType<typeof createDocumentNavigatorModel>, actions: NavigatorActions) {
   return {
-    // Navigation commands restore focus immediately after rendering.
-    render(state: NavigatorState) { flushSync(() => model.publish({state, actions})); },
+    // Only explicit immediate focus restoration needs synchronous rendering.
+    render(state: NavigatorState, synchronous=false) { const publish=()=>model.publish({state,actions}); if(synchronous)flushSync(publish);else publish(); },
     dispose() { model.clear(); },
   };
 }

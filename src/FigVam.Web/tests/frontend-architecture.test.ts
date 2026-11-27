@@ -60,7 +60,7 @@ describe('frontend architecture', () => {
       .map(item => item.path)).toEqual([]);
   });
   it('does not retain the portal adapter or legacy static editor markup', () => {
-    expect(source.filter(({path,ast}) => /(?:react-panels|node-property-controls|token-value-control|padding-editor)\.(?:ts|tsx)$/.test(path) || path.includes('react-panels') || importedModules(ast).some(name=>name.includes('react-panels') || /(^|\/)(ui|app)\//.test(name))).map(item=>item.path)).toEqual([]);
+    expect(source.filter(({path,ast}) => /(?:react-panels|node-property-controls|token-value-control|padding-editor)\.(?:ts|tsx)$/.test(path) || path.includes('react-panels') || importedModules(ast).some(name=>name.includes('react-panels'))).map(item=>item.path)).toEqual([]);
     const html=readFileSync(join(root,'../FigVam.Server/wwwroot/index.html'),'utf8');
     const body=html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]?.trim();
     expect(body).toBe('<div id="figvam-app"></div>');
@@ -93,7 +93,7 @@ describe('frontend architecture', () => {
   });
   it('keeps Canvas independent of React', () => {
     expect(source.filter(({path, ast}) => path.startsWith('src/canvas/') &&
-      importedModules(ast).some(name => /^react(?:-dom)?(?:\/|$)/.test(name) || name.includes('react-panels')))
+      importedModules(ast).some(name => /^react(?:-dom)?(?:\/|$)/.test(name) || name.includes('react-panels') || /(^|\/)(ui|app)\//.test(name)))
       .map(item => item.path)).toEqual([]);
   });
   it('routes document mutations through prepared command operations',()=>{

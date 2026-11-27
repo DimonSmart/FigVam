@@ -16,7 +16,7 @@ const bundle=root=>{const dir=path.join(root,'src/FigVam.Web/dist');return fs.re
     notes.push('| '+key+' | '+x.toFixed(2)+' | '+y.toFixed(2)+' | '+change+' | '+(review?'Investigate':'Within budget')+' |');
   }
   for(const key of Object.keys(a[0])) {
-    const memory=key==='heapBytes',frames=key==='dragP95FrameMs',percent=key==='dragSlowFramesPercent';
+    const memory=key==='heapBytes'||key==='heapAfterNavigationBytes',frames=key==='dragP95FrameMs',percent=key==='dragSlowFramesPercent';
     add(key,median(a.map(x=>x[key])),median(b.map(x=>x[key])),memory?1048576:frames?3:percent?5:100,memory?.15:percent?0:.20);
   }
   add('productionJsBytes',bundle(baselineRoot),bundle(candidateRoot),20480,.10);

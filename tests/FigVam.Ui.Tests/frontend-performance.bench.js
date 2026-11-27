@@ -88,7 +88,6 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await cdp.send('HeapProfiler.collectGarbage');
   const heap=await cdp.send('Runtime.getHeapUsage');
   times.heapBytes=heap.usedSize;
-  await cdp.detach();
   await page.getByRole('button',{name:'Preview',exact:true}).click();
   await expect(page.locator('#editor-preview')).toBeVisible();
   await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
@@ -103,6 +102,48 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await lightScreen.dispose();
   await page.screenshot({path:path.join(output,'preview-dark-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   await page.getByRole('button',{name:'Вернуться в Design'}).click();
+  // Capture chrome states only after their model-driven surfaces are visible.
+  const capture=async name=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(output,name+'-'+info.repeatEachIndex+'.png'),animations:'disabled'});};
+  for(const menu of ['share','mcp','file']){
+    const trigger=page.locator('[data-editor-menu="'+menu+'"] > summary');
+    await trigger.click();
+    await expect(page.locator('[data-editor-menu="'+menu+'"]')).toHaveAttribute('open','');
+    await capture('menu-'+menu);
+    await trigger.click();
+  }
+  await page.locator('#document-mode-tokens').click();
+  await expect(page.locator('#token-workspace')).toBeVisible();
+  await capture('tokens');
+  await page.locator('#document-mode-editor').click();
+  await page.locator('#tab-prototype').click();
+  await expect(page.locator('#shell-prototype')).toBeVisible();
+  await capture('interactions');
+  await page.locator('#tab-design').click();
+  // Reuse the same browser and session to detect retained workspaces/render resources.
+  await time('repeatedNavigationMs',async()=>{
+    for(let i=0;i<3;i++){
+      await page.getByRole('button',{name:'Preview',exact:true}).click();
+      await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
+      await page.getByRole('button',{name:'Вернуться в Design'}).click();
+      await page.locator('#editor-design a[href="/"]').click();
+      await expect(page.locator('#documents-view')).toBeVisible();
+      const link=page.locator('a[href="/documents/'+documentId+'"]');
+      await expect(link).toBeVisible();
+      if(i===0)await capture('catalog');
+      await link.click();
+      await expect(page.locator('#screens button').first()).toBeVisible();
+      await page.locator('#screens button').first().click();
+      await expect(page.locator('#screen-boundary [data-visual-node]')).toHaveCount(size+1);
+      await expect(page.locator('#connection-status')).toContainText('Подключено',{timeout:15000});
+      await page.locator('[data-visual-node="'+target+'"] .visual-surface').click();
+      await expect(page.locator('#visual-property-text')).toBeVisible();
+      await page.locator('#visual-property-text').fill('Edited again '+i);
+      await expect(page.locator('#visual-inspector-status')).toHaveText('Свойства сохранены.');
+    }
+  });
+  await cdp.send('HeapProfiler.collectGarbage');
+  times.heapAfterNavigationBytes=(await cdp.send('Runtime.getHeapUsage')).usedSize;
+  await cdp.detach();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:path.join(output,'mobile-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   fs.writeFileSync(path.join(output,'metrics-'+info.repeatEachIndex+'.json'),JSON.stringify(times,null,2));
