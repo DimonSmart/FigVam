@@ -1,3 +1,4 @@
+import { createDocumentNavigatorModel } from '../features/editor/document-navigator';
 import { createMembersModel } from '../features/collaboration/members';
 import { createComponentsModel } from '../features/components/components';
 import { createDatasetsModel } from '../features/datasets/datasets';
@@ -14,6 +15,7 @@ import { createPresenceModels } from '../features/collaboration/presence';
 
 export function createApplicationViews() {
   return {
+    navigator: createDocumentNavigatorModel(),
     authentication: createAuthenticationModel(),
     homeNavigation: createHomeNavigationModel(),
     documentList: createDocumentListModel(),

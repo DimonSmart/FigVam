@@ -850,7 +850,7 @@ element('screen-create').addEventListener('submit', event => {
   const screenId = crypto.randomUUID();
   pageCommand('add-screen', { pageId: selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 });
-const navigatorView = createDocumentNavigator(element('pages'), element('screens'), {
+const navigatorView = createDocumentNavigator(views.navigator, {
   isBusy: () => element('page-edit').inert || !navigatorCanEdit(),
   selectPage, selectScreen,
   startRename: startNavigatorNameEdit,

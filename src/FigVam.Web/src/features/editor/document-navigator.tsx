@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { flushSync } from 'react-dom';
 import { Check, X, Ellipsis } from 'lucide-react';
 import { Button } from '../../ui/Button';
@@ -152,13 +152,12 @@ function NavigatorView({state, actions}: {state: NavigatorState; actions: Naviga
 }
 
 /** The navigator owns both lists, including the selected page's nested screens. */
-export function createDocumentNavigator(pages: HTMLElement, screens: HTMLElement, actions: NavigatorActions) {
-  const host = document.createElement('div');
-  host.className = 'navigator-tree-host';
-  pages.replaceWith(host); screens.remove();
-  const root = createPanelRoot(host);
+export function createDocumentNavigatorModel() { return createViewModel(NavigatorView); }
+
+export function createDocumentNavigator(model: ReturnType<typeof createDocumentNavigatorModel>, actions: NavigatorActions) {
   return {
-    render(state: NavigatorState) { flushSync(() => root.render(<NavigatorView state={state} actions={actions}/>)); },
-    dispose() { root.unmount(); host.remove(); },
+    // Navigation commands restore focus immediately after rendering.
+    render(state: NavigatorState) { flushSync(() => model.publish({state, actions})); },
+    dispose() { model.clear(); },
   };
 }

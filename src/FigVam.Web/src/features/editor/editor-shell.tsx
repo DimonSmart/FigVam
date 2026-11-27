@@ -376,9 +376,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     </details>
                     <button id="page-refresh" type="button" title="Обновить страницы">{"Обновить страницы"}</button>
                   </div>
-                  <ul id="pages" aria-label="Страницы и экраны"/>
+                  <div className="navigator-tree-host"><views.navigator.Component/></div>
                   <p id="page-access"/>
-                  <ul id="screens" aria-label="Экраны выбранной страницы"/>
                 </section>
               </div>
               <div className="layers-splitter" role="separator" tabIndex={0} aria-label="Изменить высоту навигации и дерева слоёв" aria-orientation="horizontal" aria-valuemin={22} aria-valuemax={72} aria-valuenow={split}
