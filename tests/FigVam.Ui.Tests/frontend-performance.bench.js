@@ -111,7 +111,7 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await page.screenshot({path:path.join(output,'preview-dark-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   await page.getByRole('button',{name:'Вернуться в Design'}).click();
   // Capture chrome states only after their model-driven surfaces are visible.
-  const capture=async name=>{await page.evaluate(async()=>{await document.fonts.ready;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});await page.screenshot({path:path.join(output,name+'-'+info.repeatEachIndex+'.png'),animations:'disabled'});};
+  const capture=async name=>{if(name!=='catalog')await expect(page.locator('#status')).toHaveText('',{timeout:10000});await page.evaluate(async()=>{await document.fonts.ready;await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));});await page.screenshot({path:path.join(output,name+'-'+info.repeatEachIndex+'.png'),animations:'disabled'});};
   for(const menu of ['share','mcp','file']){
     const trigger=page.locator('[data-editor-menu="'+menu+'"] > summary');
     await trigger.click();

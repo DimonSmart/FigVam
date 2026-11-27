@@ -92,3 +92,35 @@ export function typographyValue(draft:TypographyDraft):NodePropertyValue {
     }
     return {type:'typography',value};
   }
+
+export interface StyleDraft {name:string;type:StyleType;parent:string;rows:FieldDraft[]}
+export function createStyleDraft(style:DesignStyle|null|undefined,type=styleType(style)):StyleDraft{
+  const rows=Object.entries(definitions[type]).map(([field,[label,tokenType,category]]):FieldDraft=>{
+    const saved=style?.fields?.[field],options=palette[field];
+    const direct=options?(saved?.type==='enum'?saved.value:options[0]??''):
+      saved&&saved.type!=='token'?literalText(field,saved):field.endsWith('Color')?'#000000FF':field==='cornerRadius'?'6':'1';
+    return {field,label,tokenType,category,active:saved!=null,mode:saved?.type==='token'?'alias':'literal',
+      direct,alias:saved?.type==='token'?saved.tokenId:'',
+      inline:field==='typography'?makeTypographyDraft(saved?.type==='typography'?saved.value:null):null,
+      fallback:style?.basedOnStyleId?' (наследуется при отключении)':' (значение по умолчанию)'};
+  });
+  return {name:style?.name??'',type,parent:style?.basedOnStyleId??'',rows};
+}
+export function sameStyleDraft(a:StyleDraft,b:StyleDraft):boolean{return JSON.stringify(a)===JSON.stringify(b);}
+function mergeValue<T>(base:T,local:T,remote:T):T{return JSON.stringify(base)===JSON.stringify(local)?remote:local;}
+/** Rebase untouched properties on the server state while preserving independent local inputs. */
+export function rebaseStyleDraft(base:StyleDraft,local:StyleDraft,remote:StyleDraft):StyleDraft{
+  if(local.type!==base.type)return structuredClone(local);
+  const rows=remote.rows.map(row=>{
+    const previous=base.rows.find(x=>x.field===row.field),edited=local.rows.find(x=>x.field===row.field);
+    if(!previous||!edited)return row;
+    const value=(a:ValueDraft,b:ValueDraft,c:ValueDraft):ValueDraft=>({
+      mode:mergeValue(a.mode,b.mode,c.mode),direct:mergeValue(a.direct,b.direct,c.direct),alias:mergeValue(a.alias,b.alias,c.alias)
+    });
+    const inline=row.inline&&previous.inline&&edited.inline?Object.fromEntries(
+      (Object.keys(typographyParts) as TypographyField[]).map(key=>[key,value(previous.inline![key],edited.inline![key],row.inline![key])])
+    ) as TypographyDraft:row.inline;
+    return {...row,...value(previous,edited,row),active:mergeValue(previous.active,edited.active,row.active),inline};
+  });
+  return {name:mergeValue(base.name,local.name,remote.name),type:remote.type,parent:mergeValue(base.parent,local.parent,remote.parent),rows};
+}

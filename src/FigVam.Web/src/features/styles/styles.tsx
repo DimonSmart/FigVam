@@ -1,4 +1,4 @@
-import { definitions, typographyParts, palette, styleType, literalOf, literalText, makeTypographyDraft, typographyValue, type StyleType, type DesignStyle, type ValueDraft, type TypographyDraft, type FieldDraft } from './style-values';
+import { definitions, typographyParts, palette, styleType, literalOf, literalText, makeTypographyDraft, typographyValue, type StyleType, type DesignStyle, type ValueDraft, type TypographyDraft, type FieldDraft, createStyleDraft, rebaseStyleDraft, sameStyleDraft, type StyleDraft } from './style-values';
 import type { ComponentType } from 'react';
 import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
@@ -100,7 +100,8 @@ export function createStyleModels(){return {panel:createViewModel(StylePanel),fi
 
 export function createStyles({ models, selectLayer, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
-  const pendingCommands=new Map<string,{operation:DocumentCommandOperation;selection:string|null;running:boolean}>();
+  type Entry={operation:DocumentCommandOperation;selection:string|null;running:boolean;draftKey:string;submitted:StyleDraft};
+  const pendingCommands=new Map<string,Entry>();
   const pending=()=>pendingCommands.get(getContext().documentId??'');
   let draftName='',draftType:StyleType='TextStyle',draftParent='',status='',error='',lastWritable=false;
   let styleUsages:Usage[]=[],styleUsageRequest=0;
@@ -116,33 +117,39 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   }
   function renderFields(){models.fields.publish({rows,tokens:tokens(),updateDraft,
       setActive:(field,active)=>{const row=rows.find(item=>item.field===field);if(row){row.active=active;renderFields();}}});}
-  function buildFields(style:DesignStyle|null|undefined,type:StyleType){
-    rows=Object.entries(definitions[type]).map(([field,[label,tokenType,category]])=>{
-      const saved=style?.fields?.[field],options=palette[field];
-      const direct=options?(saved?.type==='enum'?saved.value:options[0]??''):
-        saved&&saved.type!=='token'?literalText(field,saved):field.endsWith('Color')?'#000000FF':field==='cornerRadius'?'6':'1';
-      return {field,label,tokenType,category,active:saved!=null,mode:saved?.type==='token'?'alias':'literal',
-        direct,alias:saved?.type==='token'?saved.tokenId:'',
-        inline:field==='typography'?makeTypographyDraft(saved?.type==='typography'?saved.value:null):null,
-        fallback:style?.basedOnStyleId?' (наследуется при отключении)':' (значение по умолчанию)'};
-    });
+  let baseline=createStyleDraft(null);
+  const drafts=new Map<string,{base:StyleDraft;local:StyleDraft}>();
+  const draftKey=()=> (getContext().documentId??'')+':'+(selectedId??'new');
+  const snapshot=():StyleDraft=>({name:draftName,type:draftType,parent:draftParent,rows});
+  function persistDraft(){
+    const local=snapshot();
+    if(sameStyleDraft(baseline,local))drafts.delete(draftKey());
+    else drafts.set(draftKey(),{base:structuredClone(baseline),local:structuredClone(local)});
+  }
+  function restoreDraft(){
+    baseline=createStyleDraft(chosen());
+    const saved=drafts.get(draftKey());
+    const next=saved?rebaseStyleDraft(saved.base,saved.local,baseline):structuredClone(baseline);
+    draftName=next.name;draftType=next.type;draftParent=next.parent;rows=next.rows;
     renderFields();
   }
+  function buildFields(style:DesignStyle|null|undefined,type:StyleType){
+    rows=createStyleDraft(style,type).rows;renderFields();
+  }
+
 
   function publishPanel() {
     lastWritable=editable();
     models.panel.publish({items,selectedId,name:draftName,type:draftType,parentId:draftParent,writable:lastWritable,busy:busy||!!pending(),retryVisible:lastWritable&&!!pending()&&!pending()?.running,retry:()=>{const op=pending();if(op)void executeStyleCommand(op);},preview:previewText(chosen()),error,status,
       Fields:models.fields.Component,Usages:models.usage.Component,
-      select:id=>{selectedId=id||null;render(true);void loadUsages();},
+      select:id=>{persistDraft();selectedId=id||null;render(true);void loadUsages();},
       changeName:value=>{draftName=value;publishPanel();},
       changeType:value=>{draftType=value;draftParent='';buildFields(chosen(),value);publishPanel();},
       changeParent:value=>{draftParent=value;publishPanel();},save:saveStyle,remove:deleteStyle});
   }
   function render(resetDraft = false) {
     if (resetDraft) {
-      const selected = chosen();
-      draftType=styleType(selected);draftName=selected?.name??'';draftParent=selected?.basedOnStyleId??'';
-      buildFields(selected,draftType);
+      restoreDraft();
     } else renderFields();
     publishPanel();
     models.usage.publish({usages:styleUsages,name:id=>items.find(item=>item.id===id)?.name??id,selectLayer});
@@ -176,7 +183,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   }
 
   function reset() {
-    items = []; selectedId = null; busy = false; tokenSignature = '';
+    drafts.clear(); items = []; selectedId = null; busy = false; tokenSignature = '';
     usageController?.abort(); usageController=null;
     styleUsages = []; styleUsageRequest++;
     error = ''; status = '';
@@ -203,9 +210,10 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     const changed = JSON.stringify(items) !== JSON.stringify(next) ||
       tokenSignature !== nextTokenSignature;
     const previous=JSON.stringify(chosen());
+    persistDraft();
     tokenSignature = nextTokenSignature;
     items = next;
-    if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
+    if (selectedId && !items.some(item => item.id === selectedId)) {drafts.delete(draftKey());selectedId = null;}
     if (changed || lastWritable !== editable()) render(previous!==JSON.stringify(chosen()));
     if (changed && selectedId) loadUsages();
   }
@@ -221,10 +229,10 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       }else if(endpoint==='delete-style'&&payload.styleId){
         operation=createDocumentCommand(documentId,endpoint,{expectedRevision:revision,styleId:payload.styleId});
       }else throw new TypeError('Некорректная команда стиля');
-      const entry={operation,selection:id,running:false};pendingCommands.set(documentId,entry);await executeStyleCommand(entry);
+      const entry={operation,selection:id,running:false,draftKey:draftKey(),submitted:structuredClone(snapshot())};pendingCommands.set(documentId,entry);await executeStyleCommand(entry);
     }catch(failure){error=errorMessage(failure);publishPanel();}
   }
-  async function executeStyleCommand(entry:{operation:DocumentCommandOperation;selection:string|null;running:boolean}){
+  async function executeStyleCommand(entry:Entry){
     const doc=entry.operation.documentId,epoch=getContext().navigationEpoch;
     if(entry.running||!editable()||getContext().documentId!==doc||pendingCommands.get(doc)!==entry)return;
     entry.running=true;busy=true;let generation=getContext().generation;const originSelection=selectedId;stopLive();error='';status='Сохранение…';publishPanel();
@@ -233,6 +241,9 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
         synchronize:async confirmation=>{
           const {signal,current}=startRequest();generation=current;
+          persistDraft();
+          const stored=drafts.get(entry.draftKey);
+          if(stored&&sameStyleDraft(stored.local,entry.submitted))drafts.delete(entry.draftKey);
           if(selectedId===originSelection){selectedId=entry.selection;render(true);}
           const refreshed=await readPages(signal);
           return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
@@ -299,5 +310,5 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     if (selectedId) void write('delete-style', { styleId: selectedId }, null);
   }
   render(true);
-  return { reset, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read, apply, get items() { return items; } };
+  return { reset, clearCommands:()=>{pendingCommands.clear();drafts.clear();},discardDocument:(doc:string)=>{pendingCommands.delete(doc);for(const key of drafts.keys())if(key.startsWith(doc+':'))drafts.delete(key);}, read, apply, get items() { return items; } };
 }
