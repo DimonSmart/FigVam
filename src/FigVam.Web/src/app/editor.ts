@@ -1,4 +1,5 @@
-import { authHeaders, credentialsMode, isGoogleMode, setCsrf } from '../api/auth-client';
+import { isGoogleMode, setCsrf } from '../api/auth-client';
+import { createDocumentCreation } from '../features/home/document-creation';
 import { createScreenCapture } from '../canvas/screen-capture';
 import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
 import { createDocumentQueries } from '../api/document-queries';
@@ -23,7 +24,7 @@ import { ApplicationShell } from './application-shell';
 import { createDocumentShellModel, createDeletionViewModel, canEditDocument } from './document-shell-state';
 import { createApplicationShellState } from './application-shell-state';
 import { createApplicationViews } from './application-views';
-import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
+import { aborted, errorMessage, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
 import type { components } from '../api/schema.generated';
@@ -37,7 +38,6 @@ import { createWorkspaceSelection } from './workspace-selection';
 import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
-type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
@@ -57,8 +57,8 @@ function run(...args: Parameters<typeof requestRunner.run>) { return requestRunn
 const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage, document: documentShell, deletion: deletionView, renameDocument, deleteDocument, retryDeletion, createScreen, refreshPages: () => { void refreshPages(); } });
 const views = createApplicationViews();
 mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views, model: shellState, actions: {
-  createDocument, changeDocumentName: documentName => shellState.patch({ documentName }),
-  chooseImportFile: importFile => shellState.patch({ importFile }), importDocument,
+  createDocument: () => { void documentCreation.createDocument(); }, changeDocumentName: documentName => shellState.patch({ documentName }),
+  chooseImportFile: importFile => shellState.patch({ importFile }), importDocument: () => { void documentCreation.importDocument(); },
   refresh: () => { void loadList(); },
   previous: () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); },
   next: () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); },
@@ -77,7 +77,6 @@ const pageSize = 20;
 let documentId: string | null = null;
 const selectionState = createWorkspaceSelection();
 const revisions = createDocumentRevisionState();
-let importOperation: ImportOperation | null = null;
 let deletion: Deletion | null = null;
 function resetDeletion() {
   deletion = null;
@@ -95,6 +94,11 @@ const request: ApiClient = createApiClient({
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
   }
+});
+
+const documentCreation = createDocumentCreation({
+  shellState, request, run, message, navigate, loadList,
+  onUnauthorized: () => { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); }
 });
 
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
@@ -201,8 +205,7 @@ function message(status = '', error = '') {
 
 function clearSession() {
   mcpAccess.reset();
-  importOperation = null;
-  shellState.resetImport();
+  documentCreation.reset();
   resetDeletion();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
@@ -679,67 +682,6 @@ async function signOut() {
   }
   clearSession();
   if (!isGoogleMode()) authenticationView.focusToken();
-}
-async function createDocument() {
-  if (shellState.getSnapshot().controlsDisabled || !token) return;
-  const name = shellState.getSnapshot().documentName.trim();
-  if (!name || /[\u0000-\u001f\u007f-\u009f]/.test(name)) {
-    message('', 'Укажите непустое имя без управляющих символов.');
-    return;
-  }
-  const documentId = crypto.randomUUID();
-  await run(null, async (signal, current) => {
-    await request('/api/v1/documents', { method: 'POST', body: JSON.stringify({ documentId, name }) }, signal);
-    if (!current()) return;
-    shellState.patch({ documentName: '' });
-    navigate(`/documents/${documentId}`);
-  }, { create: true });
-}
-async function importDocument() {
-  if (importOperation || !token) return;
-  const file = shellState.getSnapshot().importFile;
-  if (!file) return;
-  const name = file.name.toLowerCase();
-  const format = name.endsWith('.figvam') ? 'container.figvam' : name.endsWith('.json') ? 'document.json' : null;
-  shellState.patch({ importError: '', importStatus: '', importDiagnostics: [] });
-  if (!format) { shellState.patch({ importError: 'Выберите файл document.json или .figvam.' }); return; }
-  const operation = { token, epoch: navigationEpoch };
-  importOperation = operation;
-  const active = () => importOperation === operation && token === operation.token && navigationEpoch === operation.epoch;
-  shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
-  try {
-    const response = await fetch(`/api/v1/documents/import/${format}`, {
-      method: 'POST', body: file, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
-      headers: { ...authHeaders(operation.token, 'POST'), 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
-    });
-    if (!active()) return;
-    if (response.status === 401) { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); return; }
-    const raw: unknown = await response.json().catch(() => ({}));
-    const body = record(raw) ? raw : {};
-    if (!active()) return;
-    if (!response.ok) {
-      if (response.status >= 500) throw new Error('uncertain');
-      const explanations: Partial<Record<number, string>> = { 400: 'Файл не прошёл проверку.', 403: 'Нет прав на импорт документа.', 409: 'Документ с таким идентификатором уже существует. Проверьте список.', 413: 'Файл превышает допустимый размер.', 415: 'Формат файла не поддерживается.', 429: 'Слишком много запросов. Повторите позже.' };
-      const importError = (explanations[response.status] ?? 'Сервер отклонил импорт.') + (typeof body.code === 'string' && body.code ? ` Код: ${body.code}.` : '');
-      const importDiagnostics = (Array.isArray(body.diagnostics) ? body.diagnostics : []).flatMap((diagnostic: unknown) => record(diagnostic)
-        ? [[diagnostic.code, diagnostic.path, diagnostic.message].filter(value => typeof value === 'string' && value).join(' — ')]
-        : []);
-      shellState.patch({ importError, importDiagnostics, importStatus: '' });
-      return;
-    }
-    if (body.code !== 'ACCEPTED' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(typeof body.documentId === 'string' ? body.documentId : '')) throw new Error('uncertain');
-    shellState.resetImport();
-    shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
-    await loadList();
-    if (importOperation === operation && token === operation.token && navigationEpoch === operation.epoch + 1) navigate(`/documents/${body.documentId}`);
-  } catch {
-    if (active()) shellState.patch({ importStatus: '', importError: 'Результат импорта неизвестен: документ мог быть создан. Проверьте список перед повторной попыткой.' });
-  } finally {
-    if (importOperation === operation) {
-      importOperation = null;
-      shellState.patch({ importBusy: false, ...(navigationEpoch !== operation.epoch ? { importStatus: '' } : {}) });
-    }
-  }
 }
 function createScreen() {
   if (documentShell.getSnapshot().pageBusy) return;
