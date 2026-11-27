@@ -5,7 +5,7 @@ test('node metadata supports confirmation, lost response retry, deletion and vie
  await page.goto('/'); await page.getByLabel('Bearer-токен', {exact:true}).fill(bearer); await page.getByRole('button',{name:'Продолжить',exact:true}).click();
  await page.getByLabel('Имя нового документа').fill('Metadata'); await page.getByRole('button',{name:'Создать документ',exact:true}).click();
  await page.getByRole('button',{name:'Создать страницу'}).click(); await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600'); await page.getByRole('button',{name:'Создать экран'}).click();
- await expect(page.locator('#screens button')).toHaveCount(1);
+ await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
  const node='11111111-1111-1111-1111-111111111111', values={name:'Original',semanticKey:'old'}; let deleted=false, lost=true, bodies=[];
  await page.route('**/children/**', route=>fulfillLayerPage(route,deleted?[]:[{id:node,name:values.name,kind:'Frame',childCount:0}]));
  await page.route(`**/nodes/${node}?*`, route=>route.fulfill({json:{revision:Number(new URL(route.request().url()).searchParams.get('revision')),items:[{id:node,...values}]}}));
@@ -15,7 +15,7 @@ test('node metadata supports confirmation, lost response retry, deletion and vie
   if(deleted || body.name === 'Gone') { deleted=true; return route.fulfill({status:404,json:{code:'NODE_NOT_FOUND'}}); }
   if('name' in body) { values.name=body.name; if(lost){lost=false;return route.abort();} } else values.semanticKey=body.semanticKey;
   const documentId=new URL(page.url()).pathname.split('/').at(-1), revision=Number((await page.locator('#revision').textContent()).match(/\d+$/)[0]);
-  await route.fulfill({json:{status:'ACCEPTED',documentId,commandId:body.commandId,revision:revision+1}});
+  await route.fulfill({json:{status:'ACCEPTED',documentId,commandId:body.commandId,revision:revision+1, pageId:null, screenId:null, nodeId:body.nodeId, versionId:null, affectedIds:[body.nodeId]}});
  });
  await page.locator('#node-name').fill('Updated'); await page.locator('#node-name').press('Enter'); await expect(page.locator('#node-metadata-error')).toContainText('Результат неизвестен');
  await expect(page.getByRole('treeitem').first()).toContainText('Original'); await page.locator('#node-metadata-retry').click(); await expect(page.locator('#node-name')).toHaveValue('Updated');
@@ -31,7 +31,7 @@ test('late metadata responses cannot affect a new selection and active access re
  await page.goto('/'); await page.getByLabel('Bearer-токен', {exact:true}).fill(bearer); await page.getByRole('button',{name:'Продолжить',exact:true}).click();
  await page.getByLabel('Имя нового документа').fill('Stale metadata'); await page.getByRole('button',{name:'Создать документ',exact:true}).click();
  await page.getByRole('button',{name:'Создать страницу'}).click(); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600'); await page.getByRole('button',{name:'Создать экран'}).click();
- await expect(page.locator('#screens button')).toHaveCount(1);
+ await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
  const first='11111111-1111-1111-1111-111111111111', second='22222222-2222-2222-2222-222222222222';
  await page.route('**/children/**', route=>fulfillLayerPage(route,[{id:first,name:'First',kind:'Frame',childCount:0},{id:second,name:'Second',kind:'Frame',childCount:0}]));
  let release, entered; const waiting = new Promise(resolve => entered=resolve), gate = new Promise(resolve => release=resolve);

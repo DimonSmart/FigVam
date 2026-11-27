@@ -98,7 +98,7 @@ async function openScreen(page, documentId) {
   await page.goto(`/documents/${documentId}`);
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
 }
 
 async function expectLayout(page, selector, layout) {
@@ -306,12 +306,12 @@ test('paginates both snapshots, discards a delayed screen, and reports a failed 
   });
   await openScreen(page, documentId);
   await delayed;
-  await page.locator('#screens button').nth(1).click();
+  await page.locator('#screens button.screen-select').nth(1).click();
   const canvas = page.locator('#screen-boundary');
   await expect(canvas.locator(visual(otherLabel))).toHaveText('Другой экран');
   release();
   await expect(canvas.locator(visual(label))).toHaveCount(0);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await expect(canvas.locator(visual(label))).toHaveText(plainText);
   expect(offsets.nodes).toContain(1);
   expect(offsets.layout).toContain(1);

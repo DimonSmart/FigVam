@@ -18,7 +18,7 @@ test('publishes changes, recovers and removes expired participants', async ({ pa
   await page.route('**/children/**', route => fulfillLayerPage(route, [{ id: nodeId, name: 'Layer', kind: 'FixtureLeaf', childCount: 0 }]));
   await open(page, id);
   await expect(page.locator('#presence-list')).toContainText('Другой');
-  await page.locator('#screens button').click();
+  await page.locator('#screens button.screen-select').click();
   await expect(page.locator('.presence-marker')).toContainText('Другой');
   await page.locator('#layers .layer-label').click();
   await expect.poll(() => updates.some(u => u.screenId === screenId && u.selectedIds.includes(nodeId))).toBeTruthy();

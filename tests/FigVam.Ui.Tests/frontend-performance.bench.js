@@ -37,10 +37,10 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await page.getByLabel('Bearer-токен',{exact:true}).fill(bearer);
   await time('openDocumentMs',async()=>{
     await page.getByRole('button',{name:'Продолжить',exact:true}).click();
-    await expect(page.locator('#screens button').first()).toBeVisible();
+    await expect(page.locator('#screens button.screen-select').first()).toBeVisible();
   });
   await time('largeScreenMs',async()=>{
-    await page.locator('#screens button').first().click();
+    await page.locator('#screens button.screen-select').first().click();
     await expect(page.locator('#screen-boundary [data-visual-node]')).toHaveCount(size+1);
     await expect(page.locator('#connection-status')).toContainText('Подключено',{timeout:15000});
   });
@@ -131,8 +131,8 @@ test('compare browser editor on a deterministic document', async ({ page, reques
       await expect(link).toBeVisible();
       if(i===0)await capture('catalog');
       await link.click();
-      await expect(page.locator('#screens button').first()).toBeVisible();
-      await page.locator('#screens button').first().click();
+      await expect(page.locator('#screens button.screen-select').first()).toBeVisible();
+      await page.locator('#screens button.screen-select').first().click();
       await expect(page.locator('#screen-boundary [data-visual-node]')).toHaveCount(size+1);
       await expect(page.locator('#connection-status')).toContainText('Подключено',{timeout:15000});
       await page.locator('[data-visual-node="'+target+'"] .visual-surface').click();

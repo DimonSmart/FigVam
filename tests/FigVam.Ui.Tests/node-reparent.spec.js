@@ -63,7 +63,7 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   }
   let answer = (route, body) => { move(body.nodeId, body.expectedParentId, body.targetParentId, body.position); return ack(route, body); };
   function ack(route, body) {
-    return route.fulfill({ json: { status: 'ACCEPTED', documentId: doc, commandId: body.commandId, revision: 4 } });
+    return route.fulfill({ json: { status: 'ACCEPTED', documentId: doc, commandId: body.commandId, revision: 4, pageId:null, screenId:null, nodeId:body.nodeId, versionId:null, affectedIds:[body.nodeId] } });
   }
   await page.route('**/commands/move-node', route => {
     calls.push(route.request().postData());
@@ -72,8 +72,8 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   await page.goto(`/documents/${doc}`);
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
-  await expect(page.locator('#screens button')).toHaveCount(2);
-  await page.locator('#screens button').first().click();
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(2);
+  await page.locator('#screens button.screen-select').first().click();
   await expect(layer(page, source)).toBeVisible();
   return { calls, reads, source, target, folder, descendant, leaf, existingChild, screen, anotherScreen, children, move, ack,
     answer: fn => { answer = fn; } };
@@ -226,7 +226,7 @@ for (const exit of ['selection', 'screen', 'document', 'logout']) {
     await entered.promise;
     if (exit === 'selection') await selectLayer(page, f.leaf);
     if (exit === 'screen') {
-      await page.locator('#screens button').nth(1).click();
+      await page.locator('#screens button.screen-select').nth(1).click();
       await expect(page.locator('#layers')).toContainText('Other screen container');
     }
     if (exit === 'document') await page.getByRole('link', { name: '← Документы' }).click();
@@ -240,7 +240,7 @@ for (const exit of ['selection', 'screen', 'document', 'logout']) {
     }
     if (exit === 'screen') {
       await expect(page.locator('#layers')).toContainText('Other screen container');
-      await page.locator('#screens button').first().click();
+      await page.locator('#screens button.screen-select').first().click();
       await expect(retry(page)).toBeVisible();
     }
     if (exit === 'document') await expect(page.locator('#documents-view')).toBeVisible();

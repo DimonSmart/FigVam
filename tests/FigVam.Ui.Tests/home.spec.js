@@ -125,7 +125,7 @@ test('incompatible documents remain visible and only owners can delete without o
     expect(route.request().url()).toContain(old);
     expect(body.expectedRevision).toBe(3);
     deleted = true;
-    await route.fulfill({ json: { code: 'ACCEPTED', documentId: old, commandId: body.commandId, revision: 4 } });
+    await route.fulfill({ json: { status: 'ACCEPTED', documentId: old, commandId: body.commandId, revision: 4, pageId: null, screenId: null, nodeId: null, versionId: null, affectedIds: [] } });
   });
   await login(page);
   await expect(page.getByText('Old design', { exact: true })).toBeVisible();

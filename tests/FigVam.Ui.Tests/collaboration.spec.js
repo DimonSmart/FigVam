@@ -42,10 +42,10 @@ test('two clients converge through authenticated events while local commands ret
   await second.getByLabel('Ширина экрана').fill('640');
   await second.getByLabel('Высота экрана').fill('480');
   await second.getByRole('button', { name: 'Создать экран' }).click();
-  await expect(page.locator('#screens button')).toContainText('640 × 480');
+  await expect(page.locator('#screens button.screen-select')).toContainText('640 × 480');
   await expect(second.locator('#revision')).toHaveText(await page.locator('#revision').textContent());
-  const screenId = await second.locator('#screens button').getAttribute('data-screen-id');
-  await page.locator('#screens button').click();
+  const screenId = await second.locator('#screens button.screen-select').getAttribute('data-screen-id');
+  await page.locator('#screens button.screen-select').click();
   await connected(page);
   await command(second, 'resize-screen', { screenId, dimensions: { width: 800, height: 600 } });
   await expect(page.locator('#canvas-selection')).toHaveText('Экран: 800 × 600 uiUnit');
@@ -89,8 +89,8 @@ test('refreshes the expanded layer tree and selected object, then clears a remot
       : [{ id: 'child', name: Number(url.searchParams.get('revision')) >= 3 ? 'Updated fixture' : 'Original fixture', kind: 'FixtureLeaf', childCount: 0 }];
     await fulfillLayerPage(route, items);
   });
-  await expect(page.locator('#screens button')).toHaveCount(1);
-  await page.locator('#screens button').click();
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
+  await page.locator('#screens button.screen-select').click();
   await page.locator('#layers [data-id=root] .layer-label').click();
   await page.locator('#layers [data-id=child] .layer-label').click();
   await expect(page.locator('#inspector-selection')).toContainText('Original fixture');
@@ -167,13 +167,13 @@ test('logout during a local command leaves the next session editable', async ({ 
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
   await connected(page);
-  await expect(page.locator('#screens button')).toHaveCount(1);
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
   await show(page, 'screen');
   await show(page, 'screen');
   await page.getByLabel('Ширина экрана').fill('800');
   await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
-  await expect(page.locator('#screens button')).toHaveCount(2);
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(2);
 });
 
 for (const mode of ['gap', 'RECONNECT_REQUIRED', 'EOF']) {
@@ -255,7 +255,7 @@ test('two connected inspectors reconcile one structured shadow edit', async ({ p
   const other = await context.newPage();
   for (const client of [page, other]) {
     await open(client, id);
-    await client.locator('#screens button').first().click();
+    await client.locator('#screens button.screen-select').first().click();
     await client.locator('#layers [data-id="' + nodeId + '"]').press('Enter');
     await show(client, 'design');
     await connected(client);
