@@ -20,3 +20,7 @@ The drawing toolbar uses the shared Base UI Button with Lucide glyphs (18px, 1.7
 ### Property editors
 
 `property-value.ts` owns typed raw drafts, pure validation, token resolution and literal conversion. `property-value-editor.tsx` supplies controlled text/number/enum/boolean, color and alpha, shadow, typography composition and reference-picker components. `property-layout.tsx` supplies property rows, override actions, compact geometry and the shared padding diagram. Field models publish independently through `useSyncExternalStore`; they do not own DOM nodes or React roots. Commit/preview events distinguish native color gestures, discrete choices and text drafts. The feature controller retains command IDs, revision conflict and retry semantics. The token theme editor reuses these same components.
+
+### Shell and state ownership
+
+Prefer controlled React inputs and explicit actions for normal forms, feedback and navigation. Use the application/document shell models for route visibility, form drafts and access; do not read these values back from DOM IDs. Native file inputs are an exception: select the File through the React event and reset via the file-picker key. Use the shared Button and feedback components in new or migrated panels; retain native controls for browser-specific semantics. Feature controllers publish immutable view snapshots; shared controls must not allocate command IDs or implement transport retries. Existing imperative feature controls are migration debt, not a pattern for new components.

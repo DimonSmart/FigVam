@@ -4,7 +4,7 @@ import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
-import type { ApiClient } from '../../api/api-client';
+import { ApiError, type ApiClient } from '../../api/api-client';
 import { requiredRecord, text, page, aborted, errorMessage } from '../../api/decode';
 import type { components } from '../../api/schema.generated';
 type VariantCommand=components['schemas']['AddScreenVariantRequest'];
@@ -72,7 +72,7 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
       if(active()){render({formKey:state.formKey+1});selectVariant(op.body.variantId);await refreshPages();}
     }catch(error){
       if(operations.get(k)!==op)return;
-      if(classifyCommandFailure(error,true,false)==='uncertain')op.state='uncertain';
+      if(!(error instanceof ApiError)||classifyCommandFailure(error,true,false)==='uncertain')op.state='uncertain';
       else{operations.delete(k);if(active()){commandError={key:k,message:error.message};render({error:error.message});}}
     }finally{if(active())render();}
   }
