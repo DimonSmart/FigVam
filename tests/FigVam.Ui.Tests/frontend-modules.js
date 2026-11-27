@@ -17,6 +17,9 @@ function bundle(name) {
     const { build } = await import(pathToFileURL(require.resolve('vite', { paths: [frontend] })).href);
     const result = await build({
       root: frontend, configFile: false, logLevel: 'error',
+      // Library mode does not replace NODE_ENV automatically. Match the production
+      // frontend config so React's runtime can execute in Chromium without Node globals.
+      define: { 'process.env.NODE_ENV': JSON.stringify('production') },
       build: { write: false, minify: false,
         lib: { entry: resolve(frontend, entries[name]), formats: ['es'], fileName: name },
         rollupOptions: { output: { inlineDynamicImports: true } } }
