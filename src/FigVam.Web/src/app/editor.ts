@@ -122,7 +122,8 @@ const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
     isEditorVisible,
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
-    get generation() { return sessionState.generation; }, get token() { return sessionState.token; }
+    get generation() { return sessionState.generation; }, get token() { return sessionState.token; },
+    get navigationEpoch() { return sessionState.navigationEpoch; }, get revision() { return revisions.revision; }
   }
 });
 
@@ -219,7 +220,7 @@ function clearSession() {
   mcpAccess.reset();
   documentCreation.reset();
   pageCommands.clear();
-  catalogDeletions.clear(); renames.clear();
+  catalogDeletions.clear(); renames.clear(); datasets.clearCommands(); screenVariants.clearCommands();
   resetDeletion();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();

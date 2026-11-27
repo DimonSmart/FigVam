@@ -1,4 +1,4 @@
-import { postDocumentCommand } from '../../api/document-commands';
+import { prepareDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { NumberInput } from '../../ui/Inputs';
@@ -33,16 +33,15 @@ function ResizeView({saved, hidden, draft, readOnly, pending, retry, error, chan
   </>;
 }
 
-import { ApiError } from '../../api/api-client.js';
 import type { components } from '../../api/schema.generated';
 
 type Axis = 'width' | 'height';
 type ResizeBody = components['schemas']['ResizeScreenRequest'];
-interface Operation { body: ResizeBody; state: 'pending' | 'uncertain' }
+interface Operation { body: ResizeBody; mutation: DocumentCommandOperation; state: 'ready' | 'pending' | 'uncertain' | 'sync' }
 interface ResizeWorkspace { isEditorVisible(): boolean; 
   documentId: string | null; documentRole: string | null; selectedScreen: string | null;
   screensItems: { id: string; dimensions: { width: number; height: number } }[];
-  generation: number; token: string | null;
+  generation: number; token: string | null; navigationEpoch: number; revision: number | null;
 }
 interface ResizeOptions {
   model:ReturnType<typeof createScreenResizeModel>;
@@ -75,7 +74,7 @@ export function createScreenResize({ model, element, request, refreshPages, work
       saved:screen ? `Подтверждённый размер: ${screen.dimensions.width} × ${screen.dimensions.height} uiUnit` : 'Выберите экран.',
       hidden:!screen || !['Owner','Editor'].includes(workspace.documentRole ?? ''),
       draft:{...draft},readOnly:!!operation,pending:operation?.state==='pending',
-      retry:operation?.state==='uncertain',error:operation?.state==='uncertain'?'Результат неизвестен. Повторите ту же команду.':resizeError??'',
+      retry:operation?.state==='uncertain'||operation?.state==='sync',error:operation?.state==='uncertain'?'Результат неизвестен. Повторите ту же команду.':operation?.state==='sync'?'Изменение подтверждено. Повторите обновление.':resizeError??'',
       change,apply:applyResize,cancel:cancelDraft,repeat
     });
   }
@@ -105,31 +104,35 @@ export function createScreenResize({ model, element, request, refreshPages, work
     const updateWidth = dirtyAxes.has('width') && saved?.width !== width;
     const updateHeight = dirtyAxes.has('height') && saved?.height !== height;
     if (!updateWidth && !updateHeight) { dirtyAxes.clear(); return; }
-    const operation: Operation = { body: { commandId: crypto.randomUUID(), screenId: workspace.selectedScreen,
-      dimensions: { width, height }, updateWidth, updateHeight }, state: 'pending' };
+    const body:ResizeBody={commandId:crypto.randomUUID(),screenId:workspace.selectedScreen,dimensions:{width,height},updateWidth,updateHeight};
+    const operation: Operation = {body,mutation:prepareDocumentCommand(workspace.documentId,'resize-screen',body),state:'ready'};
     resizeError = null; resizeOperations.set(key, operation); sendResize(workspace.documentId, workspace.selectedScreen, operation);
   }
   function repeat() {
     const operation = resizeOperations.get(resizeKey(workspace.documentId, workspace.selectedScreen));
-    if (workspace.documentId && workspace.selectedScreen && operation?.state === 'uncertain')
+    if (workspace.documentId && workspace.selectedScreen && (operation?.state === 'uncertain' || operation?.state === 'sync'))
       void sendResize(workspace.documentId, workspace.selectedScreen, operation);
   }
   async function sendResize(id: string, screen: string, operation: Operation) {
-    const key = resizeKey(id, screen), current = workspace.generation, requestToken = workspace.token;
-    const active = () => current === workspace.generation && workspace.documentId === id && workspace.token === requestToken && workspace.isEditorVisible();
-    operation.state = 'pending'; renderScreenSize();
-    try {
-      await postDocumentCommand(request,id,'resize-screen',operation.body);
-      if (resizeOperations.get(key) !== operation) return;
-      if (!active()) { operation.state = 'uncertain'; return; }
-      resizeOperations.delete(key); if (workspace.selectedScreen === screen) dirtyAxes.clear();
-      await refreshPages();
-      // Refresh the authoritative dimensions; do not write to a React-owned status node.
-    } catch (error) {
-      if (resizeOperations.get(key) !== operation) return;
-      if (!active() || error instanceof TypeError || (error instanceof ApiError && error.status >= 500) || (error instanceof Error && error.name === 'AbortError')) operation.state = 'uncertain';
-      else { resizeOperations.delete(key); if (workspace.selectedScreen === screen) { dirtyAxes.clear(); resizeError = error instanceof Error ? error.message : String(error); } }
-    } finally { if (active() || (workspace.token === requestToken && workspace.documentId === id && workspace.selectedScreen === screen && resizeOperations.get(key) === operation && workspace.isEditorVisible())) { renderScreenSize(); } }
+    const key=resizeKey(id,screen),epoch=workspace.navigationEpoch,requestToken=workspace.token;
+    if(operation.state==='pending'||resizeOperations.get(key)!==operation)return;
+    const active=()=>workspace.navigationEpoch===epoch&&workspace.documentId===id&&workspace.token===requestToken&&workspace.isEditorVisible()&&resizeOperations.get(key)===operation;
+    operation.state='pending';renderScreenSize();
+    try{
+      const result=await operation.mutation.execute({request,isCurrent:active,synchronize:async confirmation=>{
+        await refreshPages();
+        return active()&&(workspace.revision??-1)>=confirmation.revision;
+      }});
+      if(resizeOperations.get(key)!==operation)return;
+      if(result.kind==='confirmed'&&result.synchronization==='synced'){
+        resizeOperations.delete(key);if(workspace.documentId===id&&workspace.selectedScreen===screen)dirtyAxes.clear();
+      }else if(result.kind==='confirmed')operation.state='sync';
+      else if(result.kind==='uncertain')operation.state='uncertain';
+      else if(result.kind==='rejected'||result.kind==='conflict'){
+        const visible=active()&&workspace.selectedScreen===screen;
+        resizeOperations.delete(key);if(visible){dirtyAxes.clear();resizeError=result.error instanceof Error?result.error.message:String(result.error);}
+      }
+    }finally{if(workspace.token===requestToken&&workspace.documentId===id&&workspace.selectedScreen===screen&&workspace.isEditorVisible())renderScreenSize();}
   }
 
   renderScreenSize();
