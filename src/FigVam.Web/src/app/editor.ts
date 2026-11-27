@@ -1,6 +1,6 @@
 import { authHeaders, credentialsMode, isGoogleMode, setCsrf } from '../api/auth-client';
 import { createScreenCapture } from '../canvas/screen-capture';
-import { ApiError, createApiClient, parseDocumentList, type ApiClient } from '../api/api-client';
+import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
 import { createDocumentQueries, type PageItem, type ScreenItem } from '../api/document-queries';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from '../features/home/index';
 import { createDocumentCollaboration } from '../features/collaboration/document-collaboration';
@@ -25,6 +25,7 @@ import type { components } from '../api/schema.generated';
 import { postPageCommand, type PageCommandData } from './page-commands';
 
 import { createRequestRunner } from './request-runner';
+import { createDocumentCatalog } from './document-catalog';
 import { createNavigation } from './navigation';
 import { createDocumentRevisionState, readDocumentStructure } from './document-workspace';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
@@ -34,13 +35,14 @@ type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
+const catalog = createDocumentCatalog();
 const requestRunner = createRequestRunner({
   stopLive: () => stopLive(), startLive: () => startLive(), message,
   setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
   setControlsDisabled(disabled) {
     required(element('create-form').querySelector('button')).disabled = disabled;
-    element('previous').disabled = disabled || pageIndex === 0;
-    element('next').disabled = disabled || !nextCursor;
+    element('previous').disabled = disabled || !catalog.canGoBack;
+    element('next').disabled = disabled || !catalog.canGoForward;
   },
 });
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
@@ -56,9 +58,6 @@ function selectHomeView(view: 'users' | 'documents') {
   element('home-admin-content').hidden = !users;
   homeNavigation.select(users ? 'users' : 'documents');
 }
-let cursors: (string | null | undefined)[] = [null];
-let pageIndex = 0;
-let nextCursor: string | null | undefined = null;
 const pageSize = 20;
 let documentId: string | null = null, documentRole: string | null = null, selectedPage: string | null = null, pagesOffset = 0, pagesTotal = 0;
 const revisions = createDocumentRevisionState();
@@ -235,7 +234,7 @@ function clearSession() {
   element('editor-view').hidden = true;
   authenticationView.setVisible(true);
   element('disconnect').hidden = true;
-  cursors = [null]; pageIndex = 0; nextCursor = null;
+  catalog.reset();
   requestRunner.clearRetry();
   message();
 }
@@ -314,20 +313,14 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   element('home-pagination').hidden = true;
   element('page-number').textContent = '';
   document.title = 'FigVam — документы';
-  nextCursor = null;
+  catalog.beginLoad();
   await run(() => loadList(index, cursor), async (signal, current) => {
-    const query = new URLSearchParams({ limit: String(pageSize) });
-    if (cursor) query.set('cursor', cursor);
-    const result = parseDocumentList(await request(`/api/v1/documents?${query}`, {}, signal));
-    if (!current()) return;
-    pageIndex = index;
-    cursors[index] = cursor;
-    cursors.length = index + 1;
-    nextCursor = result.nextCursor;
+    const result = await catalog.read(request, index, cursor, pageSize, signal, current);
+    if (!result) return;
     documentListView.render(result.items);
     element('home-count').textContent = `${result.items.length} на странице`;
     element('home-empty').hidden = result.items.length > 0 || index > 0;
-    element('home-pagination').hidden = index === 0 && !nextCursor;
+    element('home-pagination').hidden = index === 0 && !catalog.canGoForward;
     element('page-number').textContent = `Страница ${index + 1}`;
     message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
   });
@@ -885,8 +878,8 @@ element('page-create').addEventListener('click', () => {
   pageCommand('add-page', { pageId }, pageId);
 });
 element('refresh').addEventListener('click', () => loadList());
-element('previous').addEventListener('click', () => loadList(pageIndex - 1, cursors[pageIndex - 1]));
-element('next').addEventListener('click', () => loadList(pageIndex + 1, nextCursor));
+element('previous').addEventListener('click', () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); });
+element('next').addEventListener('click', () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); });
 element('retry').addEventListener('click', () => requestRunner.retry());
 navigation.attach();
 window.addEventListener('pagehide', event => {
