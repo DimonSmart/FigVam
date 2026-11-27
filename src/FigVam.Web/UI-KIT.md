@@ -16,3 +16,7 @@ Application chrome only; not the component catalog or design tokens of user docu
 Use the existing component before adding an alternative. Native select, checkbox, file and numeric fields remain appropriate where their browser behavior is sufficient; specialized canvas controls are separate. Standard application icons use Lucide React. Shared components inherit the application's semantic CSS tokens and must not reference user document tokens.
 
 The drawing toolbar uses the shared Base UI Button with Lucide glyphs (18px, 1.7 stroke width), explicit accessible names and profile-based availability. Common hover, selection, disabled, surface, border and error colors are defined as application CSS variables; keep document colors and layout geometry independent.
+
+### Property editors
+
+`property-value.ts` owns typed raw drafts, pure validation, token resolution and literal conversion. `property-value-editor.tsx` supplies controlled text/number/enum/boolean, color and alpha, shadow, typography composition and reference-picker components. `property-layout.tsx` supplies property rows, override actions, compact geometry and the shared padding diagram. Field models publish independently through `useSyncExternalStore`; they do not own DOM nodes or React roots. Commit/preview events distinguish native color gestures, discrete choices and text drafts. The feature controller retains command IDs, revision conflict and retry semantics. The token theme editor reuses these same components.

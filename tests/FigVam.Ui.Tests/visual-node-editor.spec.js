@@ -496,28 +496,28 @@ test('token popover supports keyboard search, Escape and preserves a read-only i
 
 test('an unresolvable token never silently becomes a default literal on unlink', async ({ page }) => {
   await page.goto('/');
-  await exposeFrontendModules(page, 'node-property-controls');
+  await exposeFrontendModules(page, 'property-controls');
   const result = await page.evaluate(async () => {
-    const { createPropertyControl } = await import('/__figvam-test/node-property-controls.js');
+    const { createTestField, mountFields, commit } = await import('/__figvam-test/property-controls.js');
     const definition = {
       type: 'Number', tokenType: 'Spacing',
       defaultValue: { type: 'number', value: 99 }, minimum: 0, maximum: 100
     };
-    const field = createPropertyControl('gap', definition, {
+    const field = createTestField('gap', definition, {
       tokens: new Map(), assets: new Map()
     }, { type: 'token', tokenId: 'deleted' }, 'test');
-    document.body.append(field.row);
+    const mounted = mountFields([field]);
     const errorBefore = field.validate().error;
-    const link = field.row.querySelector('.token-value-link');
-    link.click();
-    field.row.querySelector('.token-value-unlink').click();
+    const link = mounted.host.querySelector('.token-value-link');
+    commit(() => link.click());
+    commit(() => mounted.host.querySelector('.token-value-unlink').click());
     const after = field.validate();
-    const input = field.row.querySelector('input[type=number]');
+    const input = mounted.host.querySelector('input[type=number]');
     const result = {
       errorBefore, errorAfter: after.error, valueAfter: input.value,
       modeAfter: field.read()[0]
     };
-    field.row.remove();
+    mounted.dispose();
     return result;
   });
   expect(result.errorBefore).toContain('отсутствует');
@@ -810,22 +810,22 @@ test('padding editor retains individual controls, tokens, drafts, history and va
 
 test('padding editor preserves missing token feedback and read-only controls', async ({ page }) => {
   await page.goto('/');
-  await exposeFrontendModules(page, 'node-property-controls', 'padding-editor');
+  await exposeFrontendModules(page, 'property-controls');
   const result = await page.evaluate(async () => {
-    const { createPropertyControl } = await import('/__figvam-test/node-property-controls.js');
-    const { paddingProperties, createPaddingEditor, updatePaddingEditor } = await import('/__figvam-test/padding-editor.js');
+    const { createTestField, mountPadding, paddingProperties, commit } = await import('/__figvam-test/property-controls.js');
     const definition = { type: 'Number', tokenType: 'Spacing', defaultValue: { type: 'number', value: 0 }, minimum: 0 };
     const model = { tokens: new Map(), assets: new Map() };
-    const fields = new Map(paddingProperties.map(name => [name, createPropertyControl(name, definition, model,
+    const fields = new Map(paddingProperties.map(name => [name, createTestField(name, definition, model,
       name === 'paddingTop' ? { type: 'token', tokenId: 'missing' } : undefined, 'test-padding')]));
-    const root = createPaddingEditor();
-    updatePaddingEditor(root, fields, (parent, children) => parent.replaceChildren(...children));
-    document.body.append(root);
-    for (const field of fields.values()) field.setDisabled(true);
-    return { invalid: Boolean(fields.get('paddingTop').validate().error),
+    const mounted = mountPadding(fields);
+    commit(() => { for (const field of fields.values()) field.setDisabled(true); });
+    const root = mounted.host;
+    const result = { invalid: Boolean(fields.get('paddingTop').validate().error),
       invalidLink: root.querySelector('#test-padding-paddingTop-1').getAttribute('aria-invalid'),
       disabled: [...root.querySelectorAll('input[type=number]')].every(input => input.disabled),
       linkEnabled: !root.querySelector('#test-padding-paddingTop-1').disabled };
+    mounted.dispose();
+    return result;
   });
   expect(result).toEqual({ invalid: true, invalidLink: 'true', disabled: true, linkEnabled: true });
 });

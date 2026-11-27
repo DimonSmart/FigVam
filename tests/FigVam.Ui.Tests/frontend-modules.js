@@ -8,8 +8,7 @@ const entries = {
   'token-groups': 'src/core/tokens/token-groups.ts',
   'token-exchange': 'src/core/tokens/token-exchange.ts',
   'token-resolution': 'src/core/tokens/token-resolution.ts',
-  'node-property-controls': 'src/ui/node-property-controls.ts',
-  'padding-editor': 'src/ui/padding-editor.ts',
+  'property-controls': 'tests/property-controls.browser.tsx',
 };
 const cache = new Map();
 function bundle(name) {
