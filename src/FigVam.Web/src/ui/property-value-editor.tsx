@@ -20,7 +20,7 @@ function replace(raw:RawValue,index:number,next:RawValue){const values=[...rawAr
 function nativeColorEvent(e:{nativeEvent:Event}){return e.nativeEvent.type==='change'?'discrete':'color-preview';}
 function ScalarEditor(p:EditorProps&{spec:ScalarSpec}){
   const {spec,raw,onEdit}=p,value=rawText(raw),common=propsFor(p);
-  const label=p.displayLabel??spec.label,ariaLabel=p.bare||p.displayLabel?spec.label:undefined;
+  const label=p.displayLabel??spec.label,ariaLabel=spec.label;
   let control:ReactNode;
   if(spec.type==='select')control=<select {...common} aria-label={ariaLabel} required={spec.required} value={value} onChange={e=>onEdit(e.currentTarget.value,'discrete')}>
     {spec.placeholder&&<option value="">{spec.placeholder}</option>}

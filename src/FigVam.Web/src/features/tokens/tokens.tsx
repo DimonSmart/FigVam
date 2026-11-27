@@ -137,7 +137,7 @@ function TokenTable({tokenItems,displayed,group,search,selectedToken,usagesReady
         const value=resolved.error??tokenValueText(resolved.value);
         return <td key={currentTheme}>
           {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
-          {alias?<><Button className="token-alias-link" title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
+          {alias?<><Button className="token-alias-link" aria-label={'↳ '+nameOf(expression.tokenId)} title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
             selectAlias(expression.tokenId);
           }}><CornerDownRight size={12} aria-hidden="true"/>{nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
         </td>;
