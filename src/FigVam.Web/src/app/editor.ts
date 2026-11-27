@@ -47,7 +47,7 @@ function run(...args: Parameters<typeof requestRunner.run>) { return requestRunn
 const authenticationView = createAuthenticationView(element('authentication-root'), submitBearerToken);
 const documentListView = createDocumentListView(element('document-list'), deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(element('home-navigation'), selectHomeView);
-createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next) });
+const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind) });
 const userAdmin = createUserAdmin(element);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
@@ -450,6 +450,7 @@ const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreen
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
+  onDrawingToolsChanged: editorShell.setDrawingTools,
   getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen,
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {

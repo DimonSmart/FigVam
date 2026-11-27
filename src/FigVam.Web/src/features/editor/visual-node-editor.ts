@@ -9,7 +9,7 @@ interface Context {documentId:string|null;documentRole:string|null;revision:numb
 interface Target extends Context {documentId:string;screen:string;revision:number;nodeId:string}
 interface Model extends PropertyModel {nodes:ReadonlyMap<string,CanvasNode>;kinds:ReadonlyMap<string,CanvasKind & {kind:string}>;overridden?:ReadonlyMap<string,ReadonlySet<string>>}
 interface Selection {nodeId:string;previousId?:string}
-interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void}
+interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
 interface Draft {values:Map<string,RawValue>;error:string;status:string;coordinateParentId?:string}
 interface Palette extends Draft {kind:string;parent:string|null|undefined;selectionId?:string;uploadStatus?:string;uploadError?:string}
 interface Field extends ReturnType<typeof createPropertyControl> {signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
@@ -39,7 +39,7 @@ const scopeKey = (context:Context) => context.documentId && context.screen && Nu
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}
+  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
 }:Options) {
   const input=(id:string)=>typed(element(id),HTMLInputElement),button=(id:string)=>typed(element(id),HTMLButtonElement);
   const kindSelect=typed(element('visual-kind'),HTMLSelectElement),parentSelect=typed(element('visual-parent'),HTMLSelectElement);
@@ -533,6 +533,8 @@ export function createVisualNodeEditor({
       operationStatus(op, 'Добавление элемента…') : loading || [palette?.status, paletteStatus].filter(Boolean).join(' ');
     element('visual-inspector-status').textContent = editing ?
       operationStatus(op,'Сохранение свойств…') : loading || (autoEntry?.fields.size && !autoEntry.rejected ? 'Сохранение свойств…' : inspector?.status || '');
+    onDrawingToolsChanged(!element('visual-palette').hidden && !element('visual-palette-form').hidden && !kindSelect.disabled
+      ? [...kindSelect.options].map(option => option.value) : []);
   }
 
   function operationStatus(op:Operation|undefined,pending:string) {
@@ -605,21 +607,22 @@ export function createVisualNodeEditor({
     } finally { startLive(); refresh(); }
   }
 
-  kindSelect.addEventListener('change', () => {
+  function changeKind() {
     if(!palette||palette.kind===kindSelect.value) return;
     palette.kind = kindSelect.value;
     palette.values.clear();
     palette.error = palette.status = '';
     renderRequiredFields();
     updateControls();
-  });
-  parentSelect.addEventListener('change', () => {
+  }
+  kindSelect.addEventListener('change', changeKind);
+  function changeParent() {
     if(!palette)return;palette.parent=parentSelect.value;
     palette.error = palette.status = '';
     updateControls();
-  });
-  element('visual-palette-form').addEventListener('submit', event => {
-    event.preventDefault();
+  }
+  parentSelect.addEventListener('change', changeParent);
+  function submitPalette() {
     const kind = model?.kinds.get(kindSelect.value);
     if(!palette||!kind||!eligibleParent() || !canEdit(getContext().documentRole)) return;
     const properties = readProperties(paletteFields, paletteFields.keys());
@@ -631,7 +634,24 @@ export function createVisualNodeEditor({
       nodeId: crypto.randomUUID(), parentId: parentSelect.value, kind: kind.kind,
       properties: { ...properties, ...selected }
     }, palette);
+  }
+  element('visual-palette-form').addEventListener('submit', event => {
+    event.preventDefault();
+    submitPalette();
   });
+  function addFromToolbar(kind: string): boolean {
+    if (kindSelect.disabled || element('visual-palette').hidden || element('visual-palette-form').hidden ||
+        ![...kindSelect.options].some(option => option.value === kind)) return true;
+    kindSelect.value = kind;
+    changeKind();
+    if (button('visual-add').disabled && parentSelect.options.length) {
+      parentSelect.selectedIndex = 0;
+      changeParent();
+    }
+    if (button('visual-add').disabled) return false;
+    if (typed(element('visual-palette-form'), HTMLFormElement).reportValidity()) submitPalette();
+    return true;
+  }
   element('visual-properties-form').addEventListener('submit', event => {
     event.preventDefault();
     finishApply(inspector);
@@ -758,7 +778,7 @@ export function createVisualNodeEditor({
   }
 
   return {
-    refresh, editGeometry,
+    refresh, editGeometry, addFromToolbar,
     get editPending() { return operations.has(scopeKey(getContext())??''); },
     clear() { clearTimeout(applyTimer); automatic.clear(); operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
   };

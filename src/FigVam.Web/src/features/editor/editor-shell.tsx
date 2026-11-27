@@ -1,6 +1,6 @@
 import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
-import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image } from 'lucide-react';
+import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
 
 function required<T>(value:T|null|undefined, description:string):T {
@@ -32,13 +32,6 @@ function menu(label:string, className:string) {
   const summary = el('summary', 'menu-trigger', label);
   details.append(summary);
   return details;
-}
-
-const toolIcons={select:MousePointer2, Frame, Text:Type, Button:RectangleHorizontal, TextInput:TextCursorInput, Image};
-type ToolKind=keyof typeof toolIcons;
-function renderToolIcon(host:HTMLElement,name:ToolKind) {
-  const Icon=toolIcons[name],root=createPanelRoot(host);
-  flushSync(()=>root.render(<Icon size={18} strokeWidth={1.7} aria-hidden="true"/>));
 }
 
 type TabEntry=readonly [key:string,name:string,panel:HTMLElement];
@@ -80,7 +73,10 @@ function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, befor
   return{select};
 }
 
-export function createEditorShell({ beforePrototypeLeave = () => true }:{beforePrototypeLeave?:(resume:()=>void)=>boolean} = {}) {
+export function createEditorShell({ beforePrototypeLeave = () => true, addTool = () => false }:{
+  beforePrototypeLeave?:(resume:()=>void)=>boolean;
+  addTool?:(kind:DrawingToolKind)=>boolean;
+} = {}) {
   // Capture original nodes before reparenting them into temporarily detached panels.
   const shellNodes = new Map([...document.querySelectorAll<HTMLElement>('[id]')].map(node => [node.id, node]));
   const byId = (id:string):HTMLElement => required(id === 'pages' || id === 'screens'
@@ -437,58 +433,31 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
     ['diagnostics', 'Проверка', diagnosticsPage]], 'Разделы инспектора',
     (previous, next, resume) => previous !== 'prototype' || next === 'prototype' || beforePrototypeLeave(resume));
 
-  // Creation toolbar submits the original profile-aware add-node form.
+  // React owns the ordinary toolbar buttons; the existing palette form remains
+  // mounted separately until its property editor migration is complete.
   const drawing = el('div', 'drawing-toolbar');
-  const drawingLabel = el('span', 'drawing-label', 'Инструменты');
-  drawing.append(drawingLabel);
-  const selectTool = el('button', 'drawing-tool selected');
-  selectTool.type = 'button'; selectTool.title = 'Выбор и перемещение';
-  selectTool.setAttribute('aria-label', 'Выбор и перемещение');
-  renderToolIcon(selectTool,'select');
-  selectTool.addEventListener('click', () => byId('viewport').focus());
-  drawing.append(selectTool);
+  const toolsHost = el('div');
+  toolsHost.style.display = 'contents';
+  const toolsRoot = createPanelRoot(toolsHost);
   const palette = byId('visual-palette');
-  const kindSelect = select('visual-kind');
-  const parentSelect = select('visual-parent');
-  const addForm = form('visual-palette-form');
   const detailed = menu('Параметры добавления', 'palette-options');
   detailed.append(palette);
-  const toolNames = [['Frame', 'Контейнер'], ['Text', 'Текст'], ['Button', 'Кнопка'],
-    ['TextInput', 'Поле ввода'], ['Image', 'Изображение']] as const;
-  const buttons:[ToolKind,HTMLButtonElement][] = [];
-  function syncTools() {
-    const enabled = !palette.hidden && !addForm.hidden && !kindSelect.disabled;
-    for (const [kind, button] of buttons) {
-      button.disabled = !enabled || ![...kindSelect.options].some(option => option.value === kind);
+  const focusViewport = () => byId('viewport').focus();
+  const addFromToolbar = (kind:DrawingToolKind) => {
+    if (!addTool(kind)) {
+      detailed.open = true;
+      byId('visual-required-properties').querySelector<HTMLElement>('input, select, textarea')?.focus();
     }
+  };
+  let availableTools: readonly string[] | undefined;
+  function setDrawingTools(available: readonly string[]) {
+    if (availableTools && availableTools.length === available.length &&
+        availableTools.every((kind,index) => kind === available[index])) return;
+    availableTools = available;
+    toolsRoot.render(<DrawingTools available={available} onSelect={focusViewport} onAdd={addFromToolbar}/>);
   }
-  for (const [kind, label] of toolNames) {
-    const button = el('button', 'drawing-tool');
-    button.type = 'button'; button.title = 'Добавить: ' + label;
-    button.setAttribute('aria-label', 'Добавить ' + label.toLowerCase());
-    renderToolIcon(button,kind);
-    button.addEventListener('click', () => {
-      if (button.disabled) return;
-      kindSelect.value = kind;
-      kindSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      if (asElement(byId('visual-add'),HTMLButtonElement).disabled && parentSelect.options.length) {
-        parentSelect.selectedIndex = 0;
-        parentSelect.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      if (asElement(byId('visual-add'),HTMLButtonElement).disabled) {
-        detailed.open = true;
-        byId('visual-required-properties').querySelector<HTMLElement>('input, select, textarea')?.focus();
-      } else addForm.requestSubmit();
-    });
-    buttons.push([kind, button]);
-    drawing.append(button);
-  }
-  drawing.append(detailed);
-  const observer = new MutationObserver(syncTools);
-  observer.observe(palette, { attributes: true, attributeFilter: ['hidden'] });
-  observer.observe(addForm, { attributes: true, attributeFilter: ['hidden'] });
-  observer.observe(kindSelect, { childList: true, attributes: true, attributeFilter: ['disabled'] });
-  syncTools();
+  setDrawingTools([]);
+  drawing.append(toolsHost, detailed);
   const compact = matchMedia('(max-width: 1050px)');
   function resetPanelLayout(narrow:boolean) {
     workspace.classList.toggle('left-collapsed', narrow);
@@ -555,4 +524,5 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
     last.querySelector<HTMLElement>('summary')?.focus();
     event.preventDefault();
   });
+  return { setDrawingTools };
 }
