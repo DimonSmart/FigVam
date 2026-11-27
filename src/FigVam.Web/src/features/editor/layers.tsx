@@ -1,3 +1,4 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
 import type { ReactElement } from 'react';
 import { flushSync } from 'react-dom';
 import { createViewModel } from '../../app/view-model';
@@ -227,7 +228,7 @@ export function createLayers({
     const active = () => layerSelectionEpoch === selectionEpoch && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
     op.state = 'pending'; if (active()) renderNodeMetadata();
     try {
-      const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
+      const result = await postDocumentCommand(request, doc, op.kind === 'name' ? 'set-node-name' : 'set-node-semantic-key', op.body, undefined, active);
       if (nodeOperations.get(key) !== op) return;
       accepted(result,doc,op.body.commandId);
       if (!active()) { op.state = 'uncertain'; return; }
@@ -243,7 +244,7 @@ export function createLayers({
       function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible(); }
     } catch (error) {
       if (nodeOperations.get(key) !== op) return;
-      if (!active() || !(error instanceof ApiError) || error.status >= 500) op.state = 'uncertain';
+      if (classifyCommandFailure(error, active(), false) === 'uncertain') op.state = 'uncertain';
       else {
         nodeOperations.delete(key);
         if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
@@ -281,7 +282,7 @@ export function createLayers({
     const active = () => screenEpoch === screenContextEpoch && nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
     op.state = 'pending'; renderNodeDeletion();
     try {
-      const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/delete-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
+      const result = await postDocumentCommand(request, op.doc, 'delete-node', op.body, undefined, active);
       if (!active()) { op.state = 'uncertain'; return; }
       accepted(result,op.doc,op.body.commandId);
       let synced = false;
@@ -289,7 +290,7 @@ export function createLayers({
       if (active() && synced) { nodeDeletions.delete(key); renderNodeDeletion(); }
       else op.state = 'uncertain';
     } catch (error) {
-      if (!active() || !(error instanceof ApiError) || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (classifyCommandFailure(error, active(), false) === 'uncertain') { op.state = 'uncertain'; return; }
       if (error instanceof ApiError && error.status === 403) { nodeDeletions.delete(key); closeInaccessibleDocument(403); return; }
       if (error.code === 'NODE_NOT_FOUND') {
         await runPageRefresh(signal => readCurrentPages(signal, active));
@@ -388,7 +389,7 @@ export function createLayers({
     const restoreFocus = element('layers').contains(document.activeElement) || document.activeElement === element('node-order-retry');
     op.state = 'pending'; renderNodeOrder();
     try {
-      const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/move-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
+      const result = await postDocumentCommand(request, op.doc, 'move-node', op.body, undefined, active);
       if (!active()) { op.state = 'uncertain'; return; }
       accepted(result,op.doc,op.body.commandId);
       const reveal = layerSelection?.id === op.body.nodeId ? op.reveal : [];
@@ -403,7 +404,7 @@ export function createLayers({
         }
       } else op.state = 'uncertain';
     } catch (error) {
-      if (!active() || !(error instanceof ApiError) || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (classifyCommandFailure(error, active()) === 'uncertain') { op.state = 'uncertain'; return; }
       if (error instanceof ApiError && error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
       const explanations:Record<string,string> = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',

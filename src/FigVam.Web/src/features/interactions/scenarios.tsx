@@ -1,3 +1,4 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import type { ApiClient } from '../../api/api-client';
@@ -322,7 +323,7 @@ export function createScenarios({
     const active = () => sameScreen(c) && operations.get(k) === op;
     op.state = 'pending'; render();
     try {
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(op.doc)+'/commands/'+op.kind+'-scenario',{method:'POST',body:JSON.stringify(op.body)}));
+      const result=requiredRecord(await postDocumentCommand(request,op.doc,`${op.kind}-scenario`,op.body));
       if (result.status !== 'ACCEPTED' || result.documentId !== op.doc || result.commandId !== op.body.commandId ||
           typeof result.revision!=='number'||!Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision)
         throw new TypeError('Некорректное подтверждение');
@@ -336,7 +337,7 @@ export function createScenarios({
       render(); next?.();
     } catch (error) {
       if (operations.get(k) !== op) return;
-      if (!active() || !(error instanceof ApiError) || !error.status || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (classifyCommandFailure(error, active()) === 'uncertain' || (error instanceof ApiError && !error.status)) { op.state = 'uncertain'; return; }
       operations.delete(k); leave = null; closeDialog();
       if (error.code === 'REVISION_CONFLICT') {
         await reloadPages(null, () => sameScreen(c));

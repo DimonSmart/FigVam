@@ -1,3 +1,4 @@
+import { postDocumentCommand } from '../../api/document-commands';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { NumberInput } from '../../ui/Inputs';
@@ -118,7 +119,7 @@ export function createScreenResize({ model, element, request, refreshPages, work
     const active = () => current === workspace.generation && workspace.documentId === id && workspace.token === requestToken && workspace.isEditorVisible();
     operation.state = 'pending'; renderScreenSize();
     try {
-      await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/resize-screen`, { method: 'POST', body: JSON.stringify(operation.body) });
+      await postDocumentCommand(request,id,'resize-screen',operation.body);
       if (resizeOperations.get(key) !== operation) return;
       if (!active()) { operation.state = 'uncertain'; return; }
       resizeOperations.delete(key); if (workspace.selectedScreen === screen) dirtyAxes.clear();

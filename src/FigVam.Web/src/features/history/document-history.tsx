@@ -1,3 +1,4 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
@@ -18,7 +19,7 @@ interface Version {id:string;name:string|null;authorId:string;timestamp:string;r
 interface ListState {versions:Version[];status:string;error:string;index:number;next:number|null;loading:boolean;loaded:boolean}
 const initial=():ListState=>({versions:[],status:'',error:'',index:0,next:null,loading:false,loaded:false});
 const blocked=(op:Operation|undefined)=>op?.state==='pending'||op?.state==='uncertain';
-const unknownResult=(error:unknown)=>!(error instanceof ApiError)||error.status>=500;
+const unknownResult=(error:unknown)=>classifyCommandFailure(error, true, false)==='uncertain';
 function number(value:unknown):number{if(typeof value!=='number'||!Number.isSafeInteger(value))throw new TypeError('Некорректная ревизия');return value;}
 function decodeVersion(value:unknown):Version{const v=requiredRecord(value);return{id:text(v.id),name:v.name==null?null:text(v.name),authorId:text(v.authorId),timestamp:text(v.timestamp),revision:number(v.revision)};}
 function VersionForm({operation,draft,setDraft}:{operation:SaveOperation|undefined;draft:string;setDraft(value:string):void}){
@@ -80,7 +81,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     if(operation?.state!=='uncertain'){operation={body:{commandId:crypto.randomUUID(),name:draft||null},state:'pending'};versionOperations.set(id,operation);}
     operation.state='pending';operation.error='';renderForm();
     try{
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/save',{method:'POST',body:JSON.stringify(operation.body)}));
+      const result=requiredRecord(await postDocumentCommand(request,id,'save',operation.body));
       operation.versionId=text(result.versionId);if(!operation.versionId)throw new TypeError('Отсутствует идентификатор версии');operation.state='success';
     }catch(error){const uncertain=unknownResult(error);operation.state=uncertain?'uncertain':'failed';operation.error=uncertain?'Не удалось подтвердить создание версии. Повторите эту операцию: она могла выполниться.':errorMessage(error);}
     if(versionOperations.get(id)===operation&&active(id,token,epoch)&&token){renderForm();if(operation.state==='success')void loadVersions();}
@@ -104,7 +105,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     const token=workspace.token,epoch=workspace.navigationEpoch,current=()=>active(id,token,epoch)&&workspace.isEditorVisible();
     operation.sending=true;operation.state='pending';operation.error='';renderAction();
     try{
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/'+operation.action,{method:'POST',body:JSON.stringify({commandId:operation.commandId})}));
+      const result=requiredRecord(await postDocumentCommand(request,id,operation.action,{commandId:operation.commandId}));
       if(!Number.isSafeInteger(result.revision)||text(result.commandId).toLowerCase()!==operation.commandId.toLowerCase()||text(result.documentId).toLowerCase()!==id.toLowerCase())throw new TypeError('Некорректное подтверждение');
       if(historyActions.get(id)!==operation)return;
       if(!current()){operation.state='uncertain';operation.error='Результат изменился после перехода. Повторите ту же команду для подтверждения.';return;}
@@ -152,7 +153,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
   async function submitRestore(id:string,op:RestoreOperation){
     const token=workspace.token,epoch=workspace.navigationEpoch;op.state='pending';op.error='';if(workspace.documentId===id)renderList();
     try{
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/restore',{method:'POST',body:JSON.stringify(op.body)}));
+      const result=requiredRecord(await postDocumentCommand(request,id,'restore',op.body));
       number(result.revision);op.state='success';
     }catch(error){
       const uncertain=unknownResult(error);op.state=uncertain?'uncertain':'failed';

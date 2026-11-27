@@ -1,3 +1,4 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, text, aborted, errorMessage } from '../../api/decode';
@@ -479,7 +480,7 @@ export function createVisualNodeEditor({
       input('asset-upload-file').value = '';
       op.draft.uploadStatus = 'Изображение загружено. Выберите его в поле «Ассет».';
     } catch (error) {
-      if(!current()||!(error instanceof ApiError)||error.status===408||error.status>=500) op.state = 'uncertain';
+      if(classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
       else {
         uploads.delete(op.documentId);
         if (error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
@@ -585,7 +586,7 @@ export function createVisualNodeEditor({
     if (getContext().documentId === op.documentId) stopLive();
     let confirmed = false;
     try {
-      const result=requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(op.documentId)}/commands/${op.command}`,{method:'POST',body:JSON.stringify(op.body)},undefined,current));
+      const result=requiredRecord(await postDocumentCommand(request,op.documentId,op.command,op.body,undefined,current));
       if (!current() || result.status !== 'ACCEPTED' || text(result.documentId).toLowerCase() !== op.documentId.toLowerCase() ||
         result.commandId !== op.body.commandId || result.nodeId !== op.body.nodeId || typeof result.revision!=='number'||!Number.isSafeInteger(result.revision)) {
         op.state = 'uncertain';
@@ -625,7 +626,7 @@ export function createVisualNodeEditor({
       op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
       if (scopeKey(getContext()) === op.key && (!op.auto || resolvedModelKey === modelKey)) render();
     } catch (error) {
-      if(!current()||!(error instanceof ApiError)||error.status===408||error.status>=500) op.state = 'uncertain';
+      if(classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
       else {
         operations.delete(op.key);
         if (error.code === 'DOCUMENT_NOT_FOUND') {

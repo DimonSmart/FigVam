@@ -1,3 +1,4 @@
+import { createCommandBody, postDocumentCommand } from '../api/document-commands';
 import type { ApiClient } from '../api/api-client';
 import type { components } from '../api/schema.generated';
 
@@ -15,6 +16,5 @@ export interface PageCommandData {
 export function postPageCommand<K extends keyof PageCommandData>(
   request: ApiClient, documentId: string, command: K, data: PageCommandData[K], signal: AbortSignal,
 ): Promise<unknown> {
-  return request('/api/v1/documents/' + encodeURIComponent(documentId) + '/commands/' + command,
-    { method: 'POST', body: JSON.stringify({ ...data, commandId: crypto.randomUUID() }) }, signal);
+  return postDocumentCommand(request, documentId, command, createCommandBody(data), signal);
 }
