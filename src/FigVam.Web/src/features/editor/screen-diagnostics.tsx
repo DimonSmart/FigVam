@@ -1,6 +1,5 @@
 import { InlineError, StatusMessage } from '../../ui/Feedback';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import type { components } from '../../api/schema.generated';
 import type { ApiClient } from '../../api/api-client';
@@ -29,19 +28,17 @@ function Diagnostics({state, previous, next, reload}: {state: State; previous():
     </div>
   </>;
 }
-export function createScreenDiagnostics({element, request, getContext, pageSize}: {
-  element(id: string): HTMLElement; request: ApiClient; getContext(): Context; pageSize: number;
+export function createScreenDiagnosticsModel(){return createViewModel(Diagnostics);}
+export function createScreenDiagnostics({model, element, request, getContext, pageSize}: {
+  model:ReturnType<typeof createScreenDiagnosticsModel>; element(id: string): HTMLElement; request: ApiClient; getContext(): Context; pageSize: number;
 }) {
-  const section = element('diagnostics-title').closest('section');
-  if (!section) throw new Error('Diagnostics host missing');
-  const root = createPanelRoot(section);
   let controller: AbortController | null = null, generation = 0, offset = 0, total = 0, key: string | null = null;
   const initial = (): State => ({ status: 'Выберите экран.', error: '', items: [], offset: 0, total: 0, retry: false });
   let state = initial();
   function render(next: State) {
     state = next;
-    flushSync(() => root.render(<Diagnostics state={state} previous={() => {offset = Math.max(0, offset - pageSize); void load();}}
-      next={() => {if (offset + pageSize < total) {offset += pageSize; void load();}}} reload={() => void load()} />));
+    model.publish({state,previous:()=>{offset=Math.max(0,offset-pageSize);void load();},
+      next:()=>{if(offset+pageSize<total){offset+=pageSize;void load();}},reload:()=>void load()});
   }
   function reset() {
     controller?.abort(); controller = null; generation++; offset = total = 0; key = null; render(initial());

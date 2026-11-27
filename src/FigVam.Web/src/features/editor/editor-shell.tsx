@@ -272,25 +272,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="menu-body">
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Совместная работа"}</h3>
-                <section id="member-management" aria-labelledby="members-title" hidden>
-                  <h2 id="members-title">{"Управление участниками"}</h2>
-                  <p>{"Укажите разрешённого пользователя по email (либо его ID)."}</p>
-                  <form id="member-form">
-                    <label htmlFor="member-id">{"ID участника"}</label>
-                    <input id="member-id" list="member-options" required maxLength={256} autoComplete="off"/>
-                    <datalist id="member-options"/>
-                    <label htmlFor="member-role">{"Роль участника"}</label>
-                    <select id="member-role">
-                      <option value="Owner">{"Owner"}</option>
-                      <option value="Editor">{"Editor"}</option>
-                      <option value="Viewer">{"Viewer"}</option>
-                    </select>
-                    <button type="submit">{"Назначить роль"}</button>
-                    <button id="member-remove" type="button">{"Удалить участника"}</button>
-                  </form>
-                  <p id="member-status" role="status" aria-live="polite"/>
-                  <p id="member-error" role="alert"/>
-                </section>
+                <views.members.Component/>
                 <section aria-labelledby="presence-title">
                   <p className="visually-hidden">{"Настройки присутствия"}</p>
                   <h2 id="presence-title">{"Участники в документе"}</h2>
@@ -305,7 +287,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           </details>
           <details className="editor-menu mcp-menu" id="mcp-access-menu">
             <summary className="menu-trigger">{"MCP-доступ"}</summary>
-            <div className="menu-body" id="mcp-access-body"/>
+            <div className="menu-body" id="mcp-access-body"><views.mcp.Component/></div>
           </details>
           <details className="editor-menu document-menu">
             <summary className="menu-trigger">{"Файл"}</summary>
@@ -334,29 +316,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Версии"}</h3>
-                <form id="version-save" hidden>
-                  <label htmlFor="version-name">{"Имя версии (необязательно)"}</label>
-                  <input id="version-name" maxLength={256} autoComplete="off"/>
-                  <button type="submit">{"Создать версию"}</button>
-                  <p id="version-result" role="status" aria-live="polite"/>
-                  <p id="version-error" role="alert"/>
-                </form>
-                <section aria-labelledby="versions-title">
-                  <h2 id="versions-title">{"Сохранённые версии"}</h2>
-                  <p>{"Текущий общий черновик показан в редакторе; сохранённые версии остаются неизменными."}</p>
-                  <button id="versions-refresh" type="button">{"Обновить историю"}</button>
-                  <p id="versions-status" role="status" aria-live="polite"/>
-                  <p id="versions-error" role="alert"/>
-                  <ul id="versions-list" aria-label="История сохранённых версий"/>
-                  <nav className="pagination" aria-label="Навигация по истории версий">
-                    <button id="versions-previous" type="button">{"Предыдущие версии"}</button>
-                    <span id="versions-number"/>
-                    <button id="versions-next" type="button">{"Следующие версии"}</button>
-                  </nav>
-                  <p id="restore-status" role="status" aria-live="polite"/>
-                  <p id="restore-error" role="alert"/>
-                  <button id="restore-retry" type="button" hidden>{"Повторить восстановление"}</button>
-                </section>
+                <views.history.form.Component/>
+                <section aria-labelledby="versions-title"><views.history.list.Component/></section>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"История команд"}</h3>
@@ -435,43 +396,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </div>
             </div>
             <div className="components-page panel-page" id="shell-components" role="tabpanel" aria-labelledby="tab-components" hidden={leftTab!=="components"}>
-              <section aria-labelledby="components-title">
-                <h2 id="components-title">{"Каталог компонентов"}</h2>
-                <form id="components-search">
-                  <label htmlFor="components-query">{"Поиск компонентов"}</label>
-                  <input id="components-query" maxLength={256}/>
-                  <button type="submit">{"Найти компоненты"}</button>
-                </form>
-                <p id="components-status" role="status" aria-live="polite"/>
-                <p id="components-error" role="alert"/>
-                <button id="components-retry" type="button" hidden>{"Повторить загрузку каталога"}</button>
-                <ul id="components-list" aria-label="Компоненты документа"/>
-                <nav className="pagination" aria-label="Навигация по компонентам">
-                  <button id="components-previous" type="button">{"Предыдущие компоненты"}</button>
-                  <span id="components-number"/>
-                  <button id="components-next" type="button">{"Следующие компоненты"}</button>
-                </nav>
-                <div id="component-detail" hidden>
-                  <h3 id="component-title"/>
-                  <p id="component-description"/>
-                  <h4>{"Параметры"}</h4>
-                  <ul id="component-parameters"/>
-                  <h4>{"Слоты"}</h4>
-                  <ul id="component-slots"/>
-                  <h4>{"Варианты"}</h4>
-                  <ul id="component-variants"/>
-                  <h4>{"Использования"}</h4>
-                  <p id="component-usages-status" role="status" aria-live="polite"/>
-                  <p id="component-usages-error" role="alert"/>
-                  <button id="component-usages-retry" type="button" hidden>{"Повторить загрузку компонента"}</button>
-                  <ul id="component-usages" aria-label="Использования компонента"/>
-                  <nav className="pagination" aria-label="Навигация по использованиям">
-                    <button id="usages-previous" type="button">{"Предыдущие использования"}</button>
-                    <span id="usages-number"/>
-                    <button id="usages-next" type="button">{"Следующие использования"}</button>
-                  </nav>
-                </div>
-              </section>
+              <section aria-labelledby="components-title"><views.components.Component/></section>
             </div>
             <div className="assets-page panel-page" id="shell-assets" role="tabpanel" aria-labelledby="tab-assets" hidden={leftTab!=="assets"}>
               <section className="editor-group">
@@ -488,51 +413,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <p id="asset-upload-error" role="alert"/>
                 <button id="asset-upload-retry" type="button" hidden>{"Повторить загрузку изображения"}</button>
               </section>
-              <section aria-labelledby="datasets-title">
-                <h2 id="datasets-title">{"Локальные датасеты"}</h2>
-                <p id="datasets-status" role="status" aria-live="polite"/>
-                <p id="datasets-error" role="alert"/>
-                <button id="datasets-retry" type="button" hidden>{"Повторить загрузку датасетов"}</button>
-                <ul id="datasets-list" aria-label="Датасеты документа"/>
-                <nav className="pagination" aria-label="Навигация по датасетам">
-                  <button id="datasets-previous" type="button">{"Предыдущие датасеты"}</button>
-                  <span id="datasets-number"/>
-                  <button id="datasets-next" type="button">{"Следующие датасеты"}</button>
-                </nav>
-                <div id="dataset-detail" hidden>
-                  <h3 id="dataset-title"/>
-                  <p>{"Сохранённая JSON-фикстура:"}</p>
-                  <pre id="dataset-fixture" tabIndex={0}/>
-                </div>
-                <div id="dataset-edit" hidden>
-                  <form id="dataset-create">
-                    <h3>{"Новый датасет"}</h3>
-                    <label htmlFor="dataset-name">{"Имя датасета"}</label>
-                    <input id="dataset-name" required maxLength={256}/>
-                    <label htmlFor="dataset-create-format">{"Формат нового снимка"}</label>
-                    <select id="dataset-create-format">
-                      <option value="json">{"JSON"}</option>
-                      <option value="csv">{"CSV"}</option>
-                    </select>
-                    <label htmlFor="dataset-create-content">{"Содержимое нового снимка"}</label>
-                    <textarea id="dataset-create-content" required/>
-                    <button type="submit">{"Создать датасет"}</button>
-                  </form>
-                  <form id="dataset-replace" hidden>
-                    <h3>{"Заменить фикстуру"}</h3>
-                    <label htmlFor="dataset-replace-format">{"Формат замены"}</label>
-                    <select id="dataset-replace-format">
-                      <option value="json">{"JSON"}</option>
-                      <option value="csv">{"CSV"}</option>
-                    </select>
-                    <label htmlFor="dataset-replace-content">{"Содержимое замены"}</label>
-                    <textarea id="dataset-replace-content" required/>
-                    <button type="submit">{"Заменить фикстуру"}</button>
-                  </form>
-                  <button id="dataset-delete" type="button" hidden>{"Удалить датасет"}</button>
-                </div>
-                <button id="dataset-command-retry" type="button" hidden>{"Повторить операцию с датасетом"}</button>
-              </section>
+              <section aria-labelledby="datasets-title"><views.datasets.Component/></section>
               <section className="editor-group">
                 <div id="styles-panel">
                   <h3>{"Стили оформления"}</h3>
@@ -560,24 +441,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                   <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"/>
                 </div>
               </section>
-              <section aria-labelledby="screen-variants-title">
-                <h2 id="screen-variants-title">{"Варианты выбранного экрана"}</h2>
-                <p id="screen-variants-status" role="status" aria-live="polite">{"Выберите экран."}</p>
-                <p id="screen-variants-error" role="alert"/>
-                <button id="screen-variants-retry" type="button" hidden>{"Повторить загрузку вариантов"}</button>
-                <ul id="screen-variants-list" aria-label="Варианты экрана"/>
-                <nav className="pagination" aria-label="Навигация по вариантам экрана">
-                  <button id="screen-variants-previous" type="button">{"Предыдущие варианты"}</button>
-                  <span id="screen-variants-number"/>
-                  <button id="screen-variants-next" type="button">{"Следующие варианты"}</button>
-                </nav>
-                <form id="screen-variant-create" hidden>
-                  <label htmlFor="screen-variant-name">{"Имя нового варианта"}</label>
-                  <input id="screen-variant-name" maxLength={256} required/>
-                  <button type="submit">{"Создать пустой вариант"}</button>
-                </form>
-                <button id="screen-variant-command-retry" type="button" hidden>{"Повторить создание варианта"}</button>
-              </section>
+              <section aria-labelledby="screen-variants-title"><views.screenVariants.Component/></section>
             </div>
           </div>
         </aside>
@@ -676,19 +540,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 </form>
                 <button id="node-metadata-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
               </div>
-              <section aria-labelledby="screen-size-title">
-                <h2 id="screen-size-title">{"Размер экрана"}</h2>
-                <p id="screen-size-saved">{"Выберите экран."}</p>
-                <form id="screen-resize" hidden noValidate>
-                  <label htmlFor="resize-width">{"Ширина выбранного экрана"}</label>
-                  <input id="resize-width" type="number" min="0" step="any" required/>
-                  <label htmlFor="resize-height">{"Высота выбранного экрана"}</label>
-                  <input id="resize-height" type="number" min="0" step="any" required/>
-                  <button id="resize-retry" type="button" hidden>{"Повторить команду"}</button>
-                </form>
-                <p id="screen-size-status" role="status" aria-live="polite"/>
-                <p id="screen-size-error" role="alert"/>
-              </section>
+              <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
             <div className="prototype-page panel-page" id="shell-prototype" role="tabpanel" aria-labelledby="tab-prototype" hidden={rightTab!=="prototype"}>
               <section aria-labelledby="scenarios-title">
@@ -739,18 +591,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
             </div>
             <div className="diagnostics-page panel-page" id="shell-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden={rightTab!=="diagnostics"}>
-              <section aria-labelledby="diagnostics-title">
-                <h2 id="diagnostics-title">{"Диагностика экрана"}</h2>
-                <p id="diagnostics-status" role="status" aria-live="polite">{"Выберите экран."}</p>
-                <p id="diagnostics-error" role="alert"/>
-                <button id="diagnostics-retry" type="button" hidden>{"Повторить загрузку диагностики"}</button>
-                <ul id="diagnostics-list" aria-label="Диагностика выбранного экрана"/>
-                <div role="group" aria-label="Страницы диагностики">
-                  <button id="diagnostics-previous" type="button" disabled>{"Предыдущие диагностики"}</button>
-                  <span id="diagnostics-number"/>
-                  <button id="diagnostics-next" type="button" disabled>{"Следующие диагностики"}</button>
-                </div>
-              </section>
+              <section aria-labelledby="diagnostics-title"><views.diagnostics.Component/></section>
             </div>
           </div>
         </aside>

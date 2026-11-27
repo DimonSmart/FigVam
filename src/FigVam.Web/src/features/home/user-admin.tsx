@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { authHeaders, credentialsMode } from '../../api/auth-client';
 import { Button } from '../../ui/Button';
 
@@ -75,13 +74,16 @@ function UserAdmin({ users, feedback, invite, save }: Props) {
   </>;
 }
 
-export function createUserAdmin(element: (id: string) => HTMLElement) {
-  const section = element('user-admin');
-  const root = createPanelRoot(section);
+function UserAdminView({visible,epoch,...props}:{visible:boolean;epoch:number}&Parameters<typeof UserAdmin>[0]){
+  return <section id="user-admin" hidden={!visible} aria-labelledby="user-admin-title"><UserAdmin key={epoch} {...props}/></section>;
+}
+export function createUserAdminModel(){return createViewModel(UserAdminView);}
+export function createUserAdmin(model:ReturnType<typeof createUserAdminModel>) {
+  let visible=false;
   let controller: AbortController | null = null;
   let users: User[] = [], feedback = '';
   let epoch = 0;
-  const render = () => flushSync(() => root.render(<UserAdmin key={epoch} users={users} feedback={feedback} invite={invite} save={save} />));
+  const render=()=>model.publish({visible,epoch,users,feedback,invite,save});
   const active = (current: AbortController) => controller === current && !current.signal.aborted;
   async function refresh(current: AbortController) {
     if (!active(current)) return;
@@ -119,7 +121,7 @@ export function createUserAdmin(element: (id: string) => HTMLElement) {
     catch (error) { if (active(current)) { feedback = errorMessage(error); render(); } }
   }
   function hide() {
-    controller?.abort(); controller = null; section.hidden = true;
+    controller?.abort(); controller = null; visible=false;
     users = []; feedback = ''; epoch++; render();
   }
   render();
@@ -127,7 +129,7 @@ export function createUserAdmin(element: (id: string) => HTMLElement) {
     async show(isAdmin: boolean) {
       hide();
       if (!isAdmin) return;
-      section.hidden = false;
+      visible=true;render();
       const current = new AbortController(); controller = current;
       try { await refresh(current); }
       catch (error) { if (active(current)) { feedback = errorMessage(error); render(); } }

@@ -1,6 +1,5 @@
 import { InlineError, StatusMessage } from '../../ui/Feedback';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { ApiError, type ApiClient } from '../../api/api-client';
 import { requiredRecord, text, array, errorMessage, aborted } from '../../api/decode';
@@ -14,7 +13,7 @@ interface SaveOperation extends Operation {body:Schema['SaveDocumentRequest'];ve
 interface RestoreOperation extends Operation {body:Schema['RestoreDocumentRequest']}
 interface HistoryOperation extends Operation {action:Action;commandId:string;sending?:boolean}
 interface Workspace {documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
-interface Options {element(id:string):HTMLElement;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
+interface Options {models:ReturnType<typeof createDocumentHistoryModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
 interface Version {id:string;name:string|null;authorId:string;timestamp:string;revision:number}
 interface ListState {versions:Version[];status:string;error:string;index:number;next:number|null;loading:boolean;loaded:boolean}
 const initial=():ListState=>({versions:[],status:'',error:'',index:0,next:null,loading:false,loaded:false});
@@ -50,26 +49,28 @@ function VersionList({state,operation,canEdit,restore,refresh,previous,next,retr
     <Button id="restore-retry" hidden={!canEdit||operation?.state!=='uncertain'} onClick={retry}>Повторить восстановление</Button>
   </>;
 }
-export function createDocumentHistory({element,request,pageSize,refreshPages,workspace}:Options){
+function VersionSaveView({visible,save,...props}:{visible:boolean;save():void}&Parameters<typeof VersionForm>[0]){
+  return <form id="version-save" hidden={!visible} onSubmit={event=>{event.preventDefault();save();}}><VersionForm {...props}/></form>;
+}
+export function createDocumentHistoryModels(){return {form:createViewModel(VersionSaveView),list:createViewModel(VersionList)};}
+export function createDocumentHistory({models,element,request,pageSize,refreshPages,workspace}:Options){
   const versionOperations=new Map<string,SaveOperation>(),restoreOperations=new Map<string,RestoreOperation>(),historyActions=new Map<string,HistoryOperation>();
-  const form=element('version-save'),section=element('versions-title').closest('section');
-  if(!section)throw new Error('Missing version history host');
-  const formRoot=createPanelRoot(form),listRoot=createPanelRoot(section);
+  let visible=false;
   let state=initial(),draft='',generation=0,controller:AbortController|null=null,cursors:(number|null)[]=[null];
   const canEdit=()=>['Owner','Editor'].includes(workspace.documentRole??'');
   const get=<T,>(map:Map<string,T>):T|undefined=>workspace.documentId?map.get(workspace.documentId):undefined;
   const active=(id:string,token:string|null,epoch:number)=>workspace.documentId===id&&workspace.token===token&&workspace.navigationEpoch===epoch;
   function renderForm(){
     const operation=get(versionOperations);
-    flushSync(()=>formRoot.render(<VersionForm operation={operation} draft={draft} setDraft={value=>{draft=value;renderForm();}}/>));
+    models.form.publish({visible,operation,draft,setDraft:value=>{draft=value;renderForm();},save:()=>void save()});
   }
   function renderList(patch:Partial<ListState>={}){
     state={...state,...patch};
     const operation=get(restoreOperations);
-    flushSync(()=>listRoot.render(<VersionList state={state} operation={operation} canEdit={canEdit()} restore={beginRestore}
-      refresh={()=>void loadVersions()} previous={()=>{if(state.index>0)void loadVersions(state.index-1,cursors[state.index-1]??null);}}
-      next={()=>{if(state.next!==null)void loadVersions(state.index+1,state.next);}}
-      retry={()=>{if(workspace.documentId&&operation?.state==='uncertain'&&canEdit())void submitRestore(workspace.documentId,operation);}}/>));
+    models.list.publish({state,operation,canEdit:canEdit(),restore:beginRestore,
+      refresh:()=>void loadVersions(),previous:()=>{if(state.index>0)void loadVersions(state.index-1,cursors[state.index-1]??null);},
+      next:()=>{if(state.next!==null)void loadVersions(state.index+1,state.next);},
+      retry:()=>{if(workspace.documentId&&operation?.state==='uncertain'&&canEdit())void submitRestore(workspace.documentId,operation);}});
   }
   async function save(){
     const id=workspace.documentId,token=workspace.token,epoch=workspace.navigationEpoch;
@@ -84,7 +85,6 @@ export function createDocumentHistory({element,request,pageSize,refreshPages,wor
     }catch(error){const uncertain=unknownResult(error);operation.state=uncertain?'uncertain':'failed';operation.error=uncertain?'Не удалось подтвердить создание версии. Повторите эту операцию: она могла выполниться.':errorMessage(error);}
     if(versionOperations.get(id)===operation&&active(id,token,epoch)&&token){renderForm();if(operation.state==='success')void loadVersions();}
   }
-  form.addEventListener('submit',e=>{e.preventDefault();void save();});
   function button(id:string):HTMLButtonElement{const b=element(id);if(!(b instanceof HTMLButtonElement))throw new Error('Missing history button '+id);return b;}
   function renderAction(){
     const op=get(historyActions),writable=canEdit();
@@ -127,7 +127,7 @@ export function createDocumentHistory({element,request,pageSize,refreshPages,wor
     event.preventDefault();beginAction(action);
   });
   function reset(){
-    controller?.abort();controller=null;generation++;form.hidden=true;cursors=[null];state=initial();draft='';renderForm();renderList();
+    controller?.abort();controller=null;generation++;visible=false;cursors=[null];state=initial();draft='';renderForm();renderList();
   }
   async function loadVersions(index=0,cursor:number|null=null){
     const id=workspace.documentId,token=workspace.token,epoch=workspace.navigationEpoch;if(!id||!token)return;
@@ -162,7 +162,7 @@ export function createDocumentHistory({element,request,pageSize,refreshPages,wor
     renderList();if(op.state==='success'&&!element('editor-view').hidden){await refreshPages();if(active(id,token,epoch)&&!element('editor-view').hidden)void loadVersions();}
   }
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
-  function prepare(){form.hidden=!canEdit();draft=get(versionOperations)?.body.name??'';renderForm();}
+  function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();}
   function load(){renderList();renderAction();return loadVersions();}
   renderForm();renderList();return {reset,clearCommands,prepare,load};
 }

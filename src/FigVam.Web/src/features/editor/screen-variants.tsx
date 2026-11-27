@@ -1,7 +1,6 @@
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
 import { ApiError, type ApiClient } from '../../api/api-client';
@@ -10,7 +9,7 @@ import type { components } from '../../api/schema.generated';
 type VariantCommand=components['schemas']['AddScreenVariantRequest'];
 interface Variant {id:string;name:string}
 interface Workspace {documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;catalogRevision:number|null;token:string|null;navigationEpoch:number}
-interface Options {element(id:string):HTMLElement;request:ApiClient;refreshPages():Promise<unknown>;onSelectionChanged?():void;pageSize:number;workspace:Workspace}
+interface Options {model:ReturnType<typeof createScreenVariantsModel>;element(id:string):HTMLElement;request:ApiClient;refreshPages():Promise<unknown>;onSelectionChanged?():void;pageSize:number;workspace:Workspace}
 interface Operation {body:VariantCommand;state:'ready'|'pending'|'uncertain'}
 interface State {items:Variant[];status:string;error:string;retry:boolean;offset:number;total:number;formKey:number;hasBase:boolean}
 const initial=():State=>({items:[],status:'Выберите экран.',error:'',retry:false,offset:0,total:0,formKey:0,hasBase:false});
@@ -29,9 +28,9 @@ function View({state,selected,editable,enabled,op,pageSize,select,create,retry,r
     </form><Button id="screen-variant-command-retry" hidden={!editable||op?.state!=='uncertain'} onClick={retryCommand}>Повторить создание варианта</Button>
   </>;
 }
-export function createScreenVariants({element,request,refreshPages,onSelectionChanged,pageSize,workspace}:Options){
-  const host=element('screen-variants-title').closest('section');if(!host)throw new Error('Missing screen variants host');
-  const root=createPanelRoot(host),operations=new Map<string,Operation>();
+export function createScreenVariantsModel(){return createViewModel(View);}
+export function createScreenVariants({model,element,request,refreshPages,onSelectionChanged,pageSize,workspace}:Options){
+  const operations=new Map<string,Operation>();
   let state=initial(),generation=0,screenId:string|null=null,selected:string|null=null,commandError:{key:string;message:string}|null=null;
   const key=(doc:string|null,screen:string|null)=>doc+'/'+screen;
   const currentKey=()=>key(workspace.documentId,workspace.selectedScreen);
@@ -39,9 +38,9 @@ export function createScreenVariants({element,request,refreshPages,onSelectionCh
   function render(patch:Partial<State>={}){
     state={...state,...patch};
     const op=operations.get(currentKey()),error=op?.state==='uncertain'?'Результат создания неизвестен. Повторите ту же команду.':commandError?.key===currentKey()?commandError.message:state.error;
-    flushSync(()=>root.render(<View state={{...state,error}} selected={selected} editable={canEdit()} enabled={!!workspace.selectedScreen} op={op} pageSize={pageSize}
-      select={selectVariant} create={name=>void create(name)} retry={()=>void load()} retryCommand={()=>{const doc=workspace.documentId,screen=workspace.selectedScreen;if(doc&&screen&&op?.state==='uncertain')void send(doc,screen,op);}}
-      move={delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();}}/>));
+    model.publish({state:{...state,error},selected,editable:canEdit(),enabled:!!workspace.selectedScreen,op,pageSize,
+      select:selectVariant,create:name=>void create(name),retry:()=>void load(),retryCommand:()=>{const doc=workspace.documentId,screen=workspace.selectedScreen;if(doc&&screen&&op?.state==='uncertain')void send(doc,screen,op);},
+      move:delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();}});
   }
   function selectVariant(id:string|null){if(id===selected)return;selected=id;render();onSelectionChanged?.();}
   function reset(){generation++;screenId=null;commandError=null;state={...initial(),formKey:state.formKey+1};if(selected!==null)selectVariant(null);else render();}

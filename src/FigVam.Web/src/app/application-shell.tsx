@@ -101,7 +101,7 @@ export function ApplicationShell({shell,views}:{shell:EditorShellController;view
                   <p className="home-description">{"Управление доступом к FigVam"}</p>
                 </div>
               </div>
-              <section id="user-admin" hidden aria-labelledby="user-admin-title"/>
+              <views.userAdmin.Component/>
             </section>
           </div>
         </div>

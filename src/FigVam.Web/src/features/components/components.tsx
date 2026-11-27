@@ -1,7 +1,6 @@
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
 import { requiredRecord, text, array, page, errorMessage, aborted } from '../../api/decode';
@@ -48,16 +47,16 @@ function View({state,pageSize,search,select,load,move,moveUsage,resetKey}:{state
     </div>
   </>;
 }
-export function createComponents({element,request,pageSize,getContext}:{element(id:string):HTMLElement;request:ApiClient;pageSize:number;getContext():Context}) {
-  const host=element('components-title').closest('section');if(!host)throw new Error('Components host missing');
-  const root=createPanelRoot(host);let state=initial(),generation=0,query='',resetKey=0;
+export function createComponentsModel(){return createViewModel(View);}
+export function createComponents({model,request,pageSize,getContext}:{model:ReturnType<typeof createComponentsModel>;request:ApiClient;pageSize:number;getContext():Context}) {
+  let state=initial(),generation=0,query='',resetKey=0;
   function render(patch:Partial<State>={}) {
     state={...state,...patch};
-    flushSync(()=>root.render(<View state={state} pageSize={pageSize} resetKey={resetKey} load={()=>void load()}
-      search={value=>{query=value;render({offset:0,selection:null,usageOffset:0});void load();}}
-      select={id=>{render({selection:id,usageOffset:0});void load();}}
-      move={delta=>{render({offset:Math.max(0,state.offset+delta*pageSize)});void load();}}
-      moveUsage={delta=>{render({usageOffset:Math.max(0,state.usageOffset+delta*pageSize)});void load();}}/>));
+    model.publish({state,pageSize,resetKey,load:()=>void load(),
+      search:value=>{query=value;render({offset:0,selection:null,usageOffset:0});void load();},
+      select:id=>{render({selection:id,usageOffset:0});void load();},
+      move:delta=>{render({offset:Math.max(0,state.offset+delta*pageSize)});void load();},
+      moveUsage:delta=>{render({usageOffset:Math.max(0,state.usageOffset+delta*pageSize)});void load();}});
   }
   function reset(){generation++;query='';resetKey++;state=initial();render();}
   async function load():Promise<void> {

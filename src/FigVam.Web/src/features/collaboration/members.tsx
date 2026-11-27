@@ -1,7 +1,6 @@
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { useRef } from 'react';
 import { Button } from '../../ui/Button';
 import { ApiError, type ApiClient } from '../../api/api-client';
@@ -9,6 +8,7 @@ import { requiredRecord, aborted, errorMessage } from '../../api/decode';
 type Role='Owner'|'Editor'|'Viewer';
 interface Workspace {documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
 interface Options {
+  model:ReturnType<typeof createMembersModel>;
   element(id:string):HTMLElement;request:ApiClient;findRole(id:string,signal:AbortSignal):Promise<string|null>;
   openDocument(id:string):Promise<unknown>;loadList():Promise<unknown>;message(status?:string,error?:string):void;
   stopLive():void;startLive():void;workspace:Workspace;
@@ -29,11 +29,15 @@ function MemberForm({state,change}:{state:State;change(remove:boolean,id:string,
     </form><StatusMessage id="member-status">{state.status}</StatusMessage><InlineError id="member-error">{state.error}</InlineError>
   </>;
 }
-export function createMembers({element,request,findRole,openDocument,loadList,message,stopLive,startLive,workspace}:Options){
-  const host=element('member-management'),root=createPanelRoot(host);
+function MembersView({visible,state,change}:{visible:boolean}&Parameters<typeof MemberForm>[0]){
+  return <section id="member-management" aria-labelledby="members-title" hidden={!visible}><MemberForm state={state} change={change}/></section>;
+}
+export function createMembersModel(){return createViewModel(MembersView);}
+export function createMembers({model,element,request,findRole,openDocument,loadList,message,stopLive,startLive,workspace}:Options){
+  let visible=false;
   let controller:AbortController|null=null,state:State={busy:false,status:'',error:'',resetKey:0};
-  function render(patch:Partial<State>={}){state={...state,...patch};flushSync(()=>root.render(<MemberForm state={state} change={(remove,id,role)=>void changeMember(remove,id,role)}/>));}
-  function reset(){controller?.abort();controller=null;host.hidden=true;render({busy:false,status:'',error:'',resetKey:state.resetKey+1});}
+  function render(patch:Partial<State>={}){state={...state,...patch};model.publish({visible,state,change:(remove,id,role)=>void changeMember(remove,id,role)});}
+  function reset(){controller?.abort();controller=null;visible=false;render({busy:false,status:'',error:'',resetKey:state.resetKey+1});}
   async function changeMember(remove:boolean,memberId:string,role:string){
     if(controller||workspace.documentRole!=='Owner'||!workspace.token||!workspace.documentId||element('editor-view').hidden)return;
     render({status:'',error:''});
@@ -68,5 +72,5 @@ export function createMembers({element,request,findRole,openDocument,loadList,me
       render({status:'',error:code==='LAST_OWNER'?'Нельзя удалить последнего Owner или изменить его роль.':status===400||code==='INVALID_MEMBER'?'Некорректный ID участника или роль. Проверьте введённые данные.':status===403?'Нет прав управлять участниками документа.':errorMessage(error)});
     }finally{if(active()){controller=null;render({busy:false});startLive();}}
   }
-  render();return{reset,prepare(role:string|null){host.hidden=role!=='Owner';}};
+  render();return{reset,prepare(role:string|null){visible=role==='Owner';render();}};
 }

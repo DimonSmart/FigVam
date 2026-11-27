@@ -56,7 +56,7 @@ mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views
 const authenticationView = createAuthenticationView(views.authentication, submitBearerToken);
 const documentListView = createDocumentListView(views.documentList, deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(views.homeNavigation, selectHomeView);
-const userAdmin = createUserAdmin(element);
+const userAdmin = createUserAdmin(views.userAdmin);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
   element('home-documents-content').hidden = users;
@@ -94,11 +94,11 @@ const request: ApiClient = createApiClient({
   }
 });
 
-const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({
+const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
   element, request, pageSize,
   getContext: () => ({ documentId, screen: selectedScreen, revision: revisions.revision, token, navigationEpoch })
 });
-const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
+const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
@@ -111,7 +111,7 @@ const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
 const mcpContext = () => ({ documentId, token, navigationEpoch, role: documentRole, theme: visualScreens.currentTheme });
-const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
+const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
@@ -151,10 +151,10 @@ const styles: ReturnType<typeof createStyles> = createStyles({
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
-  element, request, pageSize,
+  model: views.components, request, pageSize,
   getContext: () => ({ documentId, revision: revisions.revision, catalogRevision: revisions.catalogRevision })
 });
-const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVariants({
+const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVariants({ model: views.screenVariants,
   element, request, refreshPages: () => refreshPages(),
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
@@ -165,7 +165,7 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
   }
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
-  element, request, pageSize,
+  model: views.datasets, request, pageSize,
   getContext: () => ({ documentId, documentRole, revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
@@ -244,7 +244,7 @@ function clearSession() {
   message();
 }
 
-const members: ReturnType<typeof createMembers> = createMembers({
+const members: ReturnType<typeof createMembers> = createMembers({ model: views.members,
   element, request, findRole, openDocument, loadList, message, stopLive, startLive,
   workspace: {
     get documentId() { return documentId; },
@@ -254,7 +254,7 @@ const members: ReturnType<typeof createMembers> = createMembers({
   }
 });
 
-const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({
+const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
   element, request, pageSize, refreshPages,
   workspace: {
     get documentId() { return documentId; },
