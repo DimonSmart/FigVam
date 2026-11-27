@@ -273,7 +273,9 @@ for (const exit of ['selection', 'screen', 'document', 'logout']) {
     if (exit === 'screen') {
       await expect(page.locator('#layers')).toContainText('Other screen container');
       await page.locator('#screens button.screen-select').first().click();
-      await expect(retry(page)).toBeVisible();
+      // The received 403 is definitive, even though its UI context is obsolete.
+      // Returning to the source screen must not offer resending the rejected command.
+      await expect(retry(page)).toBeHidden();
     }
     if (exit === 'document') await expect(page.locator('#documents-view')).toBeVisible();
     await expect(page.locator('#error')).not.toContainText('Доступ к документу потерян');
