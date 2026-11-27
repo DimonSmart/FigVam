@@ -9,7 +9,8 @@ import { token as readToken } from '../../canvas/render-model';
 import type { DesignToken, TokenType, TokenCategory, Theme, TokenValue, TokenExpression, TypographyFieldsValue, TypographyField, ResolvableValue } from '../../core/tokens/token-model';
 import { tokenTypes, tokenCategories } from '../../core/tokens/token-model';
 import type { TokenGroup } from '../../core/tokens/token-groups';
-import type { PropertyControl, ControlInput } from '../../ui/property-control-contract';
+import { createShadowSpec,createReferenceSpec,createValueField,type ValueSpec,type ValueField,type EditKind,type CompositeSpec } from '../../ui/property-value';
+import { FieldValue } from '../../ui/property-value-editor';
 import { rawArray, rawText } from '../../ui/property-control-contract';
 import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
@@ -35,8 +36,6 @@ function literalValue(value:ResolvableValue|undefined):TokenValue{
   throw new TypeError('Некорректное значение токена.');
 }
 import { splitTokenBundle } from '../../core/tokens/token-exchange';
-import { shadowControl } from '../../ui/node-property-controls';
-import { createTokenValueControl } from '../../ui/token-value-control';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, filteredTokens, tokensInGroup, matchesTokenSearch, qualifyTokenName } from '../../core/tokens/token-groups';
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from '../../core/tokens/token-resolution';
 
@@ -152,7 +151,10 @@ function TokenTable({tokenItems,displayed,group,search,selectedToken,usagesReady
 
   return <>{rows.length?rows:<tr><td colSpan={7}>{hasTypes?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>}</>;
 }
-export function createTokenModels(){return {groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages)};}
+function ThemeFields({fields}:{fields:ValueField[]}){
+  return <>{fields.map((field,index)=><div className="token-theme-row" key={field.id} data-theme={themes[index]} onKeyDown={event=>{if(!event.nativeEvent.isComposing&&event.key==='Enter'&&event.target instanceof HTMLInputElement&&event.target.matches('input:not([type=search]):not([type=color])')){event.preventDefault();event.target.blur();}}}><FieldValue field={field}/></div>)}</>;
+}
+export function createTokenModels(){return {groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages),createFields:createViewModel(ThemeFields),detailFields:createViewModel(ThemeFields)};}
 
 export function createTokens({ models, selectLayer, showEditor, element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
   let tokenItems:DesignToken[]=[],selectedToken:string|null=null,tokenUsages:Usage[]=[],tokenLoad=0,rendered=false;
@@ -161,7 +163,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
   let group:string[]=[],collapsed=new Set<string>(), creating = false, usagesReady = false;
   let importEpoch = 0;
   let selectedTypes=new Set<TokenType>(types);
-  let createControls:PropertyControl[]=[],detailControls:PropertyControl[]=[],renaming=false;
+  let createControls:ValueField[]=[],detailControls:ValueField[]=[],renaming=false;
   const pendingThemeValues=new Map<Theme,ThemeSave>();
   let activeThemeSave:ThemeSave|null=null;
   const busy = () => el('token-create').inert;
@@ -312,94 +314,44 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     }
     return false;
   }
-  function makeTokenControl(prefix:string,label:string,type:TokenType,category:TokenCategory|null,theme:Theme,expression?:TokenExpression|null,ownerId?:string,initialText=''):PropertyControl {
-    const literal = expression?.expression === 'literal' ? expression.value : null;
-    let direct:PropertyControl;
-    if (type === 'Shadow') {
-      direct=shadowControl(literal?.type==='shadow'?literal:null);
-      if(direct.writeResolved)direct.writeResolved=direct.writeResolved.bind(direct);
-    } else if (type === 'Typography') {
-      const holder = document.createElement('div'); holder.className = 'token-composite-direct';
-      holder.id = prefix + '-typography';
-      const children = typographyFields.map(field => {
-        const child = makeTokenControl(prefix + '-' + field.name + '-value', field.label, field.type,
-          field.category, theme, typographyPart(literal, field), ownerId, field.initial);
-        holder.append(...child.content);
-        return child;
-      });
-      direct = {
-        content: [holder], inputs: children.flatMap(child => child.inputs),
-        initial: children.map(child => child.initial),
-        read: () => children.map(child => child.read()),
-        write: raw => children.forEach((child,i)=>child.write(rawArray(raw)[i]??null)),
-        validate() {
-          const value:TypographyFieldsValue={type:'typographyFields'};
-          for (const [i, child] of children.entries()) {
-            const result = child.validate();
-            if (result.error) return result;
-            const field=typographyFields[i];if(!field)throw new Error('Missing typography field');
-            value[field.name]=asExpression(result.value);
+  function makeTokenSpec(prefix:string,label:string,type:TokenType,category:TokenCategory|null,theme:Theme,expression?:TokenExpression|null,ownerId?:string,initialText=''):ValueSpec {
+    const literal=expression?.expression==='literal'?expression.value:null;
+    let direct:ValueSpec;
+    if(type==='Shadow')direct=createShadowSpec(literal?.type==='shadow'?literal:null);
+    else if(type==='Typography'){
+      const children=typographyFields.map(field=>makeTokenSpec(prefix+'-'+field.name+'-value',field.label,field.type,field.category,theme,typographyPart(literal,field),ownerId,field.initial));
+      const composite:CompositeSpec={
+        kind:'composite',label,id:prefix+'-typography',children,count:children.reduce((n,child)=>n+child.count,0),
+        initial:children.map(child=>child.initial),
+        validate(raw){
+          const values=rawArray(raw),value:TypographyFieldsValue={type:'typographyFields'};
+          let offset=0;
+          for(const [i,child] of children.entries()){
+            const result=child.validate(values[i]??null),field=typographyFields[i];
+            if(!field)throw new Error('Missing typography field');
+            if(result.error)return {...result,index:offset+(result.index??0)};
+            value[field.name]=asExpression(result.value);offset+=child.count;
           }
-          return { value };
+          return {value};
         },
-        setDisabled: disabled => children.forEach(child => child.setDisabled?.(disabled)),
-        refresh: () => children.forEach(child => child.refresh?.()),
-        dispose: () => children.forEach(child => child.dispose?.())
+        resolvedRaw(result){
+          return typographyFields.map(field=>[field.type.toLowerCase(),result.error||result.value?.type!=='typography'||'value' in result.value?'':String(result.value[field.name]??0),'']);
+        }
       };
-      direct.writeResolved = result => children.forEach((child, i) => {
-        const field=typographyFields[i];if(!field)return;
-        const resolved=result.value;child.write([field.type.toLowerCase(),result.error||resolved?.type!=='typography'||'value' in resolved?'':String(resolved[field.name]??0),'']);
-      });
-    } else {
-      const holder = document.createElement('div'); holder.className = 'token-scalar-direct';
-      const input = document.createElement('input'); input.id = prefix;
-      input.setAttribute('aria-label', prefix.startsWith('token-') ? label + ' — значение токена' : label); input.autocomplete = 'off';
-      const inputs:ControlInput[]=[input];let picker:HTMLInputElement|undefined,preset:HTMLSelectElement|undefined;
-      if (type === 'Color') {
-        picker = document.createElement('input'); picker.type = 'color';
-        picker.setAttribute('aria-label', 'Выбрать цвет ' + label);
-        picker.addEventListener('input', () => {
-          input.value = (picker?.value??'#000000') + (/^#[0-9a-f]{8}$/i.test(input.value) ? input.value.slice(7) : 'FF');
-        });
-        input.placeholder = '#RRGGBBAA'; inputs.push(picker); holder.append(picker);
-      }
-      if (type === 'FontWeight') {
-        preset = document.createElement('select'); preset.setAttribute('aria-label', 'Пресет толщины ' + label);
-        for (const [v, text] of [['','Custom'],['400','Normal'],['500','Medium'],['600','Semibold'],['700','Bold']])
-          preset.add(new Option(text, v));
-        preset.addEventListener('change', () => { if(preset?.value)input.value=preset.value; });
-        inputs.push(preset); holder.append(preset);
-      }
-      function sync() {
-        if (picker && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(input.value)) picker.value = input.value.slice(0,7);
-        if (preset) preset.value = ['400','500','600','700'].includes(input.value) ? input.value : '';
-      }
-      input.addEventListener('input', sync);
-      holder.append(input);
-      direct = {
-        content: [holder], inputs, initial: literal ? directText(expression) : initialText,
-        read: () => input.value,
-        write: value => { input.value=rawText(value);sync(); },
-        validate() {
-          try { return { value: literalExpression(type, category, input.value.trim()).value }; }
-          catch (error) { return { input, error:errorMessage(error) }; }
-        },
-        writeResolved: result => { direct.write(result.error ? '' : tokenValueText(result.value).replace(/ px$/, '')); }
-      };
+      direct=composite;
+    }else{
+      direct={kind:'token-scalar',label,inputId:prefix,color:type==='Color',weight:type==='FontWeight',count:type==='Color'||type==='FontWeight'?2:1,
+        initial:literal?directText(expression):initialText,
+        validate(raw){try{return{value:literalExpression(type,category,rawText(raw).trim()).value};}catch(error){return{index:0,error:errorMessage(error)};}},
+        resolvedRaw:result=>result.error?'':tokenValueText(result.value).replace(/ px$/,'')};
     }
-    const control = createTokenValueControl(prefix, { type, tokenType: type, tokenCategory: category },
-      { tokens: tokenIndex() }, expression?.expression === 'alias' ? { type: 'token', tokenId: expression.tokenId } : null,
-      direct, label, label, {
-        theme, customDirect: true, validateChoices: true,
-        getToken: id => tokenItems.find(item => item.id === id),
-        getCompatible: () => allowedAliases(type, category, ownerId??null).filter(item => !dependsOn(item.id, ownerId, theme)),
-        resolve: id => dependsOn(id, ownerId, theme)
-          ? { value:null,error: 'Цикл ссылок дизайн-токенов.' }
-          : resolveTokenValue({ type: 'token', tokenId: id }, tokenIndex(), theme, type, category),
-        writeResolved: direct.writeResolved
+    return createReferenceSpec({type,tokenType:type,tokenCategory:category},{tokens:tokenIndex()},
+      expression?.expression==='alias'?{type:'token',tokenId:expression.tokenId}:null,direct,label,label,{
+        theme,customDirect:true,validateChoices:true,getToken:id=>tokenItems.find(item=>item.id===id),
+        getCompatible:()=>allowedAliases(type,category,ownerId??null).filter(item=>!dependsOn(item.id,ownerId,theme)),
+        resolve:id=>dependsOn(id,ownerId,theme)?{value:null,error:'Цикл ссылок дизайн-токенов.'}:
+          resolveTokenValue({type:'token',tokenId:id},tokenIndex(),theme,type,category)
       });
-    control.write(control.initial);
-    return control;
   }
   function typographyPart(value:TokenValue|null,field:TypographyPart):TokenExpression|null|undefined{
     if(value?.type==='typographyFields')return value[field.name];
@@ -407,41 +359,27 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     return null;
   }
   const asExpression=(value:ResolvableValue|undefined):TokenExpression=>value?.type==='token'?{expression:'alias',tokenId:value.tokenId}:{expression:'literal',value:literalValue(value)};
-  function readExpression(control:PropertyControl) {
-    const result = control.validate();
-    if (result.error) { result.input?.setAttribute('aria-invalid', 'true'); throw new Error(result.error); }
+  function readExpression(control:ValueField) {
+    const result=control.validate();
+    if(result.error)throw new Error(result.error);
     return asExpression(result.value);
   }
-  function replaceThemeControls(hostId:string,previous:PropertyControl[],type:TokenType,category:TokenCategory|null,item:DesignToken|null):PropertyControl[] {
-    previous.forEach(control => control.dispose?.());
-    const host = el(hostId); host.replaceChildren();
-    return themes.map((theme,index) => {
-      const prefix = (item ? 'token-' : 'new-token-') + theme.toLowerCase();
-      const control = makeTokenControl(prefix, theme, type, category, theme, item?.values?.[theme], item?.id);
-      const row = document.createElement('div'); row.className = 'token-theme-row'; row.dataset.theme = theme;
-      row.append(...control.content); host.append(row);
-      if (item) {
-        control.setDisabled?.(!editable());
-        row.addEventListener('change', () => {
-          if ((busy() && !activeThemeSave) || !editable() || selectedToken !== item.id) return;
-          try {
-            control.inputs.forEach(input => input.removeAttribute('aria-invalid'));
-            const value = readExpression(control);
-            el('tokens-error').textContent = '';
-            queueThemeSave(item.id, theme, index, value);
-          } catch (error) {
-            pendingThemeValues.delete(theme);
-            el('tokens-error').textContent = errorMessage(error);
-          }
-        });
-        row.addEventListener('keydown', event => {
-          if (!event.isComposing && event.key === 'Enter' && event.target instanceof HTMLInputElement && event.target.matches('input:not([type=search]):not([type=color])')) {
-            event.preventDefault(); event.target.blur();
-          }
-        });
+  function replaceThemeControls(hostId:string,_previous:ValueField[],type:TokenType,category:TokenCategory|null,item:DesignToken|null):ValueField[] {
+    const fields=themes.map((theme,index)=>{
+      const prefix=(item?'token-':'new-token-')+theme.toLowerCase();
+      const spec=makeTokenSpec(prefix,theme,type,category,theme,item?.values?.[theme],item?.id);
+      let field:ValueField;
+      function onEdit(kind:EditKind){
+        if(!item||kind==='input'||kind==='color-preview'||(busy()&&!activeThemeSave)||!editable()||selectedToken!==item.id)return;
+        try{const value=readExpression(field);el('tokens-error').textContent='';queueThemeSave(item.id,theme,index,value);}
+        catch(error){pendingThemeValues.delete(theme);el('tokens-error').textContent=errorMessage(error);}
       }
-      return control;
+      field=createValueField(spec,prefix,{onEdit,disabled:!!item&&!editable()});
+      return field;
     });
+    const view=hostId==='new-token-values'?models.createFields:models.detailFields;
+    view.publish({fields});
+    return fields;
   }
   // Keep the two theme drafts independent. The existing document command pipeline
   // remains serialized, but saving Light must not discard an edit made in Dark.
@@ -492,7 +430,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     el('token-detail').hidden = true; el('token-create').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
     form('token-create').reset(); endRename();
-    detailControls.forEach(control => control.dispose?.()); detailControls = []; el('token-values').replaceChildren();
+    detailControls=[];models.detailFields.clear();
     updateCategoryOptions();
   }
   async function readAllTokenPages<T>(path:string,revision:number,decode:(v:unknown)=>T,signal?:AbortSignal,isCurrent?:()=>boolean):Promise<T[]>{
@@ -598,7 +536,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
     // A presentation filter must not discard theme edits already queued for saving.
     endRename();
-    detailControls.forEach(control => control.dispose?.()); detailControls = []; el('token-values').replaceChildren();
+    detailControls=[];models.detailFields.clear();
   }
   function revealToken(item:DesignToken|undefined,navigate=false){
     if(!item)return;

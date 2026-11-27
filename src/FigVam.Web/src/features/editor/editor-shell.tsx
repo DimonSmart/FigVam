@@ -147,7 +147,7 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
             </select>
             <label id="new-token-category-label" htmlFor="new-token-category" hidden>{"Назначение"}</label>
             <select id="new-token-category" hidden/>
-            <div id="new-token-values" className="token-theme-values"/>
+            <div id="new-token-values" className="token-theme-values"><views.tokens.createFields.Component/></div>
             <button type="submit">{"Создать токен"}</button>
             <Button id="new-token-cancel" type="button">{"Отмена"}</Button>
           </form>
@@ -163,7 +163,7 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
             </div>
             <p id="token-detail-type"/>
             <p className="token-invalid" id="token-detail-diagnostic" role="status"/>
-            <div id="token-values" className="token-theme-values"/>
+            <div id="token-values" className="token-theme-values"><views.tokens.detailFields.Component/></div>
             <div id="token-edit" hidden>
               <button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</button>
             </div>
