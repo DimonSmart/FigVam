@@ -22,7 +22,7 @@ export function createDocumentCatalog() {
     },
     beginLoad() { nextCursor = null; loadVersion++; },
     reset() { cursors = [null]; pageIndex = 0; nextCursor = null; loadVersion++; },
-    async read(request: ApiClient, index: number, cursor: Cursor, pageSize: number,
+    async read(request: (...args: Parameters<ApiClient>) => ReturnType<ApiClient>, index: number, cursor: Cursor, pageSize: number,
       signal: AbortSignal, current: () => boolean) {
       const version = loadVersion;
       const query = new URLSearchParams({ limit: String(pageSize) });
