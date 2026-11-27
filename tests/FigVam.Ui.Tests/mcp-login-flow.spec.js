@@ -232,42 +232,11 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   const dimensionSchema = await call('get_token_schema', { type: 'Dimension', compact: true });
   expect(colorSchema.compact && typographySchema.compact && dimensionSchema.compact).toBe(true);
   const ref = (id, field) => ({ $ref: id + '.' + field });
-  const tokenRef = id => ({ tokenId: ref(id, 'tokenId') });
   const op = (id, command, args) => ({ id, command, arguments: args });
-  const tokenOp = (id, type, light, dark, category) => op(id, 'create_token', { name: 'login.' + id, type, light, dark, ...(category ? { category } : {}) });
-  const nodeOp = (id, parent, kind, properties) => op(id, 'create_node', { parentId: ref(parent, 'screenId'), kind, properties });
-  const cardShadow = { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000020' };
-  const buttonShadow = { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: tokenRef('shadowColor') };
-  const fieldAppearance = { typography: tokenRef('typography'), paddingLeft: tokenRef('inputSpacing'), paddingRight: tokenRef('inputSpacing'),
-    paddingTop: 4, paddingBottom: 4, placeholderColor: tokenRef('placeholder'), focusBorderColor: tokenRef('focus'), focusBorderWidth: tokenRef('focusWidth') };
+  const { operations } = require('../../docs/examples/login-prototype-batch.json');
+  const buttonShadow = operations.find(item => item.id === 'buttonShadow').arguments.light;
+  expect(operations.find(item => item.id === 'typography').arguments.light).toEqual(typographySchema.example);
   const beforeBatch = (await call('get_document')).revision;
-  const operations = [
-    op('page', 'create_page', { name: 'Login flow' }),
-    op('login', 'create_screen', { pageId: ref('page', 'pageId'), width: 800, height: 600, name: 'Login' }),
-    tokenOp('background', 'Color', '#EEF2F7', '#15243A'),
-    tokenOp('typography', 'Typography', typographySchema.example, typographySchema.example),
-    tokenOp('spacing', 'Dimension', 0, 0, 'Spacing'),
-    tokenOp('inputSpacing', 'Dimension', 12, 16, 'Spacing'),
-    tokenOp('inputHeight', 'Dimension', 44, 48, 'Size'),
-    tokenOp('radius', 'Dimension', 8, 8, 'Radius'),
-    tokenOp('button', 'Color', '#2563EB', '#2563EB'),
-    tokenOp('placeholder', 'Color', '#64748B', '#94A3B8'),
-    tokenOp('focus', 'Color', '#2563EB', '#60A5FA'),
-    tokenOp('focusWidth', 'Dimension', 2, 3, 'BorderWidth'),
-    tokenOp('shadowColor', 'Color', '#00000060', '#00000080'),
-    tokenOp('cardShadow', 'Shadow', cardShadow, { ...cardShadow, blurRadius: 12 }),
-    tokenOp('buttonShadow', 'Shadow', buttonShadow, { ...buttonShadow, blurRadius: 12 }),
-    nodeOp('surface', 'login', 'Frame', { x: 0, y: 0, width: 800, height: 600, backgroundColor: tokenRef('background'), borderWidth: 0, cornerRadius: 0, paddingLeft: tokenRef('spacing'), shadow: tokenRef('cardShadow') }),
-    nodeOp('heading', 'login', 'Text', { x: 250, y: 80, width: 300, height: 40, text: 'Sign in', typography: tokenRef('typography') }),
-    nodeOp('input', 'login', 'TextInput', { x: 250, y: 140, width: 300, height: tokenRef('inputHeight'), placeholder: 'Email', backgroundColor: '#FFFFFF', ...fieldAppearance }),
-    nodeOp('password', 'login', 'TextInput', { x: 250, y: 255, width: 300, height: 40, placeholder: 'Password', inputType: 'Password', backgroundColor: '#FFFFFF', ...fieldAppearance }),
-    nodeOp('submit', 'login', 'Button', { x: 250, y: 200, width: 300, height: 48, text: 'Login', typography: tokenRef('typography'),
-      backgroundColor: tokenRef('button'), borderWidth: 0, cornerRadius: tokenRef('radius'), textColor: '#FFFFFF', shadow: tokenRef('buttonShadow') }),
-    op('error', 'duplicate_screen', { screenId: ref('login','screenId'), name: 'Login Error' }),
-    op('click', 'create_scenario', { screenId: ref('login','screenId'), nodeId: ref('submit','nodeId'), event: 'Click', actions: [{ type: 'navigate', screenId: ref('error','screenId') }] }),
-    op('submitScenario', 'create_scenario', { screenId: ref('login','screenId'), nodeId: ref('password','nodeId'), event: 'Submit', actions: [{ type: 'navigate', screenId: ref('error','screenId') }] }),
-    nodeOp('message','error','Text',{ x: 250, y: 300, width: 300, height: 40, text: 'Invalid password', fontSize: 22, textColor: '#FF0000' })
-  ];
   const batchArgs = { commandId: require('node:crypto').randomUUID(), expectedRevision: beforeBatch, operations };
   const batch = await call('execute_batch', batchArgs);
   expect(batch.revision).toBe(beforeBatch + 1);
@@ -288,6 +257,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   for (const theme of ['Light','Dark']) {
     const layout = await call('get_screen_layout', {screenId:login,theme});
     expect(layout.theme).toBe(theme);
+    expect(layout.boxes.find(box => box.objectId === input).bounds.height).toBe(theme === 'Light' ? 44 : 48);
     const node = (await call('get_node',{nodeId:input,includeResolvedProperties:true,theme})).items[0];
     expect(node.resolvedProperties.paddingLeft.value).toBe(theme==='Light'?12:16);
     expect(node.resolvedProperties.height.value).toBe(theme==='Light'?44:48);
@@ -438,12 +408,12 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   // Changes are rendered from the server revision, not a stale editor DOM.
   const changedToken = await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#102030' });
   await inspect(login, 'Dark', 'changed-token', changedToken.revision, [16, 32, 48], false);
-  const changedShadow = await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 20 } });
+  const changedShadow = await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 20, color: { tokenId: shadowColorId } } });
   for (const screenId of [login, error]) {
     const tree = await call('get_screen_tree', { screenId, includeResolvedProperties: true, theme: 'Dark' });
     expect(tree.items.find(n => n.kind === 'Button').resolvedProperties.shadow.blurRadius).toBe(20);
   }
-  await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 12 } });
+  await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 12, color: { tokenId: shadowColorId } } });
   const changedButton = await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#DC2626' });
   await inspect(login, 'Dark', 'changed-button', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
 
@@ -458,11 +428,24 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await page.locator('#preview-theme button[data-theme=Dark]').click();
   await expect(page.locator('#preview-theme button[data-theme=Dark]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#preview-viewport [data-visual-node="' + background + '"] > .visual-surface')).toHaveCSS('background-color', 'rgb(16, 32, 48)');
+  const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] > .visual-surface');
+  const fieldBounds = await field.boundingBox();
+  await field.focus();
+  await expect(field).toHaveCSS('outline-width', '3px');
+  await expect(field).toHaveCSS('outline-color', 'rgb(96, 165, 250)');
+  expect(await field.boundingBox()).toEqual(fieldBounds);
+  await testInfo.attach('focused-dark', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
+  await field.blur();
   const previewBefore = await editorState();
   await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false);
   await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
   expect(await editorState()).toEqual(previewBefore);
   await page.locator('#preview-theme button[data-theme=Light]').click();
+  await field.focus();
+  await expect(field).toHaveCSS('outline-width', '2px');
+  await expect(field).toHaveCSS('outline-color', 'rgb(37, 99, 235)');
+  await testInfo.attach('focused-light', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
+  await field.blur();
   await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true, [220, 38, 38]);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });

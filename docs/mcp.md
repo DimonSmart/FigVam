@@ -198,3 +198,7 @@ npx playwright test mcp-login-flow.spec.js
 ```
 
 Shadow принимает прежний прямой RGBA или вложенный компактный color: {tokenId: UUID}. Каноническое представление вложенной ссылки — literal со значением type: shadowFields и color: {expression: alias, tokenId: UUID}. Разрешение возвращает обычный shadow с RGBA, но хранение, DTCG и зависимости сохраняют ссылку. Полный пример Login Prototype с обеими темами, Typography, вложенным Color, вводом и переходами находится в tests/FigVam.Ui.Tests/mcp-login-flow.spec.js.
+
+### Полный Login Prototype
+
+Готовый JSON: [examples/login-prototype-batch.json](examples/login-prototype-batch.json). Перед вызовом `execute_batch` замените `expectedRevision` на ревизию из `get_document`. Пример используется непосредственно в Playwright-сценарии автономного MCP-рендеринга. Повторный вызов с тем же `commandId` возвращает исходные идентификаторы.

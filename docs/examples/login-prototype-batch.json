@@ -1,0 +1,471 @@
+{
+  "expectedRevision": 0,
+  "operations": [
+    {
+      "id": "page",
+      "command": "create_page",
+      "arguments": {
+        "name": "Login flow"
+      }
+    },
+    {
+      "id": "login",
+      "command": "create_screen",
+      "arguments": {
+        "pageId": {
+          "$ref": "page.pageId"
+        },
+        "width": 800,
+        "height": 600,
+        "name": "Login"
+      }
+    },
+    {
+      "id": "background",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.background",
+        "type": "Color",
+        "light": "#EEF2F7",
+        "dark": "#15243A"
+      }
+    },
+    {
+      "id": "typography",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.typography",
+        "type": "Typography",
+        "light": {
+          "fontFamily": "Arial",
+          "fontSize": 16,
+          "fontWeight": 400,
+          "lineHeight": 1.25
+        },
+        "dark": {
+          "fontFamily": "Arial",
+          "fontSize": 16,
+          "fontWeight": 400,
+          "lineHeight": 1.25
+        }
+      }
+    },
+    {
+      "id": "spacing",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.spacing",
+        "type": "Dimension",
+        "light": 0,
+        "dark": 0,
+        "category": "Spacing"
+      }
+    },
+    {
+      "id": "inputSpacing",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.inputSpacing",
+        "type": "Dimension",
+        "light": 12,
+        "dark": 16,
+        "category": "Spacing"
+      }
+    },
+    {
+      "id": "inputHeight",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.inputHeight",
+        "type": "Dimension",
+        "light": 44,
+        "dark": 48,
+        "category": "Size"
+      }
+    },
+    {
+      "id": "radius",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.radius",
+        "type": "Dimension",
+        "light": 8,
+        "dark": 8,
+        "category": "Radius"
+      }
+    },
+    {
+      "id": "button",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.button",
+        "type": "Color",
+        "light": "#2563EB",
+        "dark": "#2563EB"
+      }
+    },
+    {
+      "id": "placeholder",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.placeholder",
+        "type": "Color",
+        "light": "#64748B",
+        "dark": "#94A3B8"
+      }
+    },
+    {
+      "id": "focus",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.focus",
+        "type": "Color",
+        "light": "#2563EB",
+        "dark": "#60A5FA"
+      }
+    },
+    {
+      "id": "focusWidth",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.focusWidth",
+        "type": "Dimension",
+        "light": 2,
+        "dark": 3,
+        "category": "BorderWidth"
+      }
+    },
+    {
+      "id": "shadowColor",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.shadowColor",
+        "type": "Color",
+        "light": "#00000060",
+        "dark": "#00000080"
+      }
+    },
+    {
+      "id": "cardShadow",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.cardShadow",
+        "type": "Shadow",
+        "light": {
+          "offsetX": 0,
+          "offsetY": 4,
+          "blurRadius": 8,
+          "spreadRadius": 0,
+          "color": "#00000020"
+        },
+        "dark": {
+          "offsetX": 0,
+          "offsetY": 4,
+          "blurRadius": 12,
+          "spreadRadius": 0,
+          "color": "#00000020"
+        }
+      }
+    },
+    {
+      "id": "buttonShadow",
+      "command": "create_token",
+      "arguments": {
+        "name": "login.buttonShadow",
+        "type": "Shadow",
+        "light": {
+          "offsetX": 0,
+          "offsetY": 4,
+          "blurRadius": 8,
+          "spreadRadius": 0,
+          "color": {
+            "tokenId": {
+              "$ref": "shadowColor.tokenId"
+            }
+          }
+        },
+        "dark": {
+          "offsetX": 0,
+          "offsetY": 4,
+          "blurRadius": 12,
+          "spreadRadius": 0,
+          "color": {
+            "tokenId": {
+              "$ref": "shadowColor.tokenId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "surface",
+      "command": "create_node",
+      "arguments": {
+        "parentId": {
+          "$ref": "login.screenId"
+        },
+        "kind": "Frame",
+        "properties": {
+          "x": 0,
+          "y": 0,
+          "width": 800,
+          "height": 600,
+          "backgroundColor": {
+            "tokenId": {
+              "$ref": "background.tokenId"
+            }
+          },
+          "borderWidth": 0,
+          "cornerRadius": 0,
+          "paddingLeft": {
+            "tokenId": {
+              "$ref": "spacing.tokenId"
+            }
+          },
+          "shadow": {
+            "tokenId": {
+              "$ref": "cardShadow.tokenId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "heading",
+      "command": "create_node",
+      "arguments": {
+        "parentId": {
+          "$ref": "login.screenId"
+        },
+        "kind": "Text",
+        "properties": {
+          "x": 250,
+          "y": 80,
+          "width": 300,
+          "height": 40,
+          "text": "Sign in",
+          "typography": {
+            "tokenId": {
+              "$ref": "typography.tokenId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "input",
+      "command": "create_node",
+      "arguments": {
+        "parentId": {
+          "$ref": "login.screenId"
+        },
+        "kind": "TextInput",
+        "properties": {
+          "x": 250,
+          "y": 140,
+          "width": 300,
+          "height": {
+            "tokenId": {
+              "$ref": "inputHeight.tokenId"
+            }
+          },
+          "placeholder": "Email",
+          "backgroundColor": "#FFFFFF",
+          "typography": {
+            "tokenId": {
+              "$ref": "typography.tokenId"
+            }
+          },
+          "paddingLeft": {
+            "tokenId": {
+              "$ref": "inputSpacing.tokenId"
+            }
+          },
+          "paddingRight": {
+            "tokenId": {
+              "$ref": "inputSpacing.tokenId"
+            }
+          },
+          "paddingTop": 4,
+          "paddingBottom": 4,
+          "placeholderColor": {
+            "tokenId": {
+              "$ref": "placeholder.tokenId"
+            }
+          },
+          "focusBorderColor": {
+            "tokenId": {
+              "$ref": "focus.tokenId"
+            }
+          },
+          "focusBorderWidth": {
+            "tokenId": {
+              "$ref": "focusWidth.tokenId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "password",
+      "command": "create_node",
+      "arguments": {
+        "parentId": {
+          "$ref": "login.screenId"
+        },
+        "kind": "TextInput",
+        "properties": {
+          "x": 250,
+          "y": 255,
+          "width": 300,
+          "height": 40,
+          "placeholder": "Password",
+          "inputType": "Password",
+          "backgroundColor": "#FFFFFF",
+          "typography": {
+            "tokenId": {
+              "$ref": "typography.tokenId"
+            }
+          },
+          "paddingLeft": {
+            "tokenId": {
+              "$ref": "inputSpacing.tokenId"
+            }
+          },
+          "paddingRight": {
+            "tokenId": {
+              "$ref": "inputSpacing.tokenId"
+            }
+          },
+          "paddingTop": 4,
+          "paddingBottom": 4,
+          "placeholderColor": {
+            "tokenId": {
+              "$ref": "placeholder.tokenId"
+            }
+          },
+          "focusBorderColor": {
+            "tokenId": {
+              "$ref": "focus.tokenId"
+            }
+          },
+          "focusBorderWidth": {
+            "tokenId": {
+              "$ref": "focusWidth.tokenId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "submit",
+      "command": "create_node",
+      "arguments": {
+        "parentId": {
+          "$ref": "login.screenId"
+        },
+        "kind": "Button",
+        "properties": {
+          "x": 250,
+          "y": 200,
+          "width": 300,
+          "height": 48,
+          "text": "Login",
+          "typography": {
+            "tokenId": {
+              "$ref": "typography.tokenId"
+            }
+          },
+          "backgroundColor": {
+            "tokenId": {
+              "$ref": "button.tokenId"
+            }
+          },
+          "borderWidth": 0,
+          "cornerRadius": {
+            "tokenId": {
+              "$ref": "radius.tokenId"
+            }
+          },
+          "textColor": "#FFFFFF",
+          "shadow": {
+            "tokenId": {
+              "$ref": "buttonShadow.tokenId"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "error",
+      "command": "duplicate_screen",
+      "arguments": {
+        "screenId": {
+          "$ref": "login.screenId"
+        },
+        "name": "Login Error"
+      }
+    },
+    {
+      "id": "click",
+      "command": "create_scenario",
+      "arguments": {
+        "screenId": {
+          "$ref": "login.screenId"
+        },
+        "nodeId": {
+          "$ref": "submit.nodeId"
+        },
+        "event": "Click",
+        "actions": [
+          {
+            "type": "navigate",
+            "screenId": {
+              "$ref": "error.screenId"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "submitScenario",
+      "command": "create_scenario",
+      "arguments": {
+        "screenId": {
+          "$ref": "login.screenId"
+        },
+        "nodeId": {
+          "$ref": "password.nodeId"
+        },
+        "event": "Submit",
+        "actions": [
+          {
+            "type": "navigate",
+            "screenId": {
+              "$ref": "error.screenId"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "message",
+      "command": "create_node",
+      "arguments": {
+        "parentId": {
+          "$ref": "error.screenId"
+        },
+        "kind": "Text",
+        "properties": {
+          "x": 250,
+          "y": 300,
+          "width": 300,
+          "height": 40,
+          "text": "Invalid password",
+          "fontSize": 22,
+          "textColor": "#FF0000"
+        }
+      }
+    }
+  ]
+}

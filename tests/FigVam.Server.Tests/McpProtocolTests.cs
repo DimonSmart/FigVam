@@ -18,6 +18,7 @@ public sealed class McpProtocolTests
         var config = ServerTestIdentity.Production(key);
         var directory = Path.Combine(Path.GetTempPath(), "figvam-mcp-" + Guid.NewGuid().ToString("N"));
         config["Storage__Directory"] = directory;
+        config["Mcp__ChromiumExecutable"] = Path.Combine(directory, "missing-chromium");
         await using var server = new ServerProcess(config);
         await server.WaitUntilReadyAsync();
         using var user = server.CreateClient();
@@ -250,6 +251,11 @@ public sealed class McpProtocolTests
             var independent = await Call("simulate_preview", new { screenId, theme, events = Array.Empty<object>() });
             Assert.Equal(screenId, independent.GetProperty("activeScreenId").GetGuid());
         }
+        var unavailable = await Call("simulate_preview", new { screenId, includeImage = true, events = new[] { new { nodeId, @event = "Click" } } }, true);
+        Assert.Equal("Completed", unavailable.GetProperty("simulationStatus").GetString());
+        Assert.Equal(target, unavailable.GetProperty("activeScreenId").GetGuid());
+        Assert.Equal("Failed", unavailable.GetProperty("render").GetProperty("status").GetString());
+        Assert.Equal("RENDER_UNAVAILABLE", unavailable.GetProperty("render").GetProperty("code").GetString());
         Assert.Equal(simulationRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("delete_scenario", new { scenarioId, expectedRevision = updatedScenario.GetProperty("revision").GetInt64() });
         await Call("list_pages");
