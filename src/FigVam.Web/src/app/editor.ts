@@ -105,7 +105,7 @@ const request: ApiClient = createApiClient({
 });
 
 const documentCreation = createDocumentCreation({
-  shellState, request, run, message, navigate, loadList,
+  shellState, request, run, message, navigate, loadList, session: sessionState,
   onUnauthorized: () => { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); }
 });
 
@@ -127,7 +127,7 @@ const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
 const mcpContext = () => ({ documentId, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
-const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
+const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, menu: editorShell.menu, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
@@ -293,7 +293,9 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
     get documentRole() { return getDocumentRole(); },
     get revision() { return revisions.revision; },
     get selectedScreen() { return selectionState.selectedScreen; },
-    get layerSelection() { return layers.selection; }
+    get layerSelection() { return layers.selection; },
+    get token() { return sessionState.token; },
+    get navigationEpoch() { return sessionState.navigationEpoch; }
   },
   findLayer: layers.findLayer,
   setInteractiveNodes: layers.setInteractiveNodes,
@@ -707,7 +709,10 @@ const navigatorView = createDocumentNavigator(views.navigator, {
   isBusy: () => documentShell.getSnapshot().pageBusy || !navigatorCanEdit(),
   selectPage, selectScreen,
   startRename: startNavigatorNameEdit,
-  changeDraft(kind, value) { const draft = navigatorEditState(kind); if (draft) draft.value = value; },
+  changeDraft(kind, value) {
+    const draft = navigatorEditState(kind);
+    if (draft) { setNavigatorEditState(kind, { ...draft, value }); renderPages(); }
+  },
   discardRename: discardNavigatorRename,
   saveRename(kind, id, previousName, name) {
     discardNavigatorRename(kind, id);
@@ -733,7 +738,7 @@ function createPage() {
 }
 navigation.attach();
 window.addEventListener('pagehide', event => {
-  try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
+  try { clearSession(); } finally { if (!event.persisted) { mcpAccess.dispose(); disposeApplicationRoot(); } }
 });
 async function initializeAuthentication() {
   const epoch = sessionState.sessionEpoch;

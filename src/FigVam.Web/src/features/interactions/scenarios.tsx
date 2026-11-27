@@ -10,12 +10,11 @@ import type { Catalog } from './interaction-catalog';
 import type { ActionDraft, ScenarioDraft, EditorContext } from './interaction-editor';
 import type { LayerCaptionSource } from '../../core/layer-caption';
 type Node=LayerCaptionSource & {id:string;screenId?:string;label?:string};
-interface Workspace { isEditorVisible(): boolean; documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null;token:string;navigationEpoch:number}
 interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void;prototypeVisible():boolean;subscribePrototype(listener:()=>void):()=>void}
 type CommandKind='create'|'update'|'delete';
 type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain';token:string|null;doc:string;screen:string};
 function readScenario(value:unknown):ScenarioDraft{const s=requiredRecord(value);if(typeof s.event!=='number'||!Number.isInteger(s.event))throw new TypeError('Некорректное взаимодействие');return{id:text(s.id),screenId:text(s.screenId),nodeId:text(s.nodeId),event:s.event,actions:array(s.actions,a=>{const v=requiredRecord(a),type=text(v.type);if(!Object.hasOwn(actionLabels,type))throw new TypeError('Неизвестное действие');switch(type){case 'navigate':case 'openOverlay':return{type,screenId:text(v.screenId)};case 'showVariant':return{type,variantId:v.variantId==null?null:text(v.variantId)};case 'selectDataset':return{type,datasetId:v.datasetId==null?null:text(v.datasetId)};case 'setDemoValue':return{type,nodeId:text(v.nodeId),value:v.value==null?null:text(v.value)};case 'closeOverlay':case 'resetPreview':return{type};default:throw new TypeError('Неизвестное действие');}})};}
-import { token, navigationEpoch } from '../../core/session';
 import { layerDisplayName } from '../../core/layer-caption';
 import { readInteractionCatalog, interactionObjectName } from './interaction-catalog';
 import { createInteractionEditor, createInteractionModel, eventLabels, actionLabels } from './interaction-editor';
@@ -121,14 +120,14 @@ export function createScenarios({
   const collapsedGroups = new Set<string>();
   const context = ():EditorContext => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
-    revision: workspace.revision, token, epoch: navigationEpoch,
-    editable: !!token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && workspace.isEditorVisible()
+    revision: workspace.revision, token: workspace.token, epoch: workspace.navigationEpoch,
+    editable: !!workspace.token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && workspace.isEditorVisible()
   });
   const operationKey = (c:{doc:string|null;screen:string|null}) => c.doc + '/' + c.screen;
   const currentOperation = () => operations.get(operationKey(context()));
   const opPending = () => ['pending', 'uncertain'].includes(currentOperation()?.state??'');
-  const sameScreen = (c:EditorContext) => c.doc === workspace.documentId && c.screen === workspace.selectedScreen && c.token === token &&
-    c.epoch === navigationEpoch && workspace.isEditorVisible();
+  const sameScreen = (c:EditorContext) => c.doc === workspace.documentId && c.screen === workspace.selectedScreen && c.token === workspace.token &&
+    c.epoch === workspace.navigationEpoch && workspace.isEditorVisible();
   const name = (kind:keyof Catalog,id:string|null|undefined)=>interactionObjectName(catalog,kind,id??'');
   function sourceName(id:string) {
     const node = catalog?.nodes.find(n => n.id === id) ?? findLayer(id);
@@ -312,7 +311,7 @@ export function createScenarios({
   const sanitize = (value:unknown) => String(value ?? '').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'объект');
   async function send(op:Operation) {
     const c = context(), k = operationKey(op);
-    if (!c.editable || op.token !== token || op.doc !== c.doc || op.screen !== c.screen || operations.get(k) !== op || op.state === 'pending') return;
+    if (!c.editable || op.token !== workspace.token || op.doc !== c.doc || op.screen !== c.screen || operations.get(k) !== op || op.state === 'pending') return;
     const active = () => sameScreen(c) && operations.get(k) === op;
     op.state = 'pending'; render();
     try {

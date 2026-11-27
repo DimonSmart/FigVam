@@ -67,7 +67,7 @@ describe('frontend architecture', () => {
   });
   it('prevents controllers from reading or mutating the migrated shell via element IDs', () => {
     const owned = new Set([
-      'editor-view', 'documents-view', 'document-name', 'import-form', 'import-file', 'import-file-name',
+      'mcp-access-menu', 'mcp-access-body', 'editor-view', 'documents-view', 'document-name', 'import-form', 'import-file', 'import-file-name',
       'import-status', 'import-error', 'import-diagnostics', 'document-title', 'revision',
       'document-rename', 'rename-document-name', 'delete-document', 'delete-result', 'delete-retry', 'delete-message',
       'history-access', 'history-action-status', 'history-action-error', 'history-action-retry',
