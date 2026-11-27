@@ -9,6 +9,19 @@ describe('document shell state', () => {
       expect(canEditDocument(model.getSnapshot().role)).toBe(role === 'Owner' || role === 'Editor');
     }
   });
+  it('keeps a custom preset and restores default dimensions on reset', () => {
+    const model = createDocumentShellModel();
+    model.setScreenPreset('768x1024');
+    model.setScreenPreset('custom');
+    expect(model.getSnapshot()).toMatchObject({ screenPreset: 'custom', screenWidth: '768', screenHeight: '1024' });
+    model.setScreenDimension('screenWidth', '1440');
+    expect(model.getSnapshot().screenPreset).toBe('custom');
+    model.setScreenDimension('screenHeight', '900');
+    expect(model.getSnapshot().screenPreset).toBe('1440x900');
+    model.setScreenPreset('390x844');
+    model.resetScreenForm();
+    expect(model.getSnapshot()).toMatchObject({ screenPreset: '1440x900', screenWidth: '1440', screenHeight: '900' });
+  });
   it('preserves a rename draft when a confirmed revision changes', () => {
     const model = createDocumentShellModel();
     model.patch({ title: 'Before', renameName: 'Draft' });

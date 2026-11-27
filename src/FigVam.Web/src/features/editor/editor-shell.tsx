@@ -164,8 +164,6 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
   const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
   const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
   const canEdit=canEditDocument(state.role);
-  const dimensions=state.screenWidth+'x'+state.screenHeight;
-  const presetValue=['1440x900','390x844','768x1024'].includes(dimensions)?dimensions:'custom';
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
@@ -189,7 +187,6 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     setTokensMode(tokens);
   }
   function resizeAt(y:number){const bounds=layersPage.current?.getBoundingClientRect();if(bounds?.height)setSplit(clampSplit((y-bounds.top)/bounds.height*100));}
-  function applyPreset(value:string){if(value==='custom')return;const [width='',height='']=value.split('x');shell.document.patch({screenWidth:width,screenHeight:height});}
   function positionNavigatorMenu(){
     const menu=screenMenu.current,body=screenMenuBody.current,trigger=menu?.querySelector('summary');
     if(!menu||!body||!trigger)return;
@@ -331,17 +328,17 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     <details className="editor-menu inline-menu screen-options" hidden={!canEdit} ref={screenMenu} onToggle={onScreenMenuToggle}>
                       <summary className="menu-trigger">{"+ Экран"}</summary>
                       <div className="screen-options-body" popover="manual" ref={screenMenuBody}>
-                        <select id="screen-preset" aria-label="Типовой размер экрана" onChange={event=>applyPreset(event.currentTarget.value)} value={presetValue}>
+                        <select id="screen-preset" aria-label="Типовой размер экрана" onChange={event=>shell.document.setScreenPreset(event.currentTarget.value)} value={state.screenPreset}>
                           <option value="1440x900">{"Desktop · 1440 × 900"}</option>
                           <option value="390x844">{"Mobile · 390 × 844"}</option>
                           <option value="768x1024">{"Tablet · 768 × 1024"}</option>
                           <option value="custom">{"Другой размер"}</option>
                         </select>
-                        <form id="screen-create" hidden={!canEdit} inert={state.pageBusy} onSubmit={event=>{event.preventDefault();shell.createScreen();}}>
+                        <form id="screen-create" hidden={!canEdit} inert={state.pageBusy} onReset={event=>{event.preventDefault();shell.document.resetScreenForm();}} onSubmit={event=>{event.preventDefault();shell.createScreen();}}>
                           <label htmlFor="screen-width">{"Ширина экрана"}</label>
-                          <NumberInput id="screen-width" min="0" step="any" required value={state.screenWidth} ref={screenWidth} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenWidth:event.currentTarget.value})}/>
+                          <NumberInput id="screen-width" min="0" step="any" required value={state.screenWidth} ref={screenWidth} disabled={!state.hasPage} onChange={event=>shell.document.setScreenDimension('screenWidth',event.currentTarget.value)}/>
                           <label htmlFor="screen-height">{"Высота экрана"}</label>
-                          <NumberInput id="screen-height" min="0" step="any" required value={state.screenHeight} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenHeight:event.currentTarget.value})}/>
+                          <NumberInput id="screen-height" min="0" step="any" required value={state.screenHeight} disabled={!state.hasPage} onChange={event=>shell.document.setScreenDimension('screenHeight',event.currentTarget.value)}/>
                           <Button type="submit" disabled={!state.hasPage}>{"Создать экран"}</Button>
                         </form>
                       </div>

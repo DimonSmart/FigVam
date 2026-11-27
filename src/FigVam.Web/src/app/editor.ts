@@ -225,7 +225,7 @@ function clearSession() {
   layers.reset();
   tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
   renderCanvas();
-  documentShell.patch({ screenWidth: '1440', screenHeight: '900', pageBusy: false, title: '', revisionLabel: '' });
+  documentShell.patch({ screenPreset: '1440x900', screenWidth: '1440', screenHeight: '900', pageBusy: false, title: '', revisionLabel: '' });
   resetDocumentRename();
   document.title = 'FigVam — документы';
   shellState.patch({ authenticated: false, view: 'none', busy: false, controlsDisabled: false, catalog: null });
