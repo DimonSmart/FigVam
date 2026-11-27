@@ -1,4 +1,6 @@
-import { createRoot } from 'react-dom/client';
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+import { TextInput } from '../../ui/Inputs';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
@@ -28,9 +30,9 @@ function View({state,pageSize,search,select,load,move,moveUsage,resetKey}:{state
   return <>
     <h2 id="components-title">Каталог компонентов</h2>
     <form id="components-search" key={resetKey} onSubmit={e=>{e.preventDefault();const field=e.currentTarget.elements.namedItem('query');if(field instanceof HTMLInputElement)search(field.value.trim());}}>
-      <label htmlFor="components-query">Поиск компонентов</label><input id="components-query" name="query" maxLength={256}/><Button type="submit">Найти компоненты</Button>
+      <label htmlFor="components-query">Поиск компонентов</label><TextInput id="components-query" name="query" maxLength={256}/><Button type="submit">Найти компоненты</Button>
     </form>
-    <p id="components-status" role="status" aria-live="polite">{state.status}</p><p id="components-error" role="alert">{state.error}</p>
+    <StatusMessage id="components-status">{state.status}</StatusMessage><InlineError id="components-error">{state.error}</InlineError>
     <Button id="components-retry" hidden={!state.retry} onClick={load}>Повторить загрузку каталога</Button>
     <ul id="components-list" aria-label="Компоненты документа">{state.items.map(item=><li key={item.id}><Button aria-pressed={item.id===state.selection} onClick={()=>select(item.id)}>{item.name}</Button></li>)}</ul>
     <Pagination label="Навигация по компонентам" prefix="components" previousLabel="Предыдущие компоненты" nextLabel="Следующие компоненты" offset={state.offset} total={state.total} pageSize={pageSize} previous={()=>move(-1)} next={()=>move(1)}/>
@@ -39,7 +41,7 @@ function View({state,pageSize,search,select,load,move,moveUsage,resetKey}:{state
       <h4>Параметры</h4><Lines id="component-parameters" items={state.component?.parameters??[]} empty={state.component?'Параметров нет.':''}/>
       <h4>Слоты</h4><Lines id="component-slots" items={state.component?.slots??[]} empty={state.component?'Слотов нет.':''}/>
       <h4>Варианты</h4><Lines id="component-variants" items={state.component?.variants??[]} empty={state.component?'Вариантов нет.':''}/>
-      <h4>Использования</h4><p id="component-usages-status" role="status" aria-live="polite">{state.usageStatus}</p><p id="component-usages-error" role="alert">{state.usageError}</p>
+      <h4>Использования</h4><StatusMessage id="component-usages-status">{state.usageStatus}</StatusMessage><InlineError id="component-usages-error">{state.usageError}</InlineError>
       <Button id="component-usages-retry" hidden={!state.usageRetry} onClick={load}>Повторить загрузку компонента</Button>
       <Lines id="component-usages" label="Использования компонента" items={state.usages} empty={state.component?'Использований нет.':''}/>
       <Pagination label="Навигация по использованиям" prefix="usages" previousLabel="Предыдущие использования" nextLabel="Следующие использования" offset={state.usageOffset} total={state.usageTotal} pageSize={pageSize} previous={()=>moveUsage(-1)} next={()=>moveUsage(1)}/>
@@ -48,7 +50,7 @@ function View({state,pageSize,search,select,load,move,moveUsage,resetKey}:{state
 }
 export function createComponents({element,request,pageSize,getContext}:{element(id:string):HTMLElement;request:ApiClient;pageSize:number;getContext():Context}) {
   const host=element('components-title').closest('section');if(!host)throw new Error('Components host missing');
-  const root=createRoot(host);let state=initial(),generation=0,query='',resetKey=0;
+  const root=createPanelRoot(host);let state=initial(),generation=0,query='',resetKey=0;
   function render(patch:Partial<State>={}) {
     state={...state,...patch};
     flushSync(()=>root.render(<View state={state} pageSize={pageSize} resetKey={resetKey} load={()=>void load()}

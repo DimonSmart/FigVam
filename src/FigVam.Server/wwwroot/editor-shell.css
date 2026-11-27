@@ -192,13 +192,14 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .navigator-toolbar #page-refresh::before { content: '↻'; font-size: 17px; }
 .app-shell .navigator-toolbar .screen-options[open] { box-shadow: none; background: transparent; padding: 0; border: 0; }
 .app-shell .navigator-toolbar .screen-options-body {
-  position: fixed; z-index: 22; overflow: auto;
+  position: fixed; z-index: 22; overflow: auto; inset: auto; margin: 0; box-sizing: border-box;
   padding: 10px; background: var(--ui-surface);
   border: 1px solid var(--ui-border); border-radius: 8px;
   box-shadow: 0 10px 22px #1b273826;
   width: 226px; max-width: calc(100vw - 16px);
 }
 .app-shell .navigator-toolbar .screen-options .screen-options-body { width: 240px; }
+.app-shell .navigator-toolbar .screen-options-body:not(:popover-open) { display: none !important; }
 .app-shell .navigator-toolbar .inline-menu > :not(summary) { margin: 0; display: none; }
 .app-shell .navigator-toolbar .inline-menu[open] > :not(summary) { display: block; }
 .app-shell .navigator-toolbar #page-access { display: none; }
@@ -877,3 +878,8 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   .app-shell .token-workspace .token-value-layout.is-linked .token-value-link { background:var(--ui-selected); }
   .app-shell .token-workspace .token-value-layout.is-invalid .token-value-reference { background:#472c37; }
 }
+
+/* Preserve the existing sidebar grid/flex layout around the React tree host. */
+.navigator-tree-host { display: contents; }
+
+.resize-field { display: contents; }

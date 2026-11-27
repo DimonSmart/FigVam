@@ -1,3 +1,7 @@
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
+import { Button } from '../../ui/Button';
+import { TextInput } from '../../ui/Inputs';
 import type { ApiClient } from '../../api/api-client';
 import { requiredRecord, array, text } from '../../api/decode';
 import type { Catalog } from './interaction-catalog';
@@ -22,18 +26,8 @@ export const actionLabels:Record<ActionKind,string> = {
 };
 const noValue = '__null__';
 const id = (value:unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-const clone = <T>(value:T):T => structuredClone(value);
+const clone = <T,>(value:T):T => structuredClone(value);
 const isActionKind=(value:string):value is ActionKind=>Object.hasOwn(actionLabels,value);
-function button(text:string, name:string, click:()=>void) {
-  const b = document.createElement('button');
-  b.type = 'button'; b.textContent = text; b.setAttribute('aria-label', name); b.addEventListener('click', click);
-  return b;
-}
-function labelled<T extends HTMLElement>(text:string, control:T, parent:HTMLElement):T {
-  const label = document.createElement('label');
-  control.setAttribute('aria-label', text);
-  label.append(text, control); parent.append(label); return control;
-}
 function setChoices(select:HTMLSelectElement, items:Choice[], value:string|null|undefined, placeholder = 'Выберите значение') {
   const options:Choice[] = [{ id: '', label: placeholder }, ...items];
   if (value && !options.some(o => o.id === value)) options.push({ id: value, label: 'Недоступное значение' });
@@ -56,19 +50,23 @@ function setChoices(select:HTMLSelectElement, items:Choice[], value:string|null|
   }
   select.value = value ?? '';
 }
-function objectPicker(parent:HTMLElement, label:string, changed:(value:string)=>void) {
-  const search = document.createElement('input'); search.type = 'search'; search.placeholder = 'Поиск по имени';
-  labelled('Поиск: ' + label, search, parent);
-  const select = labelled(label, document.createElement('select'), parent);
-  let options:Choice[] = [], value = '';
-  function render() {
-    const q = search.value.toLocaleLowerCase().trim();
-    setChoices(select, options.filter(o => !q || o.label.toLocaleLowerCase().includes(q) || o.id === value), value);
-  }
-  search.addEventListener('input', render);
-  select.addEventListener('change', () => { value = select.value; changed(value); });
-  return { update(items:Choice[], selected:string|null|undefined) { options = items; value = selected ?? ''; render(); } };
+function ChoiceOptions({items,value,placeholder='Выберите значение'}:{items:Choice[];value:string|null|undefined;placeholder?:string}){
+  const options:Choice[]=[{id:'',label:placeholder},...items];
+  if(value&&!options.some(o=>o.id===value))options.push({id:value,label:'Недоступное значение'});
+  const groups=new Map<string,Choice[]>();
+  for(const item of options)if(item.group){const group=groups.get(item.group)??[];group.push(item);groups.set(item.group,group);}
+  const rendered=new Set<string>();
+  return <>{options.map(item=>{
+    if(!item.group)return <option key={item.id} value={item.id}>{item.label}</option>;
+    if(rendered.has(item.group))return null;
+    rendered.add(item.group);
+    return <optgroup key={item.group} label={item.group}>{groups.get(item.group)?.map(option=><option key={option.id} value={option.id}>{option.label}</option>)}</optgroup>;
+  })}</>;
 }
+function pickerLabel(type:ActionKind|''){
+  switch(type){case 'navigate':case 'openOverlay':return 'Целевой экран';case 'showVariant':return 'Вариант';case 'selectDataset':return 'Датасет';case 'setDemoValue':return 'Целевой элемент';default:return null;}
+}
+interface RowState {types:Choice[];options:Choice[];error:string;search:string;valueDraft:string}
 function actionComplete(a:ActionDraft) {
   switch (a.type) {
     case 'navigate': case 'openOverlay': return id(a.screenId);
@@ -85,7 +83,8 @@ function emptyAction(type:string):ActionDraft {
 }
 
 export function createInteractionEditor({ element, request, current, catalog, sourceName, submit, pending, onClose }:EditorOptions) {
-  let draft:Draft|null=null, rows:{type:HTMLSelectElement;picker:ReturnType<typeof objectPicker>|null;error:HTMLElement}[]=[], controller:AbortController|null=null, generation=0, validationTimer:ReturnType<typeof setTimeout>|undefined;
+  let draft:Draft|null=null, rows:RowState[]=[], controller:AbortController|null=null, generation=0, validationTimer:ReturnType<typeof setTimeout>|undefined;
+  const listRoot=createPanelRoot(element('scenario-edit-actions'));
   const btn=(id:string)=>asElement(element(id),HTMLButtonElement);
   const form=asElement(element('scenario-edit'),HTMLFormElement),fields=asElement(element('scenario-edit-fields'),HTMLFieldSetElement);
   const event = asElement(element('scenario-edit-event'),HTMLSelectElement), status = element('scenario-edit-validation');
@@ -111,7 +110,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
     controller?.abort(); clearTimeout(validationTimer); generation++;
     draft = null; rows = [];
     form.hidden = true; fields.disabled = false;
-    element('scenario-edit-actions').replaceChildren();
+    flushSync(()=>listRoot.render(null));
     onClose();
     if (restoreFocus && old) {
       const target = old.creating ? element('scenario-create') : [...element('scenarios-list').querySelectorAll<HTMLElement>(':scope > *')].find(card => card.dataset.scenarioId === old.scenario.id)?.querySelector<HTMLElement>('button[aria-label^="Изменить"]');
@@ -145,64 +144,65 @@ export function createInteractionEditor({ element, request, current, catalog, so
     else validationTimer = setTimeout(validate, 180);
   }
 
-  function renderRows(focusIndex?:number) {
+  function renderRows(focusIndex?:number,reset=true) {
     if(!draft)return;
-    const list = element('scenario-edit-actions'), actions = draft.scenario.actions;
-    rows = [];
-    list.replaceChildren();
-    actions.forEach((action, index) => {
-      const row = document.createElement('li'); row.className = 'interaction-action';
-      const tools = document.createElement('div'); tools.className = 'interaction-action-tools';
-      const number = document.createElement('strong'); number.textContent = 'Действие ' + (index + 1);
-      const move = (direction:number) => {
-        const destination = index + direction;
-        const dest=actions[destination];if(!dest)return;
-        actions[index]=dest; actions[destination]=action;
-        renderRows(destination); changed(true);
+    const actions=draft.scenario.actions;
+    if(reset)rows=actions.map(action=>({types:[],options:[],error:'',search:'',valueDraft:action.value??''}));
+    flushSync(()=>listRoot.render(<>{actions.map((action,index)=>{
+      const row=rows[index];if(!row)return null;
+      const label=pickerLabel(action.type);
+      const value=parameter(action)??'';
+      const q=row.search.toLocaleLowerCase().trim();
+      const options=row.options.filter(o=>!q||o.label.toLocaleLowerCase().includes(q)||o.id===value);
+      const move=(direction:number)=>{
+        const destination=index+direction,dest=actions[destination];if(!dest)return;
+        actions[index]=dest;actions[destination]=action;renderRows(destination);changed(true);
       };
-      const up = button('↑', 'Поднять действие ' + (index + 1), () => move(-1)); up.disabled = index === 0;
-      const down = button('↓', 'Опустить действие ' + (index + 1), () => move(1)); down.disabled = index === actions.length - 1;
-      const remove = button('Удалить', 'Удалить действие ' + (index + 1), () => {
-        actions.splice(index, 1); renderRows(Math.min(index, actions.length - 1)); changed(true);
-      });
-      tools.append(number, up, down, remove); row.append(tools);
-      const type = labelled('Тип действия ' + (index + 1), document.createElement('select'), row);
-      type.dataset.actionType = String(index);
-      type.addEventListener('change', () => {
-        actions[index] = emptyAction(type.value);
-        renderRows(index); changed(true);
-      });
-      const params = document.createElement('div'); row.append(params);
-      const set = <K extends keyof ActionDraft>(key:K,value:ActionDraft[K])=>{const current=actions[index];if(current){current[key]=value;changed();}};
-      let picker:ReturnType<typeof objectPicker>|null = null;
-      if (['navigate', 'openOverlay'].includes(action.type)) picker = objectPicker(params, 'Целевой экран', value => set('screenId', value || undefined));
-      if (action.type === 'showVariant') picker = objectPicker(params, 'Вариант', value => set('variantId', value === noValue ? null : value || undefined));
-      if (action.type === 'selectDataset') picker = objectPicker(params, 'Датасет', value => set('datasetId', value === noValue ? null : value || undefined));
-      if (action.type === 'setDemoValue') {
-        picker = objectPicker(params, 'Целевой элемент', value => { set('nodeId', value || undefined); refreshPassword(); });
-        const nullBox = document.createElement('input'); nullBox.type = 'checkbox'; nullBox.checked = action.value === null;
-        labelled('Значение null', nullBox, params);
-        const value = document.createElement('textarea'); value.maxLength = 4096; value.rows = 2; value.value = action.value ?? '';
-        // Password values are never displayed as plain text, including when reopening the action.
-        const password = document.createElement('input'); password.type = 'password'; password.maxLength = 4096; password.value = action.value ?? '';
-        const plainLabel = document.createElement('label'), passwordLabel = document.createElement('label');
-        plainLabel.append('Демонстрационное значение', value); passwordLabel.append('Демонстрационное значение', password);
-        params.append(plainLabel, passwordLabel);
-        function refreshPassword() {
-          const secret = catalog()?.nodes.find(n => n.id === actions[index]?.nodeId)?.properties?.inputType?.value === 'Password';
-          plainLabel.hidden = !!secret; passwordLabel.hidden = !secret;
-          value.disabled = password.disabled = nullBox.checked;
+      const set=<K extends keyof ActionDraft>(key:K,next:ActionDraft[K])=>{
+        const current=actions[index];if(current){current[key]=next;renderRows(undefined,false);changed();}
+      };
+      const pick=(next:string)=>{
+        switch(action.type){
+          case 'navigate':case 'openOverlay':set('screenId',next||undefined);break;
+          case 'showVariant':set('variantId',next===noValue?null:next||undefined);break;
+          case 'selectDataset':set('datasetId',next===noValue?null:next||undefined);break;
+          case 'setDemoValue':set('nodeId',next||undefined);break;
         }
-        nullBox.addEventListener('change', () => { set('value', nullBox.checked ? null : (plainLabel.hidden ? password.value : value.value)); refreshPassword(); });
-        value.addEventListener('input', () => { password.value = value.value; if (!nullBox.checked) set('value', value.value); });
-        password.addEventListener('input', () => { value.value = password.value; if (!nullBox.checked) set('value', password.value); });
-        refreshPassword();
-      }
-      const error = document.createElement('p'); error.className = 'interaction-action-error'; error.setAttribute('role', 'status'); row.append(error);
-      list.append(row); rows.push({ type, picker, error });
-    });
+      };
+      const secret=catalog()?.nodes.find(n=>n.id===action.nodeId)?.properties?.inputType?.value==='Password';
+      return <li className="interaction-action" key={index}>
+        <div className="interaction-action-tools"><strong>Действие {index+1}</strong>
+          <Button aria-label={'Поднять действие '+(index+1)} disabled={index===0} onClick={()=>move(-1)}>↑</Button>
+          <Button aria-label={'Опустить действие '+(index+1)} disabled={index===actions.length-1} onClick={()=>move(1)}>↓</Button>
+          <Button aria-label={'Удалить действие '+(index+1)} onClick={()=>{actions.splice(index,1);renderRows(Math.min(index,actions.length-1));changed(true);}}>Удалить</Button>
+        </div>
+        <label>Тип действия {index+1}<select aria-label={'Тип действия '+(index+1)} data-action-type={index} value={action.type}
+          onChange={event=>{actions[index]=emptyAction(event.currentTarget.value);renderRows(index);changed(true);}}>
+          <ChoiceOptions items={row.types} value={action.type} placeholder="Выберите действие"/>
+        </select></label>
+        <div>
+          {label&&<>
+            <label>Поиск: {label}<TextInput type="search" placeholder="Поиск по имени" aria-label={'Поиск: '+label} value={row.search}
+              onChange={event=>{row.search=event.currentTarget.value;renderRows(undefined,false);}}/></label>
+            <label>{label}<select aria-label={label} value={value} onChange={event=>pick(event.currentTarget.value)}>
+              <ChoiceOptions items={options} value={value}/>
+            </select></label>
+          </>}
+          {action.type==='setDemoValue'&&<>
+            <label>Значение null<input type="checkbox" aria-label="Значение null" checked={action.value===null}
+              onChange={event=>set('value',event.currentTarget.checked?null:row.valueDraft)}/></label>
+            <label>Демонстрационное значение{secret?
+              <TextInput type="password" maxLength={4096} value={row.valueDraft} disabled={action.value===null}
+                onChange={event=>{row.valueDraft=event.currentTarget.value;set('value',row.valueDraft);}}/>:
+              <textarea maxLength={4096} rows={2} value={row.valueDraft} disabled={action.value===null}
+                onChange={event=>{row.valueDraft=event.currentTarget.value;set('value',row.valueDraft);}}/>}</label>
+          </>}
+        </div>
+        <p className="interaction-action-error" role="status">{row.error}</p>
+      </li>;
+    })}</>));
     refreshControls();
-    if (focusIndex !== undefined) (rows[focusIndex]?.type ?? element('scenario-edit-add')).focus();
+    if(focusIndex!==undefined)(element('scenario-edit-actions').querySelector<HTMLElement>('[data-action-type="'+focusIndex+'"]')??element('scenario-edit-add')).focus();
   }
 
   async function capabilities(d:Draft, prefix:ActionDraft[], values:Values={}):Promise<Capability> {
@@ -286,23 +286,25 @@ export function createInteractionEditor({ element, request, current, catalog, so
           ctx = await capabilities(d, d.scenario.actions.slice(0, i));
           if (!live()) return;
         }
-        setChoices(controls.type, ctx.potentialActions.filter(isActionKind).map(t => ({ id: t, label: actionLabels[t] })), action.type, 'Выберите действие');
+        controls.types=ctx.potentialActions.filter(isActionKind).map(t=>({id:t,label:actionLabels[t]}));
         const options = prefixValid ? choices(action, ctx, objects) : [];
-        controls.picker?.update(options, parameter(action));
-        controls.error.textContent = '';
+        controls.options=options;
+        controls.error='';
+        renderRows(undefined,false);
         let error = '';
         if (!prefixValid) error = 'Сначала исправьте предыдущее действие.';
         else if (!ctx.potentialActions.includes(action.type)) error = action.type ? 'Действие не поддерживается профилем.' : 'Выберите действие.';
         else if (!actionComplete(action)) error = 'Заполните параметры действия.';
-        else if (controls.picker && !options.some(o => o.id === parameter(action))) error = 'Цель недоступна в текущем контексте.';
+        else if (pickerLabel(action.type) && !options.some(o => o.id === parameter(action))) error = 'Цель недоступна в текущем контексте.';
         else {
           const checked = await capabilities(d, d.scenario.actions.slice(0, i), exact(action, ctx, objects, d));
           if (!live()) return;
           if (!checked.actions.includes(action.type)) error = 'Параметры не поддерживаются профилем.';
         }
-        if (!error && !ctx.navigationScreenId && action.type === 'showVariant') controls.error.textContent = 'Экран определяется состоянием Preview.';
-        else if (!error && !ctx.demoScreenId && action.type === 'setDemoValue') controls.error.textContent = 'Активный экран определяется состоянием Preview.';
-        else controls.error.textContent = error;
+        if (!error && !ctx.navigationScreenId && action.type === 'showVariant') controls.error = 'Экран определяется состоянием Preview.';
+        else if (!error && !ctx.demoScreenId && action.type === 'setDemoValue') controls.error = 'Активный экран определяется состоянием Preview.';
+        else controls.error = error;
+        renderRows(undefined,false);
         if (error) { valid = false; prefixValid = false; }
       }
       if (!live()) return;

@@ -7,7 +7,7 @@ type GeometryStyle = 'left' | 'top' | 'width' | 'height';
 interface GeometryCommand { nodeId: string; expectedParentId: string; expectedRevision: number; properties: Geometry }
 interface NodeEditorOptions {
   element(id: string): HTMLElement;
-  getContext(): { documentRole: string | null; revision: number; selection?: { id: string } | null };
+  getContext(): { documentRole: string | null; revision: number | null; selection?: { id: string } | null };
   getModel(): CanvasModel | null;
   getScale(): number;
   selectLayer(node: CanvasNode, orderedNodes: CanvasNode[]): boolean | void;
@@ -79,6 +79,8 @@ export function createCanvasNodeEditor({
   }
 
   function begin(id: string | undefined, wrapper: HTMLElement, resize: boolean): Edit | null {
+    const revision = getContext().revision;
+    if (revision === null) return null;
     const selected = target(id);
     if (!selected || selected.inStack || !writable() || isEditPending()) return null;
     const names: Axis[] = resize ? ['width', 'height'] : ['x', 'y'];
@@ -94,7 +96,7 @@ export function createCanvasNodeEditor({
       initial[name] = resolved.value.value;
     }
     return {
-      ...selected, wrapper, names, initial, revision: getContext().revision, properties: {},
+      ...selected, wrapper, names, initial, revision, properties: {},
       style: Object.fromEntries(names.map(name => [geometryStyles[name], wrapper.style[geometryStyles[name]]]))
     };
   }

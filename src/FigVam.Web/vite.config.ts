@@ -1,42 +1,14 @@
 import { defineConfig } from 'vite';
 
-// Stable entry names preserve the existing ASP.NET static-resource routes while
-// the remaining application modules are migrated.
+// Only the browser application and independent headless capture are entry points.
+// All shared implementation modules are bundled through normal imports.
 export default defineConfig({
   define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     lib: {
       entry: {
-        'auth-client': 'src/api/auth-client.ts',
-        'decode': 'src/api/decode.ts',
-        'api-client': 'src/api/api-client.ts',
-        session: 'src/core/session.ts',
-        'home-ui': 'src/features/home/index.ts',
-        'token-resolution': 'src/core/tokens/token-resolution.ts',
-        tokens: 'src/features/tokens/tokens.ts',
-        'token-groups': 'src/core/tokens/token-groups.ts',
-        'token-exchange': 'src/core/tokens/token-exchange.ts',
-        'canvas-viewport': 'src/canvas/canvas-viewport.ts',
-        layers: 'src/features/editor/layers.ts',
-        'layer-drag': 'src/canvas/layer-drag.ts',
-        'canvas-node-editor': 'src/canvas/canvas-node-editor.ts',
-        'screen-renderer': 'src/canvas/screen-renderer.ts',
-        'document-collaboration': 'src/features/collaboration/document-collaboration.ts',
-        'document-export': 'src/features/documents/document-export.ts',
-        'node-property-controls': 'src/ui/node-property-controls.ts',
-        styles: 'src/features/styles/styles.ts',
-        'token-value-control': 'src/ui/token-value-control.ts',
-        'padding-editor': 'src/ui/padding-editor.ts',
-        'layer-caption': 'src/core/layer-caption.ts',
-        scenarios: 'src/features/interactions/scenarios.ts',
-        'interaction-editor': 'src/features/interactions/interaction-editor.ts',
-        'interaction-catalog': 'src/features/interactions/interaction-catalog.ts',
-        'render-model': 'src/canvas/render-model.ts',
-        'screen-capture': 'src/canvas/screen-capture.ts',
+        editor: 'src/app/editor.ts',
         'headless-preview': 'src/canvas/headless-preview.ts',
-        'visual-node-editor': 'src/features/editor/visual-node-editor.ts',
-        'visual-screen': 'src/canvas/visual-screen.ts',
-        'screen-resize': 'src/features/editor/screen-resize.ts',
       },
       formats: ['es'],
       fileName: (_format, name) => name + '.js',

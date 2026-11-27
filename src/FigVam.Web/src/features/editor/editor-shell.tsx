@@ -1,4 +1,4 @@
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image } from 'lucide-react';
 import { Button } from '../../ui/Button';
@@ -37,7 +37,7 @@ function menu(label:string, className:string) {
 const toolIcons={select:MousePointer2, Frame, Text:Type, Button:RectangleHorizontal, TextInput:TextCursorInput, Image};
 type ToolKind=keyof typeof toolIcons;
 function renderToolIcon(host:HTMLElement,name:ToolKind) {
-  const Icon=toolIcons[name],root=createRoot(host);
+  const Icon=toolIcons[name],root=createPanelRoot(host);
   flushSync(()=>root.render(<Icon size={18} strokeWidth={1.7} aria-hidden="true"/>));
 }
 
@@ -48,7 +48,7 @@ function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, befor
   nav.setAttribute('role','tablist');
   nav.setAttribute('aria-label',label);
   const stage=el('div','panel-stage');
-  const reactRoot=createRoot(nav);
+  const reactRoot=createPanelRoot(nav);
   let selected:string|undefined;
   for(const [key,,panel] of entries) {
     panel.classList.add('panel-page');
@@ -83,7 +83,8 @@ function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, befor
 export function createEditorShell({ beforePrototypeLeave = () => true }:{beforePrototypeLeave?:(resume:()=>void)=>boolean} = {}) {
   // Capture original nodes before reparenting them into temporarily detached panels.
   const shellNodes = new Map([...document.querySelectorAll<HTMLElement>('[id]')].map(node => [node.id, node]));
-  const byId = (id:string):HTMLElement => required(shellNodes.get(id) ?? document.getElementById(id),id);
+  const byId = (id:string):HTMLElement => required(id === 'pages' || id === 'screens'
+    ? document.getElementById(id) ?? shellNodes.get(id) : shellNodes.get(id) ?? document.getElementById(id),id);
   const input=(id:string)=>asElement(byId(id),HTMLInputElement);
   const select=(id:string)=>asElement(byId(id),HTMLSelectElement);
   const form=(id:string)=>asElement(byId(id),HTMLFormElement);
@@ -215,14 +216,20 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
   screenHeight.addEventListener('input', syncPreset);
   screenForm.addEventListener('reset', () => { preset.value = initialPreset; });
   const screenMenuBody = el('div', 'screen-options-body');
+  screenMenuBody.setAttribute('popover', 'manual');
   screenMenuBody.append(preset, screenForm);
   screenOptions.append(screenMenuBody);
   const navigatorToolbar = el('div', 'navigator-toolbar');
   navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
   const navigatorMenus: [HTMLDetailsElement,HTMLElement][] = [[screenOptions, screenMenuBody]];
   function positionNavigatorMenu(menu:HTMLDetailsElement, body:HTMLElement) {
-    if (!menu.open || !body.getClientRects().length) return;
-    const anchor = required(menu.querySelector('summary'),'menu summary').getBoundingClientRect();
+    const trigger = required(menu.querySelector('summary'),'menu summary');
+    if (!menu.open || !trigger.getClientRects().length) {
+      if (body.matches(':popover-open')) body.hidePopover();
+      return;
+    }
+    if (!body.matches(':popover-open')) body.showPopover();
+    const anchor = trigger.getBoundingClientRect();
     const margin = 8, gap = 6;
     // Keep the automatically suggested creation form below the empty page's row,
     // so that the page's rename and context actions remain directly clickable.
@@ -244,7 +251,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
   }
   for (const [current, body] of navigatorMenus) {
     current.addEventListener('toggle', () => {
-      if (!current.open) return;
+      if (!current.open) { positionNavigatorMenu(current, body); return; }
       for (const [other] of navigatorMenus) {
         if (other !== current) other.open = false;
       }
@@ -256,6 +263,7 @@ export function createEditorShell({ beforePrototypeLeave = () => true }:{beforeP
   const navigatorObserver = new ResizeObserver(positionNavigatorMenus);
   navigatorObserver.observe(navigatorToolbar);
   window.addEventListener('resize', positionNavigatorMenus);
+  window.addEventListener('scroll', positionNavigatorMenus, true);
   const screensList = byId('screens');
   pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
   byId('pages').setAttribute('aria-label', 'Страницы и экраны');

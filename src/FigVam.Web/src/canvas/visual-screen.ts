@@ -13,7 +13,7 @@ interface Scenario {nodeId:string;event:number;actions:PreviewAction[]}
 interface Playback {selection:{screenId:string;datasetId:string|null;variantId:string|null};overlays:string[];values:Record<string,string|null>;canGoBack:boolean}
 interface Asset {id:string;width:number;height:number}
 interface Style {id:string;name:string;type:number|string}
-interface Resources {kinds:Map<string,CanvasKind>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
+interface Resources {kinds:Map<string,CanvasKind & {kind:string}>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
 interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens'>, Resources {
   screen:string;revision:number;scenarios:Scenario[];diagnostics:Diagnostic[];orderedNodes:CanvasNode[];
 }

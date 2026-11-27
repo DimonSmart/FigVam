@@ -1,4 +1,5 @@
-import { createRoot } from 'react-dom/client';
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import type { components } from '../../api/schema.generated';
@@ -15,8 +16,8 @@ function item(value: unknown): value is Item {
 function Diagnostics({state, previous, next, reload}: {state: State; previous(): void; next(): void; reload(): void}) {
   return <>
     <h2 id="diagnostics-title">Диагностика экрана</h2>
-    <p id="diagnostics-status" role="status" aria-live="polite">{state.status}</p>
-    <p id="diagnostics-error" role="alert">{state.error}</p>
+    <StatusMessage id="diagnostics-status">{state.status}</StatusMessage>
+    <InlineError id="diagnostics-error">{state.error}</InlineError>
     <Button id="diagnostics-retry" hidden={!state.retry} onClick={reload}>Повторить загрузку диагностики</Button>
     <ul id="diagnostics-list" aria-label="Диагностика выбранного экрана">{state.items.map((entry, i) => <li key={i}>
       {[entry.code, entry.path, entry.message, entry.referenceId ? 'ID ссылки: ' + entry.referenceId : null, entry.property ? 'Свойство: ' + entry.property : null].filter(Boolean).join(' — ')}
@@ -33,7 +34,7 @@ export function createScreenDiagnostics({element, request, getContext, pageSize}
 }) {
   const section = element('diagnostics-title').closest('section');
   if (!section) throw new Error('Diagnostics host missing');
-  const root = createRoot(section);
+  const root = createPanelRoot(section);
   let controller: AbortController | null = null, generation = 0, offset = 0, total = 0, key: string | null = null;
   const initial = (): State => ({ status: 'Выберите экран.', error: '', items: [], offset: 0, total: 0, retry: false });
   let state = initial();

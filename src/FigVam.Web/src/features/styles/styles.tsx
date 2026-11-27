@@ -1,3 +1,7 @@
+import { TextInput } from '../../ui/Inputs';
+import { flushSync } from 'react-dom';
+import { createPanelRoot } from '../../app/react-panels';
+import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
@@ -70,6 +74,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
   const select=(id:string)=>checked(el(id),HTMLSelectElement),fieldInput=(id:string)=>checked(el(id),HTMLInputElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
   let styleUsages:Usage[]=[],styleUsageRequest=0;
+  const usageRoot=createPanelRoot(el('styles-usages'));
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
@@ -79,15 +84,11 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     source.replaceChildren(new Option(empty, ''));
     for (const item of options) source.add(new Option(item.name, item.id));
   };
-  function input<K extends 'input'|'select'>(type:K,name:string,initial=''):HTMLElementTagNameMap[K] {
-    const element = document.createElement(type);
-    element.setAttribute('aria-label', name);
-    if (element instanceof HTMLInputElement) element.value=initial;
-    return element;
-  }
-  const rows:{field:string;label:string;active:HTMLInputElement;source:HTMLSelectElement;direct:HTMLInputElement|HTMLSelectElement|HTMLFieldSetElement;ref:HTMLSelectElement;inline:ReturnType<typeof makeInlineTypography>|null}[]=[];
-  const editor = el('styles-fields');
-
+  type ValueDraft={mode:'literal'|'alias';direct:string;alias:string};
+  type TypographyDraft=Record<TypographyField,ValueDraft>;
+  interface FieldDraft extends ValueDraft {field:string;label:string;active:boolean;tokenType:TokenType|null;category:TokenCategory|null;inline:TypographyDraft|null;fallback:string}
+  let rows:FieldDraft[]=[];
+  const fieldsRoot=createPanelRoot(el('styles-fields'));
   function choose(select:HTMLSelectElement,value:string|null|undefined) {
     if (value && ![...select.options].some(option => option.value === value)) {
       const missing = new Option('Недоступная ссылка', value);
@@ -96,99 +97,101 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     select.value = value ?? '';
   }
 
-  function makeInlineTypography(existing:TokenValue|null|undefined) {
-    const group = document.createElement('fieldset');
-    const legend = document.createElement('legend');
-    legend.textContent = 'Поля типографики';
-    group.append(legend);
-    const entries:{field:TypographyField;type:TokenType;category:TokenCategory|null;mode:HTMLSelectElement;direct:HTMLInputElement;alias:HTMLSelectElement}[]=[];
-    for (const field of Object.keys(typographyParts) as TypographyField[]) {
-      const [label,type,category,fallback]=typographyParts[field];
-      const part = existing?.type === 'typographyFields' ? existing[field] : null;
-      const old = existing?.type === 'typography' ? existing[field] : null;
-      const row = document.createElement('div');
-      row.className = 'token-typography-row';
-      const mode = input('select', label + ': источник');
-      mode.add(new Option('Прямое', 'literal')); mode.add(new Option('Токен', 'alias'));
-      mode.value = part?.expression === 'alias' ? 'alias' : 'literal';
-      const direct = input('input', label + ': значение', part?.expression === 'literal'
-        ? String('value' in part.value ? part.value.value??fallback : fallback) : old == null ? fallback : String(old));
-      const alias = input('select', label + ': токен');
-      choices(alias, candidates(type, category));
-      choose(alias, part?.expression === 'alias' ? part.tokenId : null);
-      const labelElement = document.createElement('span'); labelElement.textContent = label;
-      const sync = () => { direct.hidden = mode.value === 'alias'; alias.hidden = mode.value !== 'alias'; };
-      mode.addEventListener('change', sync);
-      row.append(labelElement, mode, direct, alias); group.append(row); sync();
-      entries.push({ field, type, category, mode, direct, alias });
-    }
-    return {
-      element: group,
-      value() {
-        const value:TypographyFieldsValue={type:'typographyFields'};
-        for (const { field, type, mode, direct, alias } of entries) {
-          if (mode.value === 'alias') {
-            if (!alias.value) throw new Error('Выберите токен для ' + field + '.');
-            value[field] = { expression: 'alias', tokenId: alias.value };
-          } else {
-            const raw = direct.value.trim();
-            let data:TokenValue;
-            if (type === 'FontFamily') {
-              if (!/^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$/u.test(raw) || raw.length > 128)
-                throw new Error('Некорректное имя шрифта.');
-              data = { type: 'fontFamily', value: raw };
-            } else {
-              if (!raw || !Number.isFinite(Number(raw))) throw new Error('Недопустимое число для ' + field + '.');
-              const number = Number(raw);
-              if (type === 'FontWeight' && (!Number.isInteger(number) || number < 1 || number > 1000))
-                throw new Error('Недопустимая толщина шрифта.');
-              if (field === 'letterSpacing' && Math.abs(number) > 100)
-                throw new Error('Межбуквенный интервал должен быть от -100 до 100 px.');
-              data={type:type==='Dimension'?'dimension':type==='FontWeight'?'fontWeight':'number',value:number};
-            }
-            value[field] = { expression: 'literal', value: data };
-          }
-        }
-        return { type: 'typography' as const, value };
-      }
+  function makeTypographyDraft(existing:TokenValue|null|undefined):TypographyDraft {
+    const make=(field:TypographyField):ValueDraft=>{
+      const fallback=typographyParts[field][3];
+      const part=existing?.type==='typographyFields'?existing[field]:null;
+      const old=existing?.type==='typography'?existing[field]:null;
+      return {mode:part?.expression==='alias'?'alias':'literal',
+        direct:part?.expression==='literal'?String('value' in part.value?part.value.value??fallback:fallback):old==null?fallback:String(old),
+        alias:part?.expression==='alias'?part.tokenId:''};
     };
+    return {fontFamily:make('fontFamily'),fontSize:make('fontSize'),fontWeight:make('fontWeight'),lineHeight:make('lineHeight'),letterSpacing:make('letterSpacing')};
   }
-
-  function buildFields(style:DesignStyle|null|undefined,type:StyleType) {
-    rows.length = 0; editor.replaceChildren();
-    for (const [field, [label, tokenType, category]] of Object.entries(definitions[type])) {
-      const saved = style?.fields?.[field];
-      const row = document.createElement('div'); row.className = 'style-field-row';
-      const active = input('input', label + ': переопределить');
-      active.type = 'checkbox'; active.checked = saved != null;
-      const title = document.createElement('span'); title.textContent = label;
-      const source = input('select', label + ': источник');
-      source.add(new Option('Прямое', 'literal'));
-      if (tokenType) source.add(new Option('Токен', 'alias'));
-      const inline = field === 'typography' ? makeInlineTypography(saved?.type==='typography'?saved.value:null) : null;
-      const direct = inline?.element ?? (palette[field] ? input('select',label) : input('input',label + ': значение'));
-      if (direct instanceof HTMLSelectElement) {
-        const options=palette[field]??[];
-        for (const value of options) direct.add(new Option(value,value));
-        direct.value=saved?.type==='enum'?saved.value:options[0]??'';
-      } else if (direct instanceof HTMLInputElement) direct.value = saved && saved.type !== 'token' ? literalText(field, saved)
-        : field.endsWith('Color') ? '#000000FF' : field === 'cornerRadius' ? '6' : '1';
-      const ref = input('select', label + ': ссылка на токен');
-      choices(ref, tokenType ? candidates(tokenType, category) : []);
-      if (saved?.type === 'token') choose(ref, saved.tokenId);
-      const fallback = style?.basedOnStyleId ? ' (наследуется при отключении)' : ' (значение по умолчанию)';
-      const flag = document.createElement('label'); flag.append(active, ' Задать ' + label + fallback);
-      source.value = saved?.type === 'token' ? 'alias' : 'literal';
-      const sync = () => {
-        source.hidden = !active.checked;
-        direct.hidden = !active.checked || source.value === 'alias';
-        ref.hidden = !active.checked || source.value !== 'alias';
-      };
-      active.addEventListener('change', sync);
-      source.addEventListener('change', sync);
-      row.append(flag, source, direct, ref); editor.append(row); sync();
-      rows.push({ field, label, active, source, direct, ref, inline });
+  function typographyValue(draft:TypographyDraft):NodePropertyValue {
+    const value:TypographyFieldsValue={type:'typographyFields'};
+    for(const field of Object.keys(typographyParts) as TypographyField[]){
+      const [,type]=typographyParts[field],part=draft[field];
+      if(part.mode==='alias'){
+        if(!part.alias)throw new Error('Выберите токен для '+field+'.');
+        value[field]={expression:'alias',tokenId:part.alias};
+      }else{
+        const raw=part.direct.trim();
+        let data:TokenValue;
+        if(type==='FontFamily'){
+          if(!/^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$/u.test(raw)||raw.length>128)throw new Error('Некорректное имя шрифта.');
+          data={type:'fontFamily',value:raw};
+        }else{
+          if(!raw||!Number.isFinite(Number(raw)))throw new Error('Недопустимое число для '+field+'.');
+          const number=Number(raw);
+          if(type==='FontWeight'&&(!Number.isInteger(number)||number<1||number>1000))throw new Error('Недопустимая толщина шрифта.');
+          if(field==='letterSpacing'&&Math.abs(number)>100)throw new Error('Межбуквенный интервал должен быть от -100 до 100 px.');
+          data={type:type==='Dimension'?'dimension':type==='FontWeight'?'fontWeight':'number',value:number};
+        }
+        value[field]={expression:'literal',value:data};
+      }
     }
+    return {type:'typography',value};
+  }
+  function tokenOptions(type:TokenType|null,category:TokenCategory|null,value:string){
+    const options=type?candidates(type,category):[];
+    return <><option value="">Выберите токен</option>
+      {options.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+      {value&&!options.some(item=>item.id===value)&&<option value={value} disabled>Недоступная ссылка</option>}</>;
+  }
+  function updateDraft(part:ValueDraft, key:'mode'|'direct'|'alias', value:string) {
+    if(key==='mode')part.mode=value==='alias'?'alias':'literal';else part[key]=value;
+    renderFields();
+  }
+  function renderTypography(row:FieldDraft,hidden:boolean){
+    if(!row.inline)return null;
+    const draft=row.inline;
+    return <fieldset hidden={hidden}><legend>Поля типографики</legend>
+      {(Object.keys(typographyParts) as TypographyField[]).map(field=>{
+        const [label,type,category]=typographyParts[field],part=draft[field];
+        return <div className="token-typography-row" key={field}>
+          <span>{label}</span>
+          <select aria-label={label+': источник'} value={part.mode} onChange={event=>updateDraft(part,'mode',event.currentTarget.value)}>
+            <option value="literal">Прямое</option><option value="alias">Токен</option>
+          </select>
+          <TextInput aria-label={label+': значение'} hidden={part.mode==='alias'} value={part.direct} onChange={event=>updateDraft(part,'direct',event.currentTarget.value)}/>
+          <select aria-label={label+': токен'} hidden={part.mode!=='alias'} value={part.alias} onChange={event=>updateDraft(part,'alias',event.currentTarget.value)}>
+            {tokenOptions(type,category,part.alias)}
+          </select>
+        </div>;
+      })}
+    </fieldset>;
+  }
+  function renderFields(){
+    flushSync(()=>fieldsRoot.render(<>{rows.map(row=>{
+      const hidden=!row.active||row.mode==='alias',options=palette[row.field];
+      return <div className="style-field-row" key={row.field}>
+        <label><input type="checkbox" aria-label={row.label+': переопределить'} checked={row.active}
+          onChange={event=>{row.active=event.currentTarget.checked;renderFields();}}/> Задать {row.label}{row.fallback}</label>
+        <select aria-label={row.label+': источник'} hidden={!row.active} value={row.mode} onChange={event=>updateDraft(row,'mode',event.currentTarget.value)}>
+          <option value="literal">Прямое</option>{row.tokenType&&<option value="alias">Токен</option>}
+        </select>
+        {row.inline?renderTypography(row,hidden):options?
+          <select aria-label={row.label} hidden={hidden} value={row.direct} onChange={event=>updateDraft(row,'direct',event.currentTarget.value)}>
+            {options.map(value=><option key={value}>{value}</option>)}
+          </select>:<TextInput aria-label={row.label+': значение'} hidden={hidden} value={row.direct}
+            onChange={event=>updateDraft(row,'direct',event.currentTarget.value)}/>}
+        <select aria-label={row.label+': ссылка на токен'} hidden={!row.active||row.mode!=='alias'} value={row.alias}
+          onChange={event=>updateDraft(row,'alias',event.currentTarget.value)}>{tokenOptions(row.tokenType,row.category,row.alias)}</select>
+      </div>;
+    })}</>));
+  }
+  function buildFields(style:DesignStyle|null|undefined,type:StyleType){
+    rows=Object.entries(definitions[type]).map(([field,[label,tokenType,category]])=>{
+      const saved=style?.fields?.[field],options=palette[field];
+      const direct=options?(saved?.type==='enum'?saved.value:options[0]??''):
+        saved&&saved.type!=='token'?literalText(field,saved):field.endsWith('Color')?'#000000FF':field==='cornerRadius'?'6':'1';
+      return {field,label,tokenType,category,active:saved!=null,mode:saved?.type==='token'?'alias':'literal',
+        direct,alias:saved?.type==='token'?saved.tokenId:'',
+        inline:field==='typography'?makeTypographyDraft(saved?.type==='typography'?saved.value:null):null,
+        fallback:style?.basedOnStyleId?' (наследуется при отключении)':' (значение по умолчанию)'};
+    });
+    renderFields();
   }
 
   function render() {
@@ -211,38 +214,11 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     choose(parent, selected?.basedOnStyleId);
     buildFields(selected, type);
     renderPreview(selected);
-    const usageList = el('styles-usages');
-    usageList.replaceChildren();
-    for (const indirect of [false, true]) {
-      const uses = styleUsages.filter(item => Boolean(item.indirect) === indirect);
-      if (!uses.length) continue;
-      const group = document.createElement('li');
-      group.className = 'resource-usage-group';
-      group.textContent = (indirect ? 'Косвенные' : 'Прямые') + ' · ' + uses.length;
-      usageList.append(group);
-      for (const usage of uses) {
-        const li = document.createElement('li');
-        li.textContent = [usage.label ?? usage.kind, usage.property, usage.theme == null ? null : 'тема ' + usage.theme]
-          .filter(x => x != null).join(' · ');
-        if (usage.kind === 'nodeProperty') {
-          const target = document.createElement('button');
-          target.type = 'button';
-          target.textContent = 'К слою';
-          target.addEventListener('click', () => {
-            const node = [...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row => row.dataset.id === usage.ownerId);
-            node?.querySelector<HTMLElement>('.layer-label')?.click();
-          });
-          li.append(' ', target);
-        }
-        li.title = (usage.chain ?? []).map(id => items.find(item => item.id === id)?.name ?? id).join(' → ');
-        usageList.append(li);
-      }
-    }
-    if (!styleUsages.length) {
-      const empty = document.createElement('li');
-      empty.textContent = 'Использований нет.';
-      usageList.append(empty);
-    }
+    flushSync(()=>usageRoot.render(<ResourceUsages usages={styleUsages}
+      name={id=>items.find(item=>item.id===id)?.name??id} selectLayer={id=>{
+        const node=[...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row=>row.dataset.id===id);
+        node?.querySelector<HTMLElement>('.layer-label')?.click();
+      }}/>));
   }
 
   function resolvePreview(style:DesignStyle|null|undefined,theme:Theme,seen=new Set<string>()):Record<string,string> {
@@ -371,10 +347,10 @@ export function createStyles({ element, request, getContext, getTokens, startReq
       const type:StyleType=select('styles-type').value==='TextStyle'?'TextStyle':'BorderStyle';
       const fields:Record<string,NodePropertyValue>={};
       for (const row of rows) {
-        if (!row.active.checked) continue;
-        const value = row.source.value === 'alias'
-          ? (row.ref.value ? { type: 'token' as const, tokenId: row.ref.value } : null)
-          : row.inline ? row.inline.value() : literalOf(row.field, row.direct instanceof HTMLFieldSetElement?'':row.direct.value);
+        if (!row.active) continue;
+        const value = row.mode === 'alias'
+          ? (row.alias ? { type: 'token' as const, tokenId: row.alias } : null)
+          : row.inline ? typographyValue(row.inline) : literalOf(row.field, row.direct);
         if (!value) throw new Error('Выберите токен для ' + row.label);
         fields[row.field] = value;
       }

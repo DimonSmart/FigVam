@@ -1,4 +1,5 @@
-import { createRoot } from 'react-dom/client';
+import { InlineError, StatusMessage } from '../../ui/Feedback';
+import { createPanelRoot } from '../../app/react-panels';
 import { flushSync } from 'react-dom';
 import { Button } from '../../ui/Button';
 import { ApiError, type ApiClient } from '../../api/api-client';
@@ -25,15 +26,15 @@ function VersionForm({operation,draft,setDraft}:{operation:SaveOperation|undefin
   return <>
     <label htmlFor="version-name">Имя версии (необязательно)</label><input id="version-name" maxLength={256} autoComplete="off" value={draft} readOnly={blocked(operation)} onChange={e=>setDraft(e.target.value)}/>
     <Button type="submit" disabled={operation?.state==='pending'}>{operation?.state==='uncertain'?'Повторить создание версии':'Создать версию'}</Button>
-    <p id="version-result" role="status" aria-live="polite">{operation?.state==='success'?'Версия создана: '+operation.versionId:operation?.state==='pending'?'Создание версии…':''}</p>
-    <p id="version-error" role="alert">{operation?.error??''}</p>
+    <StatusMessage id="version-result">{operation?.state==='success'?'Версия создана: '+operation.versionId:operation?.state==='pending'?'Создание версии…':''}</StatusMessage>
+    <InlineError id="version-error">{operation?.error??''}</InlineError>
   </>;
 }
 function VersionList({state,operation,canEdit,restore,refresh,previous,next,retry}:{state:ListState;operation:RestoreOperation|undefined;canEdit:boolean;restore(v:Version):void;refresh():void;previous():void;next():void;retry():void}){
   return <>
     <h2 id="versions-title">Сохранённые версии</h2><p>Текущий общий черновик показан в редакторе; сохранённые версии остаются неизменными.</p>
     <Button id="versions-refresh" onClick={refresh}>Обновить историю</Button>
-    <p id="versions-status" role="status" aria-live="polite">{state.status}</p><p id="versions-error" role="alert">{state.error}</p>
+    <StatusMessage id="versions-status">{state.status}</StatusMessage><InlineError id="versions-error">{state.error}</InlineError>
     <ul id="versions-list" aria-label="История сохранённых версий">{state.versions.map(v=>{
       const date=new Date(v.timestamp),name=v.name?.trim()||'Без имени';
       return <li key={v.id}><span>{name+' · Автор: '+v.authorId+' · '+(Number.isNaN(date.valueOf())?v.timestamp:date.toLocaleString())+' · Ревизия '+v.revision}</span>
@@ -44,8 +45,8 @@ function VersionList({state,operation,canEdit,restore,refresh,previous,next,retr
       <span id="versions-number">{state.loaded?'Страница '+(state.index+1):''}</span>
       <Button id="versions-next" disabled={!state.loaded||state.loading||state.next===null} onClick={next}>Следующие версии</Button>
     </nav>
-    <p id="restore-status" role="status" aria-live="polite">{operation?.state==='pending'?'Восстановление версии…':operation?.state==='success'?'Версия восстановлена в общий черновик.':''}</p>
-    <p id="restore-error" role="alert">{operation?.error??''}</p>
+    <StatusMessage id="restore-status">{operation?.state==='pending'?'Восстановление версии…':operation?.state==='success'?'Версия восстановлена в общий черновик.':''}</StatusMessage>
+    <InlineError id="restore-error">{operation?.error??''}</InlineError>
     <Button id="restore-retry" hidden={!canEdit||operation?.state!=='uncertain'} onClick={retry}>Повторить восстановление</Button>
   </>;
 }
@@ -53,7 +54,7 @@ export function createDocumentHistory({element,request,pageSize,refreshPages,wor
   const versionOperations=new Map<string,SaveOperation>(),restoreOperations=new Map<string,RestoreOperation>(),historyActions=new Map<string,HistoryOperation>();
   const form=element('version-save'),section=element('versions-title').closest('section');
   if(!section)throw new Error('Missing version history host');
-  const formRoot=createRoot(form),listRoot=createRoot(section);
+  const formRoot=createPanelRoot(form),listRoot=createPanelRoot(section);
   let state=initial(),draft='',generation=0,controller:AbortController|null=null,cursors:(number|null)[]=[null];
   const canEdit=()=>['Owner','Editor'].includes(workspace.documentRole??'');
   const get=<T,>(map:Map<string,T>):T|undefined=>workspace.documentId?map.get(workspace.documentId):undefined;

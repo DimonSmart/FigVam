@@ -1,6 +1,7 @@
+import { InlineError } from '../../ui/Feedback';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { createRoot } from 'react-dom/client';
+import { createPanelRoot } from '../../app/react-panels';
 import type { AuthMode } from '../../api/auth-client';
 import { Button } from '../../ui/Button';
 
@@ -21,7 +22,7 @@ function Authentication({ state, submit }: {
     <p id="authentication-help">{state.mode === 'bearer'
       ? 'Для API-режима введите выданный Bearer-токен. Вход через Google настроен отдельно.'
       : 'Войдите с помощью Google. Доступ предоставляется администратором FigVam.'}</p>
-    <p id="authentication-error" role="alert">{state.error}</p>
+    <InlineError id="authentication-error">{state.error}</InlineError>
     <a id="google-login" href="/api/auth/login" hidden={state.mode !== 'google'}>Войти через Google</a>
     <form id="authentication-form" autoComplete="off" hidden={state.mode !== 'bearer'} onSubmit={event => {
       event.preventDefault();
@@ -38,7 +39,7 @@ function Authentication({ state, submit }: {
 
 /** Transitional boundary: editor commands remain outside the React-owned subtree. */
 export function createAuthenticationView(host: HTMLElement, submit: (token: string) => void) {
-  const root = createRoot(host);
+  const root = createPanelRoot(host);
   let state: AuthenticationState = { visible: true, mode: null, error: '', reset: 0 };
   function update(patch: Partial<AuthenticationState>) {
     state = { ...state, ...patch };

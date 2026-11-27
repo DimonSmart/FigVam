@@ -19,7 +19,6 @@ public static class EditorEndpoints
         MapFile("/", "index.html", "text/html; charset=utf-8");
         MapFile("/documents/{documentId:guid}", "index.html", "text/html; charset=utf-8");
         MapFile("/editor.js", "editor.js", "text/javascript; charset=utf-8");
-        MapFile("/home-ui.js", "home-ui.js", "text/javascript; charset=utf-8");
         // Map only actual generated bundle chunks, never an arbitrary user-supplied filesystem path.
         foreach (var file in FrontendAssets.Chunks())
         {
@@ -27,41 +26,6 @@ public static class EditorEndpoints
             MapFile("/" + name, name, "text/javascript; charset=utf-8");
         }
 
-        MapFile("/render-model.js", "render-model.js", "text/javascript; charset=utf-8");
-        MapFile("/screen-capture.js", "screen-capture.js", "text/javascript; charset=utf-8");
-        MapFile("/auth-client.js", "auth-client.js", "text/javascript; charset=utf-8");
-
-        MapFile("/decode.js", "decode.js", "text/javascript; charset=utf-8");
-        MapFile("/api-client.js", "api-client.js", "text/javascript; charset=utf-8");
-        MapFile("/canvas-viewport.js", "canvas-viewport.js", "text/javascript; charset=utf-8");
-        MapFile("/canvas-node-editor.js", "canvas-node-editor.js", "text/javascript; charset=utf-8");
-        MapFile("/visual-screen.js", "visual-screen.js", "text/javascript; charset=utf-8");
-        MapFile("/visual-node-editor.js", "visual-node-editor.js", "text/javascript; charset=utf-8");
-        MapFile("/node-property-controls.js", "node-property-controls.js", "text/javascript; charset=utf-8");
-        MapFile("/padding-editor.js", "padding-editor.js", "text/javascript; charset=utf-8");
-        MapFile("/token-value-control.js", "token-value-control.js", "text/javascript; charset=utf-8");
-        MapFile("/token-resolution.js", "token-resolution.js", "text/javascript; charset=utf-8");
-        MapFile("/screen-renderer.js", "screen-renderer.js", "text/javascript; charset=utf-8");
-
-
-
-        MapFile("/document-collaboration.js", "document-collaboration.js", "text/javascript; charset=utf-8");
-        MapFile("/document-export.js", "document-export.js", "text/javascript; charset=utf-8");
-
-        MapFile("/layers.js", "layers.js", "text/javascript; charset=utf-8");
-        MapFile("/layer-caption.js", "layer-caption.js", "text/javascript; charset=utf-8");
-        MapFile("/layer-drag.js", "layer-drag.js", "text/javascript; charset=utf-8");
-        MapFile("/scenarios.js", "scenarios.js", "text/javascript; charset=utf-8");
-        MapFile("/interaction-catalog.js", "interaction-catalog.js", "text/javascript; charset=utf-8");
-        MapFile("/interaction-editor.js", "interaction-editor.js", "text/javascript; charset=utf-8");
-        MapFile("/screen-resize.js", "screen-resize.js", "text/javascript; charset=utf-8");
-
-
-        MapFile("/tokens.js", "tokens.js", "text/javascript; charset=utf-8");
-        MapFile("/token-groups.js", "token-groups.js", "text/javascript; charset=utf-8");
-        MapFile("/token-exchange.js", "token-exchange.js", "text/javascript; charset=utf-8");
-        MapFile("/styles.js", "styles.js", "text/javascript; charset=utf-8");
-        MapFile("/session.js", "session.js", "text/javascript; charset=utf-8");
         MapFile("/editor.css", "editor.css", "text/css; charset=utf-8");
         MapFile("/editor-shell.css", "editor-shell.css", "text/css; charset=utf-8");
         MapFile("/home.css", "home.css", "text/css; charset=utf-8");
