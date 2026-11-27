@@ -462,10 +462,10 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     {"Куда добавить "}
                     <select id="visual-parent"/>
                   </label>
-                  <div id="visual-required-properties"/>
+                  <div id="visual-required-properties"><views.propertyFields.required.Component/></div>
                   <details id="visual-optional-details" hidden>
                     <summary>{"Токены и оформление"}</summary>
-                    <div id="visual-optional-properties"/>
+                    <div id="visual-optional-properties"><views.propertyFields.optional.Component/></div>
                   </details>
                   <button id="visual-add" type="submit">{"Добавить элемент"}</button>
                 </form>
@@ -515,7 +515,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
                 <h3 id="visual-inspector-title">{"Свойства элемента"}</h3>
                 <form id="visual-properties-form" noValidate hidden>
-                  <div id="visual-properties"/>
+                  <div id="visual-properties"><views.propertyFields.inspector.Component/></div>
                   <button id="visual-properties-reset" type="button" hidden>{"Сбросить изменения свойств"}</button>
                 </form>
                 <p id="visual-inspector-status" role="status"/>

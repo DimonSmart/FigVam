@@ -182,9 +182,9 @@ export function createNodeValueSpec(name:string,definition:ControlDefinition,mod
     compactGeometry?compactGeometryLabel(name):propertyLabel(name),{theme:model.theme??'Light',customDirect:definition.type==='Shadow'}):direct;
 }
 export function isGeometryField(name:string,spec:ValueSpec){return geometryProperties.has(name)&&((spec.kind==='scalar'&&spec.round)||(spec.kind==='reference'&&spec.direct.kind==='scalar'&&spec.direct.round));}
-export interface ValueSnapshot {raw:RawValue;disabled:boolean;validation:ValueValidation;version:number}
+export interface ValueSnapshot {raw:RawValue;disabled:boolean;actionsDisabled:boolean;validation:ValueValidation;version:number}
 export function createValueField(spec:ValueSpec,id:string,options:{onEdit?(kind:EditKind):void;disabled?:boolean;validateInitial?:boolean}={}){
-  const store=createPanelStore<ValueSnapshot>({raw:spec.initial,disabled:options.disabled??false,validation:options.validateInitial?spec.validate(spec.initial):{},version:0});
+  const store=createPanelStore<ValueSnapshot>({raw:spec.initial,disabled:options.disabled??false,actionsDisabled:false,validation:options.validateInitial?spec.validate(spec.initial):{},version:0});
   const read=()=>store.getSnapshot().raw;
   const update=(patch:Partial<ValueSnapshot>)=>{const state=store.getSnapshot();store.publish({...state,...patch});};
   const inputId=(index:number)=>id+(index?'-'+index:'');
@@ -193,6 +193,7 @@ export function createValueField(spec:ValueSpec,id:string,options:{onEdit?(kind:
     edit(raw:RawValue,kind:EditKind){update({raw});options.onEdit?.(kind);},
     validate(show=true){const result=spec.validate(read());if(show)update({validation:result});return result;},
     setDisabled(disabled:boolean){if(store.getSnapshot().disabled!==disabled)update({disabled});},
+    setActionsDisabled(actionsDisabled:boolean){if(store.getSnapshot().actionsDisabled!==actionsDisabled)update({actionsDisabled});},
     refresh(){update({version:store.getSnapshot().version+1});},
     focus(index=0){document.getElementById(inputId(index))?.focus();},
     inputId

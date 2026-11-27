@@ -1,3 +1,4 @@
+import { createPropertyFieldModels } from '../ui/property-layout';
 import { createScenarioModels } from '../features/interactions/scenarios';
 import { createTokenModels } from '../features/tokens/tokens';
 import { createStyleModels } from '../features/styles/styles';
@@ -19,6 +20,7 @@ import { createPresenceModels } from '../features/collaboration/presence';
 
 export function createApplicationViews() {
   return {
+    propertyFields: createPropertyFieldModels(),
     scenarios: createScenarioModels(),
     tokens: createTokenModels(),
     styles: createStyleModels(),
