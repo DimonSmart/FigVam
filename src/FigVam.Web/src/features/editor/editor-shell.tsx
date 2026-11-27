@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
 import { createPanelStore } from '../../app/panel-store';
+import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from '../../app/document-shell-state';
 import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
@@ -10,6 +11,13 @@ interface ShellActions {
   addTool(kind:DrawingToolKind):boolean;
   signOut():void;
   createPage():void;
+  document:DocumentShellModel;
+  deletion:DeletionViewModel;
+  renameDocument():void;
+  deleteDocument():void;
+  retryDeletion():void;
+  createScreen():void;
+  refreshPages():void;
 }
 export function createEditorShell(actions:ShellActions) {
   const drawingTools=createPanelStore<readonly string[]>([]);
@@ -152,6 +160,11 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
   );
 }
 export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
+  const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
+  const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
+  const canEdit=canEditDocument(state.role);
+  const dimensions=state.screenWidth+'x'+state.screenHeight;
+  const presetValue=['1440x900','390x844','768x1024'].includes(dimensions)?dimensions:'custom';
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
@@ -161,7 +174,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
   const [rightCollapsed,setRightCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
   const [split,setSplit]=useState(42);
   const dragging=useRef(false),layersPage=useRef<HTMLDivElement>(null);
-  const preset=useRef<HTMLSelectElement>(null),screenWidth=useRef<HTMLInputElement>(null),screenHeight=useRef<HTMLInputElement>(null);
+  const screenWidth=useRef<HTMLInputElement>(null);
   const screenMenu=useRef<HTMLDetailsElement>(null),screenMenuBody=useRef<HTMLDivElement>(null),navigatorToolbar=useRef<HTMLDivElement>(null),paletteMenu=useRef<HTMLDetailsElement>(null);
   function focusTab(key:string){requestAnimationFrame(()=>document.getElementById('tab-'+key)?.focus());}
   function selectLeft(key:LeftTab,focus=false){setLeftTab(key);if(focus)focusTab(key);}
@@ -175,8 +188,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     setTokensMode(tokens);
   }
   function resizeAt(y:number){const bounds=layersPage.current?.getBoundingClientRect();if(bounds?.height)setSplit(clampSplit((y-bounds.top)/bounds.height*100));}
-  function applyPreset(){const value=preset.current?.value;if(!value||value==='custom'||!screenWidth.current||!screenHeight.current)return;const [width='',height='']=value.split('x');screenWidth.current.value=width;screenHeight.current.value=height;}
-  function syncPreset(){if(!preset.current||!screenWidth.current||!screenHeight.current)return;const dimensions=screenWidth.current.value+'x'+screenHeight.current.value;preset.current.value=[...preset.current.options].some(option=>option.value===dimensions)?dimensions:'custom';}
+  function applyPreset(value:string){if(value==='custom')return;const [width='',height='']=value.split('x');shell.document.patch({screenWidth:width,screenHeight:height});}
   function positionNavigatorMenu(){
     const menu=screenMenu.current,body=screenMenuBody.current,trigger=menu?.querySelector('summary');
     if(!menu||!body||!trigger)return;
@@ -198,8 +210,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     positionNavigatorMenu();
   }
   function openCreateScreen(){
-    if(!document.getElementById('page-edit')?.hidden&&!document.querySelector('#pages [aria-pressed=true]')){shell.createPage();return;}
-    if(!screenMenu.current||document.getElementById('screen-create')?.hidden)return;
+    if(canEdit&&!state.hasPage){shell.createPage();return;}
+    if(!screenMenu.current||!canEdit)return;
     setLeftTab('layers');setLeftCollapsed(false);screenMenu.current.open=true;
     requestAnimationFrame(()=>{positionNavigatorMenu();screenWidth.current?.focus();});
   }
@@ -231,8 +243,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
       <header className="document-panel app-toolbar" aria-label="Панель документа">
         <span className="editor-brand">{"FigVam"}</span>
         <a href="/" data-navigation="">{"← Документы"}</a>
-        <h1 id="document-title"/>
-        <span id="revision"/>
+        <h1 id="document-title">{state.title}</h1>
+        <span id="revision">{state.revisionLabel}</span>
         <div className="app-header-actions">
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть слои" aria-label="Показать или скрыть слои" aria-expanded={!leftCollapsed} hidden={tokensMode} onClick={()=>setLeftCollapsed(value=>!value)}><PanelLeft size={18} aria-hidden="true"/></Button>
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть инспектор" aria-label="Показать или скрыть инспектор" aria-expanded={!rightCollapsed} hidden={tokensMode} onClick={()=>setRightCollapsed(value=>!value)}><PanelRight size={18} aria-hidden="true"/></Button>
@@ -244,7 +256,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           </button>
           <button id="open-preview" type="button" disabled>{"Preview"}</button>
           <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"><views.presence.list.Component/></ul>
-          <p id="connection-status" aria-live="polite"/>
+          <p id="connection-status" aria-live="polite">{state.connectionStatus}</p>
           <details className="editor-menu share-menu">
             <summary className="menu-trigger">{"Поделиться"}</summary>
             <div className="menu-body">
@@ -272,14 +284,14 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="menu-body">
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Документ"}</h3>
-                <form id="document-rename" hidden>
+                <form id="document-rename" hidden={!canEdit} onSubmit={event=>{event.preventDefault();shell.renameDocument();}}>
                   <label htmlFor="rename-document-name">{"Имя документа"}</label>
-                  <input id="rename-document-name" required maxLength={256} autoComplete="off"/>
-                  <button type="submit">{"Переименовать документ"}</button>
-                  <p id="document-rename-status" role="status" aria-live="polite"/>
-                  <p id="document-rename-error" role="alert"/>
+                  <input id="rename-document-name" value={state.renameName} onChange={event=>shell.document.patch({renameName:event.currentTarget.value})} required maxLength={256} autoComplete="off"/>
+                  <button type="submit" disabled={state.renameBusy}>{"Переименовать документ"}</button>
+                  <p id="document-rename-status" role="status" aria-live="polite">{state.renameStatus}</p>
+                  <p id="document-rename-error" role="alert">{state.renameError}</p>
                 </form>
-                <button id="delete-document" type="button" hidden>{"Удалить документ"}</button>
+                <button id="delete-document" type="button" hidden={state.role!=='Owner'} disabled={deletion.status!=='idle'} onClick={shell.deleteDocument}>{"Удалить документ"}</button>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Экспорт"}</h3>
@@ -331,31 +343,31 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section className="editor-group">
                   <h3 className="editor-group-title">{"Страницы и экраны"}</h3>
                   <div className="navigator-toolbar" ref={navigatorToolbar}>
-                    <div id="page-edit" hidden>
+                    <div id="page-edit" hidden={!canEdit} inert={state.pageBusy}>
                       <button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</button>
                     </div>
-                    <details className="editor-menu inline-menu screen-options" ref={screenMenu} onToggle={onScreenMenuToggle}>
+                    <details className="editor-menu inline-menu screen-options" hidden={!canEdit} ref={screenMenu} onToggle={onScreenMenuToggle}>
                       <summary className="menu-trigger">{"+ Экран"}</summary>
                       <div className="screen-options-body" popover="manual" ref={screenMenuBody}>
-                        <select id="screen-preset" ref={preset} aria-label="Типовой размер экрана" onChange={applyPreset} defaultValue="1440x900">
+                        <select id="screen-preset" aria-label="Типовой размер экрана" onChange={event=>applyPreset(event.currentTarget.value)} value={presetValue}>
                           <option value="1440x900">{"Desktop · 1440 × 900"}</option>
                           <option value="390x844">{"Mobile · 390 × 844"}</option>
                           <option value="768x1024">{"Tablet · 768 × 1024"}</option>
                           <option value="custom">{"Другой размер"}</option>
                         </select>
-                        <form id="screen-create" hidden onReset={()=>{if(preset.current)preset.current.value='1440x900';}}>
+                        <form id="screen-create" hidden={!canEdit} inert={state.pageBusy} onSubmit={event=>{event.preventDefault();shell.createScreen();}}>
                           <label htmlFor="screen-width">{"Ширина экрана"}</label>
-                          <input id="screen-width" type="number" min="0" step="any" required defaultValue="1440" ref={screenWidth} onInput={syncPreset}/>
+                          <input id="screen-width" type="number" min="0" step="any" required value={state.screenWidth} ref={screenWidth} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenWidth:event.currentTarget.value})}/>
                           <label htmlFor="screen-height">{"Высота экрана"}</label>
-                          <input id="screen-height" type="number" min="0" step="any" required defaultValue="900" ref={screenHeight} onInput={syncPreset}/>
-                          <button type="submit">{"Создать экран"}</button>
+                          <input id="screen-height" type="number" min="0" step="any" required value={state.screenHeight} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenHeight:event.currentTarget.value})}/>
+                          <button type="submit" disabled={!state.hasPage}>{"Создать экран"}</button>
                         </form>
                       </div>
                     </details>
-                    <button id="page-refresh" type="button" title="Обновить страницы">{"Обновить страницы"}</button>
+                    <button id="page-refresh" type="button" title="Обновить страницы" onClick={shell.refreshPages}>{"Обновить страницы"}</button>
                   </div>
                   <div className="navigator-tree-host"><views.navigator.Component/></div>
-                  <p id="page-access"/>
+                  <p id="page-access">{state.role==='Viewer'?'Только просмотр страниц.':state.role?'':'Права на редактирование не определены. Обновите страницу.'}</p>
                 </section>
               </div>
               <div className="layers-splitter" role="separator" tabIndex={0} aria-label="Изменить высоту навигации и дерева слоёв" aria-orientation="horizontal" aria-valuemin={22} aria-valuemax={72} aria-valuenow={split}
@@ -364,7 +376,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           onKeyDown={event=>{if(event.key!=='ArrowUp'&&event.key!=='ArrowDown')return;event.preventDefault();setSplit(value=>clampSplit(value+(event.key==='ArrowDown'?5:-5)));}}/>
               <div className="layers-detail">
                 <section aria-labelledby="layers-title" className="layer-tree-group">
-                  <h2 id="layers-title">{"Слои выбранного экрана"}</h2>
+                  <h2 id="layers-title">{state.layersTitle}</h2>
                   <p id="layers-status" role="status" aria-live="polite">{"Выберите экран."}</p>
                   <div id="layers" role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
                   <p id="node-order-status" role="status" tabIndex={-1}/>
@@ -458,10 +470,10 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <p id="design-render-status" role="status"/>
           <button id="design-render-retry" type="button" hidden>{"Повторить загрузку экрана"}</button>
           <ul id="design-render-diagnostics" aria-label="Диагностика отображения"/>
-          <div className="canvas-blank" id="canvas-empty">
+          <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen}>
             <h2>{"Нет выбранного экрана"}</h2>
-            <p>{"Выберите экран слева или создайте новый, чтобы начать работу."}</p>
-            <Button type="button" className="primary-action" aria-label="Открыть создание экрана" onClick={openCreateScreen}>{"Создать экран"}</Button>
+            <p>{state.hasPage?"Выберите экран слева или создайте новый, чтобы начать работу.":"Создайте первую страницу, затем добавьте экран."}</p>
+            <Button type="button" className="primary-action" aria-label="Открыть создание экрана" hidden={!canEdit} onClick={openCreateScreen}>{state.hasPage?"Создать экран":"Создать страницу"}</Button>
           </div>
           <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">
             <div id="screen-boundary" hidden/>

@@ -10,6 +10,7 @@ const StableEditorShell = memo(EditorShell);
 export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellController;views:ApplicationViews;model:ApplicationShellModel;actions:ApplicationShellActions}){
   const state=useSyncExternalStore(model.subscribe,model.getSnapshot);
   const catalog=state.catalog;
+  const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   return <>
     <a className="skip" href="#content">{"К содержимому"}</a>
@@ -25,9 +26,9 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
     </header>
     <div id="authentication-root"><views.authentication.Component/></div>
     <main id="content" tabIndex={-1} hidden={!state.authenticated} aria-busy={state.busy}>
-      <section id="delete-result" hidden aria-label="Удаление документа">
-        <p id="delete-message" role="alert"/>
-        <button id="delete-retry" type="button" hidden>{"Повторить проверку удаления"}</button>
+      <section id="delete-result" hidden={deletion.status==='idle'} aria-label="Удаление документа">
+        <p id="delete-message" role="alert">{deletion.message}</p>
+        <button id="delete-retry" type="button" hidden={deletion.status!=='uncertain'} onClick={shell.retryDeletion}>{"Повторить проверку удаления"}</button>
       </section>
       <div id="documents-view" hidden={state.view !== 'documents'}>
         <div className="home-layout">
