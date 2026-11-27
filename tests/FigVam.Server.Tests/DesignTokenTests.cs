@@ -27,6 +27,25 @@ public class DesignTokenTests
     }
 
     [Fact]
+    public void ShadowFieldsResolveThemeAndAlphaAndRejectIncompatibleReference()
+    {
+        var colorId = Guid.NewGuid(); var shadowId = Guid.NewGuid(); var aliasId = Guid.NewGuid();
+        var shadow = new ShadowFieldsValue(0, 4, 8, 0, new TokenAlias(aliasId));
+        DesignToken[] tokens =
+        [
+            new(colorId, "palette", TokenType.Color, Both(Literal(new ColorValue(0, 0, 0, 32)), Literal(new ColorValue(255, 255, 255, 96)))),
+            new(aliasId, "semantic", TokenType.Color, Both(new TokenAlias(colorId), new TokenAlias(colorId))),
+            new(shadowId, "shadow", TokenType.Shadow, Both(Literal(shadow), Literal(shadow)))
+        ];
+        Assert.Empty(DesignTokenValidator.Validate(tokens));
+        Assert.Equal(32, Assert.IsType<ShadowValue>(DesignTokenValidator.Resolve(tokens, shadowId, TokenTheme.Light).Value).Color.Alpha);
+        Assert.Equal(96, Assert.IsType<ShadowValue>(DesignTokenValidator.Resolve(tokens, shadowId, TokenTheme.Dark).Value).Color.Alpha);
+        tokens[2] = tokens[2] with { Values = Both(Literal(shadow with { Color = new TokenAlias(shadowId) }), Literal(shadow)) };
+        Assert.Contains(DesignTokenValidator.Validate(tokens), e => e.Code == "type-mismatch" && e.TokenId == shadowId);
+        Assert.False(DesignTokenValidator.Resolve(tokens, shadowId, TokenTheme.Light).IsSuccess);
+    }
+
+    [Fact]
     public void ReportsMissingReferencesAndIncompleteThemes()
     {
         var id = Guid.NewGuid(); var missing = Guid.NewGuid();

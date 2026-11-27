@@ -33,7 +33,7 @@ internal static class McpTokenSchemas
             description = type switch
             {
                 TokenType.Color => "Reusable RGBA color.",
-                TokenType.Shadow => "Reusable single drop shadow with themed geometry and RGBA color.",
+                TokenType.Shadow => "Reusable single drop shadow with themed geometry and literal RGBA color or nested Color token reference.",
                 TokenType.Spacing => "Legacy spacing token; prefer Dimension with category Spacing.",
                 TokenType.Geometry => "Legacy nonnegative corner radius.",
                 TokenType.Dimension => "Dimension in logical UI units, constrained by its semantic category.",
@@ -52,7 +52,7 @@ internal static class McpTokenSchemas
                 update = "Set one theme by name with set_token_value; the other theme is unchanged." },
             references = new
             {
-                description = "Compact {tokenId} or canonical {expression:alias,tokenId}; nested typographyFields use canonical expressions only.",
+                description = "Compact {tokenId} or canonical {expression:alias,tokenId}; nested typographyFields use canonical expressions only; Shadow accepts a compact color reference or canonical shadowFields color expression.",
                 requiresExistingToken = true,
                 sameTheme = true,
                 cyclesAllowed = false,

@@ -54,7 +54,7 @@ async function main() {
     }
   }
   await rpc('notifications/initialized', {}, true);
-  assert.equal((await rpc('tools/list', {})).tools.length, 37);
+  assert.equal((await rpc('tools/list', {})).tools.length, 38);
   const denied = await rpc('tools/call', { name: 'get_document', arguments: {} });
   assert.equal(denied.isError, true);
   assert.equal(denied.structuredContent.code, 'MCP_TUNNEL_ACCESS_REQUIRED');
