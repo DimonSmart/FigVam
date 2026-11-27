@@ -14,7 +14,8 @@ interface ShellActions {
 export function createEditorShell(actions:ShellActions) {
   const drawingTools=createPanelStore<readonly string[]>([]);
   const signoutLabel=createPanelStore('Выйти');
-  return {...actions, drawingTools, signoutLabel,
+  const mode=createPanelStore(false);
+  return {...actions, drawingTools, signoutLabel, mode, showEditor:()=>mode.publish(false),
     setSignoutLabel(label:string){signoutLabel.publish(label);},
     setDrawingTools(available:readonly string[]){
       const current=drawingTools.getSnapshot();
@@ -41,7 +42,7 @@ function TabBar<K extends string>({entries,label,selected,select}:{entries:reado
 }
 function clampSplit(value:number){return Math.round(Math.min(72,Math.max(22,value)));}
 
-function TokenWorkspace({active}:{active:boolean}){
+function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
   const menu=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),importForm=useRef<HTMLFormElement>(null);
   function closeMenu(){if(menu.current?.matches(':popover-open'))menu.current.hidePopover();trigger.current?.focus();}
   function position(){
@@ -108,7 +109,7 @@ function TokenWorkspace({active}:{active:boolean}){
               <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы"/>
             </div>
           </div>
-          <nav id="token-groups" className="token-groups" aria-label="Группы токенов"/>
+          <nav id="token-groups" className="token-groups" aria-label="Группы токенов"><views.tokens.groups.Component/></nav>
         </div>
         <div className="token-table-area">
           <table className="token-table" aria-label="Токены документа">
@@ -123,7 +124,7 @@ function TokenWorkspace({active}:{active:boolean}){
                 <th scope="col">{"Статус"}</th>
               </tr>
             </thead>
-            <tbody id="tokens-list"/>
+            <tbody id="tokens-list"><views.tokens.table.Component/></tbody>
           </table>
         </div>
         <aside className="token-details-area">
@@ -167,7 +168,7 @@ function TokenWorkspace({active}:{active:boolean}){
               <button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</button>
             </div>
             <h4>{"Использования"}</h4>
-            <ul id="token-usages" aria-label="Прямые и косвенные использования токена"/>
+            <ul id="token-usages" aria-label="Прямые и косвенные использования токена"><views.tokens.usage.Component/></ul>
           </div>
         </aside>
       </div>
@@ -178,7 +179,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
-  const [tokensMode,setTokensMode]=useState(false);
+  const tokensMode=useSyncExternalStore(shell.mode.subscribe,shell.mode.getSnapshot);
+  const setTokensMode=shell.mode.publish;
   const [leftCollapsed,setLeftCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
   const [rightCollapsed,setRightCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
   const [split,setSplit]=useState(42);
@@ -431,13 +433,13 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     </select>
                     <label htmlFor="styles-based-on">{"Основан на (BasedOn)"}</label>
                     <select id="styles-based-on"/>
-                    <div id="styles-fields"/>
+                    <div id="styles-fields"><views.styles.fields.Component/></div>
                     <button id="styles-save" type="submit">{"Сохранить стиль"}</button>
                   </form>
                   <button id="styles-delete" type="button" hidden>{"Удалить неиспользуемый стиль"}</button>
                   <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"/>
                   <h4>{"Использования стиля"}</h4>
-                  <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"/>
+                  <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"><views.styles.usage.Component/></ul>
                 </div>
               </section>
               <section aria-labelledby="screen-variants-title"><views.screenVariants.Component/></section>
@@ -595,7 +597,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           </div>
         </aside>
       </div>
-      <TokenWorkspace active={tokensMode}/>
+      <TokenWorkspace active={tokensMode} views={views}/>
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { createTokenModels } from '../features/tokens/tokens';
+import { createStyleModels } from '../features/styles/styles';
 import { createLayersModel } from '../features/editor/layers';
 import { createDocumentNavigatorModel } from '../features/editor/document-navigator';
 import { createMembersModel } from '../features/collaboration/members';
@@ -16,6 +18,8 @@ import { createPresenceModels } from '../features/collaboration/presence';
 
 export function createApplicationViews() {
   return {
+    tokens: createTokenModels(),
+    styles: createStyleModels(),
     layers: createLayersModel(),
     navigator: createDocumentNavigatorModel(),
     authentication: createAuthenticationModel(),

@@ -141,12 +141,12 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 });
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
-  element, request,
+  models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),element, request,
   getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
-  element, request, getTokens: () => tokens.items,
+  models:views.styles,selectLayer:id=>layers.selectById(id),element, request, getTokens: () => tokens.items,
   getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation }),
   startRequest, stopLive, startLive, readPages
 });

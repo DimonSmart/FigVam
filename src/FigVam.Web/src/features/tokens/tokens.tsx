@@ -1,6 +1,5 @@
 import type { ReactElement } from 'react';
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
@@ -21,7 +20,7 @@ type CommandData=Omit<Schema['AddTokenRequest'],'commandId'|'values'> & {values:
   | Omit<Schema['RenameTokenRequest'],'commandId'>
   | Omit<Schema['ImportDesignTokensRequest'],'commandId'>;
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number;navigationEpoch:number}
-interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
+interface Options {models:ReturnType<typeof createTokenModels>;selectLayer(id:string):void;showEditor():void;element(id:string):HTMLElement;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 interface Usage {label?:string;kind:string;property?:string|null;theme?:number|string|null;indirect:boolean;ownerId:string;chain:string[]}
 interface UsageSnapshot {selection:string|null;usages:Usage[]}
 interface Snapshot extends UsageSnapshot {items:DesignToken[]}
@@ -88,12 +87,78 @@ function directText(expression:TokenExpression|null|undefined) {
   return tokenValueText(expression.value).replace(/ px$/, '');
 }
 
-export function createTokens({ element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
+const typeOf=(token:Pick<DesignToken,'type'>)=>knownType(token.type);
+const categoryOf = (token:DesignToken) => normalizedTokenCategory(token?.category);
+const typographyFields:TypographyPart[] = [
+  { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
+  { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
+  { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
+  { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
+  { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
+];
+
+const groupKey = (segments:readonly string[]) => JSON.stringify(segments);
+function TokenGroups({tree,group,collapsed,toggle,select}:{tree:TokenGroup;group:string[];collapsed:ReadonlySet<string>;toggle(key:string):void;select(segments:string[]):void}){
+    function drawGroup(node:TokenGroup):ReactElement {
+      const key=groupKey(node.segments), expanded=!collapsed.has(key);
+      return <div key={key} className="token-group-branch" style={{display:'contents'}}>
+        <div className="token-group-row">
+          {node.children.size ? <Button aria-label={(expanded?'Свернуть ':'Раскрыть ')+(node.segments.join('.')||'все группы')}
+            aria-expanded={expanded} onClick={()=>toggle(key)}>{expanded?'▾':'▸'}</Button> : <span aria-hidden="true"/>}
+          <Button className="token-group-select" aria-pressed={key===groupKey(group)} onClick={()=>select(node.segments)}>{node.segments.at(-1)??'Все токены'}</Button>
+        </div>
+        {expanded && <div className="token-group-children">{[...node.children.values()].sort((a,b)=>(a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??'')).map(drawGroup)}</div>}
+      </div>;
+    }
+
+  return drawGroup(tree);
+}
+interface TableProps {
+  tokenItems:DesignToken[]; displayed:DesignToken[];group:string[];search:string;selectedToken:string|null;usagesReady:boolean;usageCount:number;hasTypes:boolean;
+  selectToken(id:string):void;selectAlias(id:string):void;
+}
+function TokenTable({tokenItems,displayed,group,search,selectedToken,usagesReady,usageCount,hasTypes,selectToken,selectAlias}:TableProps){
+  const index=new Map(tokenItems.map(token=>[token.id,token]));
+  const nameDiagnostics=tokenNameDiagnostics(tokenItems);
+  const nameOf=(id:string)=>index.get(id)?.name??'Удалённый токен';
+    const rows=displayed.map(item=>{
+      const type=typeOf(item),category=categoryOf(item);
+      const problems=[nameDiagnostics.get(item.id)].filter((x):x is string=>!!x);
+      const sources:string[]=[];
+      const cells=themes.map(currentTheme=>{
+        const expression=item.values?.[currentTheme];
+        const resolved=resolveTokenValue({type:'token',tokenId:item.id},index,currentTheme,item.type,item.category);
+        const alias=expression?.expression==='alias';
+        const nested=expression?.expression==='literal'&&expression.value.type==='typographyFields'&&typographyFields.some(field=>expression.value.type==='typographyFields'&&expression.value[field.name]?.expression==='alias');
+        sources.push(alias?'alias':nested?'mixed':'literal');
+        if(resolved.error)problems.push(currentTheme+': '+resolved.error);
+        const color=type==='Color'&&!resolved.error&&resolved.value?.type==='color'?resolved.value:undefined;
+        const value=resolved.error??tokenValueText(resolved.value);
+        return <td key={currentTheme}>
+          {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
+          {alias?<><Button className="token-alias-link" title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
+            selectAlias(expression.tokenId);
+          }}>{'↳ '+nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
+        </td>;
+      });
+      return <tr key={item.id} data-selected={String(item.id===selectedToken)}>
+        <td><Button title={item.name} aria-pressed={item.id===selectedToken} onClick={()=>selectToken(item.id)}>{shortTokenName(item.name,search.trim()?[]:group)}</Button></td>
+        <td>{category?type+'.'+category:type}</td>{cells}
+        <td>{sources[0]===sources[1]?(sources[0]??''):'mixed'}</td>
+        <td>{item.id===selectedToken&&usagesReady?String(usageCount):'—'}</td>
+        <td className={problems.length?'token-invalid':undefined} title={problems.join('\n')}>{problems.length?'Ошибка':'—'}</td>
+      </tr>;
+    });
+
+  return <>{rows.length?rows:<tr><td colSpan={7}>{hasTypes?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>}</>;
+}
+export function createTokenModels(){return {groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages)};}
+
+export function createTokens({ models, selectLayer, showEditor, element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
   let tokenItems:DesignToken[]=[],selectedToken:string|null=null,tokenUsages:Usage[]=[],tokenLoad=0,rendered=false;
   const el=element,editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   const input=(id:string)=>checked(el(id),HTMLInputElement),select=(id:string)=>checked(el(id),HTMLSelectElement),form=(id:string)=>checked(el(id),HTMLFormElement),area=(id:string)=>checked(el(id),HTMLTextAreaElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
   let group:string[]=[],collapsed=new Set<string>(), creating = false, usagesReady = false;
-  const groupRoot=createPanelRoot(el('token-groups')), tableRoot=createPanelRoot(el('tokens-list')), usageRoot=createPanelRoot(el('token-usages'));
   let importEpoch = 0;
   let selectedTypes=new Set<TokenType>(types);
   let createControls:PropertyControl[]=[],detailControls:PropertyControl[]=[],renaming=false;
@@ -111,7 +176,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     updateDetailVisibility();
   }
   const selected = () => tokenItems.find(t => t.id === selectedToken);
-  const groupKey = (segments:readonly string[]) => JSON.stringify(segments);
   function updateDetailVisibility() {
     el('token-create').hidden = !creating || !editable();
     el('token-detail').hidden = creating || !selected();
@@ -233,16 +297,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   el('token-export').addEventListener('click', () => exportTokens());
   el('token-export-light').addEventListener('click', () => exportTokens('Light'));
   el('token-export-dark').addEventListener('click', () => exportTokens('Dark'));
-  const typeOf=(token:Pick<DesignToken,'type'>)=>knownType(token.type);
-  const categoryOf = (token:DesignToken) => normalizedTokenCategory(token?.category);
   const nameOf = (id:string) => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
-  const typographyFields:TypographyPart[] = [
-    { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
-    { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
-    { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
-    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
-    { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
-  ];
   // The shared control owns the literal/reference interaction; this adapter only
   // translates its values to the token command's literal/alias expression.
   const tokenIndex = () => new Map(tokenItems.map(token => [token.id, token]));
@@ -429,11 +484,11 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     pendingThemeValues.clear(); activeThemeSave = null;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     input('token-search').value = ''; selectedTypes = new Set(types); syncTypeFilter();
-    flushSync(()=>groupRoot.render(null)); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
+    models.groups.clear(); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
     el('new-token-open').hidden = el('token-import-open').hidden = true; for (const id of ['token-export','token-export-light','token-export-dark']) btn(id).disabled = true;
-    el('document-mode-editor').click(); updateDetailVisibility();
+    showEditor(); updateDetailVisibility();
     el('token-create').inert = el('token-detail').inert = false;
-    flushSync(()=>{tableRoot.render(null);usageRoot.render(null);});
+    models.table.clear();models.usage.clear();
     el('token-detail').hidden = true; el('token-create').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
     form('token-create').reset(); endRename();
@@ -503,54 +558,19 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const search = input('token-search').value;
     const filtered = filteredTokens(tokenItems, search, selectedTypes, typeOf);
     const tree = buildTokenGroups(filtered);
-    function drawGroup(node:TokenGroup):ReactElement {
-      const key=groupKey(node.segments), expanded=!collapsed.has(key);
-      return <div key={key} className="token-group-branch" style={{display:'contents'}}>
-        <div className="token-group-row">
-          {node.children.size ? <Button aria-label={(expanded?'Свернуть ':'Раскрыть ')+(node.segments.join('.')||'все группы')}
-            aria-expanded={expanded} onClick={()=>{if(expanded)collapsed.add(key);else collapsed.delete(key);renderTokens(false);}}>{expanded?'▾':'▸'}</Button> : <span aria-hidden="true"/>}
-          <Button className="token-group-select" aria-pressed={key===groupKey(group)} onClick={()=>{group=node.segments;renderTokens(false);}}>{node.segments.at(-1)??'Все токены'}</Button>
-        </div>
-        {expanded && <div className="token-group-children">{[...node.children.values()].sort((a,b)=>(a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??'')).map(drawGroup)}</div>}
-      </div>;
-    }
     let active:TokenGroup|undefined=tree;
     for(const segment of group) active=active?.children.get(segment);
     if(!active)group=[];
-    const index=new Map(tokenItems.map(token=>[token.id,token]));
-    const nameDiagnostics=tokenNameDiagnostics(tokenItems);
     const displayed=tokensInGroup(filtered,group);
     if(selectedToken&&!displayed.some(item=>item.id===selectedToken))clearSelection();
-    const rows=displayed.map(item=>{
-      const type=typeOf(item),category=categoryOf(item);
-      const problems=[nameDiagnostics.get(item.id)].filter((x):x is string=>!!x);
-      const sources:string[]=[];
-      const cells=themes.map(currentTheme=>{
-        const expression=item.values?.[currentTheme];
-        const resolved=resolveTokenValue({type:'token',tokenId:item.id},index,currentTheme,item.type,item.category);
-        const alias=expression?.expression==='alias';
-        const nested=expression?.expression==='literal'&&expression.value.type==='typographyFields'&&typographyFields.some(field=>expression.value.type==='typographyFields'&&expression.value[field.name]?.expression==='alias');
-        sources.push(alias?'alias':nested?'mixed':'literal');
-        if(resolved.error)problems.push(currentTheme+': '+resolved.error);
-        const color=type==='Color'&&!resolved.error&&resolved.value?.type==='color'?resolved.value:undefined;
-        const value=resolved.error??tokenValueText(resolved.value);
-        return <td key={currentTheme}>
-          {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
-          {alias?<><Button className="token-alias-link" title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
-            if(busy())return;revealToken(index.get(expression.tokenId),true);void selectToken(expression.tokenId);
-          }}>{'↳ '+nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
-        </td>;
-      });
-      return <tr key={item.id} data-selected={String(item.id===selectedToken)}>
-        <td><Button title={item.name} aria-pressed={item.id===selectedToken} onClick={()=>{if(!busy())void selectToken(item.id);}}>{shortTokenName(item.name,search.trim()?[]:group)}</Button></td>
-        <td>{category?type+'.'+category:type}</td>{cells}
-        <td>{sources[0]===sources[1]?(sources[0]??''):'mixed'}</td>
-        <td>{item.id===selectedToken&&usagesReady?String(tokenUsages.length):'—'}</td>
-        <td className={problems.length?'token-invalid':undefined} title={problems.join('\n')}>{problems.length?'Ошибка':'—'}</td>
-      </tr>;
-    });
-    flushSync(()=>{groupRoot.render(drawGroup(tree));tableRoot.render(rows.length?rows:<tr><td colSpan={7}>{selectedTypes.size?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>);});
-    
+    models.groups.publish({tree,group:[...group],collapsed:new Set(collapsed),
+      toggle:key=>{if(collapsed.has(key))collapsed.delete(key);else collapsed.add(key);renderTokens(false);},
+      select:segments=>{group=segments;renderTokens(false);}});
+    models.table.publish({tokenItems,displayed,group:[...group],search,selectedToken,usagesReady,usageCount:tokenUsages.length,
+      hasTypes:selectedTypes.size>0,selectToken:id=>{if(!busy())void selectToken(id);},
+      selectAlias:id=>{if(busy())return;revealToken(tokenItems.find(item=>item.id===id),true);void selectToken(id);}});
+    const index=new Map(tokenItems.map(token=>[token.id,token]));
+    const nameDiagnostics=tokenNameDiagnostics(tokenItems);
     const item = selected();
     updateDetailVisibility();
     if (!item || refreshDetail === false) return;
@@ -571,11 +591,8 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     } else detailControls.forEach(control => control.refresh?.());
     const usageTitle=el('token-usages').previousElementSibling;
     if(usageTitle)usageTitle.textContent='Использования'+(usagesReady?' · '+tokenUsages.length:' · загрузка…');
-    flushSync(()=>usageRoot.render(<ResourceUsages usages={tokenUsages} ready={usagesReady}
-      name={id=>tokenItems.find(t=>t.id===id)?.name??id} selectLayer={id=>{
-        const layer=[...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row=>row.dataset.id===id);
-        if(layer){el('document-mode-editor').click();layer.querySelector<HTMLElement>('.layer-label')?.click();}
-      }}/>));
+    models.usage.publish({usages:tokenUsages,ready:usagesReady,name:id=>tokenItems.find(t=>t.id===id)?.name??id,
+      selectLayer:id=>{showEditor();selectLayer(id);}});
   }
   function clearSelection() {
     selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;

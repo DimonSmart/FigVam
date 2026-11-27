@@ -1,6 +1,5 @@
 import { TextInput } from '../../ui/Inputs';
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
@@ -12,7 +11,7 @@ type StyleType='TextStyle'|'BorderStyle';
 interface DesignStyle {id:string;name:string;type:number|string;fields:Record<string,NodePropertyValue>;basedOnStyleId:string|null}
 interface Usage {label?:string;kind:string;property?:string;theme?:string|number|null;indirect?:boolean;ownerId:string;chain?:string[]}
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number}
-interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():Context;getTokens():DesignToken[];startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
+interface Options {models:ReturnType<typeof createStyleModels>;selectLayer(id:string):void;element(id:string):HTMLElement;request:ApiClient;getContext():Context;getTokens():DesignToken[];startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 function checked<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected style field: '+node.id);return node;}
 function style(value:unknown):DesignStyle{const s=requiredRecord(value);return{id:text(s.id),name:text(s.name),type:typeof s.type==='number'?s.type:text(s.type),fields:Object.fromEntries(Object.entries(requiredRecord(s.fields)).map(([name,v])=>[name,nodeProperty(v)])),basedOnStyleId:s.basedOnStyleId==null?null:text(s.basedOnStyleId)};}
 function usage(value:unknown):Usage{const v=requiredRecord(value);return{kind:text(v.kind),ownerId:text(v.ownerId),label:v.label==null?undefined:text(v.label),property:v.property==null?undefined:text(v.property),theme:v.theme==null?null:typeof v.theme==='number'?v.theme:text(v.theme),indirect:v.indirect===true,chain:array(v.chain??[],text)};}
@@ -69,26 +68,71 @@ function literalText(_field:string, value:NodePropertyValue|null|undefined) {
   return String('value' in value?value.value??'':'');
 }
 
-export function createStyles({ element, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
+type ValueDraft={mode:'literal'|'alias';direct:string;alias:string};
+type TypographyDraft=Record<TypographyField,ValueDraft>;
+interface FieldDraft extends ValueDraft {field:string;label:string;active:boolean;tokenType:TokenType|null;category:TokenCategory|null;inline:TypographyDraft|null;fallback:string}
+
+interface StyleFieldProps {rows:FieldDraft[];tokens:DesignToken[];updateDraft(part:ValueDraft,key:'mode'|'direct'|'alias',value:string):void;setActive(field:string,active:boolean):void}
+function StyleFields({rows,tokens,updateDraft,setActive}:StyleFieldProps){
+  function tokenOptions(type:TokenType|null,category:TokenCategory|null,value:string){
+    const options=type?tokens.filter(token=>normalizedTokenType(token.type)===type&&normalizedTokenCategory(token.category)===category):[];
+    return <><option value="">Выберите токен</option>
+      {options.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+      {value&&!options.some(item=>item.id===value)&&<option value={value} disabled>Недоступная ссылка</option>}</>;
+  }
+  function renderTypography(row:FieldDraft,hidden:boolean){
+    if(!row.inline)return null;
+    const draft=row.inline;
+    return <fieldset hidden={hidden}><legend>Поля типографики</legend>
+      {(Object.keys(typographyParts) as TypographyField[]).map(field=>{
+        const [label,type,category]=typographyParts[field],part=draft[field];
+        return <div className="token-typography-row" key={field}>
+          <span>{label}</span>
+          <select aria-label={label+': источник'} value={part.mode} onChange={event=>updateDraft(part,'mode',event.currentTarget.value)}>
+            <option value="literal">Прямое</option><option value="alias">Токен</option>
+          </select>
+          <TextInput aria-label={label+': значение'} hidden={part.mode==='alias'} value={part.direct} onChange={event=>updateDraft(part,'direct',event.currentTarget.value)}/>
+          <select aria-label={label+': токен'} hidden={part.mode!=='alias'} value={part.alias} onChange={event=>updateDraft(part,'alias',event.currentTarget.value)}>
+            {tokenOptions(type,category,part.alias)}
+          </select>
+        </div>;
+      })}
+    </fieldset>;
+  }
+  return <>{rows.map(row=>{
+      const hidden=!row.active||row.mode==='alias',options=palette[row.field];
+      return <div className="style-field-row" key={row.field}>
+        <label><input type="checkbox" aria-label={row.label+': переопределить'} checked={row.active}
+          onChange={event=>setActive(row.field,event.currentTarget.checked)}/> Задать {row.label}{row.fallback}</label>
+        <select aria-label={row.label+': источник'} hidden={!row.active} value={row.mode} onChange={event=>updateDraft(row,'mode',event.currentTarget.value)}>
+          <option value="literal">Прямое</option>{row.tokenType&&<option value="alias">Токен</option>}
+        </select>
+        {row.inline?renderTypography(row,hidden):options?
+          <select aria-label={row.label} hidden={hidden} value={row.direct} onChange={event=>updateDraft(row,'direct',event.currentTarget.value)}>
+            {options.map(value=><option key={value}>{value}</option>)}
+          </select>:<TextInput aria-label={row.label+': значение'} hidden={hidden} value={row.direct}
+            onChange={event=>updateDraft(row,'direct',event.currentTarget.value)}/>}
+        <select aria-label={row.label+': ссылка на токен'} hidden={!row.active||row.mode!=='alias'} value={row.alias}
+          onChange={event=>updateDraft(row,'alias',event.currentTarget.value)}>{tokenOptions(row.tokenType,row.category,row.alias)}</select>
+      </div>;
+    })}</>;
+
+}
+export function createStyleModels(){return {fields:createViewModel(StyleFields),usage:createViewModel(ResourceUsages)};}
+
+export function createStyles({ models, selectLayer, element, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
   const el = element;
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
   const select=(id:string)=>checked(el(id),HTMLSelectElement),fieldInput=(id:string)=>checked(el(id),HTMLInputElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
   let styleUsages:Usage[]=[],styleUsageRequest=0;
-  const usageRoot=createPanelRoot(el('styles-usages'));
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
-  const candidates = (type:TokenType,category:TokenCategory|null) => tokens().filter(token =>
-    normalizedTokenType(token.type) === type && normalizedTokenCategory(token.category) === category);
   const choices = (source:HTMLSelectElement,options:readonly {id:string;name:string}[],empty='Выберите токен') => {
     source.replaceChildren(new Option(empty, ''));
     for (const item of options) source.add(new Option(item.name, item.id));
   };
-  type ValueDraft={mode:'literal'|'alias';direct:string;alias:string};
-  type TypographyDraft=Record<TypographyField,ValueDraft>;
-  interface FieldDraft extends ValueDraft {field:string;label:string;active:boolean;tokenType:TokenType|null;category:TokenCategory|null;inline:TypographyDraft|null;fallback:string}
   let rows:FieldDraft[]=[];
-  const fieldsRoot=createPanelRoot(el('styles-fields'));
   function choose(select:HTMLSelectElement,value:string|null|undefined) {
     if (value && ![...select.options].some(option => option.value === value)) {
       const missing = new Option('Недоступная ссылка', value);
@@ -133,54 +177,12 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     }
     return {type:'typography',value};
   }
-  function tokenOptions(type:TokenType|null,category:TokenCategory|null,value:string){
-    const options=type?candidates(type,category):[];
-    return <><option value="">Выберите токен</option>
-      {options.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
-      {value&&!options.some(item=>item.id===value)&&<option value={value} disabled>Недоступная ссылка</option>}</>;
-  }
   function updateDraft(part:ValueDraft, key:'mode'|'direct'|'alias', value:string) {
     if(key==='mode')part.mode=value==='alias'?'alias':'literal';else part[key]=value;
     renderFields();
   }
-  function renderTypography(row:FieldDraft,hidden:boolean){
-    if(!row.inline)return null;
-    const draft=row.inline;
-    return <fieldset hidden={hidden}><legend>Поля типографики</legend>
-      {(Object.keys(typographyParts) as TypographyField[]).map(field=>{
-        const [label,type,category]=typographyParts[field],part=draft[field];
-        return <div className="token-typography-row" key={field}>
-          <span>{label}</span>
-          <select aria-label={label+': источник'} value={part.mode} onChange={event=>updateDraft(part,'mode',event.currentTarget.value)}>
-            <option value="literal">Прямое</option><option value="alias">Токен</option>
-          </select>
-          <TextInput aria-label={label+': значение'} hidden={part.mode==='alias'} value={part.direct} onChange={event=>updateDraft(part,'direct',event.currentTarget.value)}/>
-          <select aria-label={label+': токен'} hidden={part.mode!=='alias'} value={part.alias} onChange={event=>updateDraft(part,'alias',event.currentTarget.value)}>
-            {tokenOptions(type,category,part.alias)}
-          </select>
-        </div>;
-      })}
-    </fieldset>;
-  }
-  function renderFields(){
-    flushSync(()=>fieldsRoot.render(<>{rows.map(row=>{
-      const hidden=!row.active||row.mode==='alias',options=palette[row.field];
-      return <div className="style-field-row" key={row.field}>
-        <label><input type="checkbox" aria-label={row.label+': переопределить'} checked={row.active}
-          onChange={event=>{row.active=event.currentTarget.checked;renderFields();}}/> Задать {row.label}{row.fallback}</label>
-        <select aria-label={row.label+': источник'} hidden={!row.active} value={row.mode} onChange={event=>updateDraft(row,'mode',event.currentTarget.value)}>
-          <option value="literal">Прямое</option>{row.tokenType&&<option value="alias">Токен</option>}
-        </select>
-        {row.inline?renderTypography(row,hidden):options?
-          <select aria-label={row.label} hidden={hidden} value={row.direct} onChange={event=>updateDraft(row,'direct',event.currentTarget.value)}>
-            {options.map(value=><option key={value}>{value}</option>)}
-          </select>:<TextInput aria-label={row.label+': значение'} hidden={hidden} value={row.direct}
-            onChange={event=>updateDraft(row,'direct',event.currentTarget.value)}/>}
-        <select aria-label={row.label+': ссылка на токен'} hidden={!row.active||row.mode!=='alias'} value={row.alias}
-          onChange={event=>updateDraft(row,'alias',event.currentTarget.value)}>{tokenOptions(row.tokenType,row.category,row.alias)}</select>
-      </div>;
-    })}</>));
-  }
+  function renderFields(){models.fields.publish({rows,tokens:tokens(),updateDraft,
+      setActive:(field,active)=>{const row=rows.find(item=>item.field===field);if(row){row.active=active;renderFields();}}});}
   function buildFields(style:DesignStyle|null|undefined,type:StyleType){
     rows=Object.entries(definitions[type]).map(([field,[label,tokenType,category]])=>{
       const saved=style?.fields?.[field],options=palette[field];
@@ -214,11 +216,7 @@ export function createStyles({ element, request, getContext, getTokens, startReq
     choose(parent, selected?.basedOnStyleId);
     buildFields(selected, type);
     renderPreview(selected);
-    flushSync(()=>usageRoot.render(<ResourceUsages usages={styleUsages}
-      name={id=>items.find(item=>item.id===id)?.name??id} selectLayer={id=>{
-        const node=[...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row=>row.dataset.id===id);
-        node?.querySelector<HTMLElement>('.layer-label')?.click();
-      }}/>));
+    models.usage.publish({usages:styleUsages,name:id=>items.find(item=>item.id===id)?.name??id,selectLayer});
   }
 
   function resolvePreview(style:DesignStyle|null|undefined,theme:Theme,seen=new Set<string>()):Record<string,string> {
