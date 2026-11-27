@@ -20,6 +20,7 @@ import { element, required } from './dom';
 import { createElement } from 'react';
 import { disposeApplicationRoot, mountApplicationRoot } from './application-root';
 import { ApplicationShell } from './application-shell';
+import { createApplicationShellState } from './application-shell-state';
 import { createApplicationViews } from './application-views';
 import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
@@ -40,28 +41,31 @@ type Deletion = { id: string; name: string; body: string; commandId: string; sta
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
 const catalog = createDocumentCatalog();
+const shellState = createApplicationShellState();
 const requestRunner = createRequestRunner({
   stopLive: () => stopLive(), startLive: () => startLive(), message,
-  setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
-  setControlsDisabled(disabled) {
-    required(element('create-form').querySelector('button')).disabled = disabled;
-    element('previous').disabled = disabled || !catalog.canGoBack;
-    element('next').disabled = disabled || !catalog.canGoForward;
-  },
+  setBusy: busy => shellState.patch({ busy }),
+  setControlsDisabled: controlsDisabled => shellState.patch({ controlsDisabled }),
 });
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
 
 const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage });
 const views = createApplicationViews();
-mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views }));
+mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views, model: shellState, actions: {
+  createDocument, changeDocumentName: documentName => shellState.patch({ documentName }),
+  chooseImportFile: importFile => shellState.patch({ importFile }), importDocument,
+  refresh: () => { void loadList(); },
+  previous: () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); },
+  next: () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); },
+  retry: () => { void requestRunner.retry(); },
+} }));
 const authenticationView = createAuthenticationView(views.authentication, submitBearerToken);
 const documentListView = createDocumentListView(views.documentList, deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(views.homeNavigation, selectHomeView);
 const userAdmin = createUserAdmin(views.userAdmin);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
-  element('home-documents-content').hidden = users;
-  element('home-admin-content').hidden = !users;
+  shellState.patch({ homeView: users ? 'users' : 'documents' });
   homeNavigation.select(users ? 'users' : 'documents');
 }
 const pageSize = 20;
@@ -118,7 +122,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
     get revision() { return revisions.revision; },
     get token() { return token; }
   },
-  isEditorVisible: () => !element('editor-view').hidden,
+  isEditorVisible: () => shellState.getSnapshot().view === 'editor',
   readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
   onConnectionStatus: status => { element('connection-status').textContent = status; },
   onAccessLost: closeInaccessibleDocument,
@@ -176,20 +180,18 @@ function closeInaccessibleDocument(status: number) {
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
-  renderPages(); renderScreens(); element('editor-view').hidden = true;
+  renderPages(); renderScreens(); shellState.patch({ view: 'none' });
   presence.stop(); stopLive(); message('', status === 404 ? 'Документ удалён или больше недоступен.' : 'Доступ к документу потерян. Запросите права у владельца и откройте документ снова.');
 }
 
 function message(status = '', error = '') {
   clearTimeout(statusDismissTimer);
   statusDismissTimer = undefined;
-  element('status').textContent = status;
-  element('error').textContent = error;
-  element('retry').hidden = !error || !requestRunner.canRetry;
+  shellState.patch({ status, error, canRetry: requestRunner.canRetry });
   // Progress and errors are persistent; successful editor notifications expire.
-  if (status && !error && !status.endsWith('…') && !element('editor-view').hidden) {
+  if (status && !error && !status.endsWith('…') && shellState.getSnapshot().view === 'editor') {
     statusDismissTimer = setTimeout(() => {
-      if (element('status').textContent === status) element('status').textContent = '';
+      if (shellState.getSnapshot().status === status) shellState.patch({ status: '' });
       statusDismissTimer = undefined;
     }, 4000);
   }
@@ -198,11 +200,7 @@ function message(status = '', error = '') {
 function clearSession() {
   mcpAccess.reset();
   importOperation = null;
-  element('import-form').reset();
-  element('import-file-name').textContent = 'Файл не выбран';
-  required(element('import-form').querySelector('button')).disabled = false;
-  element('import-status').textContent = element('import-error').textContent = '';
-  element('import-diagnostics').replaceChildren();
+  shellState.resetImport();
   resetDeletion();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
@@ -215,7 +213,7 @@ function clearSession() {
   visualNodeEditor.clear(); visualScreens.clearPropertyPreviews();
   cancelRequest();
   authenticationView.clearToken();
-  element('document-name').value = '';
+  shellState.patch({ documentName: '' });
   documentListView.clear();
   documentId = documentRole = null; revisions.reset(); selectionState.reset();
   renderPages();
@@ -229,13 +227,8 @@ function clearSession() {
   resetDocumentRename();
   element('revision').textContent = '';
   document.title = 'FigVam — документы';
-  element('content').setAttribute('aria-busy', 'false');
-  required(element('create-form').querySelector('button')).disabled = false;
-  element('content').hidden = true;
-  element('documents-view').hidden = true;
-  element('editor-view').hidden = true;
+  shellState.patch({ authenticated: false, view: 'none', busy: false, controlsDisabled: false, catalog: null });
   authenticationView.setVisible(true);
-  element('disconnect').hidden = true;
   catalog.reset();
   requestRunner.clearRetry();
   message();
@@ -306,24 +299,17 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   layers.reset();
   documentHistory.reset(); documentId = documentRole = null; revisions.reset();
   selectionState.reset(); renderCanvas();
-  element('documents-view').hidden = false;
-  element('editor-view').hidden = true;
+  shellState.patch({ view: 'documents' });
   selectHomeView('documents');
   documentListView.clear();
-  element('home-empty').hidden = true;
-  element('home-count').textContent = '';
-  element('home-pagination').hidden = true;
-  element('page-number').textContent = '';
+  shellState.patch({ catalog: null });
   document.title = 'FigVam — документы';
   catalog.beginLoad();
   await run(() => loadList(index, cursor), async (signal, current) => {
     const result = await catalog.read(request, index, cursor, pageSize, signal, current);
     if (!result) return;
     documentListView.render(result.items);
-    element('home-count').textContent = `${result.items.length} на странице`;
-    element('home-empty').hidden = result.items.length > 0 || index > 0;
-    element('home-pagination').hidden = index === 0 && !catalog.canGoForward;
-    element('page-number').textContent = `Страница ${index + 1}`;
+    shellState.patch({ catalog: { count: result.items.length, index, canGoBack: catalog.canGoBack, canGoForward: catalog.canGoForward } });
     message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
   });
 }
@@ -544,8 +530,7 @@ async function openDocument(id: string): Promise<void> {
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   resetDocumentRename();
-  element('documents-view').hidden = true;
-  element('editor-view').hidden = true;
+  shellState.patch({ view: 'none' });
   document.title = 'FigVam — открытие документа';
   documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
@@ -567,7 +552,7 @@ async function openDocument(id: string): Promise<void> {
     documentHistory.prepare();
     await readPages(signal, 0);
     if (!current()) return;
-    element('editor-view').hidden = false;
+    shellState.patch({ view: 'editor' });
     presence.start();
     documentHistory.load();
     if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
@@ -576,7 +561,7 @@ async function openDocument(id: string): Promise<void> {
 }
 
 element('delete-document').addEventListener('click', () => {
-  if (deletion || !documentId || documentRole !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || element('editor-view').hidden) return;
+  if (deletion || !documentId || documentRole !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || shellState.getSnapshot().view !== 'editor') return;
   if (!confirm(`Удалить документ «${element('document-title').textContent}»? Это действие нельзя отменить.`)) return;
   const commandId = crypto.randomUUID();
   const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revisions.revision };
@@ -607,7 +592,7 @@ async function submitDeletion(operation: Deletion): Promise<void> {
     if (!active() || aborted(error)) return;
     if (uncertain(error)) {
       operation.state = 'uncertain';
-      if (documentId === id) element('editor-view').hidden = true;
+      if (documentId === id) shellState.patch({ view: 'none' });
       element('delete-message').textContent = 'Результат удаления неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.';
       element('delete-retry').hidden = false;
       return;
@@ -625,7 +610,7 @@ async function submitDeletion(operation: Deletion): Promise<void> {
     if (statusOf(error) === 409) {
       const reopening = openDocument(id), refreshEpoch = navigationEpoch;
       await reopening;
-      if (refreshEpoch === navigationEpoch && documentId === id && !element('editor-view').hidden) message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
+      if (refreshEpoch === navigationEpoch && documentId === id && shellState.getSnapshot().view === 'editor') message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
     } else { message('', errorMessage(error)); startLive(); }
   }
 }
@@ -714,10 +699,9 @@ function submitBearerToken(supplied: string) {
   setToken(supplied);
   authenticationView.clearToken();
   authenticationView.setVisible(false);
-  element('disconnect').hidden = false;
-  element('content').hidden = false;
+  shellState.patch({ authenticated: true });
   route();
-  element('content').focus();
+  requestAnimationFrame(() => element('content').focus());
 }
 async function signOut() {
   if (isGoogleMode()) {
@@ -728,9 +712,9 @@ async function signOut() {
   clearSession();
   if (!isGoogleMode()) authenticationView.focusToken();
 }
-element('create-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const name = element('document-name').value.trim();
+async function createDocument() {
+  if (shellState.getSnapshot().controlsDisabled || !token) return;
+  const name = shellState.getSnapshot().documentName.trim();
   if (!name || /[\u0000-\u001f\u007f-\u009f]/.test(name)) {
     message('', 'Укажите непустое имя без управляющих символов.');
     return;
@@ -739,29 +723,22 @@ element('create-form').addEventListener('submit', async event => {
   await run(null, async (signal, current) => {
     await request('/api/v1/documents', { method: 'POST', body: JSON.stringify({ documentId, name }) }, signal);
     if (!current()) return;
-    element('document-name').value = '';
+    shellState.patch({ documentName: '' });
     navigate(`/documents/${documentId}`);
   }, { create: true });
-});
-element('import-file').addEventListener('change', () => {
-  element('import-file-name').textContent = element('import-file').files?.[0]?.name || 'Файл не выбран';
-});
-element('import-form').addEventListener('submit', async event => {
-  event.preventDefault();
+}
+async function importDocument() {
   if (importOperation || !token) return;
-  const file = element('import-file').files?.[0];
+  const file = shellState.getSnapshot().importFile;
   if (!file) return;
   const name = file.name.toLowerCase();
   const format = name.endsWith('.figvam') ? 'container.figvam' : name.endsWith('.json') ? 'document.json' : null;
-  const errorView = element('import-error'), statusView = element('import-status');
-  errorView.textContent = statusView.textContent = '';
-  element('import-diagnostics').replaceChildren();
-  if (!format) { errorView.textContent = 'Выберите файл document.json или .figvam.'; return; }
+  shellState.patch({ importError: '', importStatus: '', importDiagnostics: [] });
+  if (!format) { shellState.patch({ importError: 'Выберите файл document.json или .figvam.' }); return; }
   const operation = { token, epoch: navigationEpoch };
   importOperation = operation;
   const active = () => importOperation === operation && token === operation.token && navigationEpoch === operation.epoch;
-  required(element('import-form').querySelector('button')).disabled = true;
-  statusView.textContent = 'Импорт документа…';
+  shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
   try {
     const response = await fetch(`/api/v1/documents/import/${format}`, {
       method: 'POST', body: file, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
@@ -775,31 +752,27 @@ element('import-form').addEventListener('submit', async event => {
     if (!response.ok) {
       if (response.status >= 500) throw new Error('uncertain');
       const explanations: Partial<Record<number, string>> = { 400: 'Файл не прошёл проверку.', 403: 'Нет прав на импорт документа.', 409: 'Документ с таким идентификатором уже существует. Проверьте список.', 413: 'Файл превышает допустимый размер.', 415: 'Формат файла не поддерживается.', 429: 'Слишком много запросов. Повторите позже.' };
-      errorView.textContent = (explanations[response.status] ?? 'Сервер отклонил импорт.') + (typeof body.code === 'string' && body.code ? ` Код: ${body.code}.` : '');
-      for (const diagnostic of Array.isArray(body.diagnostics) ? body.diagnostics : []) {
-        const item = document.createElement('li');
-        if (!record(diagnostic)) continue;
-        item.textContent = [diagnostic.code, diagnostic.path, diagnostic.message].filter(value => typeof value === 'string' && value).join(' — ');
-        element('import-diagnostics').append(item);
-      }
-      statusView.textContent = '';
+      const importError = (explanations[response.status] ?? 'Сервер отклонил импорт.') + (typeof body.code === 'string' && body.code ? ` Код: ${body.code}.` : '');
+      const importDiagnostics = (Array.isArray(body.diagnostics) ? body.diagnostics : []).flatMap((diagnostic: unknown) => record(diagnostic)
+        ? [[diagnostic.code, diagnostic.path, diagnostic.message].filter(value => typeof value === 'string' && value).join(' — ')]
+        : []);
+      shellState.patch({ importError, importDiagnostics, importStatus: '' });
       return;
     }
     if (body.code !== 'ACCEPTED' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(typeof body.documentId === 'string' ? body.documentId : '')) throw new Error('uncertain');
-    element('import-form').reset();
-    element('import-file-name').textContent = 'Файл не выбран';
+    shellState.resetImport();
+    shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
     await loadList();
     if (importOperation === operation && token === operation.token && navigationEpoch === operation.epoch + 1) navigate(`/documents/${body.documentId}`);
   } catch {
-    if (active()) { statusView.textContent = ''; errorView.textContent = 'Результат импорта неизвестен: документ мог быть создан. Проверьте список перед повторной попыткой.'; }
+    if (active()) shellState.patch({ importStatus: '', importError: 'Результат импорта неизвестен: документ мог быть создан. Проверьте список перед повторной попыткой.' });
   } finally {
     if (importOperation === operation) {
       importOperation = null;
-      required(element('import-form').querySelector('button')).disabled = false;
-      if (!active() && navigationEpoch !== operation.epoch) statusView.textContent = '';
+      shellState.patch({ importBusy: false, ...(navigationEpoch !== operation.epoch ? { importStatus: '' } : {}) });
     }
   }
-});
+}
 element('screen-create').addEventListener('submit', event => {
   event.preventDefault();
   const width = element('screen-width').valueAsNumber, height = element('screen-height').valueAsNumber;
@@ -841,10 +814,6 @@ function createPage() {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
 }
-element('refresh').addEventListener('click', () => loadList());
-element('previous').addEventListener('click', () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); });
-element('next').addEventListener('click', () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); });
-element('retry').addEventListener('click', () => requestRunner.retry());
 navigation.attach();
 window.addEventListener('pagehide', event => {
   try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
@@ -865,8 +834,7 @@ async function initializeAuthentication() {
     setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
-    element('disconnect').hidden = false;
-    element('content').hidden = false;
+    shellState.patch({ authenticated: true });
     route();
     homeNavigation.setAdmin(session.admin === true);
     await userAdmin.show(session.admin === true);
