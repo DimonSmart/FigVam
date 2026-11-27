@@ -64,8 +64,12 @@ try {
   const generated = '// Generated from the FigVam ASP.NET OpenAPI contract. Do not edit.\n' + types;
   if (check) {
     const committed = await readFile(output, 'utf8');
-    if (committed.replaceAll('\r\n', '\n') !== generated.replaceAll('\r\n', '\n'))
+    if (committed.replaceAll('\r\n', '\n') !== generated.replaceAll('\r\n', '\n')) {
+      const candidate = join(storage, 'schema.generated.ts');
+      await writeFile(candidate, generated, 'utf8');
+      spawnSync('git', ['diff', '--no-index', '--ignore-cr-at-eol', '--', output, candidate], { stdio: 'inherit' });
       throw new Error('API types are stale. Run npm run generate:api and commit the result.');
+    }
   } else {
     await writeFile(output, generated, 'utf8');
   }
