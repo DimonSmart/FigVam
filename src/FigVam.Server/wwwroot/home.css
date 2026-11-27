@@ -1,6 +1,6 @@
 /* Start-page workspace. Uses the same UI tokens as editor-shell.css. */
 body:has(#documents-view:not([hidden])) { background: var(--ui-home-bg); }
-body:has(#documents-view:not([hidden])) > .brand {
+body:has(#documents-view:not([hidden])) > #figvam-app > .brand {
   height: 64px; padding: 0 clamp(18px, 3vw, 44px); gap: 22px;
   border-color: var(--ui-border); flex-wrap: nowrap;
 }
@@ -173,7 +173,7 @@ body:has(#documents-view:not([hidden])) .feedback #retry { padding: 7px 11px; fo
   body:has(#documents-view:not([hidden])) .feedback { margin: -24px 0 0; padding-inline: 20px; }
 }
 @media (max-width: 560px) {
-  body:has(#documents-view:not([hidden])) > .brand { height: 56px; gap: 12px; }
+  body:has(#documents-view:not([hidden])) > #figvam-app > .brand { height: 56px; gap: 12px; }
   .brand .brand-section { display: none; }
   #documents-view .home-actions { grid-template-columns: 1fr; }
   #documents-view .home-heading { align-items: flex-start; margin-bottom: 22px; }

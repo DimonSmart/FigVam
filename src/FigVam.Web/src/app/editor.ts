@@ -17,7 +17,9 @@ import { createStyles } from '../features/styles/styles';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
 
 import { element, required } from './dom';
-import { disposeApplicationRoot } from './react-panels';
+import { createElement } from 'react';
+import { disposeApplicationRoot, mountApplicationRoot } from './react-panels';
+import { ApplicationShell } from './application-shell';
 import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
@@ -47,10 +49,11 @@ const requestRunner = createRequestRunner({
 });
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
 
+const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage });
+mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell }));
 const authenticationView = createAuthenticationView(element('authentication-root'), submitBearerToken);
 const documentListView = createDocumentListView(element('document-list'), deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(element('home-navigation'), selectHomeView);
-const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind) });
 const userAdmin = createUserAdmin(element);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
@@ -755,7 +758,7 @@ function submitBearerToken(supplied: string) {
   route();
   element('content').focus();
 }
-element('disconnect').addEventListener('click', async () => {
+async function signOut() {
   if (isGoogleMode()) {
     try {
       await logoutGoogleSession();
@@ -763,7 +766,7 @@ element('disconnect').addEventListener('click', async () => {
   }
   clearSession();
   if (!isGoogleMode()) authenticationView.focusToken();
-});
+}
 element('create-form').addEventListener('submit', async event => {
   event.preventDefault();
   const name = element('document-name').value.trim();
@@ -873,10 +876,10 @@ function closeNavigatorContextMenus() {
 element('pages').addEventListener('scroll', closeNavigatorContextMenus);
 window.addEventListener('resize', closeNavigatorContextMenus);
 element('page-refresh').addEventListener('click', () => refreshPages());
-element('page-create').addEventListener('click', () => {
+function createPage() {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
-});
+}
 element('refresh').addEventListener('click', () => loadList());
 element('previous').addEventListener('click', () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); });
 element('next').addEventListener('click', () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); });
@@ -890,9 +893,7 @@ async function initializeAuthentication() {
     const mode = await readAuthenticationMode();
     if (mode === 'bearer') {
       authenticationView.setMode('bearer');
-      element('disconnect').textContent = 'Забыть токен';
-      element('editor-signout').textContent = 'Забыть токен';
-      element('editor-signout-menu').textContent = 'Забыть токен';
+      editorShell.setSignoutLabel('Забыть токен');
       return;
     }
     authenticationView.setMode('google');

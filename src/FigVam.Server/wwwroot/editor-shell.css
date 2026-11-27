@@ -27,7 +27,7 @@
   --ui-card-radius: 11px;
 }
 body:has(#editor-view:not([hidden])) { height: 100dvh; overflow: hidden; background: var(--ui-bg); }
-body:has(#editor-view:not([hidden])) > .brand { display: none; }
+body:has(#editor-view:not([hidden])) > #figvam-app > .brand { display: none; }
 body:has(#editor-view:not([hidden])) #content { height: 100dvh; min-height: 0; }
 body:has(#editor-view:not([hidden])) .feedback {
   position: fixed; z-index: 30; bottom: 12px; left: 50%; transform: translateX(-50%);
@@ -899,3 +899,6 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .navigator-tree-host { display: contents; }
 
 .resize-field { display: contents; }
+
+/* The React root preserves the shell's existing layout boxes. */
+#figvam-app { display: contents; }

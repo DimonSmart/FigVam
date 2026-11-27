@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { createPanelStore } from './panel-store';
 
@@ -12,21 +12,25 @@ interface Panel {
 let nextId = 0;
 const panels = new Map<number, Panel>();
 let root: Root | undefined;
-let container: HTMLElement | undefined;
+let application: ReactNode = null;
 
 function PanelContent({ panel }: { panel: Panel }) {
   const children = useSyncExternalStore(panel.store.subscribe, panel.store.getSnapshot);
   return createPortal(children, panel.host);
 }
 function publishPanels() {
-  if (!root) {
-    container = document.createElement('div');
-    container.hidden = true;
-    container.dataset.figvamAppRoot = '';
-    document.body.append(container);
-    root = createRoot(container);
-  }
-  root.render(<>{[...panels.values()].map(panel => <PanelContent key={panel.id} panel={panel}/>)}</>);
+  if (!root) throw new Error('Application root is not mounted');
+  root.render(<>{application}{[...panels.values()].map(panel => <PanelContent key={panel.id} panel={panel}/>)}</>);
+}
+
+/** One synchronous mount is required before wiring the remaining legacy controllers. */
+export function mountApplicationRoot(view: ReactNode) {
+  if (root) throw new Error('Application root already mounted');
+  const host=document.getElementById('figvam-app');
+  if(!host)throw new Error('Missing application root');
+  application=view;
+  root=createRoot(host);
+  flushSync(publishPanels);
 }
 
 /** Transitional portal adapter for the existing shell. All React panels share
@@ -60,7 +64,6 @@ export function createPanelRoot(host: HTMLElement) {
 export function disposeApplicationRoot() {
   root?.unmount();
   panels.clear();
-  container?.remove();
   root = undefined;
-  container = undefined;
+  application = null;
 }

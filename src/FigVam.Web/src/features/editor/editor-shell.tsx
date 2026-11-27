@@ -1,528 +1,760 @@
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { Ellipsis, PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
+import { createPanelStore } from '../../app/panel-store';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
 
-function required<T>(value:T|null|undefined, description:string):T {
-  if(value==null) throw new Error('Missing editor shell element: '+description);
-  return value;
+interface ShellActions {
+  beforePrototypeLeave(resume:()=>void):boolean;
+  addTool(kind:DrawingToolKind):boolean;
+  signOut():void;
+  createPage():void;
 }
-function asElement<T extends HTMLElement>(node:HTMLElement, ctor:{new():T}):T {
-  if(!(node instanceof ctor)) throw new Error('Unexpected element type: '+node.id);
-  return node;
+export function createEditorShell(actions:ShellActions) {
+  const drawingTools=createPanelStore<readonly string[]>([]);
+  const signoutLabel=createPanelStore('Выйти');
+  return {...actions, drawingTools, signoutLabel,
+    setSignoutLabel(label:string){signoutLabel.publish(label);},
+    setDrawingTools(available:readonly string[]){
+      const current=drawingTools.getSnapshot();
+      if(current.length!==available.length||current.some((kind,index)=>kind!==available[index]))drawingTools.publish(available);
+    }
+  };
 }
-function section(node:HTMLElement):HTMLElement {return required(node.closest('section'),node.id+' section');}
-// Presentation-only composition. Existing editor modules continue to own documents and commands.
-function el<K extends keyof HTMLElementTagNameMap>(tag:K, className?:string, text?:string) {
-  const node = document.createElement(tag);
-  if (className) node.className = className;
-  if (text) node.textContent = text;
-  return node;
-}
-
-function group(title:string, ...nodes:Node[]) {
-  const section = el('section', 'editor-group');
-  const heading = el('h3', 'editor-group-title', title);
-  section.append(heading, ...nodes);
-  return section;
-}
-
-function menu(label:string, className:string) {
-  const details = el('details', 'editor-menu ' + className);
-  const summary = el('summary', 'menu-trigger', label);
-  details.append(summary);
-  return details;
-}
-
-type TabEntry=readonly [key:string,name:string,panel:HTMLElement];
-type BeforeSelect=(previous:string|undefined,next:string,resume:()=>void)=>boolean;
-function tabs(root:HTMLElement, entries:readonly TabEntry[], label:string, beforeSelect:BeforeSelect|null=null) {
-  const nav=el('div','editor-tabs');
-  nav.setAttribute('role','tablist');
-  nav.setAttribute('aria-label',label);
-  const stage=el('div','panel-stage');
-  const reactRoot=createPanelRoot(nav);
-  let selected:string|undefined;
-  for(const [key,,panel] of entries) {
-    panel.classList.add('panel-page');
-    panel.id ||= 'shell-'+key;
-    panel.setAttribute('role','tabpanel');
-    panel.setAttribute('aria-labelledby','tab-'+key);
-    stage.append(panel);
-  }
-  function focus(key:string) {document.getElementById('tab-'+key)?.focus();}
-  function select(key:string,confirmed=false):boolean {
-    if(!confirmed&&beforeSelect&&!beforeSelect(selected,key,()=>{select(key,true);focus(key);})) return false;
-    selected=key;
-    for(const [id,,panel] of entries) panel.hidden=id!==key;
-    flushSync(()=>reactRoot.render(<>{entries.map(([id,name,panel])=><Button key={id} id={'tab-'+id} className="editor-tab" role="tab" aria-controls={panel.id} aria-selected={id===selected} tabIndex={id===selected?0:-1} onClick={()=>select(id)}>{name}</Button>)}</>));
-    return true;
-  }
-  nav.addEventListener('keydown',event=>{
+export type EditorShellController=ReturnType<typeof createEditorShell>;
+const leftTabs=[['layers','Слои'],['components','Компоненты'],['assets','Ресурсы']] as const;
+const rightTabs=[['design','Дизайн'],['prototype','Prototype'],['diagnostics','Проверка']] as const;
+type LeftTab=typeof leftTabs[number][0];
+type RightTab=typeof rightTabs[number][0];
+function TabBar<K extends string>({entries,label,selected,select}:{entries:readonly (readonly [K,string])[];label:string;selected:K;select(key:K,focus?:boolean):void}){
+  function onKeyDown(event:ReactKeyboardEvent<HTMLDivElement>){
     if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
-    const active=entries.findIndex(([key])=>document.getElementById('tab-'+key)===document.activeElement);
+    const active=entries.findIndex(([key])=>event.target instanceof HTMLElement&&event.target.id==='tab-'+key);
     if(active<0)return;
     const next=event.key==='Home'?0:event.key==='End'?entries.length-1:(active+(event.key==='ArrowRight'?1:-1)+entries.length)%entries.length;
-    const entry=entries[next];
-    event.preventDefault();
-    if(entry&&select(entry[0]))focus(entry[0]);
-  });
-  root.append(nav,stage);
-  const first=entries[0];
-  if(first)select(first[0]);
-  return{select};
+    const entry=entries[next];event.preventDefault();if(entry)select(entry[0],true);
+  }
+  return <div className="editor-tabs" role="tablist" aria-label={label} onKeyDown={onKeyDown}>
+    {entries.map(([id,name])=><Button key={id} id={'tab-'+id} className="editor-tab" role="tab" aria-controls={'shell-'+id} aria-selected={id===selected} tabIndex={id===selected?0:-1} onClick={()=>select(id)}>{name}</Button>)}
+  </div>;
 }
+function clampSplit(value:number){return Math.round(Math.min(72,Math.max(22,value)));}
 
-export function createEditorShell({ beforePrototypeLeave = () => true, addTool = () => false }:{
-  beforePrototypeLeave?:(resume:()=>void)=>boolean;
-  addTool?:(kind:DrawingToolKind)=>boolean;
-} = {}) {
-  // Capture original nodes before reparenting them into temporarily detached panels.
-  const shellNodes = new Map([...document.querySelectorAll<HTMLElement>('[id]')].map(node => [node.id, node]));
-  const byId = (id:string):HTMLElement => required(id === 'pages' || id === 'screens'
-    ? document.getElementById(id) ?? shellNodes.get(id) : shellNodes.get(id) ?? document.getElementById(id),id);
-  const input=(id:string)=>asElement(byId(id),HTMLInputElement);
-  const select=(id:string)=>asElement(byId(id),HTMLSelectElement);
-  const form=(id:string)=>asElement(byId(id),HTMLFormElement);
-  const button=(id:string)=>asElement(byId(id),HTMLButtonElement);
-  const design = byId('editor-design');
-  const header = required(design.querySelector<HTMLElement>(':scope > .document-panel'),':scope > .document-panel');
-  const workspace = required(design.querySelector<HTMLElement>('.workspace'),'.workspace');
-  const left = required(workspace.querySelector<HTMLElement>('aside:first-child'),'aside:first-child');
-  const right = required(workspace.querySelector<HTMLElement>('aside:last-child'),'aside:last-child');
-  const canvas = required(workspace.querySelector<HTMLElement>('.canvas'),'.canvas');
-  design.classList.add('app-shell');
-  header.classList.add('app-toolbar');
-  left.classList.add('layers-sidebar');
-  right.classList.add('properties-sidebar');
-
-  // Move the existing controls rather than recreating them or their event handlers.
-  const docMenu = menu('Файл', 'document-menu');
-  const shareMenu = menu('Поделиться', 'share-menu');
-  const mcpMenu = menu('MCP-доступ', 'mcp-menu');
-  mcpMenu.id = 'mcp-access-menu';
-  const mcpBody = el('div', 'menu-body');
-  mcpBody.id = 'mcp-access-body';
-  mcpMenu.append(mcpBody);
-  const documentActions = el('div', 'menu-body');
-  docMenu.append(documentActions);
-  const exportSection = section(byId('export-title'));
-  const versionSection = section(byId('versions-title'));
-  const historySection = section(byId('undo'));
-  const rename = byId('document-rename');
-  const deletion = byId('delete-document');
-  const versionSave = byId('version-save');
-  const historyAccess = byId('history-access');
-  documentActions.append(group('Документ', rename, deletion), group('Экспорт', exportSection),
-    group('Версии', versionSave, versionSection),
-    group('История команд', historyAccess, byId('history-action-status'),
-      byId('history-action-error'), byId('history-action-retry')));
-  historySection.remove();
-
-  const shareActions = el('div', 'menu-body');
-  const presenceSection = section(byId('presence-title'));
-  const membersSection = byId('member-management');
-  shareActions.append(group('Совместная работа', membersSection, presenceSection));
-  shareMenu.append(shareActions);
-
-  const presence = byId('presence-list');
-  presence.classList.add('presence-chips');
-  presenceSection.insertAdjacentElement('afterbegin', el('p', 'visually-hidden', 'Настройки присутствия'));
-  const headerEnd = el('div', 'app-header-actions');
-  const leftToggle = el('button', 'icon-action sidebar-toggle', '☰');
-  leftToggle.type = 'button'; leftToggle.title = 'Показать или скрыть слои';
-  leftToggle.setAttribute('aria-label', 'Показать или скрыть слои');
-  const rightToggle = el('button', 'icon-action sidebar-toggle', '▤');
-  rightToggle.type = 'button'; rightToggle.title = 'Показать или скрыть инспектор';
-  rightToggle.setAttribute('aria-label', 'Показать или скрыть инспектор');
-  leftToggle.addEventListener('click', () => {
-    const closed = workspace.classList.toggle('left-collapsed');
-    leftToggle.setAttribute('aria-expanded', String(!closed));
-    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
-  });
-  rightToggle.addEventListener('click', () => {
-    const closed = workspace.classList.toggle('right-collapsed');
-    rightToggle.setAttribute('aria-expanded', String(!closed));
-    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
-  });
-  leftToggle.setAttribute('aria-expanded', 'true');
-  rightToggle.setAttribute('aria-expanded', 'true');
-  const undo = byId('undo'), redo = byId('redo'), preview = byId('open-preview');
-  for (const [button, label, sign] of [[undo, 'Отменить действие', '↶'], [redo, 'Повторить действие', '↷']] as const) {
-    button.textContent = sign;
-    button.title = label; button.setAttribute('aria-label', label); button.classList.add('icon-action');
+function TokenWorkspace({active}:{active:boolean}){
+  const menu=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),importForm=useRef<HTMLFormElement>(null);
+  function closeMenu(){if(menu.current?.matches(':popover-open'))menu.current.hidePopover();trigger.current?.focus();}
+  function position(){
+    const popover=menu.current,button=trigger.current;
+    if(!popover?.matches(':popover-open')||!button)return;
+    const rect=button.getBoundingClientRect(),margin=8;
+    popover.style.left=Math.max(margin,Math.min(rect.right-popover.offsetWidth,window.innerWidth-popover.offsetWidth-margin))+'px';
+    const below=window.innerHeight-rect.bottom-margin,above=rect.top-margin;
+    const openAbove=below<popover.scrollHeight&&above>below;
+    popover.style.maxHeight=Math.max(0,openAbove?above:below)+'px';
+    popover.style.top=(openAbove?rect.top-popover.offsetHeight:rect.bottom)+'px';
   }
-  const signOut = el('button', 'subtle-action', 'Выйти');
-  signOut.id = 'editor-signout';
-  signOut.type = 'button';
-  signOut.addEventListener('click', () => byId('disconnect').click());
-  const mobileSignOut = el('button', 'mobile-signout', 'Выйти');
-  mobileSignOut.id = 'editor-signout-menu';
-  mobileSignOut.type = 'button';
-  mobileSignOut.addEventListener('click', () => byId('disconnect').click());
-  documentActions.append(group('Аккаунт', mobileSignOut));
-  const mode = el('div', 'document-mode-switch');
-  const editorMode = el('button', 'editor-tab', 'Редактор');
-  const tokenMode = el('button', 'editor-tab', 'Токены');
-  editorMode.id = 'document-mode-editor'; tokenMode.id = 'document-mode-tokens';
-  for (const button of [editorMode, tokenMode]) button.type = 'button';
-  mode.append(editorMode, tokenMode);
-  mode.setAttribute('role', 'group'); mode.setAttribute('aria-label', 'Режим документа');
-  design.insertBefore(mode, workspace);
-  const brand = el('span', 'editor-brand', 'FigVam');
-  header.insertBefore(brand, header.firstChild);
-  const originalMode = [...header.children].find(child => child.tagName === 'SPAN' && child.textContent?.trim() === 'Design');
-  originalMode?.remove();
-  headerEnd.append(leftToggle, rightToggle, undo, redo, preview,
-    presence, byId('connection-status'), shareMenu, mcpMenu, docMenu, signOut);
-  header.append(headerEnd);
-
-  // Master-detail navigation: document pages/screens above, selected screen's layers below.
-  const pagesGroup = group('Страницы и экраны');
-  const pageEdit = byId('page-edit');
-  byId('page-create').classList.add('add-page-action');
-  byId('page-create').setAttribute('aria-label', 'Создать страницу');
-  byId('page-create').title = 'Создать страницу';
-  byId('page-refresh').title = 'Обновить страницы';
-
-  const screensSection = section(byId('screens-title'));
-  const screenForm = byId('screen-create');
-  const screenOptions = menu('+ Экран', 'inline-menu screen-options');
-  const preset = document.createElement('select');
-  preset.id = 'screen-preset';
-  preset.setAttribute('aria-label', 'Типовой размер экрана');
-  for (const [value, label] of [['1440x900','Desktop · 1440 × 900'], ['390x844','Mobile · 390 × 844'],
-      ['768x1024','Tablet · 768 × 1024'], ['custom','Другой размер']]) preset.add(new Option(label, value));
-  const screenWidth = input('screen-width'), screenHeight = input('screen-height');
-  const initialPreset = required(preset.options[0],'initial preset').value;
-  const [defaultWidth='1440', defaultHeight='900'] = initialPreset.split('x');
-  screenWidth.defaultValue = screenWidth.value = defaultWidth;
-  screenHeight.defaultValue = screenHeight.value = defaultHeight;
-  preset.addEventListener('change', () => {
-    if (preset.value === 'custom') return;
-    const [width='', height=''] = preset.value.split('x');
-    screenWidth.value = width;
-    screenHeight.value = height;
-  });
-  const syncPreset = () => {
-    const dimensions = `${screenWidth.value}x${screenHeight.value}`;
-    preset.value = [...preset.options].some(option => option.value === dimensions) ? dimensions : 'custom';
-  };
-  screenWidth.addEventListener('input', syncPreset);
-  screenHeight.addEventListener('input', syncPreset);
-  screenForm.addEventListener('reset', () => { preset.value = initialPreset; });
-  const screenMenuBody = el('div', 'screen-options-body');
-  screenMenuBody.setAttribute('popover', 'manual');
-  screenMenuBody.append(preset, screenForm);
-  screenOptions.append(screenMenuBody);
-  const navigatorToolbar = el('div', 'navigator-toolbar');
-  navigatorToolbar.append(pageEdit, screenOptions, byId('page-refresh'));
-  const navigatorMenus: [HTMLDetailsElement,HTMLElement][] = [[screenOptions, screenMenuBody]];
-  function positionNavigatorMenu(menu:HTMLDetailsElement, body:HTMLElement) {
-    const trigger = required(menu.querySelector('summary'),'menu summary');
-    if (!menu.open || !trigger.getClientRects().length) {
-      if (body.matches(':popover-open')) body.hidePopover();
-      return;
-    }
-    if (!body.matches(':popover-open')) body.showPopover();
-    const anchor = trigger.getBoundingClientRect();
-    const margin = 8, gap = 6;
-    // Keep the automatically suggested creation form below the empty page's row,
-    // so that the page's rename and context actions remain directly clickable.
-    const selectedPageRow = byId('pages').querySelector(':scope > li > .page-select[aria-pressed="true"]')?.parentElement;
-    const emptyPage = selectedPageRow && !selectedPageRow.querySelector('.screen-row');
-    const lowerEdge = emptyPage ? Math.max(anchor.bottom, selectedPageRow.getBoundingClientRect().bottom) : anchor.bottom;
-    const below = Math.max(0, window.innerHeight - lowerEdge - gap - margin);
-    const above = Math.max(0, anchor.top - gap - margin);
-    body.style.maxHeight = '';
-    const openAbove = body.offsetHeight > below && above > below;
-    body.style.maxHeight = `${openAbove ? above : below}px`;
-    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - body.offsetWidth - margin));
-    const top = openAbove ? anchor.top - gap - body.offsetHeight : lowerEdge + gap;
-    body.style.left = `${left}px`;
-    body.style.top = `${top}px`;
+  useEffect(()=>{window.addEventListener('resize',position);return()=>window.removeEventListener('resize',position);},[]);
+  useEffect(()=>{if(!active&&menu.current?.matches(':popover-open'))menu.current.hidePopover();},[active]);
+  return (
+    <section id="token-workspace" className="token-workspace" aria-label="Токены" hidden={!active}>
+      <p id="tokens-status" role="status" aria-live="polite"/>
+      <p id="tokens-error" role="alert"/>
+      <form id="token-import-form" className="token-import-form" hidden ref={importForm}>
+        <label>
+          {"Формат импорта"}
+          <select id="token-import-mode">
+            <option value="combined">{"FigVam — обе темы"}</option>
+            <option value="pair">{"Два файла DTCG"}</option>
+          </select>
+        </label>
+        <label id="token-import-combined-label">
+          {"FigVam JSON"}
+          <textarea id="token-import-combined" rows={4}/>
+          <input type="file" accept=".json,application/json" id="token-import-combined-file" aria-label="Файл токенов FigVam"/>
+        </label>
+        <label id="token-import-light-label">
+          {"DTCG JSON · Light"}
+          <textarea id="token-import-light" rows={4}/>
+          <input type="file" accept=".json,application/json" id="token-import-light-file" aria-label="Файл токенов Light"/>
+        </label>
+        <label id="token-import-dark-label">
+          {"DTCG JSON · Dark"}
+          <textarea id="token-import-dark" rows={4}/>
+          <input type="file" accept=".json,application/json" id="token-import-dark-file" aria-label="Файл токенов Dark"/>
+        </label>
+        <label>
+          {"Сопоставление типов/категорий (JSON, необязательно)"}
+          <textarea id="token-import-mapping" rows={3} placeholder="{\"dimensionTypes\":{\"space\":\"Spacing\"}}"/>
+        </label>
+        <Button type="submit">{"Импортировать токены"}</Button>
+        <Button type="button" onClick={()=>{if(importForm.current)importForm.current.hidden=true;}}>{"Отмена"}</Button>
+      </form>
+      <div className="token-workspace-grid">
+        <div className="token-sidebar">
+          <div className="token-tree-toolbar">
+            <input id="token-search" type="search" placeholder="Поиск токенов" aria-label="Поиск токенов"/>
+            <button id="token-menu-open" className="token-menu-button" type="button" aria-label="Управление токенами" popoverTarget="token-menu" ref={trigger}>
+              <Ellipsis size={16} aria-hidden="true"/>
+            </button>
+            <div className="token-menu" id="token-menu" popover="auto" role="group" aria-label="Управление токенами" ref={menu} onToggle={position}>
+              <Button id="new-token-open" type="button" hidden onClick={closeMenu}>{"+ Новый токен…"}</Button>
+              <hr/>
+              <Button id="token-import-open" type="button" hidden onClick={closeMenu}>{"Импорт токенов…"}</Button>
+              <Button id="token-export" type="button" disabled onClick={closeMenu}>{"Экспорт токенов…"}</Button>
+              <Button id="token-export-light" type="button" disabled onClick={closeMenu}>{"Экспорт Light"}</Button>
+              <Button id="token-export-dark" type="button" disabled onClick={closeMenu}>{"Экспорт Dark"}</Button>
+              <hr/>
+              <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы"/>
+            </div>
+          </div>
+          <nav id="token-groups" className="token-groups" aria-label="Группы токенов"/>
+        </div>
+        <div className="token-table-area">
+          <table className="token-table" aria-label="Токены документа">
+            <thead>
+              <tr>
+                <th scope="col">{"Имя"}</th>
+                <th scope="col">{"Тип"}</th>
+                <th scope="col">{"Light"}</th>
+                <th scope="col">{"Dark"}</th>
+                <th scope="col">{"Источник"}</th>
+                <th scope="col">{"Usages"}</th>
+                <th scope="col">{"Статус"}</th>
+              </tr>
+            </thead>
+            <tbody id="tokens-list"/>
+          </table>
+        </div>
+        <aside className="token-details-area">
+          <p id="token-placeholder" className="token-placeholder">{"Выберите токен или создайте новый."}</p>
+          <form id="token-create" hidden>
+            <h3>{"Новый токен"}</h3>
+            <label htmlFor="new-token-name">{"Имя токена"}</label>
+            <input id="new-token-name" required maxLength={256}/>
+            <label htmlFor="new-token-type">{"Тип токена"}</label>
+            <select id="new-token-type">
+              <option value="Color">{"Color"}</option>
+              <option value="Typography">{"Typography"}</option>
+              <option value="Dimension">{"Dimension"}</option>
+              <option value="Number">{"Number"}</option>
+              <option value="FontFamily">{"FontFamily"}</option>
+              <option value="FontWeight">{"FontWeight"}</option>
+              <option value="Shadow">{"Shadow"}</option>
+              <option value="Spacing">{"Spacing (legacy)"}</option>
+              <option value="Geometry">{"Geometry (legacy)"}</option>
+            </select>
+            <label id="new-token-category-label" htmlFor="new-token-category" hidden>{"Назначение"}</label>
+            <select id="new-token-category" hidden/>
+            <div id="new-token-values" className="token-theme-values"/>
+            <button type="submit">{"Создать токен"}</button>
+            <Button id="new-token-cancel" type="button">{"Отмена"}</Button>
+          </form>
+          <div id="token-detail" hidden>
+            <div className="token-name-header">
+              <h3 id="token-detail-title"/>
+              <button id="token-rename-open" className="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен">{"✎"}</button>
+              <form id="token-rename" hidden>
+                <input id="token-name" aria-label="Новое имя токена" required maxLength={256}/>
+                <button type="submit" className="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя">{"✓"}</button>
+                <button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена">{"×"}</button>
+              </form>
+            </div>
+            <p id="token-detail-type"/>
+            <p className="token-invalid" id="token-detail-diagnostic" role="status"/>
+            <div id="token-values" className="token-theme-values"/>
+            <div id="token-edit" hidden>
+              <button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</button>
+            </div>
+            <h4>{"Использования"}</h4>
+            <ul id="token-usages" aria-label="Прямые и косвенные использования токена"/>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+export function EditorShell({shell}:{shell:EditorShellController}){
+  const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
+  const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
+  const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
+  const [tokensMode,setTokensMode]=useState(false);
+  const [leftCollapsed,setLeftCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
+  const [rightCollapsed,setRightCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
+  const [split,setSplit]=useState(42);
+  const dragging=useRef(false),layersPage=useRef<HTMLDivElement>(null);
+  const preset=useRef<HTMLSelectElement>(null),screenWidth=useRef<HTMLInputElement>(null),screenHeight=useRef<HTMLInputElement>(null);
+  const screenMenu=useRef<HTMLDetailsElement>(null),screenMenuBody=useRef<HTMLDivElement>(null),navigatorToolbar=useRef<HTMLDivElement>(null),paletteMenu=useRef<HTMLDetailsElement>(null);
+  function focusTab(key:string){requestAnimationFrame(()=>document.getElementById('tab-'+key)?.focus());}
+  function selectLeft(key:LeftTab,focus=false){setLeftTab(key);if(focus)focusTab(key);}
+  function selectRight(key:RightTab,focus=false){
+    const apply=()=>{setRightTab(key);if(focus)focusTab(key);};
+    if(rightTab==='prototype'&&key!=='prototype'&&!shell.beforePrototypeLeave(apply))return;
+    apply();
   }
-  function positionNavigatorMenus() {
-    for (const [menu, body] of navigatorMenus) positionNavigatorMenu(menu, body);
+  function selectMode(tokens:boolean){
+    if(tokens&&!tokensMode&&rightTab==='prototype'&&!shell.beforePrototypeLeave(()=>setTokensMode(true)))return;
+    setTokensMode(tokens);
   }
-  for (const [current, body] of navigatorMenus) {
-    current.addEventListener('toggle', () => {
-      if (!current.open) { positionNavigatorMenu(current, body); return; }
-      for (const [other] of navigatorMenus) {
-        if (other !== current) other.open = false;
-      }
-      for (const rowMenu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]')) rowMenu.open = false;
-      positionNavigatorMenu(current, body);
-    });
+  function resizeAt(y:number){const bounds=layersPage.current?.getBoundingClientRect();if(bounds?.height)setSplit(clampSplit((y-bounds.top)/bounds.height*100));}
+  function applyPreset(){const value=preset.current?.value;if(!value||value==='custom'||!screenWidth.current||!screenHeight.current)return;const [width='',height='']=value.split('x');screenWidth.current.value=width;screenHeight.current.value=height;}
+  function syncPreset(){if(!preset.current||!screenWidth.current||!screenHeight.current)return;const dimensions=screenWidth.current.value+'x'+screenHeight.current.value;preset.current.value=[...preset.current.options].some(option=>option.value===dimensions)?dimensions:'custom';}
+  function positionNavigatorMenu(){
+    const menu=screenMenu.current,body=screenMenuBody.current,trigger=menu?.querySelector('summary');
+    if(!menu||!body||!trigger)return;
+    if(!menu.open||!trigger.getClientRects().length){if(body.matches(':popover-open'))body.hidePopover();return;}
+    if(!body.matches(':popover-open'))body.showPopover();
+    const anchor=trigger.getBoundingClientRect(),margin=8,gap=6;
+    const selectedPageRow=document.querySelector('#pages > li > .page-select[aria-pressed="true"]')?.parentElement;
+    const emptyPage=selectedPageRow&&!selectedPageRow.querySelector('.screen-row');
+    const lowerEdge=emptyPage?Math.max(anchor.bottom,selectedPageRow.getBoundingClientRect().bottom):anchor.bottom;
+    const below=Math.max(0,window.innerHeight-lowerEdge-gap-margin),above=Math.max(0,anchor.top-gap-margin);
+    body.style.maxHeight='';
+    const openAbove=body.offsetHeight>below&&above>below;
+    body.style.maxHeight=`${openAbove?above:below}px`;
+    body.style.left=`${Math.max(margin,Math.min(anchor.left,window.innerWidth-body.offsetWidth-margin))}px`;
+    body.style.top=`${openAbove?anchor.top-gap-body.offsetHeight:lowerEdge+gap}px`;
   }
-  // The toolbar can become visible again when switching tabs or opening a collapsed sidebar.
-  const navigatorObserver = new ResizeObserver(positionNavigatorMenus);
-  navigatorObserver.observe(navigatorToolbar);
-  window.addEventListener('resize', positionNavigatorMenus);
-  window.addEventListener('scroll', positionNavigatorMenus, true);
-  const screensList = byId('screens');
-  pagesGroup.append(navigatorToolbar, byId('pages'), byId('page-access'), screensList);
-  byId('pages').setAttribute('aria-label', 'Страницы и экраны');
-  byId('screens').setAttribute('aria-label', 'Экраны выбранной страницы');
-  // The screen list is moved under its selected page by renderPages.
-  screensSection.remove();
-  const layersSection = section(byId('layers-title'));
-  layersSection.classList.add('layer-tree-group');
-  const layersPage = el('div', 'layers-page');
-  const master = el('div', 'layers-master');
-  const detail = el('div', 'layers-detail');
-  master.append(pagesGroup);
-  detail.append(layersSection);
-  const splitter = el('div', 'layers-splitter');
-  splitter.tabIndex = 0;
-  splitter.setAttribute('role', 'separator');
-  splitter.setAttribute('aria-label', 'Изменить высоту навигации и дерева слоёв');
-  splitter.setAttribute('aria-orientation', 'horizontal');
-  splitter.setAttribute('aria-valuemin', '22');
-  splitter.setAttribute('aria-valuemax', '72');
-  function setSplit(percent:number) {
-    const value = Math.round(Math.min(72, Math.max(22, percent)));
-    master.style.flexBasis = `${value}%`;
-    splitter.setAttribute('aria-valuenow', String(value));
+  function onScreenMenuToggle(){
+    if(screenMenu.current?.open)for(const rowMenu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]'))rowMenu.open=false;
+    positionNavigatorMenu();
   }
-  function resizeAt(y:number) {
-    const bounds = layersPage.getBoundingClientRect();
-    if (bounds.height) setSplit((y - bounds.top) / bounds.height * 100);
+  function openCreateScreen(){
+    if(!document.getElementById('page-edit')?.hidden&&!document.querySelector('#pages [aria-pressed=true]')){shell.createPage();return;}
+    if(!screenMenu.current||document.getElementById('screen-create')?.hidden)return;
+    setLeftTab('layers');setLeftCollapsed(false);screenMenu.current.open=true;
+    requestAnimationFrame(()=>{positionNavigatorMenu();screenWidth.current?.focus();});
   }
-  let dragging = false;
-  splitter.addEventListener('pointerdown', event => {
-    if (event.button !== 0) return;
-    dragging = true;
-    splitter.setPointerCapture(event.pointerId);
-    resizeAt(event.clientY);
-    event.preventDefault();
-  });
-  splitter.addEventListener('pointermove', event => {
-    if (dragging) resizeAt(event.clientY);
-  });
-  splitter.addEventListener('pointerup', () => { dragging = false; });
-  splitter.addEventListener('pointercancel', () => { dragging = false; });
-  splitter.addEventListener('lostpointercapture', () => { dragging = false; });
-  splitter.addEventListener('keydown', event => {
-    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
-    event.preventDefault();
-    setSplit(Number(splitter.getAttribute('aria-valuenow')) + (event.key === 'ArrowDown' ? 5 : -5));
-  });
-  setSplit(42);
-  layersPage.append(master, splitter, detail);
-
-  const componentsPage = el('div', 'components-page');
-  componentsPage.append(section(byId('components-title')));
-  const resources = el('div', 'assets-page');
-  const pngHelp = required(byId('asset-upload-form').nextElementSibling,'PNG help');
-  const assetPanel = group('Изображения', byId('asset-upload-form'), pngHelp, byId('asset-upload-status'),
-    byId('asset-upload-error'), byId('asset-upload-retry'));
-  const tokenPage = section(byId('tokens-title'));
-  tokenPage.id = 'token-workspace'; tokenPage.classList.add('token-workspace');
-  const tokenHeader = el('div', 'token-tree-toolbar');
-  const tokenGrid = el('div', 'token-workspace-grid');
-  const tokenSidebar = el('div', 'token-sidebar');
-  const tokenGroups = el('nav', 'token-groups'); tokenGroups.id = 'token-groups';
-  tokenGroups.setAttribute('aria-label', 'Группы токенов');
-  const tokenTable = el('div', 'token-table-area');
-  const tokenDetails = el('aside', 'token-details-area');
-  const search = el('input'); search.id = 'token-search'; search.type = 'search'; search.placeholder = 'Поиск токенов'; search.setAttribute('aria-label', 'Поиск токенов');
-  const menuButton = el('button', 'token-menu-button', '…'); menuButton.id = 'token-menu-open'; menuButton.type = 'button';
-  menuButton.setAttribute('aria-label', 'Управление токенами'); menuButton.setAttribute('popovertarget', 'token-menu');
-  const tokenMenu = el('div', 'token-menu'); tokenMenu.id = 'token-menu'; tokenMenu.setAttribute('popover', 'auto');
-  tokenMenu.setAttribute('role', 'group'); tokenMenu.setAttribute('aria-label', 'Управление токенами');
-  const command = (id:string, label:string) => { const b = el('button', '', label); b.id = id; b.type = 'button'; b.addEventListener('click', () => { tokenMenu.hidePopover(); menuButton.focus(); }); return b; };
-  const newToken = command('new-token-open', '+ Новый токен…'); newToken.hidden = true;
-  const importButton = command('token-import-open', 'Импорт токенов…'); importButton.hidden = true;
-  const exportButton = command('token-export', 'Экспорт токенов…');
-  const exportLight = command('token-export-light', 'Экспорт Light');
-  const exportDark = command('token-export-dark', 'Экспорт Dark');
-  for (const b of [exportButton, exportLight, exportDark]) b.disabled = true;
-  const typeFilter = el('div', 'token-type-filter'); typeFilter.id = 'token-type-filter';
-  typeFilter.setAttribute('role', 'group'); typeFilter.setAttribute('aria-label', 'Отображаемые типы');
-  tokenMenu.append(newToken, el('hr'), importButton, exportButton, exportLight, exportDark, el('hr'), typeFilter);
-  function positionTokenMenu() {
-    if (!tokenMenu.matches(':popover-open')) return;
-    const rect = menuButton.getBoundingClientRect();
-    const margin = 8;
-    tokenMenu.style.left = Math.max(margin, Math.min(rect.right - tokenMenu.offsetWidth, window.innerWidth - tokenMenu.offsetWidth - margin)) + 'px';
-    const below = window.innerHeight - rect.bottom - margin, above = rect.top - margin;
-    const openAbove = below < tokenMenu.scrollHeight && above > below;
-    tokenMenu.style.maxHeight = Math.max(0, openAbove ? above : below) + 'px';
-    tokenMenu.style.top = (openAbove ? rect.top - tokenMenu.offsetHeight : rect.bottom) + 'px';
+  function addFromToolbar(kind:DrawingToolKind){
+    if(!shell.addTool(kind)&&paletteMenu.current){paletteMenu.current.open=true;paletteMenu.current.querySelector<HTMLElement>('#visual-required-properties input, #visual-required-properties select, #visual-required-properties textarea')?.focus();}
   }
-  tokenMenu.addEventListener('toggle', positionTokenMenu);
-  window.addEventListener('resize', positionTokenMenu);
-  tokenHeader.append(search, menuButton, tokenMenu);
-  tokenSidebar.append(tokenHeader, tokenGroups);
-  const importForm = el('form', 'token-import-form'); importForm.id = 'token-import-form'; importForm.hidden = true;
-  const modeLabel = el('label', '', 'Формат импорта');
-  const importMode = el('select'); importMode.id = 'token-import-mode';
-  importMode.add(new Option('FigVam — обе темы', 'combined')); importMode.add(new Option('Два файла DTCG', 'pair'));
-  modeLabel.append(importMode); importForm.append(modeLabel);
-  for (const [key, title] of [['combined','FigVam JSON'],['light','DTCG JSON · Light'],['dark','DTCG JSON · Dark']]) {
-    const label = el('label', '', title); label.id = 'token-import-' + key + '-label';
-    const field = el('textarea'); field.id = 'token-import-' + key; field.rows = 4; label.append(field);
-    const file = el('input'); file.type = 'file'; file.accept = '.json,application/json';
-    file.id = field.id + '-file'; file.setAttribute('aria-label', 'Файл токенов ' + (key === 'combined' ? 'FigVam' : key === 'light' ? 'Light' : 'Dark'));
-    label.append(file); importForm.append(label);
-  }
-  const mappingLabel = el('label', '', 'Сопоставление типов/категорий (JSON, необязательно)');
-  const mapping = el('textarea'); mapping.id = 'token-import-mapping'; mapping.rows = 3; mapping.placeholder = '{"dimensionTypes":{"space":"Spacing"}}'; mappingLabel.append(mapping);
-  const importSubmit = el('button', '', 'Импортировать токены'); importSubmit.type = 'submit';
-  const importCancel = el('button', '', 'Отмена'); importCancel.type = 'button'; importCancel.addEventListener('click', () => { importForm.hidden = true; });
-  importForm.append(mappingLabel, importSubmit, importCancel);
-  const placeholder = el('p', 'token-placeholder', 'Выберите токен или создайте новый.'); placeholder.id = 'token-placeholder';
-  const tokenDiagnostic = el('p', 'token-invalid'); tokenDiagnostic.id = 'token-detail-diagnostic'; tokenDiagnostic.setAttribute('role','status');
-  byId('token-detail-type').after(tokenDiagnostic);
-  const cancelNew = el('button', '', 'Отмена'); cancelNew.id = 'new-token-cancel'; cancelNew.type = 'button'; byId('token-create').append(cancelNew);
-  const table = el('table', 'token-table'); table.setAttribute('aria-label','Токены документа');
-  const head = table.createTHead().insertRow();
-  for (const name of ['Имя','Тип','Light','Dark','Источник','Usages','Статус']) { const th = el('th', '', name); th.scope = 'col'; head.append(th); }
-  const body = table.createTBody(); body.id = 'tokens-list';
-  byId('tokens-list').remove();
-  tokenPage.removeAttribute('aria-labelledby'); tokenPage.setAttribute('aria-label', 'Токены');
-  tokenTable.append(table);
-  tokenDetails.append(placeholder, byId('token-create'), byId('token-detail'));
-  tokenGrid.append(tokenSidebar, tokenTable, tokenDetails);
-  const stylesPanel = byId('styles-panel');
-  const status = byId('tokens-status'), error = byId('tokens-error');
-  tokenPage.replaceChildren(status, error, importForm, tokenGrid);
-  design.append(tokenPage);
-  const stylesGroup = el('section', 'editor-group');
-  stylesGroup.append(stylesPanel);
-  resources.append(assetPanel, section(byId('datasets-title')),
-    stylesGroup, section(byId('screen-variants-title')));
-  function selectMode(tokens:boolean) {
-    if (!tokens && tokenMenu.matches(':popover-open')) tokenMenu.hidePopover();
-    workspace.hidden = tokens; tokenPage.hidden = !tokens;
-    editorMode.setAttribute('aria-pressed', String(!tokens)); tokenMode.setAttribute('aria-pressed', String(tokens));
-    for (const control of [leftToggle, rightToggle]) control.hidden = tokens;
-    if (!tokens) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
-  }
-  editorMode.addEventListener('click', () => selectMode(false));
-  tokenMode.addEventListener('click', () => {
-    if (tokenPage.hidden && document.getElementById('tab-prototype')?.getAttribute('aria-selected') === 'true') {
-      if (!beforePrototypeLeave(() => selectMode(true))) return;
-    }
-    selectMode(true);
-  });
-  selectMode(false);
-  const treeTitle = byId('tree-title');
-  treeTitle.classList.add('visually-hidden');
-  left.replaceChildren(treeTitle);
-  tabs(left, [['layers', 'Слои', layersPage], ['components', 'Компоненты', componentsPage],
-    ['assets', 'Ресурсы', resources]], 'Разделы документа');
-
-  // Right: only the selection and applicable properties by default.
-  const inspectorPage = el('div', 'inspector-page');
-  const inspectorTitle = byId('inspector-title');
-  const selection = byId('inspector-selection');
-  const nodeDelete = byId('node-delete');
-  const metadata = byId('node-metadata');
-  const visualInspector = byId('visual-inspector');
-  const screenSize = section(byId('screen-size-title'));
-  inspectorPage.append(inspectorTitle, selection, nodeDelete,
-    byId('node-delete-status'), byId('node-delete-retry'), visualInspector, metadata, screenSize);
-  const prototypePage = el('div', 'prototype-page');
-  prototypePage.append(section(byId('scenarios-title')));
-  const diagnosticsPage = el('div', 'diagnostics-page');
-  diagnosticsPage.append(section(byId('diagnostics-title')));
-  right.replaceChildren();
-  tabs(right, [['design', 'Дизайн', inspectorPage], ['prototype', 'Prototype', prototypePage],
-    ['diagnostics', 'Проверка', diagnosticsPage]], 'Разделы инспектора',
-    (previous, next, resume) => previous !== 'prototype' || next === 'prototype' || beforePrototypeLeave(resume));
-
-  // React owns the ordinary toolbar buttons; the existing palette form remains
-  // mounted separately until its property editor migration is complete.
-  const drawing = el('div', 'drawing-toolbar');
-  const toolsHost = el('div');
-  toolsHost.style.display = 'contents';
-  const toolsRoot = createPanelRoot(toolsHost);
-  const palette = byId('visual-palette');
-  const detailed = menu('Параметры добавления', 'palette-options');
-  detailed.append(palette);
-  const focusViewport = () => byId('viewport').focus();
-  const addFromToolbar = (kind:DrawingToolKind) => {
-    if (!addTool(kind)) {
-      detailed.open = true;
-      byId('visual-required-properties').querySelector<HTMLElement>('input, select, textarea')?.focus();
-    }
-  };
-  let availableTools: readonly string[] | undefined;
-  function setDrawingTools(available: readonly string[]) {
-    if (availableTools && availableTools.length === available.length &&
-        availableTools.every((kind,index) => kind === available[index])) return;
-    availableTools = available;
-    toolsRoot.render(<DrawingTools available={available} onSelect={focusViewport} onAdd={addFromToolbar}/>);
-  }
-  setDrawingTools([]);
-  drawing.append(toolsHost, detailed);
-  const compact = matchMedia('(max-width: 1050px)');
-  function resetPanelLayout(narrow:boolean) {
-    workspace.classList.toggle('left-collapsed', narrow);
-    workspace.classList.toggle('right-collapsed', narrow);
-    leftToggle.setAttribute('aria-expanded', String(!narrow));
-    rightToggle.setAttribute('aria-expanded', String(!narrow));
-  }
-  resetPanelLayout(compact.matches);
-  compact.addEventListener('change', event => resetPanelLayout(event.matches));
-
-  const canvasTitle = byId('canvas-title');
-  canvasTitle.classList.add('visually-hidden');
-  const viewportControls = required(canvas.querySelector<HTMLElement>('.viewport-controls'),'.viewport-controls');
-  canvas.insertBefore(drawing, canvas.firstChild);
-  canvas.append(viewportControls);
-  canvas.classList.add('design-canvas');
-  const canvasHelp = byId('canvas-help');
-  canvasHelp.classList.add('visually-hidden');
-  const blank = el('div', 'canvas-blank');
-  blank.id = 'canvas-empty';
-  const blankTitle = el('h2', '', 'Нет выбранного экрана');
-  const blankText = el('p', '', 'Выберите экран слева или создайте новый, чтобы начать работу.');
-  const blankAction = el('button', 'primary-action', 'Создать экран');
-  blankAction.type = 'button';
-  blankAction.setAttribute('aria-label', 'Открыть создание экрана');
-  blankAction.addEventListener('click', () => {
-    if (!byId('page-edit').hidden && !byId('pages').querySelector('[aria-pressed=true]')) {
-      byId('page-create').click();
-      return;
-    }
-    const container = byId('screen-create').closest<HTMLDetailsElement>('details');
-    if (!container || byId('screen-create').hidden) return;
-    byId('tab-layers').click();
-    workspace.classList.remove('left-collapsed');
-    leftToggle.setAttribute('aria-expanded', 'true');
-    container.open = true;
-    byId('screen-width').focus();
-  });
-  blank.append(blankTitle, blankText, blankAction);
-  canvas.insertBefore(blank, byId('viewport'));
-  const zoom = byId('zoom-level');
-  zoom.title = 'Текущий масштаб';
-  byId('zoom-out').title = 'Уменьшить';
-  byId('zoom-in').title = 'Увеличить';
-  byId('fit-screen').title = 'Вместить экран в холст';
-  byId('canvas-selection').classList.add('canvas-caption');
-
-  // Menus are temporary views. Their controls keep their draft values when closed.
-  // Close previously open menus before a pointer action; do not close a menu opened by that click.
-  document.addEventListener('pointerdown', event => {
-    if(!(event.target instanceof Element))return;
-    const clickedMenu = event.target.closest('details.editor-menu, .navigator-toolbar details, .navigator-context-menu');
-    for (const details of document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')) {
-      if (details !== clickedMenu && !details.contains(event.target)) details.open = false;
-    }
-  });
-  document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape') return;
-    const opened = [...document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')];
-    if (!opened.length) return;
-    const last=opened.at(-1);
-    if(!last)return;
-    last.open=false;
-    last.querySelector<HTMLElement>('summary')?.focus();
-    event.preventDefault();
-  });
-  return { setDrawingTools };
+  useEffect(()=>{
+    const compact=matchMedia('(max-width: 1050px)');
+    const onChange=(event:MediaQueryListEvent)=>{setLeftCollapsed(event.matches);setRightCollapsed(event.matches);};
+    compact.addEventListener('change',onChange);
+    const observer=new ResizeObserver(positionNavigatorMenu);
+    if(navigatorToolbar.current)observer.observe(navigatorToolbar.current);
+    window.addEventListener('resize',positionNavigatorMenu);window.addEventListener('scroll',positionNavigatorMenu,true);
+    const pointer=(event:PointerEvent)=>{
+      if(!(event.target instanceof Element))return;
+      const clicked=event.target.closest('details.editor-menu, .navigator-toolbar details, .navigator-context-menu');
+      for(const details of document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]'))if(details!==clicked&&!details.contains(event.target))details.open=false;
+    };
+    const key=(event:KeyboardEvent)=>{
+      if(event.key!=='Escape')return;
+      const last=[...document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')].at(-1);
+      if(!last)return;last.open=false;last.querySelector<HTMLElement>('summary')?.focus();event.preventDefault();
+    };
+    document.addEventListener('pointerdown',pointer);document.addEventListener('keydown',key);
+    return()=>{compact.removeEventListener('change',onChange);observer.disconnect();window.removeEventListener('resize',positionNavigatorMenu);window.removeEventListener('scroll',positionNavigatorMenu,true);document.removeEventListener('pointerdown',pointer);document.removeEventListener('keydown',key);};
+  },[]);
+  return (
+    <div id="editor-design" className="app-shell">
+      <header className="document-panel app-toolbar" aria-label="Панель документа">
+        <span className="editor-brand">{"FigVam"}</span>
+        <a href="/" data-navigation="">{"← Документы"}</a>
+        <h1 id="document-title"/>
+        <span id="revision"/>
+        <div className="app-header-actions">
+          <Button className="icon-action sidebar-toggle" title="Показать или скрыть слои" aria-label="Показать или скрыть слои" aria-expanded={!leftCollapsed} hidden={tokensMode} onClick={()=>setLeftCollapsed(value=>!value)}><PanelLeft size={18} aria-hidden="true"/></Button>
+          <Button className="icon-action sidebar-toggle" title="Показать или скрыть инспектор" aria-label="Показать или скрыть инспектор" aria-expanded={!rightCollapsed} hidden={tokensMode} onClick={()=>setRightCollapsed(value=>!value)}><PanelRight size={18} aria-hidden="true"/></Button>
+          <button id="undo" type="button" className="icon-action" title="Отменить действие" aria-label="Отменить действие">
+            <Undo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
+          </button>
+          <button id="redo" type="button" className="icon-action" title="Повторить действие" aria-label="Повторить действие">
+            <Redo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
+          </button>
+          <button id="open-preview" type="button" disabled>{"Preview"}</button>
+          <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"/>
+          <p id="connection-status" aria-live="polite"/>
+          <details className="editor-menu share-menu">
+            <summary className="menu-trigger">{"Поделиться"}</summary>
+            <div className="menu-body">
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"Совместная работа"}</h3>
+                <section id="member-management" aria-labelledby="members-title" hidden>
+                  <h2 id="members-title">{"Управление участниками"}</h2>
+                  <p>{"Укажите разрешённого пользователя по email (либо его ID)."}</p>
+                  <form id="member-form">
+                    <label htmlFor="member-id">{"ID участника"}</label>
+                    <input id="member-id" list="member-options" required maxLength={256} autoComplete="off"/>
+                    <datalist id="member-options"/>
+                    <label htmlFor="member-role">{"Роль участника"}</label>
+                    <select id="member-role">
+                      <option value="Owner">{"Owner"}</option>
+                      <option value="Editor">{"Editor"}</option>
+                      <option value="Viewer">{"Viewer"}</option>
+                    </select>
+                    <button type="submit">{"Назначить роль"}</button>
+                    <button id="member-remove" type="button">{"Удалить участника"}</button>
+                  </form>
+                  <p id="member-status" role="status" aria-live="polite"/>
+                  <p id="member-error" role="alert"/>
+                </section>
+                <section aria-labelledby="presence-title">
+                  <p className="visually-hidden">{"Настройки присутствия"}</p>
+                  <h2 id="presence-title">{"Участники в документе"}</h2>
+                  <label htmlFor="presence-name">{"Ваше имя для участников"}</label>
+                  <input id="presence-name" maxLength={128} defaultValue="Участник" autoComplete="off"/>
+                  <label htmlFor="presence-color">{"Ваш цвет"}</label>
+                  <input id="presence-color" type="color" defaultValue="#2455a4"/>
+                  <p id="presence-status" role="status" aria-live="polite"/>
+                </section>
+              </section>
+            </div>
+          </details>
+          <details className="editor-menu mcp-menu" id="mcp-access-menu">
+            <summary className="menu-trigger">{"MCP-доступ"}</summary>
+            <div className="menu-body" id="mcp-access-body"/>
+          </details>
+          <details className="editor-menu document-menu">
+            <summary className="menu-trigger">{"Файл"}</summary>
+            <div className="menu-body">
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"Документ"}</h3>
+                <form id="document-rename" hidden>
+                  <label htmlFor="rename-document-name">{"Имя документа"}</label>
+                  <input id="rename-document-name" required maxLength={256} autoComplete="off"/>
+                  <button type="submit">{"Переименовать документ"}</button>
+                  <p id="document-rename-status" role="status" aria-live="polite"/>
+                  <p id="document-rename-error" role="alert"/>
+                </form>
+                <button id="delete-document" type="button" hidden>{"Удалить документ"}</button>
+              </section>
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"Экспорт"}</h3>
+                <section aria-labelledby="export-title">
+                  <h2 id="export-title">{"Экспорт документа"}</h2>
+                  <p id="export-access"/>
+                  <button id="export-json" type="button">{"Скачать document.json"}</button>
+                  <button id="export-container" type="button">{"Скачать container.figvam"}</button>
+                  <p id="export-status" role="status" aria-live="polite"/>
+                  <p id="export-error" role="alert"/>
+                </section>
+              </section>
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"Версии"}</h3>
+                <form id="version-save" hidden>
+                  <label htmlFor="version-name">{"Имя версии (необязательно)"}</label>
+                  <input id="version-name" maxLength={256} autoComplete="off"/>
+                  <button type="submit">{"Создать версию"}</button>
+                  <p id="version-result" role="status" aria-live="polite"/>
+                  <p id="version-error" role="alert"/>
+                </form>
+                <section aria-labelledby="versions-title">
+                  <h2 id="versions-title">{"Сохранённые версии"}</h2>
+                  <p>{"Текущий общий черновик показан в редакторе; сохранённые версии остаются неизменными."}</p>
+                  <button id="versions-refresh" type="button">{"Обновить историю"}</button>
+                  <p id="versions-status" role="status" aria-live="polite"/>
+                  <p id="versions-error" role="alert"/>
+                  <ul id="versions-list" aria-label="История сохранённых версий"/>
+                  <nav className="pagination" aria-label="Навигация по истории версий">
+                    <button id="versions-previous" type="button">{"Предыдущие версии"}</button>
+                    <span id="versions-number"/>
+                    <button id="versions-next" type="button">{"Следующие версии"}</button>
+                  </nav>
+                  <p id="restore-status" role="status" aria-live="polite"/>
+                  <p id="restore-error" role="alert"/>
+                  <button id="restore-retry" type="button" hidden>{"Повторить восстановление"}</button>
+                </section>
+              </section>
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"История команд"}</h3>
+                <span id="history-access"/>
+                <p id="history-action-status" role="status" aria-live="polite"/>
+                <p id="history-action-error" role="alert"/>
+                <button id="history-action-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+              </section>
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"Аккаунт"}</h3>
+                <Button id="editor-signout-menu" type="button" className="mobile-signout" onClick={shell.signOut}>
+                  {signoutLabel}
+                </Button>
+              </section>
+            </div>
+          </details>
+          <Button id="editor-signout" type="button" className="subtle-action" onClick={shell.signOut}>
+            {signoutLabel}
+          </Button>
+        </div>
+      </header>
+      <div className="document-mode-switch" role="group" aria-label="Режим документа">
+        <Button id="document-mode-editor" type="button" className="editor-tab" aria-pressed={!tokensMode} onClick={()=>selectMode(false)}>{"Редактор"}</Button>
+        <Button id="document-mode-tokens" type="button" className="editor-tab" aria-pressed={tokensMode} onClick={()=>selectMode(true)}>{"Токены"}</Button>
+      </div>
+      <div className={'workspace'+(leftCollapsed?' left-collapsed':'')+(rightCollapsed?' right-collapsed':'')} hidden={tokensMode}>
+        <aside className="layers-sidebar" aria-labelledby="tree-title">
+          <h2 id="tree-title" className="visually-hidden">{"Страницы и слои"}</h2>
+          <TabBar entries={leftTabs} label="Разделы документа" selected={leftTab} select={selectLeft}/>
+          <div className="panel-stage">
+            <div className="layers-page panel-page" ref={layersPage} id="shell-layers" role="tabpanel" aria-labelledby="tab-layers" hidden={leftTab!=="layers"}>
+              <div className="layers-master" style={{flexBasis: split+'%'}}>
+                <section className="editor-group">
+                  <h3 className="editor-group-title">{"Страницы и экраны"}</h3>
+                  <div className="navigator-toolbar" ref={navigatorToolbar}>
+                    <div id="page-edit" hidden>
+                      <button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</button>
+                    </div>
+                    <details className="editor-menu inline-menu screen-options" ref={screenMenu} onToggle={onScreenMenuToggle}>
+                      <summary className="menu-trigger">{"+ Экран"}</summary>
+                      <div className="screen-options-body" popover="manual" ref={screenMenuBody}>
+                        <select id="screen-preset" ref={preset} aria-label="Типовой размер экрана" onChange={applyPreset} defaultValue="1440x900">
+                          <option value="1440x900">{"Desktop · 1440 × 900"}</option>
+                          <option value="390x844">{"Mobile · 390 × 844"}</option>
+                          <option value="768x1024">{"Tablet · 768 × 1024"}</option>
+                          <option value="custom">{"Другой размер"}</option>
+                        </select>
+                        <form id="screen-create" hidden onReset={()=>{if(preset.current)preset.current.value='1440x900';}}>
+                          <label htmlFor="screen-width">{"Ширина экрана"}</label>
+                          <input id="screen-width" type="number" min="0" step="any" required defaultValue="1440" ref={screenWidth} onInput={syncPreset}/>
+                          <label htmlFor="screen-height">{"Высота экрана"}</label>
+                          <input id="screen-height" type="number" min="0" step="any" required defaultValue="900" ref={screenHeight} onInput={syncPreset}/>
+                          <button type="submit">{"Создать экран"}</button>
+                        </form>
+                      </div>
+                    </details>
+                    <button id="page-refresh" type="button" title="Обновить страницы">{"Обновить страницы"}</button>
+                  </div>
+                  <ul id="pages" aria-label="Страницы и экраны"/>
+                  <p id="page-access"/>
+                  <ul id="screens" aria-label="Экраны выбранной страницы"/>
+                </section>
+              </div>
+              <div className="layers-splitter" role="separator" tabIndex={0} aria-label="Изменить высоту навигации и дерева слоёв" aria-orientation="horizontal" aria-valuemin={22} aria-valuemax={72} aria-valuenow={split}
+          onPointerDown={event=>{if(event.button!==0)return;dragging.current=true;event.currentTarget.setPointerCapture(event.pointerId);resizeAt(event.clientY);event.preventDefault();}}
+          onPointerMove={event=>{if(dragging.current)resizeAt(event.clientY);}} onPointerUp={()=>{dragging.current=false;}} onPointerCancel={()=>{dragging.current=false;}} onLostPointerCapture={()=>{dragging.current=false;}}
+          onKeyDown={event=>{if(event.key!=='ArrowUp'&&event.key!=='ArrowDown')return;event.preventDefault();setSplit(value=>clampSplit(value+(event.key==='ArrowDown'?5:-5)));}}/>
+              <div className="layers-detail">
+                <section aria-labelledby="layers-title" className="layer-tree-group">
+                  <h2 id="layers-title">{"Слои выбранного экрана"}</h2>
+                  <p id="layers-status" role="status" aria-live="polite">{"Выберите экран."}</p>
+                  <div id="layers" role="tree" aria-label="Слои экрана"/>
+                  <p id="node-order-status" role="status" tabIndex={-1}/>
+                  <button id="node-order-retry" type="button" hidden>{"Повторить перемещение слоя"}</button>
+                </section>
+              </div>
+            </div>
+            <div className="components-page panel-page" id="shell-components" role="tabpanel" aria-labelledby="tab-components" hidden={leftTab!=="components"}>
+              <section aria-labelledby="components-title">
+                <h2 id="components-title">{"Каталог компонентов"}</h2>
+                <form id="components-search">
+                  <label htmlFor="components-query">{"Поиск компонентов"}</label>
+                  <input id="components-query" maxLength={256}/>
+                  <button type="submit">{"Найти компоненты"}</button>
+                </form>
+                <p id="components-status" role="status" aria-live="polite"/>
+                <p id="components-error" role="alert"/>
+                <button id="components-retry" type="button" hidden>{"Повторить загрузку каталога"}</button>
+                <ul id="components-list" aria-label="Компоненты документа"/>
+                <nav className="pagination" aria-label="Навигация по компонентам">
+                  <button id="components-previous" type="button">{"Предыдущие компоненты"}</button>
+                  <span id="components-number"/>
+                  <button id="components-next" type="button">{"Следующие компоненты"}</button>
+                </nav>
+                <div id="component-detail" hidden>
+                  <h3 id="component-title"/>
+                  <p id="component-description"/>
+                  <h4>{"Параметры"}</h4>
+                  <ul id="component-parameters"/>
+                  <h4>{"Слоты"}</h4>
+                  <ul id="component-slots"/>
+                  <h4>{"Варианты"}</h4>
+                  <ul id="component-variants"/>
+                  <h4>{"Использования"}</h4>
+                  <p id="component-usages-status" role="status" aria-live="polite"/>
+                  <p id="component-usages-error" role="alert"/>
+                  <button id="component-usages-retry" type="button" hidden>{"Повторить загрузку компонента"}</button>
+                  <ul id="component-usages" aria-label="Использования компонента"/>
+                  <nav className="pagination" aria-label="Навигация по использованиям">
+                    <button id="usages-previous" type="button">{"Предыдущие использования"}</button>
+                    <span id="usages-number"/>
+                    <button id="usages-next" type="button">{"Следующие использования"}</button>
+                  </nav>
+                </div>
+              </section>
+            </div>
+            <div className="assets-page panel-page" id="shell-assets" role="tabpanel" aria-labelledby="tab-assets" hidden={leftTab!=="assets"}>
+              <section className="editor-group">
+                <h3 className="editor-group-title">{"Изображения"}</h3>
+                <form id="asset-upload-form">
+                  <label>
+                    {"Изображение PNG "}
+                    <input id="asset-upload-file" type="file" accept="image/png" required/>
+                  </label>
+                  <button id="asset-upload" type="submit">{"Загрузить изображение"}</button>
+                </form>
+                <p>{"PNG до 5 МиБ; сервер проверяет формат и размеры изображения."}</p>
+                <p id="asset-upload-status" role="status"/>
+                <p id="asset-upload-error" role="alert"/>
+                <button id="asset-upload-retry" type="button" hidden>{"Повторить загрузку изображения"}</button>
+              </section>
+              <section aria-labelledby="datasets-title">
+                <h2 id="datasets-title">{"Локальные датасеты"}</h2>
+                <p id="datasets-status" role="status" aria-live="polite"/>
+                <p id="datasets-error" role="alert"/>
+                <button id="datasets-retry" type="button" hidden>{"Повторить загрузку датасетов"}</button>
+                <ul id="datasets-list" aria-label="Датасеты документа"/>
+                <nav className="pagination" aria-label="Навигация по датасетам">
+                  <button id="datasets-previous" type="button">{"Предыдущие датасеты"}</button>
+                  <span id="datasets-number"/>
+                  <button id="datasets-next" type="button">{"Следующие датасеты"}</button>
+                </nav>
+                <div id="dataset-detail" hidden>
+                  <h3 id="dataset-title"/>
+                  <p>{"Сохранённая JSON-фикстура:"}</p>
+                  <pre id="dataset-fixture" tabIndex={0}/>
+                </div>
+                <div id="dataset-edit" hidden>
+                  <form id="dataset-create">
+                    <h3>{"Новый датасет"}</h3>
+                    <label htmlFor="dataset-name">{"Имя датасета"}</label>
+                    <input id="dataset-name" required maxLength={256}/>
+                    <label htmlFor="dataset-create-format">{"Формат нового снимка"}</label>
+                    <select id="dataset-create-format">
+                      <option value="json">{"JSON"}</option>
+                      <option value="csv">{"CSV"}</option>
+                    </select>
+                    <label htmlFor="dataset-create-content">{"Содержимое нового снимка"}</label>
+                    <textarea id="dataset-create-content" required/>
+                    <button type="submit">{"Создать датасет"}</button>
+                  </form>
+                  <form id="dataset-replace" hidden>
+                    <h3>{"Заменить фикстуру"}</h3>
+                    <label htmlFor="dataset-replace-format">{"Формат замены"}</label>
+                    <select id="dataset-replace-format">
+                      <option value="json">{"JSON"}</option>
+                      <option value="csv">{"CSV"}</option>
+                    </select>
+                    <label htmlFor="dataset-replace-content">{"Содержимое замены"}</label>
+                    <textarea id="dataset-replace-content" required/>
+                    <button type="submit">{"Заменить фикстуру"}</button>
+                  </form>
+                  <button id="dataset-delete" type="button" hidden>{"Удалить датасет"}</button>
+                </div>
+                <button id="dataset-command-retry" type="button" hidden>{"Повторить операцию с датасетом"}</button>
+              </section>
+              <section className="editor-group">
+                <div id="styles-panel">
+                  <h3>{"Стили оформления"}</h3>
+                  <p id="styles-total" role="status"/>
+                  <p id="styles-error" role="alert"/>
+                  <p id="styles-status" role="status" aria-live="polite"/>
+                  <label htmlFor="styles-list">{"TextStyle и BorderStyle"}</label>
+                  <select id="styles-list" aria-label="Выбрать стиль или создать новый"/>
+                  <form id="styles-form" hidden>
+                    <label htmlFor="styles-name">{"Имя стиля"}</label>
+                    <input id="styles-name" maxLength={256} required/>
+                    <label htmlFor="styles-type">{"Тип"}</label>
+                    <select id="styles-type">
+                      <option value="TextStyle">{"TextStyle"}</option>
+                      <option value="BorderStyle">{"BorderStyle"}</option>
+                    </select>
+                    <label htmlFor="styles-based-on">{"Основан на (BasedOn)"}</label>
+                    <select id="styles-based-on"/>
+                    <div id="styles-fields"/>
+                    <button id="styles-save" type="submit">{"Сохранить стиль"}</button>
+                  </form>
+                  <button id="styles-delete" type="button" hidden>{"Удалить неиспользуемый стиль"}</button>
+                  <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"/>
+                  <h4>{"Использования стиля"}</h4>
+                  <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"/>
+                </div>
+              </section>
+              <section aria-labelledby="screen-variants-title">
+                <h2 id="screen-variants-title">{"Варианты выбранного экрана"}</h2>
+                <p id="screen-variants-status" role="status" aria-live="polite">{"Выберите экран."}</p>
+                <p id="screen-variants-error" role="alert"/>
+                <button id="screen-variants-retry" type="button" hidden>{"Повторить загрузку вариантов"}</button>
+                <ul id="screen-variants-list" aria-label="Варианты экрана"/>
+                <nav className="pagination" aria-label="Навигация по вариантам экрана">
+                  <button id="screen-variants-previous" type="button">{"Предыдущие варианты"}</button>
+                  <span id="screen-variants-number"/>
+                  <button id="screen-variants-next" type="button">{"Следующие варианты"}</button>
+                </nav>
+                <form id="screen-variant-create" hidden>
+                  <label htmlFor="screen-variant-name">{"Имя нового варианта"}</label>
+                  <input id="screen-variant-name" maxLength={256} required/>
+                  <button type="submit">{"Создать пустой вариант"}</button>
+                </form>
+                <button id="screen-variant-command-retry" type="button" hidden>{"Повторить создание варианта"}</button>
+              </section>
+            </div>
+          </div>
+        </aside>
+        <section className="canvas design-canvas" aria-labelledby="canvas-title">
+          <div className="drawing-toolbar">
+            <DrawingTools available={availableTools} onSelect={()=>document.getElementById('viewport')?.focus()} onAdd={addFromToolbar}/>
+            <details className="editor-menu palette-options" ref={paletteMenu}>
+              <summary className="menu-trigger">{"Параметры добавления"}</summary>
+              <section id="visual-palette" aria-labelledby="visual-palette-title" hidden>
+                <h2 id="visual-palette-title">{"Добавить элемент"}</h2>
+                <form id="visual-palette-form" noValidate hidden>
+                  <label>
+                    {"Вид элемента "}
+                    <select id="visual-kind"/>
+                  </label>
+                  <label>
+                    {"Куда добавить "}
+                    <select id="visual-parent"/>
+                  </label>
+                  <div id="visual-required-properties"/>
+                  <details id="visual-optional-details" hidden>
+                    <summary>{"Токены и оформление"}</summary>
+                    <div id="visual-optional-properties"/>
+                  </details>
+                  <button id="visual-add" type="submit">{"Добавить элемент"}</button>
+                </form>
+                <p id="visual-palette-status" role="status"/>
+                <p id="visual-palette-error" role="alert"/>
+                <button id="visual-palette-retry" type="button" hidden>{"Повторить загрузку палитры"}</button>
+                <button id="visual-add-retry" type="button" hidden>{"Повторить добавление"}</button>
+              </section>
+            </details>
+          </div>
+          <h2 id="canvas-title" className="visually-hidden">{"Холст"}</h2>
+          <p id="canvas-selection" className="canvas-caption">{"Выберите экран, чтобы показать его на холсте."}</p>
+          <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
+          <p id="design-render-status" role="status"/>
+          <button id="design-render-retry" type="button" hidden>{"Повторить загрузку экрана"}</button>
+          <ul id="design-render-diagnostics" aria-label="Диагностика отображения"/>
+          <div className="canvas-blank" id="canvas-empty">
+            <h2>{"Нет выбранного экрана"}</h2>
+            <p>{"Выберите экран слева или создайте новый, чтобы начать работу."}</p>
+            <Button type="button" className="primary-action" aria-label="Открыть создание экрана" onClick={openCreateScreen}>{"Создать экран"}</Button>
+          </div>
+          <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">
+            <div id="screen-boundary" hidden/>
+            <div id="presence-markers" aria-hidden="true"/>
+          </div>
+          <p id="canvas-edit-hint" role="status"/>
+          <p id="canvas-edit-status" role="status"/>
+          <p id="canvas-edit-error" role="alert"/>
+          <button id="canvas-edit-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+          <div className="viewport-controls" role="group" aria-label="Управление холстом">
+            <button id="zoom-out" type="button" title="Уменьшить">{"Уменьшить"}</button>
+            <output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{"100%"}</output>
+            <button id="zoom-in" type="button" title="Увеличить">{"Увеличить"}</button>
+            <button id="fit-screen" type="button" title="Вместить экран в холст">{"Вместить экран"}</button>
+            <button id="actual-size" type="button">{"100%"}</button>
+          </div>
+        </section>
+        <aside className="properties-sidebar" aria-labelledby="inspector-title">
+          <TabBar entries={rightTabs} label="Разделы инспектора" selected={rightTab} select={selectRight}/>
+          <div className="panel-stage">
+            <div className="inspector-page panel-page" id="shell-design" role="tabpanel" aria-labelledby="tab-design" hidden={rightTab!=="design"}>
+              <h2 id="inspector-title">{"Инспектор"}</h2>
+              <p id="inspector-selection">{"Выберите слой."}</p>
+              <button id="node-delete" type="button" hidden>{"Удалить слой"}</button>
+              <p id="node-delete-status" role="alert"/>
+              <button id="node-delete-retry" type="button" hidden>{"Повторить удаление слоя"}</button>
+              <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
+                <h3 id="visual-inspector-title">{"Свойства элемента"}</h3>
+                <form id="visual-properties-form" noValidate hidden>
+                  <div id="visual-properties"/>
+                  <button id="visual-properties-reset" type="button" hidden>{"Сбросить изменения свойств"}</button>
+                </form>
+                <p id="visual-inspector-status" role="status"/>
+                <p id="visual-inspector-error" role="alert"/>
+                <button id="visual-save-retry" type="button" hidden>{"Повторить сохранение свойств"}</button>
+                <button id="visual-data-retry" type="button" hidden>{"Повторить загрузку свойств"}</button>
+              </section>
+              <div id="node-metadata" hidden>
+                <p id="node-metadata-status" role="status"/>
+                <p id="node-metadata-error" role="alert"/>
+                <form id="node-name-form">
+                  <label>
+                    {"Имя слоя "}
+                    <input id="node-name" maxLength={256}/>
+                  </label>
+                </form>
+                <form id="node-key-form">
+                  <label>
+                    {"Semantic key "}
+                    <input id="node-key" maxLength={256} aria-describedby="node-key-help"/>
+                  </label>
+                  <p id="node-key-help">{"Пустое значение удаляет semantic key."}</p>
+                </form>
+                <button id="node-metadata-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+              </div>
+              <section aria-labelledby="screen-size-title">
+                <h2 id="screen-size-title">{"Размер экрана"}</h2>
+                <p id="screen-size-saved">{"Выберите экран."}</p>
+                <form id="screen-resize" hidden noValidate>
+                  <label htmlFor="resize-width">{"Ширина выбранного экрана"}</label>
+                  <input id="resize-width" type="number" min="0" step="any" required/>
+                  <label htmlFor="resize-height">{"Высота выбранного экрана"}</label>
+                  <input id="resize-height" type="number" min="0" step="any" required/>
+                  <button id="resize-retry" type="button" hidden>{"Повторить команду"}</button>
+                </form>
+                <p id="screen-size-status" role="status" aria-live="polite"/>
+                <p id="screen-size-error" role="alert"/>
+              </section>
+            </div>
+            <div className="prototype-page panel-page" id="shell-prototype" role="tabpanel" aria-labelledby="tab-prototype" hidden={rightTab!=="prototype"}>
+              <section aria-labelledby="scenarios-title">
+                <div className="scenarios-heading">
+                  <h2 id="scenarios-title">{"Взаимодействия"}</h2>
+                  <span id="scenarios-count" role="status" hidden/>
+                </div>
+                <p id="scenarios-context"/>
+                <p id="scenarios-status" role="status" aria-live="polite">{"Выберите экран."}</p>
+                <p id="scenarios-error" role="alert"/>
+                <button id="scenarios-retry" type="button" hidden>{"Повторить загрузку сценариев"}</button>
+                <button id="scenario-create" type="button" hidden>{"Добавить взаимодействие"}</button>
+                <p id="scenario-command-status" role="status" aria-live="polite"/>
+                <p id="scenario-command-error" role="alert"/>
+                <button id="scenario-command-retry" type="button" hidden>{"Повторить команду"}</button>
+                <ul id="scenarios-list" aria-label="Взаимодействия"/>
+                <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
+                  <h3 id="scenario-edit-title" tabIndex={-1}>{"Настройка взаимодействия"}</h3>
+                  <p id="scenario-edit-source"/>
+                  <p id="scenario-edit-conflict" role="alert"/>
+                  <button id="scenario-edit-reload" type="button" hidden>{"Загрузить актуальное взаимодействие"}</button>
+                  <fieldset id="scenario-edit-fields">
+                    <legend>{"Настройка события и действий"}</legend>
+                    <label>
+                      {"Событие "}
+                      <select id="scenario-edit-event" aria-label="Событие"/>
+                    </label>
+                    <ol id="scenario-edit-actions" aria-label="Порядок действий"/>
+                    <button id="scenario-edit-add" type="button">{"Добавить действие"}</button>
+                  </fieldset>
+                  <p id="scenario-edit-validation" role="status" aria-live="polite"/>
+                  <button id="scenario-edit-recheck" type="button" hidden>{"Повторить проверку"}</button>
+                  <button id="scenario-edit-submit" type="submit">{"Сохранить взаимодействие"}</button>
+                  <button id="scenario-edit-cancel" type="button">{"Отмена"}</button>
+                </form>
+                <div id="scenarios-pagination" role="group" aria-label="Страницы взаимодействий" hidden>
+                  <button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled>{"‹"}</button>
+                  <span id="scenarios-number" aria-live="polite"/>
+                  <button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled>{"›"}</button>
+                </div>
+                <dialog id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
+                  <h3 id="scenario-leave-title">{"Несохранённое взаимодействие"}</h3>
+                  <p>{"Сохранить изменения перед сменой контекста?"}</p>
+                  <button type="button" id="scenario-leave-save">{"Сохранить"}</button>
+                  <button type="button" id="scenario-leave-discard">{"Отбросить изменения"}</button>
+                  <button type="button" id="scenario-leave-stay">{"Продолжить редактирование"}</button>
+                </dialog>
+              </section>
+            </div>
+            <div className="diagnostics-page panel-page" id="shell-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden={rightTab!=="diagnostics"}>
+              <section aria-labelledby="diagnostics-title">
+                <h2 id="diagnostics-title">{"Диагностика экрана"}</h2>
+                <p id="diagnostics-status" role="status" aria-live="polite">{"Выберите экран."}</p>
+                <p id="diagnostics-error" role="alert"/>
+                <button id="diagnostics-retry" type="button" hidden>{"Повторить загрузку диагностики"}</button>
+                <ul id="diagnostics-list" aria-label="Диагностика выбранного экрана"/>
+                <div role="group" aria-label="Страницы диагностики">
+                  <button id="diagnostics-previous" type="button" disabled>{"Предыдущие диагностики"}</button>
+                  <span id="diagnostics-number"/>
+                  <button id="diagnostics-next" type="button" disabled>{"Следующие диагностики"}</button>
+                </div>
+              </section>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <TokenWorkspace active={tokensMode}/>
+    </div>
+  );
 }
