@@ -82,9 +82,9 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 ## Инструменты
 
-Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `list_scenarios`, `get_screen_layout`.
+Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `get_token_usages`, `list_scenarios`, `get_screen_layout`.
 
-Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
+Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `rename_token`, `delete_token`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
 
 Все инструменты доступны через tools/list со схемами и описаниями. documentId не передаётся. Для постраничного чтения используйте offset, limit (1–100), revision; дерево по умолчанию ограничено глубиной 3. Ответ содержит структурированные данные; ошибки содержат status REJECTED и code. Изменения возвращают commandId, revision и идентификаторы результата. Для повторной доставки используйте тот же commandId. Перед операциями с expectedRevision прочитайте актуальную ревизию. При конфликте обновите состояние, а не перезаписывайте данные вслепую.
 
@@ -169,3 +169,11 @@ npx playwright test mcp-login-flow.spec.js
 - `get_token_schema`: новый тип Shadow без категории, значения Light/Dark включают offsetX, offsetY, blurRadius, spreadRadius, color. Создавайте через create_token, привязывайте свойство shadow объектом {"tokenId":"UUID"}, изменяйте через set_token_value.
 - `simulate_preview`: передайте screenId, theme и events, например {"screenId":"UUID","theme":"Dark","events":[{"nodeId":"UUID","event":"Change","value":"demo"},{"nodeId":"UUID","event":"Submit"}],"includeImage":true}. Возвращаются initialScreenId, activeScreenId, theme, steps с scenarioIds/executedActions, demoValues и diagnostics. Пароли не возвращаются в текстовой трассе. Каждый вызов независим; операции чтения и симуляции не изменяют документ или редактор.
 - Для автономной визуализации установите Chromium/Chrome на сервере и задайте `Mcp__ChromiumExecutable` абсолютным путём к исполняемому файлу. При отсутствии Chromium симуляция без includeImage доступна, запрос изображения возвращает RENDER_UNAVAILABLE. Снимок использует общий с render_screen рендерер в изолированном процессе; пока стек оверлеев не поддерживается для изображения и возвращает диагностику.
+
+### Управление токенами и тематический layout
+
+- `rename_token`: tokenId, name, необязательные expectedRevision и commandId. Ссылки сохраняются по ID.
+- `delete_token`: tokenId, обязательный expectedRevision, необязательный commandId. Используемый токен отклоняется с TOKEN_IN_USE; ответ содержит до 20 зависимостей из ревизии отказа и referenceCount.
+- `get_token_usages`: tokenId, необязательные revision, offset (0), limit (50, максимум 100). Возвращает прямые и косвенные зависимости обеих тем.
+- `get_screen_layout`: необязательный theme (Light по умолчанию, Dark); ответ содержит theme. Недопустимое значение — INVALID_THEME.
+- `simulate_preview`: simulationStatus отражает результат событий независимо от render.status (NotRequested, Completed, Failed, Skipped). При ошибке рендеринга общий status остаётся Rejected, а isError — true. При запуске через Aspire настройку Mcp:ChromiumExecutable можно задать в конфигурации AppHost; при прямом запуске — в конфигурации сервера. Укажите абсолютный путь к установленному Chromium.

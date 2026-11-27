@@ -141,6 +141,13 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response);
     }
 
+    [McpServerTool(Name = "get_token_usages", ReadOnly = true), Description("List direct and indirect token dependencies in both themes at a pinned revision. Use offset and limit (1-100) to paginate.")]
+    public async Task<CallToolResult> GetTokenUsages(Guid tokenId, long? revision = null, int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        var r = await tokens.UsagesAsync(Grant.DocumentId, tokenId, revision, offset, limit, Actor, ct);
+        return Result(r.Code, r.Response);
+    }
+
     [McpServerTool(Name = "list_scenarios"), Description("List interactive scenarios on a screen.")]
     public async Task<CallToolResult> ListScenarios(Guid screenId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default)
     {
