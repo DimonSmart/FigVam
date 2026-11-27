@@ -1,7 +1,8 @@
-import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
+import { prepareDocumentCommand, prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperation, type AssetUploadOperation } from '../../api/document-commands';
+import { toApiNodeProperties } from '../../api/command-value-contracts';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
-import { requiredRecord, text, aborted, errorMessage } from '../../api/decode';
+import { aborted, errorMessage } from '../../api/decode';
 import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
@@ -18,8 +19,31 @@ interface EditValue {raw:RawValue;value:NodePropertyValue}
 interface Automatic {target:Target;fields:Map<string,EditValue>;due:number;rejected:boolean}
 type Command='add-node'|'set-node-properties'|'set-screen-variant-properties'|'remove-screen-variant-override'|'remove-node-properties';
 interface Body {nodeId:string;parentId?:string;kind?:string;properties?:NodeProperties|string[];expectedParentId?:string;expectedRevision?:number|null;screenId?:string|null;variantId?:string|null;property?:string}
-interface Operation {key:string;command:Command;state:'ready'|'pending'|'uncertain';draft:Draft;documentId:string;screen:string;selectionId?:string;body:Body & {commandId:string};auto?:boolean;sent:Map<string,EditValue>;canvas?:boolean;settlePreview?:((confirmed:boolean)=>void)|null}
-interface Upload {documentId:string;token:string|null;epoch:number;assetId:string;commandId:string;file:File;draft:Palette;state?:'pending'|'uncertain'}
+interface Operation {key:string;command:Command;state:'ready'|'pending'|'uncertain'|'sync';mutation?:DocumentCommandOperation;draft:Draft;documentId:string;screen:string;selectionId?:string;body:Body & {commandId:string};auto?:boolean;sent:Map<string,EditValue>;canvas?:boolean;settlePreview?:((confirmed:boolean)=>void)|null}
+function prepareNodeOperation(op:Operation):DocumentCommandOperation {
+  const {documentId,command,body}=op;
+  const {commandId,nodeId,properties,expectedRevision,expectedParentId,screenId,variantId,property,parentId,kind}=body;
+  const base={commandId,nodeId};
+  switch(command){
+    case 'remove-node-properties':
+      if(!Array.isArray(properties)||expectedRevision==null)throw new TypeError('Invalid property removal');
+      return prepareDocumentCommand(documentId,command,{...base,properties,expectedRevision});
+    case 'remove-screen-variant-override':
+      if(!screenId||!variantId||!property)throw new TypeError('Invalid variant override');
+      return prepareDocumentCommand(documentId,command,{...base,screenId,variantId,property,expectedRevision});
+    case 'add-node':
+      if(!parentId||!kind||Array.isArray(properties))throw new TypeError('Invalid node creation');
+      return prepareDocumentCommand(documentId,command,{...base,parentId,kind,properties:toApiNodeProperties(properties??{})});
+    case 'set-node-properties':
+      if(!properties||Array.isArray(properties))throw new TypeError('Invalid properties');
+      return prepareDocumentCommand(documentId,command,{...base,properties:toApiNodeProperties(properties),expectedRevision,expectedParentId});
+    case 'set-screen-variant-properties':
+      if(!properties||Array.isArray(properties)||!screenId||!variantId||expectedRevision==null)throw new TypeError('Invalid variant properties');
+      return prepareDocumentCommand(documentId,command,{...base,screenId,variantId,expectedRevision,properties:toApiNodeProperties(properties)});
+  }
+}
+const retryable=(op:Operation|undefined)=>op?.state==='uncertain'||op?.state==='sync';
+interface Upload {documentId:string;assetId:string;mutation:AssetUploadOperation;draft:Palette;state:'ready'|'pending'|'uncertain'|'sync'}
 interface GeometryCommand {nodeId:string;expectedParentId:string;expectedRevision:number;properties:NodeProperties}
 function propertyValue(value:ResolvableValue|undefined):NodePropertyValue|undefined{
   if(!value)return undefined;
@@ -355,8 +379,8 @@ export function createVisualNodeEditor({
     const blocked = !editable || Boolean(op) || Boolean(modelKey && resolvedModelKey !== modelKey);
     const upload = uploads.get(context.documentId??'');
     const uploading = upload?.state === 'pending';
-    models.asset.publish({disabled:!editable||!!upload,fileReset,choose:file=>{assetFile=file;if(palette)palette.uploadError=palette.uploadStatus='';updateControls();},submit:submitAsset,retry:retryAsset,retryHidden:!editable||upload?.state!=='uncertain',
-      status:uploading?'Загрузка изображения…':upload?.state==='uncertain'?'Подтверждение не получено. Повторите загрузку.':palette?.uploadStatus||'',error:palette?.uploadError||''});
+    models.asset.publish({disabled:!editable||!!upload,fileReset,choose:file=>{assetFile=file;if(palette)palette.uploadError=palette.uploadStatus='';updateControls();},submit:submitAsset,retry:retryAsset,retryHidden:!editable||(upload?.state!=='uncertain'&&upload?.state!=='sync'),
+      status:uploading?'Загрузка изображения…':upload?.state==='uncertain'?'Подтверждение не получено. Повторите загрузку.':upload?.state==='sync'?'Загрузка подтверждена. Повторите обновление документа.':palette?.uploadStatus||'',error:palette?.uploadError||''});
     paletteBlocked=blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
@@ -368,7 +392,7 @@ export function createVisualNodeEditor({
       !palette?.values.has(name) || field.validate(false).value !== undefined);
     addDisabled=blocked||!validParent||!requiredReady||!optionalReady;
     const autoEntry = inspector?automatic.get(inspector):undefined;
-    models.canvasFeedback.publish({error:canvas?.error||'',status:op?.canvas?operationStatus(op,'Сохранение геометрии…'):canvas?.status||'',retryHidden:!editable||!op?.canvas||op.state!=='uncertain',retry:()=>retryOperation(false)});
+    models.canvasFeedback.publish({error:canvas?.error||'',status:op?.canvas?operationStatus(op,'Сохранение геометрии…'):canvas?.status||'',retryHidden:!editable||!op?.canvas||!retryable(op),retry:()=>retryOperation(false)});
     const defaults = model?.kinds.get(palette?.kind??'')?.properties;
     const geometry = ['width', 'height', 'x', 'y'].map(name => definitionValue(defaults?.[name]?.defaultValue));
     const geometryHint = geometry.every(Number.isFinite) ?
@@ -382,17 +406,17 @@ export function createVisualNodeEditor({
     const hidden=!scopeKey(context)||!editable,formHidden=!model?.kinds.size;
     models.palette.publish({hidden,formHidden,blocked,addDisabled,kind:palette?.kind??'',kinds,parent:currentParent(),parents,optionalHidden,optionalOpen,
       Required:models.required.Component,Optional:models.optional.Component,changeKind,changeParent,toggleOptional:open=>{optionalOpen=open;},submit:submitPalette,
-      loadRetryHidden:!loadError,loadRetry:retryLoad,retryHidden:!editable||!adding||op.state!=='uncertain',retry:()=>retryOperation(false),
+      loadRetryHidden:!loadError,loadRetry:retryLoad,retryHidden:!editable||!adding||!retryable(op),retry:()=>retryOperation(false),
       error:loadError||palette?.error||'',status:adding?operationStatus(op,'Добавление элемента…'):loading||[palette?.status,paletteStatus].filter(Boolean).join(' ')});
     models.inspectorPanel.publish({hidden:!scopeKey(context)||!context.selection,formHidden:!node||!model?.kinds.has(node.kind),blocked,resetHidden:!editable||!inspector?.values.size,
       Fields:models.inspector.Component,submit:()=>finishApply(inspector),reset:resetInspector,loadRetryHidden:!loadError,loadRetry:retryLoad,
-      retryHidden:!editable||!(editing&&op?.state==='uncertain'||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
+      retryHidden:!editable||!(editing&&retryable(op)||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
       status:editing?operationStatus(op,'Сохранение свойств…'):loading||(autoEntry?.fields.size&&!autoEntry.rejected?'Сохранение свойств…':inspector?.status||'')});
     onDrawingToolsChanged(!hidden&&!formHidden&&!blocked?kinds:[]);
   }
 
   function operationStatus(op:Operation|undefined,pending:string) {
-    return op?.state === 'uncertain' ? 'Подтверждение не получено. Повторите ту же команду.' : pending;
+    return op?.state==='sync'?'Команда подтверждена. Повторите обновление.':op?.state === 'uncertain' ? 'Подтверждение не получено. Повторите ту же команду.' : pending;
   }
 
   function readProperties(fields:ReadonlyMap<string,Field>,names:Iterable<string>):NodeProperties|null{
@@ -416,44 +440,47 @@ export function createVisualNodeEditor({
     if (!paletteDrafts.has(scope))
       paletteDrafts.set(scope, paletteDraft());
     const currentDraft=paletteDrafts.get(scope);if(!currentDraft)return;
-    const op:Upload={documentId:current.documentId,token:current.token,epoch:current.navigationEpoch,assetId:crypto.randomUUID(),commandId:crypto.randomUUID(),file,draft:currentDraft};
+    const assetId=crypto.randomUUID();
+    const op:Upload={documentId:current.documentId,assetId,mutation:prepareAssetUpload(current.documentId,assetId,file),draft:currentDraft,state:'ready'};
     uploads.set(op.documentId, op);
     sendUpload(op);
   }
   function retryAsset(){
     const op = uploads.get(getContext().documentId??'');
-    if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) sendUpload(op);
+    if ((op?.state === 'uncertain'||op?.state==='sync') && canEdit(getContext().documentRole)) sendUpload(op);
   }
 
   async function sendUpload(op:Upload) {
-    const view = getContext();
-    op.token = view.token; op.epoch = view.navigationEpoch;
-    const current = () => uploads.get(op.documentId) === op && getContext().documentId === op.documentId &&
-      getContext().token === op.token && getContext().navigationEpoch === op.epoch;
-    op.state = 'pending'; op.draft.uploadError = op.draft.uploadStatus = '';
-    updateControls();
-    stopLive();
+    if(op.state==='pending'||uploads.get(op.documentId)!==op)return;
+    const view=getContext();
+    const visible=()=>getContext().documentId===op.documentId&&getContext().token===view.token&&getContext().navigationEpoch===view.navigationEpoch;
+    const current=()=>uploads.get(op.documentId)===op&&visible()&&canEdit(getContext().documentRole);
+    op.state='pending';op.draft.uploadError=op.draft.uploadStatus='';
+    updateControls();stopLive();
     try {
-      const result=requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(op.documentId)}/assets/${op.assetId}?commandId=${op.commandId}`,{method:'PUT',headers:{'Content-Type':'image/png'},body:op.file},undefined,current));
-      if (!current() || result.status !== 'ACCEPTED' || result.commandId !== op.commandId ||
-        text(result.documentId).toLowerCase() !== op.documentId.toLowerCase() || typeof result.revision!=='number'||!Number.isSafeInteger(result.revision) ||
-        !await refreshDocument(result.revision, current, [], undefined, true)) {
-        op.state = 'uncertain';
-        return;
-      }
-      uploads.delete(op.documentId);
-      resetAssetFile();
-      op.draft.uploadStatus = 'Изображение загружено. Выберите его в поле «Ассет».';
-    } catch (error) {
-      if (!(error instanceof ApiError) || classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
-      else {
+      const result=await op.mutation.execute({request,isCurrent:current,
+        validate:ack=>{if(!ack.affectedIds.includes(op.assetId))throw new TypeError('Некорректное подтверждение загрузки');},
+        synchronize:ack=>refreshDocument(ack.revision,current,[],undefined,true)});
+      if(uploads.get(op.documentId)!==op)return;
+      if(result.kind==='confirmed'&&result.synchronization==='synced'){
         uploads.delete(op.documentId);
-        if (error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
-        op.draft.uploadError = error.code === 'ASSET_LIMIT_EXCEEDED' ? 'Достигнут лимит ассетов документа.' :
-          error.status === 413 ? 'Файл превышает 5 МиБ.' :
-          error.status === 400 || error.status === 415 ? 'Сервер отклонил изображение. Выберите допустимый PNG.' : error.message;
+        if(visible())resetAssetFile();
+        op.draft.uploadStatus='Изображение загружено. Выберите его в поле «Ассет».';
+      }else if(result.kind==='confirmed')op.state='sync';
+      else if(result.kind==='uncertain')op.state='uncertain';
+      else if(result.kind==='rejected'||result.kind==='conflict'){
+        uploads.delete(op.documentId);
+        const error=result.error;
+        if(error instanceof ApiError){
+          if(error.code==='DOCUMENT_NOT_FOUND'){if(visible())closeInaccessibleDocument(error.status);return;}
+          op.draft.uploadError=error.code==='ASSET_LIMIT_EXCEEDED'?'Достигнут лимит ассетов документа.':
+            error.status===413?'Файл превышает 5 МиБ.':
+            error.status===400||error.status===415?'Сервер отклонил изображение. Выберите допустимый PNG.':error.message;
+        }else op.draft.uploadError=errorMessage(error);
       }
-    } finally { startLive(); refresh(); }
+    }finally{
+      if(visible()){startLive();refresh();}
+    }
   }
 
   function changeKind(kind:string) {
@@ -503,7 +530,7 @@ export function createVisualNodeEditor({
   function retryLoad(){load(modelKey);updateControls();}
   function retryOperation(inspectorRetry:boolean){
     const op=operations.get(scopeKey(getContext())??'');
-    if(op?.state==='uncertain'&&canEdit(getContext().documentRole))send(op);
+    if(op&&retryable(op)&&canEdit(getContext().documentRole))send(op);
     else if(inspectorRetry&&inspector){const entry=automatic.get(inspector);if(entry?.rejected){entry.rejected=false;finishApply(inspector);}}
   }
 
@@ -527,28 +554,33 @@ export function createVisualNodeEditor({
       return operations.get(op.key) === op && view.token === token &&
         (op.auto || scopeKey(view) === op.key && view.navigationEpoch === navigationEpoch);
     };
+    if(op.state==='pending')return;
     op.state = 'pending';
     op.draft.error = op.draft.status = '';
     updateControls();
     if (getContext().documentId === op.documentId) stopLive();
     let confirmed = false;
     try {
-      const result=requiredRecord(await postDocumentCommand(request,op.documentId,op.command,op.body,undefined,current));
-      if (!current() || result.status !== 'ACCEPTED' || text(result.documentId).toLowerCase() !== op.documentId.toLowerCase() ||
-        result.commandId !== op.body.commandId || result.nodeId !== op.body.nodeId || typeof result.revision!=='number'||!Number.isSafeInteger(result.revision)) {
-        op.state = 'uncertain';
-        return;
+      if(!op.mutation){
+        try{op.mutation=prepareNodeOperation(op);}
+        catch(error){operations.delete(op.key);op.draft.error=errorMessage(error);const entry=automatic.get(op.draft);if(entry)entry.rejected=true;return;}
       }
-      const reveal=adding&&op.body.parentId&&op.body.parentId!==op.screen?[op.body.parentId]:[];
-      const selection = adding ? { nodeId: op.body.nodeId, previousId: op.selectionId } : undefined;
-      const view = getContext();
-      const activeDocument = view.documentId === op.documentId && canEdit(view.documentRole);
-      const activeSync = () => current() && getContext().documentId === op.documentId && getContext().navigationEpoch === view.navigationEpoch;
-      const synced = !op.auto || activeDocument ? await refreshDocument(result.revision, op.auto ? activeSync : current, reveal, selection) : true;
-      if (!synced && !op.auto) {
-        op.state = 'uncertain';
-        return;
-      }
+      const outcome=await op.mutation.execute({request,isCurrent:current,
+        validate:ack=>{if(ack.nodeId!==op.body.nodeId)throw new TypeError('Некорректное подтверждение элемента');},
+        synchronize:async ack=>{
+          const reveal=adding&&op.body.parentId&&op.body.parentId!==op.screen?[op.body.parentId]:[];
+          const selection=adding?{nodeId:op.body.nodeId,previousId:op.selectionId}:undefined;
+          const view=getContext();
+          const activeDocument=view.documentId===op.documentId&&canEdit(view.documentRole);
+          const activeSync=()=>current()&&getContext().documentId===op.documentId&&getContext().navigationEpoch===view.navigationEpoch;
+          return !op.auto||activeDocument?refreshDocument(ack.revision,op.auto?activeSync:current,reveal,selection):true;
+        }});
+      if(operations.get(op.key)!==op)return;
+      if(outcome.kind==='rejected'||outcome.kind==='conflict')throw outcome.error;
+      if(outcome.kind!=='confirmed'){op.state='uncertain';return;}
+      confirmed=true;
+      if(outcome.synchronization!=='synced'){op.state='sync';return;}
+      const result=outcome.confirmation;
       operations.delete(op.key);
       confirmed = true;
       if (op.command === 'remove-node-properties' || op.command === 'remove-screen-variant-override') {
@@ -577,7 +609,7 @@ export function createVisualNodeEditor({
       else {
         operations.delete(op.key);
         if (error.code === 'DOCUMENT_NOT_FOUND') {
-          closeInaccessibleDocument(error.status);
+          if(getContext().documentId===op.documentId && getContext().token===token && getContext().navigationEpoch===navigationEpoch)closeInaccessibleDocument(error.status);
           return;
         }
         const property = error.property ? `${propertyLabel(error.property)} · ` : '';
@@ -589,7 +621,7 @@ export function createVisualNodeEditor({
     } finally {
       op.settlePreview?.(confirmed);
       op.settlePreview = null;
-      startLive();
+      if(getContext().token===token && getContext().documentId===op.documentId)startLive();
       refresh();
       planApply();
     }
@@ -611,6 +643,11 @@ export function createVisualNodeEditor({
   return {
     refresh, editGeometry, addFromToolbar,
     get editPending() { return operations.has(scopeKey(getContext())??''); },
+    clearDocument(id:string) {
+      for(const [state,entry] of automatic)if(entry.target.documentId===id)automatic.delete(state);
+      for(const map of [operations,paletteDrafts,inspectorDrafts,canvasDrafts])for(const key of map.keys())if(key.startsWith(id+':'))map.delete(key);
+      uploads.delete(id);planApply();
+    },
     clear() { clearTimeout(applyTimer); automatic.clear(); operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
   };
 }

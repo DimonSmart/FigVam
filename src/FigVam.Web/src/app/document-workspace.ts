@@ -34,8 +34,11 @@ export function createDocumentRevisionState() {
   return {
     get revision() { return revision; },
     get catalogRevision() { return catalogRevision; },
-    confirmStructure(next: number) { revision = catalogRevision = next; },
-    confirmNodeEdit(next: number) { revision = next; },
+    confirmStructure(next: number) {
+      if (revision !== null && next < revision) return;
+      revision = catalogRevision = next;
+    },
+    confirmNodeEdit(next: number) { if (revision === null || next >= revision) revision = next; },
     reset() { revision = catalogRevision = null; },
   };
 }

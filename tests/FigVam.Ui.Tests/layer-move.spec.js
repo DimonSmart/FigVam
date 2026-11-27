@@ -21,7 +21,7 @@ async function setup(page, request) {
   await page.goto(`/documents/${documentId}`);
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await expect(page.locator('[role=treeitem]')).toHaveCount(3);
   return { base, screenId, frameId, firstId, secondId, command };
 }

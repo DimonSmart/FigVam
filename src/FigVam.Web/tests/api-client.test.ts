@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSessionLifecycle } from '../src/core/session';
 import { ApiError, createApiClient } from '../src/api/api-client';
 import { configureAuth, setCsrf } from '../src/api/auth-client';
 
@@ -82,5 +83,19 @@ describe('API transport', () => {
     const error: unknown = await client('/api/v1/documents').catch((value: unknown) => value);
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 409, code: 'REVISION_CONFLICT', detail: 'stale', property: 'width', diagnostics: [] });
+  });
+  it('cancels background requests and ignores a late 401 after signing in with the same credentials', async () => {
+    const session = createSessionLifecycle();
+    session.setToken('same');
+    const fetch = vi.fn(async () => {
+      session.setToken('same');
+      return new Response(null, { status: 401 });
+    });
+    vi.stubGlobal('fetch', fetch);
+    const unauthorized = vi.fn();
+    const client = createApiClient({ getToken: () => session.token, getSessionEpoch: () => session.sessionEpoch,
+      getSessionSignal: () => session.signal, onUnauthorized: unauthorized });
+    await expect(client('/api/v1/documents')).rejects.toMatchObject({ name: 'AbortError' });
+    expect(unauthorized).not.toHaveBeenCalled();
   });
 });

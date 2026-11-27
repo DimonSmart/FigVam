@@ -18,6 +18,7 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   async function post(url,data) {
     const response = await request.post(url,{headers,data});
     expect(response.ok(),await response.text()).toBeTruthy();
+    return response.json();
   }
   const command = (name,data) => post(base+'/commands/'+name,{commandId:randomUUID(),...data});
   await post('/api/v1/documents',{documentId,name:'Frontend benchmark'});
@@ -26,6 +27,13 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await command('add-node',{nodeId:target,parentId:screen,kind:'Button',properties:{...geometry(40,40,160,48),text:{type:'string',value:'Edit me'}}});
   for(let i=0;i<size;i++) await command('add-node',{nodeId:id(10+i),parentId:screen,kind:'Text',
     properties:{...geometry(20+(i%10)*76,130+Math.floor(i/10)*38,70,28),text:{type:'string',value:'Item '+i}}});
+
+  // Seed real resources and interactions, without changing the performance scene.
+  const typographyId=id(200),styleId=id(201);
+  const typography={expression:'literal',value:{type:'typography',fontFamily:'Arial',fontSize:16,fontWeight:400,lineHeight:1.25,letterSpacing:2}};
+  const tokenAck=await command('add-token',{tokenId:typographyId,name:'Benchmark typography',type:2,values:{Light:typography,Dark:typography}});
+  await command('upsert-style',{expectedRevision:tokenAck.revision,style:{id:styleId,name:'Benchmark text style',type:0,fields:{typography:{type:'token',tokenId:typographyId}}}});
+  await command('create-scenario',{scenario:{id:id(202),screenId:screen,nodeId:target,event:0,actions:[{type:'resetPreview'}]}});
 
   await page.setViewportSize({width:1800,height:1100});
   const times={};
@@ -37,10 +45,10 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await page.getByLabel('Bearer-токен',{exact:true}).fill(bearer);
   await time('openDocumentMs',async()=>{
     await page.getByRole('button',{name:'Продолжить',exact:true}).click();
-    await expect(page.locator('#screens button').first()).toBeVisible();
+    await expect(page.locator('#screens button.screen-select').first()).toBeVisible();
   });
   await time('largeScreenMs',async()=>{
-    await page.locator('#screens button').first().click();
+    await page.locator('#screens button.screen-select').first().click();
     await expect(page.locator('#screen-boundary [data-visual-node]')).toHaveCount(size+1);
     await expect(page.locator('#connection-status')).toContainText('Подключено',{timeout:15000});
   });
@@ -88,7 +96,6 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await cdp.send('HeapProfiler.collectGarbage');
   const heap=await cdp.send('Runtime.getHeapUsage');
   times.heapBytes=heap.usedSize;
-  await cdp.detach();
   await page.getByRole('button',{name:'Preview',exact:true}).click();
   await expect(page.locator('#editor-preview')).toBeVisible();
   await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
@@ -103,6 +110,59 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await lightScreen.dispose();
   await page.screenshot({path:path.join(output,'preview-dark-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   await page.getByRole('button',{name:'Вернуться в Design'}).click();
+  // Capture chrome states only after their model-driven surfaces are visible.
+  const capture=async name=>{await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:path.join(output,name+'-'+info.repeatEachIndex+'.png'),animations:'disabled'});};
+  for(const menu of ['share','mcp','file']){
+    const trigger=page.locator('[data-editor-menu="'+menu+'"] > summary');
+    await trigger.click();
+    await expect(page.locator('[data-editor-menu="'+menu+'"]')).toHaveAttribute('open','');
+    await capture('menu-'+menu);
+    await trigger.click();
+  }
+  await page.locator('#document-mode-tokens').click();
+  await expect(page.locator('#token-workspace')).toBeVisible();
+  await expect(page.locator('#tokens-list')).toContainText('Benchmark typography');
+  await page.getByRole('button',{name:'Benchmark typography',exact:true}).click();
+  await expect(page.locator('#token-detail-title')).toHaveText('Benchmark typography');
+  await capture('tokens');
+  await page.locator('#document-mode-editor').click();
+  await page.locator('#tab-assets').click();
+  await expect(page.locator('#styles-total')).toHaveText('Стили: 1');
+  await page.locator('#styles-list').selectOption(styleId);
+  await expect(page.locator('#styles-name')).toHaveValue('Benchmark text style');
+  await capture('styles');
+  await page.locator('#tab-layers').click();
+  await page.locator('#tab-prototype').click();
+  await expect(page.locator('#shell-prototype')).toBeVisible();
+  await expect(page.locator('#scenarios-count')).toBeVisible();
+  await expect(page.locator('#scenarios-list .scenario-entry')).toHaveCount(1);
+  await capture('interactions');
+  await page.locator('#tab-design').click();
+  // Reuse the same browser and session to detect retained workspaces/render resources.
+  await time('repeatedNavigationMs',async()=>{
+    for(let i=0;i<3;i++){
+      await page.getByRole('button',{name:'Preview',exact:true}).click();
+      await expect(page.locator('#preview-viewport [data-visual-node]')).toHaveCount(size+1);
+      await page.getByRole('button',{name:'Вернуться в Design'}).click();
+      await page.locator('#editor-design a[href="/"]').click();
+      await expect(page.locator('#documents-view')).toBeVisible();
+      const link=page.locator('a[href="/documents/'+documentId+'"]');
+      await expect(link).toBeVisible();
+      if(i===0)await capture('catalog');
+      await link.click();
+      await expect(page.locator('#screens button.screen-select').first()).toBeVisible();
+      await page.locator('#screens button.screen-select').first().click();
+      await expect(page.locator('#screen-boundary [data-visual-node]')).toHaveCount(size+1);
+      await expect(page.locator('#connection-status')).toContainText('Подключено',{timeout:15000});
+      await page.locator('[data-visual-node="'+target+'"] .visual-surface').click();
+      await expect(page.locator('#visual-property-text')).toBeVisible();
+      await page.locator('#visual-property-text').fill('Edited again '+i);
+      await expect(page.locator('#visual-inspector-status')).toHaveText('Свойства сохранены.');
+    }
+  });
+  await cdp.send('HeapProfiler.collectGarbage');
+  times.heapAfterNavigationBytes=(await cdp.send('Runtime.getHeapUsage')).usedSize;
+  await cdp.detach();
   await page.setViewportSize({width:390,height:844});
   await page.screenshot({path:path.join(output,'mobile-'+info.repeatEachIndex+'.png'),animations:'disabled'});
   fs.writeFileSync(path.join(output,'metrics-'+info.repeatEachIndex+'.json'),JSON.stringify(times,null,2));

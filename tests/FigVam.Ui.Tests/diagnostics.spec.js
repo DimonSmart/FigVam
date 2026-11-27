@@ -14,7 +14,7 @@ async function open(page, id) {
   await page.goto(`/documents/${id}`);
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
-  await expect(page.locator('#screens button')).toHaveCount(2);
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(2);
   await show(page, 'diagnostics');
 }
 function response(route, items, total = items.length) {
@@ -34,7 +34,7 @@ test('reads selected screen and revision, paginates, retries and renders fields 
   });
   await open(page, id);
   await expect(page.locator('#diagnostics-status')).toHaveText('Выберите экран.');
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await expect(page.locator('#diagnostics-error')).toContainText('Нет доступа');
   await page.getByRole('button', { name: 'Повторить загрузку диагностики' }).click();
   await expect(page.locator('#diagnostics-number')).toHaveText('1–20 из 21');
@@ -50,7 +50,7 @@ test('reads selected screen and revision, paginates, retries and renders fields 
   expect(changed.ok()).toBeTruthy();
   await page.getByRole('button', { name: 'Обновить страницы' }).click();
   await expect.poll(() => calls.at(-1).searchParams.get('revision')).toBe('4');
-  await page.locator('#screens button').nth(1).click();
+  await page.locator('#screens button.screen-select').nth(1).click();
   await expect.poll(() => calls.at(-1).searchParams.get('screenId')).toBe(screens[1]);
 });
 
@@ -63,9 +63,9 @@ test('ignores delayed responses after screen change and logout', async ({ page, 
     return response(route, []);
   });
   await open(page, id);
-  await page.locator('#screens button').first().click(); await held;
+  await page.locator('#screens button.screen-select').first().click(); await held;
   await expect(page.locator('#diagnostics-status')).toContainText('Загрузка');
-  await page.locator('#screens button').nth(1).click();
+  await page.locator('#screens button.screen-select').nth(1).click();
   await expect(page.locator('#diagnostics-status')).toHaveText('Диагностик для выбранного экрана нет.');
   release(); await expect(page.locator('#diagnostics-list')).not.toContainText('STALE');
   await page.locator('#editor-signout').click();
@@ -80,7 +80,7 @@ test('Viewer can read diagnostics without sending mutations', async ({ page, req
     await route.fulfill({ response: result, json: body });
   });
   await page.route('**/diagnostics?*', route => { methods.push(route.request().method()); return response(route, [{ code: 'VIEW', path: '/nodes/a', message: 'Readable' }]); });
-  await open(page, id); await page.locator('#screens button').first().click();
+  await open(page, id); await page.locator('#screens button.screen-select').first().click();
   await expect(page.locator('#diagnostics-list')).toContainText('VIEW');
   expect(methods).toEqual(['GET']);
   await expect(page.locator('#screen-resize')).toBeHidden();
@@ -93,7 +93,7 @@ test('discards an outstanding response after logout', async ({ page, request }) 
     entered(); await gate;
     await response(route, [{ code: 'AFTER-LOGOUT', path: '/', message: 'stale' }]).catch(() => {});
   });
-  await open(page, id); await page.locator('#screens button').first().click(); await held;
+  await open(page, id); await page.locator('#screens button.screen-select').first().click(); await held;
   await page.locator('#editor-signout').click(); release();
   await expect(page.locator('#diagnostics-list')).toBeEmpty();
   await expect(page.locator('#diagnostics-status')).toHaveText('Выберите экран.');
@@ -106,7 +106,7 @@ test('discards an outstanding response after navigating to documents', async ({ 
     entered(); await gate;
     await response(route, [{ code: 'AFTER-NAVIGATION', path: '/', message: 'stale' }]).catch(() => {});
   });
-  await open(page, id); await page.locator('#screens button').first().click(); await held;
+  await open(page, id); await page.locator('#screens button.screen-select').first().click(); await held;
   await page.getByRole('link', { name: '← Документы' }).click(); release();
   await expect(page.locator('#diagnostics-list')).toBeEmpty();
   await expect(page.locator('#editor-view')).toBeHidden();
@@ -120,7 +120,7 @@ test('rejects a malformed response and retries successfully', async ({ page, req
     malformed = false;
     return route.fulfill({ json: { items: [], total: 0 } });
   });
-  await open(page, id); await page.locator('#screens button').first().click();
+  await open(page, id); await page.locator('#screens button.screen-select').first().click();
   await expect(page.locator('#diagnostics-error')).toHaveText('Не удалось получить корректный ответ сервера.');
   await page.getByRole('button', { name: 'Повторить загрузку диагностики' }).click();
   await expect(page.locator('#diagnostics-list')).toContainText('RECOVERED');
@@ -137,7 +137,7 @@ test('discards an outstanding response after revision changes', async ({ page, r
     }
     return response(route, [{ code: 'CURRENT-REVISION', path: '/', message: 'current' }]);
   });
-  await open(page, id); await page.locator('#screens button').first().click(); await held;
+  await open(page, id); await page.locator('#screens button.screen-select').first().click(); await held;
   const changed = await request.post(`/api/v1/documents/${id}/commands/add-page`, { headers, data: { commandId: randomUUID(), pageId: randomUUID() } });
   expect(changed.ok()).toBeTruthy();
   await page.getByRole('button', { name: 'Обновить страницы' }).click();

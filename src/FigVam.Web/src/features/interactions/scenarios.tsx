@@ -1,4 +1,4 @@
-import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
+import { prepareDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { useLayoutEffect,useRef,type ComponentType } from 'react';
 import { ChevronLeft,ChevronRight } from 'lucide-react';
 import { createViewModel } from '../../app/view-model';
@@ -6,16 +6,34 @@ import { Button } from '../../ui/Button';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, array, text } from '../../api/decode';
+import type { components } from '../../api/schema.generated';
 import type { Catalog } from './interaction-catalog';
 import type { ActionDraft, ScenarioDraft, EditorContext } from './interaction-editor';
 import type { LayerCaptionSource } from '../../core/layer-caption';
 type Node=LayerCaptionSource & {id:string;screenId?:string;label?:string};
-interface Workspace { isEditorVisible(): boolean; documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null;token:string;navigationEpoch:number}
 interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void;prototypeVisible():boolean;subscribePrototype(listener:()=>void):()=>void}
 type CommandKind='create'|'update'|'delete';
-type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain';token:string|null;doc:string;screen:string};
+type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain'|'sync';mutation:DocumentCommandOperation;token:string|null;doc:string;screen:string};
+function toApiScenario(scenario:ScenarioDraft):components['schemas']['PreviewScenario']{
+  if(scenario.event===null)throw new TypeError('Выберите событие');
+  return {id:scenario.id,screenId:scenario.screenId,nodeId:scenario.nodeId,event:scenario.event,actions:scenario.actions.map((action):components['schemas']['PreviewAction']=>{
+    switch(action.type){
+      case 'navigate':case 'openOverlay':
+        if(!action.screenId)throw new TypeError('Выберите экран');
+        return {type:action.type,screenId:action.screenId};
+      case 'showVariant':return {type:action.type,variantId:action.variantId??null};
+      case 'selectDataset':return {type:action.type,datasetId:action.datasetId??null};
+      case 'setDemoValue':
+        if(!action.nodeId)throw new TypeError('Выберите элемент');
+        return {type:action.type,nodeId:action.nodeId,value:action.value??null};
+      case 'closeOverlay':case 'resetPreview':return {type:action.type};
+      default:throw new TypeError('Выберите действие');
+    }
+  })};
+}
+const retryable=(op:Operation|undefined)=>op?.state==='uncertain'||op?.state==='sync';
 function readScenario(value:unknown):ScenarioDraft{const s=requiredRecord(value);if(typeof s.event!=='number'||!Number.isInteger(s.event))throw new TypeError('Некорректное взаимодействие');return{id:text(s.id),screenId:text(s.screenId),nodeId:text(s.nodeId),event:s.event,actions:array(s.actions,a=>{const v=requiredRecord(a),type=text(v.type);if(!Object.hasOwn(actionLabels,type))throw new TypeError('Неизвестное действие');switch(type){case 'navigate':case 'openOverlay':return{type,screenId:text(v.screenId)};case 'showVariant':return{type,variantId:v.variantId==null?null:text(v.variantId)};case 'selectDataset':return{type,datasetId:v.datasetId==null?null:text(v.datasetId)};case 'setDemoValue':return{type,nodeId:text(v.nodeId),value:v.value==null?null:text(v.value)};case 'closeOverlay':case 'resetPreview':return{type};default:throw new TypeError('Неизвестное действие');}})};}
-import { token, navigationEpoch } from '../../core/session';
 import { layerDisplayName } from '../../core/layer-caption';
 import { readInteractionCatalog, interactionObjectName } from './interaction-catalog';
 import { createInteractionEditor, createInteractionModel, eventLabels, actionLabels } from './interaction-editor';
@@ -121,14 +139,14 @@ export function createScenarios({
   const collapsedGroups = new Set<string>();
   const context = ():EditorContext => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
-    revision: workspace.revision, token, epoch: navigationEpoch,
-    editable: !!token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && workspace.isEditorVisible()
+    revision: workspace.revision, token: workspace.token, epoch: workspace.navigationEpoch,
+    editable: !!workspace.token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && workspace.isEditorVisible()
   });
   const operationKey = (c:{doc:string|null;screen:string|null}) => c.doc + '/' + c.screen;
   const currentOperation = () => operations.get(operationKey(context()));
-  const opPending = () => ['pending', 'uncertain'].includes(currentOperation()?.state??'');
-  const sameScreen = (c:EditorContext) => c.doc === workspace.documentId && c.screen === workspace.selectedScreen && c.token === token &&
-    c.epoch === navigationEpoch && workspace.isEditorVisible();
+  const opPending = () => ['pending', 'uncertain','sync'].includes(currentOperation()?.state??'');
+  const sameScreen = (c:EditorContext) => c.doc === workspace.documentId && c.screen === workspace.selectedScreen && c.token === workspace.token &&
+    c.epoch === workspace.navigationEpoch && workspace.isEditorVisible();
   const name = (kind:keyof Catalog,id:string|null|undefined)=>interactionObjectName(catalog,kind,id??'');
   function sourceName(id:string) {
     const node = catalog?.nodes.find(n => n.id === id) ?? findLayer(id);
@@ -173,8 +191,8 @@ export function createScenarios({
     const base:PanelProps={title:selected?sourceName(selected.id):'Взаимодействия',context:selected?selected.kind:c.screen?'Экран '+(catalog?.screens.find(s=>s.id===c.screen)?.name||''):'',
       count:null,status:loadState==='loading'?'Загрузка сценариев…':loadState==='error'?'Не удалось загрузить сценарии.':'Выберите экран.',
       error:loadState==='error'?'Не удалось загрузить взаимодействия. Повторите запрос.':'',createHidden:!c.editable||!c.node||loadState!=='ready'||!!editor.draft,blocked:opPending(),
-      commandStatus:op?.state==='pending'?'Сохранение изменений…':notice,commandError:op?.state==='uncertain'?'Результат команды неизвестен. Повторите ту же команду.':errorNotice,
-      retryHidden:!c.editable||op?.state!=='uncertain',retryTitle:op?.kind==='delete'?'Повторить удаление сценария':'Повторить сохранение взаимодействия',
+      commandStatus:op?.state==='pending'?'Сохранение изменений…':notice,commandError:op?.state==='sync'?'Команда подтверждена. Повторите обновление.':op?.state==='uncertain'?'Результат команды неизвестен. Повторите ту же команду.':errorNotice,
+      retryHidden:!c.editable||!retryable(op),retryTitle:op?.kind==='delete'?'Повторить удаление сценария':'Повторить сохранение взаимодействия',
       pagination:false,pageNumber:'',previousDisabled:true,nextDisabled:true,List:models.list.Component,Form:models.actions.form.Component,Dialog:models.dialog.Component,
       load:()=>{void load();},create:createDraft,retry:retryCommand,previous:()=>{offset=Math.max(0,offset-pageSize);render();},next:()=>{offset+=pageSize;render();}};
     publishDialog();
@@ -245,7 +263,7 @@ export function createScenarios({
       if (valid()) catalogLoading = false;
     }
   }
-  subscribePrototype(()=>{void ensureCatalog();});
+  const unsubscribePrototype = subscribePrototype(()=>{void ensureCatalog();});
   async function load() {
     controller?.abort(); controller = new AbortController();
     const c = context(), version = ++generation, signal = controller.signal;
@@ -305,32 +323,37 @@ export function createScenarios({
     if (!c.editable || !c.doc || !c.screen || revision===null || c.revision !== revision || operations.has(k)) return;
     const body = { commandId: crypto.randomUUID(), expectedRevision: revision,
       ...(kind === 'delete' ? { scenarioId: scenario.id } : { scenario: structuredClone(scenario) }) };
-    const op:Operation = { kind, body, state: 'ready', token: c.token, doc: c.doc, screen: c.screen };
+    let mutation:DocumentCommandOperation;
+    try{
+      const base={commandId:body.commandId,expectedRevision:revision};
+      mutation=kind==='delete'?prepareDocumentCommand(c.doc,'delete-scenario',{...base,scenarioId:scenario.id})
+        :prepareDocumentCommand(c.doc,kind==='create'?'create-scenario':'update-scenario',{...base,scenario:toApiScenario(scenario)});
+    }catch(error){errorNotice=String(error);render();return;}
+    const op:Operation = { kind, body, mutation, state: 'ready', token: c.token, doc: c.doc, screen: c.screen };
     operations.set(k, op); notice = errorNotice = ''; send(op);
   }
   const commandMessages = { create: 'Создание сценария подтверждено.', update: 'Изменение сценария подтверждено.', delete: 'Удаление сценария подтверждено.' };
   const sanitize = (value:unknown) => String(value ?? '').replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, 'объект');
   async function send(op:Operation) {
     const c = context(), k = operationKey(op);
-    if (!c.editable || op.token !== token || op.doc !== c.doc || op.screen !== c.screen || operations.get(k) !== op || op.state === 'pending') return;
+    if (!c.editable || op.token !== workspace.token || op.doc !== c.doc || op.screen !== c.screen || operations.get(k) !== op || op.state === 'pending') return;
     const active = () => sameScreen(c) && operations.get(k) === op;
     op.state = 'pending'; render();
     try {
-      const result=requiredRecord(await postDocumentCommand(request,op.doc,`${op.kind}-scenario`,op.body));
-      if (result.status !== 'ACCEPTED' || result.documentId !== op.doc || result.commandId !== op.body.commandId ||
-          typeof result.revision!=='number'||!Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision)
-        throw new TypeError('Некорректное подтверждение');
-      if (operations.get(k) !== op) return;
-      if (!active()) { op.state = 'uncertain'; return; }
-      await reloadPages(Math.max(workspace.revision??0, result.revision), active);
-      if (!active() || (workspace.revision??0) < result.revision) { op.state = 'uncertain'; return; }
+      const result=await op.mutation.execute({request,isCurrent:active,
+        validate:ack=>{if(ack.revision<=op.body.expectedRevision)throw new TypeError('Некорректное подтверждение');},
+        synchronize:async ack=>{await reloadPages(Math.max(workspace.revision??0,ack.revision),active);return active()&&(workspace.revision??0)>=ack.revision;}});
+      if(operations.get(k)!==op)return;
+      if(result.kind==='rejected'||result.kind==='conflict')throw result.error;
+      if(result.kind!=='confirmed'){op.state='uncertain';return;}
+      if(result.synchronization!=='synced'){op.state='sync';return;}
       operations.delete(k);
       const next = leave; leave = null; closeDialog(); editor.close();
       notice = commandMessages[op.kind]; errorNotice = '';
       render(); next?.();
     } catch (error) {
       if (operations.get(k) !== op) return;
-      if (!(error instanceof ApiError) || classifyCommandFailure(error, active()) === 'uncertain' || (error instanceof ApiError && !error.status)) { op.state = 'uncertain'; return; }
+      if (!(error instanceof ApiError)) { op.state = 'uncertain'; return; }
       operations.delete(k); leave = null; closeDialog();
       if (error.code === 'REVISION_CONFLICT') {
         await reloadPages(null, () => sameScreen(c));
@@ -354,10 +377,10 @@ export function createScenarios({
     }
   }
   function retryCommand(){
-    const op = currentOperation(); if (op?.state === 'uncertain') send(op);
+    const op = currentOperation(); if (op&&retryable(op)) send(op);
   }
   return {
-    reset, refresh, retainAfterNodeEdit: refresh, clearLayerSelection: onSelectionChanged, onLayerSelected: onSelectionChanged,
+    reset, dispose(){unsubscribePrototype();controller?.abort();operations.clear();}, refresh, retainAfterNodeEdit: refresh, clearLayerSelection: onSelectionChanged, onLayerSelected: onSelectionChanged,
     requestLeave, hasDirtyDraft: editor.dirty,
     clearDocumentCommands(doc:string) { for (const [key, op] of operations) if (op.doc === doc) operations.delete(key); },
     clearCommands() { operations.clear(); editor.close(); }

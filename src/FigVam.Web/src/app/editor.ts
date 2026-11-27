@@ -1,7 +1,7 @@
 import { isGoogleMode, setCsrf } from '../api/auth-client';
 import { createDocumentCreation } from '../features/home/document-creation';
 import { createScreenCapture } from '../canvas/screen-capture';
-import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
+import { createApiClient, type ApiClient } from '../api/api-client';
 import { createDocumentQueries } from '../api/document-queries';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from '../features/home/index';
 import { createDocumentCollaboration } from '../features/collaboration/document-collaboration';
@@ -15,7 +15,7 @@ import { createScenarios } from '../features/interactions/scenarios';
 import { createScreenResize } from '../features/editor/screen-resize';
 import { createTokens } from '../features/tokens/tokens';
 import { createStyles } from '../features/styles/styles';
-import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
+import { createSessionLifecycle } from '../core/session';
 
 import { element } from './dom';
 import { createElement } from 'react';
@@ -27,11 +27,11 @@ import { ApplicationShell } from './application-shell';
 import { createDocumentShellModel, createDeletionViewModel, canEditDocument } from './document-shell-state';
 import { createApplicationShellState } from './application-shell-state';
 import { createApplicationViews } from './application-views';
-import { aborted, errorMessage, requiredRecord, text } from '../api/decode';
+import { aborted, errorMessage, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
-import type { components } from '../api/schema.generated';
-import { postPageCommand, type PageCommandData } from './page-commands';
+import { createDocumentMutations } from './document-mutations';
+import { createPageCommands } from './page-commands';
 
 import { createRequestRunner } from './request-runner';
 import { createDocumentCatalog } from './document-catalog';
@@ -41,16 +41,15 @@ import { createWorkspaceSelection } from './workspace-selection';
 import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
-type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
-const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
-const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
+const sessionState = createSessionLifecycle();
+const { setToken, advanceNavigation, cancelRequest, startRequest } = sessionState;
 const catalog = createDocumentCatalog();
 const shellState = createApplicationShellState();
 const documentShell = createDocumentShellModel();
 const deletionView = createDeletionViewModel();
 const getDocumentRole = () => documentShell.getSnapshot().role;
 const isEditorVisible = () => shellState.getSnapshot().view === 'editor';
-const requestRunner = createRequestRunner({
+const requestRunner = createRequestRunner(sessionState, {
   stopLive: () => stopLive(), startLive: () => startLive(), message,
   setBusy: busy => shellState.patch({ busy }),
   setControlsDisabled: controlsDisabled => shellState.patch({ controlsDisabled }),
@@ -81,19 +80,11 @@ const pageSize = 20;
 let documentId: string | null = null;
 const selectionState = createWorkspaceSelection();
 const revisions = createDocumentRevisionState();
-let deletion: Deletion | null = null;
-function resetDeletion() {
-  deletion = null;
-  deletionView.publish({ status: 'idle', message: '' });
-}
-function leaveDeletion() {
-  if (!deletion) return;
-  deletion.state = 'uncertain';
-  deletionView.publish({ status: 'uncertain', message: `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.` });
-}
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
-  getToken: () => token,
+  getToken: () => sessionState.token,
+  getSessionEpoch: () => sessionState.sessionEpoch,
+  getSessionSignal: () => sessionState.signal,
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -101,13 +92,13 @@ const request: ApiClient = createApiClient({
 });
 
 const documentCreation = createDocumentCreation({
-  shellState, request, run, message, navigate, loadList,
+  shellState, request, run, message, navigate, loadList, session: sessionState,
   onUnauthorized: () => { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); }
 });
 
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
   request, pageSize,
-  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch, isEditorVisible: isEditorVisible() })
+  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, isEditorVisible: isEditorVisible() })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
@@ -115,22 +106,23 @@ const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
     isEditorVisible,
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
-    get generation() { return generation; }, get token() { return token; }
+    get generation() { return sessionState.generation; }, get token() { return sessionState.token; },
+    get navigationEpoch() { return sessionState.navigationEpoch; }, get revision() { return revisions.revision; }
   }
 });
 
 const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
-const mcpContext = () => ({ documentId, token, navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
-const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
+const mcpContext = () => ({ documentId, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
+const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, menu: editorShell.menu, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
   workspace: {
     get documentId() { return documentId; },
     get revision() { return revisions.revision; },
-    get token() { return token; }
+    get token() { return sessionState.token; }
   },
   isEditorVisible,
   readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
@@ -145,7 +137,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
-  model: views.documentExport, isEditorVisible, getContext: () => ({ token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch }),
+  model: views.documentExport, isEditorVisible, getContext: () => ({ token: sessionState.token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch: sessionState.navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -154,12 +146,12 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
   models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),request,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
   models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
@@ -174,18 +166,26 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get revision() { return revisions.revision; },
     get catalogRevision() { return revisions.catalogRevision; },
-    get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
+    get token() { return sessionState.token; }, get navigationEpoch() { return sessionState.navigationEpoch; }
   }
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
   model: views.datasets, request, pageSize,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token: sessionState.token, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
-  if (documentId) scenarios.clearDocumentCommands(documentId);
+  if (documentId) {
+    const id=documentId;
+    scenarios.clearDocumentCommands(id);pageCommands.discard(id);visualNodeEditor.clearDocument(id);
+    layers.discardDocument(id);documentHistory.discardDocument(id);screenResize.discardDocument(id);
+    screenVariants.discardDocument(id);datasets.discardDocument(id);tokens.discardDocument(id);
+    styles.discardDocument(id);documentMutations.discardDocument(id);
+  }
+  visualScreens.clearPropertyPreviews(); requestRunner.clearRetry();
   cancelRequest(); advanceNavigation();
+  documentShell.patch({role:null}); shellState.patch({view:'none',busy:false,controlsDisabled:false});
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
   members.reset(); documentExport.reset(); documentShell.patch({ role: null }); revisions.reset(); selectionState.reset();
   documentShell.patch({ pageBusy: false, revisionLabel: '', title: '' });
@@ -211,7 +211,8 @@ function clearSession() {
   editorShell.menu.publish(null);
   mcpAccess.reset();
   documentCreation.reset();
-  resetDeletion();
+  pageCommands.clear();
+  documentMutations.clear(); datasets.clearCommands(); screenVariants.clearCommands(); tokens.clearCommands(); styles.clearCommands();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
   setToken('');
@@ -246,19 +247,24 @@ const members: ReturnType<typeof createMembers> = createMembers({ model: views.m
     isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
-    get navigationEpoch() { return navigationEpoch; },
-    get token() { return token; }
+    get navigationEpoch() { return sessionState.navigationEpoch; },
+    get token() { return sessionState.token; }
   }
 });
 
 const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
-  request, pageSize, refreshPages,
+  request, pageSize, refreshPages: async () => {
+    let synced=false;
+    await run(() => refreshPages(), async (signal,current) => { synced=await readPages(signal,0,null,current)===true; });
+    return synced;
+  },
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
-    get navigationEpoch() { return navigationEpoch; },
-    get token() { return token; }
+    get navigationEpoch() { return sessionState.navigationEpoch; },
+    get token() { return sessionState.token; },
+    get revision() { return revisions.revision; }
   }
 });
 
@@ -270,8 +276,8 @@ const layers: ReturnType<typeof createLayers> = createLayers({
     get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; },
     get revision() { return revisions.revision; },
-    get navigationEpoch() { return navigationEpoch; },
-    get token() { return token; }
+    get navigationEpoch() { return sessionState.navigationEpoch; },
+    get token() { return sessionState.token; }
   },
   runPageRefresh: work => run(() => refreshPages(), work),
   readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, 0, null, isCurrent, reveal),
@@ -289,7 +295,9 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
     get documentRole() { return getDocumentRole(); },
     get revision() { return revisions.revision; },
     get selectedScreen() { return selectionState.selectedScreen; },
-    get layerSelection() { return layers.selection; }
+    get layerSelection() { return layers.selection; },
+    get token() { return sessionState.token; },
+    get navigationEpoch() { return sessionState.navigationEpoch; }
   },
   findLayer: layers.findLayer,
   setInteractiveNodes: layers.setInteractiveNodes,
@@ -303,12 +311,12 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
 
 async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
   mcpAccess.reset();
-  leaveDeletion();
-  if (!token) return;
+  documentMutations.leaveDeletion();
+  if (!sessionState.token) return;
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
+  documentHistory.reset(); styles.reset(); components.reset(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
   selectionState.reset(); renderCanvas();
   shellState.patch({ view: 'documents' });
   selectHomeView('documents');
@@ -325,29 +333,7 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   });
 }
 
-async function deleteCatalogDocument(item: DocumentListItem, command: DeleteCatalogCommand): Promise<void> {
-  const body = JSON.stringify(command);
-  const epoch = navigationEpoch;
-  try {
-    const result = requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(item.documentId)}/commands/delete-document`, { method: 'POST', body }));
-    if (epoch !== navigationEpoch) return;
-    if (result.code !== 'ACCEPTED' || (typeof result.commandId === 'string' ? result.commandId.toLowerCase() : undefined) !== command.commandId.toLowerCase() ||
-        (typeof result.documentId === 'string' ? result.documentId.toLowerCase() : undefined) !== item.documentId.toLowerCase() || result.revision !== command.expectedRevision + 1)
-      throw new TypeError('Некорректное подтверждение');
-    const loading = loadList(), listEpoch = navigationEpoch;
-    await loading;
-    if (token && listEpoch === navigationEpoch) message('Документ удалён.');
-  } catch (error) {
-    if (epoch !== navigationEpoch || !token) return;
-    if ([400, 403, 404, 409].includes(statusOf(error) ?? 0)) {
-      const loading = loadList(), listEpoch = navigationEpoch;
-      await loading;
-      if (token && listEpoch === navigationEpoch) message('', errorMessage(error));
-    } else {
-      message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
-    }
-  }
-}
+function deleteCatalogDocument(item:DocumentListItem,command:DeleteCatalogCommand){return documentMutations.deleteCatalogDocument(item,command);}
 
 function navigatorCanEdit() {
   return canEditDocument(getDocumentRole());
@@ -358,9 +344,9 @@ function navigatorEditState(kind: NavigatorKind) {
 function setNavigatorEditState(kind: NavigatorKind, value: RenameDraft | null) {
   selectionState.setRenameDraft(kind, value);
 }
-function renderNavigatorKind(kind: NavigatorKind) {
-  if (kind === 'page') renderPages();
-  else renderScreens();
+function renderNavigatorKind(kind: NavigatorKind, synchronous=false) {
+  if (kind === 'page') renderPages(synchronous);
+  else {renderScreens();if(synchronous)renderPages(true);}
 }
 function startNavigatorNameEdit(kind: NavigatorKind, id: string, name: string) {
   if (!navigatorCanEdit() || documentShell.getSnapshot().pageBusy) return;
@@ -370,17 +356,17 @@ function startNavigatorNameEdit(kind: NavigatorKind, id: string, name: string) {
 }
 function discardNavigatorRename(kind: NavigatorKind, id: string) {
   setNavigatorEditState(kind, null);
-  renderNavigatorKind(kind);
+  renderNavigatorKind(kind,true);
   document.querySelector<HTMLElement>('[data-' + kind + '-rename-id="' + id + '"]')?.focus({ preventScroll: true });
 }
-function renderPages() {
-  navigatorView.render(selectionState.navigatorState(navigatorCanEdit()));
+function renderPages(synchronous=false) {
+  navigatorView.render(selectionState.navigatorState(navigatorCanEdit()),synchronous);
 }
 function selectPage(id: string) {
   if (selectionState.selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
   if (selectionState.selectedPage === id) {
     selectionState.togglePage();
-    renderPages();
+    renderPages(true);
     element('pages').querySelector<HTMLElement>('[data-page-id="' + id + '"]')?.focus();
     return;
   }
@@ -420,7 +406,7 @@ const presence: ReturnType<typeof createPresence> = createPresence({
   isEditorVisible,
   models: views.presence,
   element,
-  getContext: () => ({ token, documentId, navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
+  getContext: () => ({ token: sessionState.token, documentId, navigationEpoch: sessionState.navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
   toViewportPoint: point => canvasViewport.toViewportPoint(point)
 });
 const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasViewport({
@@ -442,7 +428,7 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, screen: selectionState.selectedScreen,
-    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
+    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch: sessionState.navigationEpoch, token: sessionState.token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {
@@ -479,8 +465,8 @@ function renderRevision() {
 }
 
 const documentSync = createDocumentSync({
-  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation, revision: revisions.revision }),
-  shouldReportFailure: signal => signal === pending?.signal,
+  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation: sessionState.generation, revision: revisions.revision }),
+  shouldReportFailure: signal => signal === sessionState.pending?.signal,
   queries: documentQueries, layers, tokens, styles,
   applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {
     const selection = selectionAfterCommand(selectionChange);
@@ -520,8 +506,8 @@ function resetDocumentRename() {
 
 async function openDocument(id: string): Promise<void> {
   mcpAccess.reset();
-  leaveDeletion();
-  if (deletion?.id === id) {
+  documentMutations.leaveDeletion();
+  if (documentMutations.deletingId === id) {
     history.replaceState(null, '', '/');
     return loadList();
   }
@@ -530,7 +516,7 @@ async function openDocument(id: string): Promise<void> {
   resetDocumentRename();
   shellState.patch({ view: 'none' });
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
@@ -549,84 +535,18 @@ async function openDocument(id: string): Promise<void> {
     documentHistory.load();
     if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
     message();
+    pageCommands.resume();
   });
 }
 
-function deleteDocument() {
-  if (deletion || !documentId || getDocumentRole() !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || shellState.getSnapshot().view !== 'editor') return;
-  if (!confirm(`Удалить документ «${documentShell.getSnapshot().title}»? Это действие нельзя отменить.`)) return;
-  const commandId = crypto.randomUUID();
-  const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revisions.revision };
-  deletion = { id: documentId, name: documentShell.getSnapshot().title ?? '', body: JSON.stringify(body), commandId, state: 'ready' };
-  void submitDeletion(deletion);
-}
-function retryDeletion() { if (deletion?.state === 'uncertain') void submitDeletion(deletion); }
-async function submitDeletion(operation: Deletion): Promise<void> {
-  if (deletion !== operation || operation.state === 'pending') return;
-  operation.state = 'pending';
-  const epoch = navigationEpoch, id = operation.id, requestToken = token;
-  stopLive(); const signal = replacePendingRequest();
-  const active = () => !signal.aborted && deletion === operation && epoch === navigationEpoch && token === requestToken;
-  deletionView.publish({ status: 'pending', message: 'Удаление документа…' });
-  try {
-    const result = requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/delete-document`, { method: 'POST', body: operation.body }, signal));
-    if (!active()) return;
-    if (!Number.isSafeInteger(result.revision) || (typeof result.commandId === 'string' ? result.commandId.toLowerCase() : undefined) !== operation.commandId.toLowerCase() || (typeof result.documentId === 'string' ? result.documentId.toLowerCase() : undefined) !== id.toLowerCase()) throw new TypeError('Некорректное подтверждение');
-    resetDeletion();
-    history.pushState(null, '', '/');
-    const loading = loadList(), listEpoch = navigationEpoch;
-    await loading;
-    if (token && listEpoch === navigationEpoch) message('Документ удалён.');
-  } catch (error) {
-    if (!active() || aborted(error)) return;
-    if (uncertain(error)) {
-      operation.state = 'uncertain';
-      if (documentId === id) shellState.patch({ view: 'none' });
-      deletionView.publish({ status: 'uncertain', message: 'Результат удаления неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.' });
-      return;
-    }
-    if (statusOf(error) === 403 || statusOf(error) === 404) {
-      const explanation = statusOf(error) === 403 ? 'Нет прав на удаление документа или доступ к нему потерян.' : 'Документ уже удалён или больше недоступен.';
-      resetDeletion();
-      history.pushState(null, '', '/');
-      const loading = loadList(), listEpoch = navigationEpoch;
-      await loading;
-      if (token && listEpoch === navigationEpoch) message('', explanation);
-      return;
-    }
-    resetDeletion();
-    if (statusOf(error) === 409) {
-      const reopening = openDocument(id), refreshEpoch = navigationEpoch;
-      await reopening;
-      if (refreshEpoch === navigationEpoch && documentId === id && shellState.getSnapshot().view === 'editor') message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
-    } else { message('', errorMessage(error)); startLive(); }
-  }
-}
-
-async function renameDocument() {
-  if (documentShell.getSnapshot().renameBusy || !documentId || !canEditDocument(getDocumentRole())) return;
-  const name = documentShell.getSnapshot().renameName;
-  stopLive(); const { signal, current } = startRequest(), id = documentId;
-  documentShell.patch({ renameBusy: true, renameStatus: 'Сохранение имени…', renameError: '' });
-  signal.addEventListener('abort', () => {
-    if (current === generation && id === documentId) documentShell.patch({ renameBusy: false, renameStatus: '' });
-  }, { once: true });
-  try {
-    await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/rename-document`, {
-      method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), name })
-    }, signal);
-    if (signal.aborted || current !== generation || id !== documentId) return;
-    await readPages(signal);
-    if (signal.aborted || current !== generation || id !== documentId) return;
-    documentShell.patch({ renameName: documentShell.getSnapshot().title, renameStatus: 'Имя документа изменено.' });
-  } catch (error) {
-    if (aborted(error) || current !== generation || id !== documentId) return;
-    documentShell.patch({ renameStatus: '', renameError: uncertain(error)
-      ? 'Не удалось подтвердить результат. Обновите документ перед повторной попыткой: команда могла выполниться.' : errorMessage(error) });
-  } finally {
-    if (current === generation && id === documentId) { documentShell.patch({ renameBusy: false }); startLive(); }
-  }
-}
+const documentMutations=createDocumentMutations({
+  sessionState,shellState,documentShell,deletionView,request,getDocumentId:()=>documentId,getRevision:()=>revisions.revision,
+  loadList,openDocument,refresh:(signal,current)=>readPages(signal,0,null,current),stopLive,startLive,message,setRetry:requestRunner.setRetry,
+  navigateHome:()=>history.pushState(null,'','/'),confirmDeletion:message=>confirm(message),
+});
+function deleteDocument(){documentMutations.deleteDocument();}
+function retryDeletion(){documentMutations.retryDeletion();}
+function renameDocument(){return documentMutations.renameDocument();}
 
 async function refreshPages(offset = 0): Promise<void> {
   await run(() => refreshPages(offset), async (signal, current) => {
@@ -635,31 +555,19 @@ async function refreshPages(offset = 0): Promise<void> {
   });
 }
 
-async function pageCommand<K extends keyof PageCommandData>(command: K, data: PageCommandData[K], selection?: string | null, screenSelection?: string): Promise<void> {
-  if (!documentId || !canEditDocument(getDocumentRole())) return;
-  stopLive();
-  const { signal, current } = startRequest();
-  requestRunner.clearRetry(); message('Отправка изменений в общий черновик…');
-  documentShell.patch({ pageBusy: true });
-  try {
-    await postPageCommand(request, documentId, command, data, signal);
-    if (signal.aborted || current !== generation) return;
-    selectionState.selectAfterCommand(selection, screenSelection);
-    await readPages(signal);
-    if (current === generation) {
-      message('Изменения подтверждены в общем черновике.');
-    }
-  } catch (error) {
-    if (aborted(error) || current !== generation) return;
-    const unknownResult = uncertain(error);
-    message('', unknownResult ? 'Не удалось подтвердить результат команды. Обновите страницы перед повторным действием: команда могла выполниться.' : errorMessage(error));
-  } finally {
-    if (current === generation) { documentShell.patch({ pageBusy: false }); startLive(); }
-  }
-}
+const pageCommands = createPageCommands({
+  request,
+  context: () => ({documentId,revision:revisions.revision,navigationEpoch:sessionState.navigationEpoch,
+    sessionEpoch:sessionState.sessionEpoch,page:selectionState.selectedPage,screen:selectionState.selectedScreen,canEdit:canEditDocument(getDocumentRole())}),
+  stopLive,startLive,setBusy:pageBusy=>documentShell.patch({pageBusy}),
+  setRetry:requestRunner.setRetry,message,
+  select:selectionState.selectAfterCommand,
+  refresh:(signal,current)=>readPages(signal,0,null,current),
+});
+const pageCommand=pageCommands.start;
 
 const navigation = createNavigation({
-  isAuthenticated: () => !!token,
+  isAuthenticated: () => !!sessionState.token,
   openDocument, loadList,
   requestLeave: resume => scenarios.requestLeave(resume),
   currentDocument: () => documentId,
@@ -703,7 +611,10 @@ const navigatorView = createDocumentNavigator(views.navigator, {
   isBusy: () => documentShell.getSnapshot().pageBusy || !navigatorCanEdit(),
   selectPage, selectScreen,
   startRename: startNavigatorNameEdit,
-  changeDraft(kind, value) { const draft = navigatorEditState(kind); if (draft) draft.value = value; },
+  changeDraft(kind, value) {
+    const draft = navigatorEditState(kind);
+    if (draft) { setNavigatorEditState(kind, { ...draft, value }); renderPages(); }
+  },
   discardRename: discardNavigatorRename,
   saveRename(kind, id, previousName, name) {
     discardNavigatorRename(kind, id);
@@ -727,13 +638,21 @@ function createPage() {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
 }
-navigation.attach();
+const detachNavigation=navigation.attach();
 window.addEventListener('pagehide', event => {
-  try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
+  try { clearSession(); } finally {
+    if (!event.persisted) {
+      detachNavigation();mcpAccess.dispose();scenarios.dispose();documentHistory.dispose();layers.dispose();
+      screenResize.dispose();canvasNodes.dispose();canvasViewport.dispose();visualScreens.dispose();navigatorView.dispose();disposeApplicationRoot();
+    }
+  }
 });
+window.addEventListener('pageshow',event=>{if(event.persisted)void initializeAuthentication();});
 async function initializeAuthentication() {
+  const epoch = sessionState.sessionEpoch;
   try {
     const mode = await readAuthenticationMode();
+    if (epoch !== sessionState.sessionEpoch) return;
     if (mode === 'bearer') {
       authenticationView.setMode('bearer');
       editorShell.setSignoutLabel('Забыть токен');
@@ -743,7 +662,7 @@ async function initializeAuthentication() {
     const authError = new URLSearchParams(location.search).get('auth_error');
     if (authError) authenticationView.setError('Google-аккаунт не подтверждён или доступ к FigVam не разрешён.');
     const session = await restoreGoogleSession();
-    if (!session) return;
+    if (!session || epoch !== sessionState.sessionEpoch) return;
     setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
@@ -752,8 +671,8 @@ async function initializeAuthentication() {
     homeNavigation.setAdmin(session.admin === true);
     await userAdmin.show(session.admin === true);
   } catch (error) {
-    authenticationView.setError(errorMessage(error));
+    if (epoch === sessionState.sessionEpoch) authenticationView.setError(errorMessage(error));
   }
 }
-initializeAuthentication();
 clearSession();
+initializeAuthentication();

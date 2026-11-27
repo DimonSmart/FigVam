@@ -4,16 +4,16 @@ import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
-import { ApiError } from '../../api/api-client';
-import { postDocumentCommand } from '../../api/document-commands';
-import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
+import { createDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
+import { toApiNodeProperties } from '../../api/command-value-contracts';
+import { requiredRecord, array, text, errorMessage } from '../../api/decode';
 import { nodeProperty } from '../../canvas/render-model';
 import type { DesignToken, NodePropertyValue, TokenType, TokenCategory, Theme, TokenValue, TypographyFieldsValue, TypographyField } from '../../core/tokens/token-model';
 
 type StyleType='TextStyle'|'BorderStyle';
 interface DesignStyle {id:string;name:string;type:number|string;fields:Record<string,NodePropertyValue>;basedOnStyleId:string|null}
 interface Usage {label?:string;kind:string;property?:string;theme?:string|number|null;indirect?:boolean;ownerId:string;chain?:string[]}
-interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number}
+interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number;navigationEpoch:number}
 interface Options {models:ReturnType<typeof createStyleModels>;selectLayer(id:string):void;request:ApiClient;getContext():Context;getTokens():DesignToken[];startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 function style(value:unknown):DesignStyle{const s=requiredRecord(value);return{id:text(s.id),name:text(s.name),type:typeof s.type==='number'?s.type:text(s.type),fields:Object.fromEntries(Object.entries(requiredRecord(s.fields)).map(([name,v])=>[name,nodeProperty(v)])),basedOnStyleId:s.basedOnStyleId==null?null:text(s.basedOnStyleId)};}
 function usage(value:unknown):Usage{const v=requiredRecord(value);return{kind:text(v.kind),ownerId:text(v.ownerId),label:v.label==null?undefined:text(v.label),property:v.property==null?undefined:text(v.property),theme:v.theme==null?null:typeof v.theme==='number'?v.theme:text(v.theme),indirect:v.indirect===true,chain:array(v.chain??[],text)};}
@@ -122,7 +122,7 @@ function StyleFields({rows,tokens,updateDraft,setActive}:StyleFieldProps){
 }
 interface StylePanelProps {
   items:DesignStyle[]; selectedId:string|null; name:string; type:StyleType; parentId:string; writable:boolean; busy:boolean;
-  preview:string; error:string; status:string; Fields:ComponentType; Usages:ComponentType;
+  preview:string; error:string; status:string; retryVisible:boolean;retry():void; Fields:ComponentType; Usages:ComponentType;
   select(id:string):void; changeName(value:string):void; changeType(value:StyleType):void; changeParent(value:string):void; save():void; remove():void;
 }
 function StylePanel(p:StylePanelProps) {
@@ -130,6 +130,7 @@ function StylePanel(p:StylePanelProps) {
   return <div id="styles-panel">
     <h3>Стили оформления</h3><p id="styles-total" role="status">Стили: {p.items.length}</p>
     <p id="styles-error" role="alert">{p.error}</p><p id="styles-status" role="status" aria-live="polite">{p.status}</p>
+    <Button hidden={!p.retryVisible} onClick={p.retry}>Повторить операцию</Button>
     <label htmlFor="styles-list">TextStyle и BorderStyle</label>
     <select id="styles-list" aria-label="Выбрать стиль или создать новый" value={p.selectedId??''} onChange={event=>p.select(event.currentTarget.value)}>
       <option value="">Новый стиль</option>{p.items.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
@@ -155,6 +156,8 @@ export function createStyleModels(){return {panel:createViewModel(StylePanel),fi
 
 export function createStyles({ models, selectLayer, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
+  const pendingCommands=new Map<string,{operation:DocumentCommandOperation;selection:string|null;running:boolean}>();
+  const pending=()=>pendingCommands.get(getContext().documentId??'');
   let draftName='',draftType:StyleType='TextStyle',draftParent='',status='',error='',lastWritable=false;
   let styleUsages:Usage[]=[],styleUsageRequest=0;
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
@@ -219,7 +222,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
 
   function publishPanel() {
     lastWritable=editable();
-    models.panel.publish({items,selectedId,name:draftName,type:draftType,parentId:draftParent,writable:lastWritable,busy,preview:previewText(chosen()),error,status,
+    models.panel.publish({items,selectedId,name:draftName,type:draftType,parentId:draftParent,writable:lastWritable,busy:busy||!!pending(),retryVisible:lastWritable&&!!pending()&&!pending()?.running,retry:()=>{const op=pending();if(op)void executeStyleCommand(op);},preview:previewText(chosen()),error,status,
       Fields:models.fields.Component,Usages:models.usage.Component,
       select:id=>{selectedId=id||null;void loadUsages();},
       changeName:value=>{draftName=value;publishPanel();},
@@ -294,25 +297,43 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     if (changed && selectedId) loadUsages();
   }
 
-  async function write(endpoint:'upsert-style'|'delete-style',payload:{style?:DesignStyle;styleId?:string},id:string|null=selectedId) {
-    if (!editable() || busy) return;
-    busy = true;
-    const { signal, current } = startRequest();
-    stopLive();
-    error = ''; publishPanel();
-    try {
-      const context=getContext();if(!context.documentId)throw new Error('No document');
-      await postDocumentCommand(request, context.documentId, endpoint,
-        { commandId: crypto.randomUUID(), expectedRevision: context.revision, ...payload }, signal);
-      if (signal.aborted || current !== getContext().generation) return;
-      selectedId = id;
-      await readPages(signal);
-      status = 'Стиль сохранён.'; publishPanel();
-    } catch (failure) {
-      if (!aborted(failure)) { error =
-        (failure instanceof ApiError&&failure.status>=500)||failure instanceof TypeError ? 'Результат неизвестен. Обновите документ.' : errorMessage(failure); publishPanel(); }
-    } finally {
-      busy = false; render(); startLive();
+  async function write(endpoint:'upsert-style'|'delete-style',payload:{style?:DesignStyle;styleId?:string},id:string|null=selectedId){
+    const {documentId,revision}=getContext();
+    if(!editable()||busy||pending()||!documentId||revision===null)return;
+    try{
+      let operation:DocumentCommandOperation;
+      if(endpoint==='upsert-style'&&payload.style){
+        const {style}=payload;
+        operation=createDocumentCommand(documentId,endpoint,{expectedRevision:revision,style:{...style,type:styleType(style)==='TextStyle'?0:1,fields:toApiNodeProperties(style.fields)}});
+      }else if(endpoint==='delete-style'&&payload.styleId){
+        operation=createDocumentCommand(documentId,endpoint,{expectedRevision:revision,styleId:payload.styleId});
+      }else throw new TypeError('Некорректная команда стиля');
+      const entry={operation,selection:id,running:false};pendingCommands.set(documentId,entry);await executeStyleCommand(entry);
+    }catch(failure){error=errorMessage(failure);publishPanel();}
+  }
+  async function executeStyleCommand(entry:{operation:DocumentCommandOperation;selection:string|null;running:boolean}){
+    const doc=entry.operation.documentId,epoch=getContext().navigationEpoch;
+    if(entry.running||!editable()||getContext().documentId!==doc||pendingCommands.get(doc)!==entry)return;
+    entry.running=true;busy=true;let generation=getContext().generation;const originSelection=selectedId;stopLive();error='';status='Сохранение…';publishPanel();
+    const active=()=>getContext().documentId===doc&&getContext().navigationEpoch===epoch&&pendingCommands.get(doc)===entry;
+    try{
+      const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
+        synchronize:async confirmation=>{
+          const {signal,current}=startRequest();generation=current;
+          if(selectedId===originSelection)selectedId=entry.selection;
+          const refreshed=await readPages(signal);
+          return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
+        }});
+      if(result.kind==='confirmed'&&result.synchronization==='synced'){
+        if(active())status='Стиль сохранён.';
+        if(pendingCommands.get(doc)===entry)pendingCommands.delete(doc);
+      }else if(result.kind==='rejected'||result.kind==='conflict'){
+        if(active())error=errorMessage(result.error);
+        if(pendingCommands.get(doc)===entry)pendingCommands.delete(doc);
+      }else if(active()){status='';error=result.kind==='confirmed'?'Команда подтверждена. Повторите обновление.':'Результат неизвестен. Повторите ту же операцию.';}
+    }finally{
+      entry.running=false;
+      if(getContext().documentId===doc&&getContext().navigationEpoch===epoch){busy=false;render();if(generation===getContext().generation)startLive();}
     }
   }
 
@@ -363,5 +384,5 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     if (selectedId) void write('delete-style', { styleId: selectedId }, null);
   }
   render();
-  return { reset, read, apply, get items() { return items; } };
+  return { reset, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read, apply, get items() { return items; } };
 }

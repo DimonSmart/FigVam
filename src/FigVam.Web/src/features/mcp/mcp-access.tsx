@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import type { EditorMenu } from '../../app/editor-menu';
 import { createViewModel } from '../../app/view-model';
 import { Trash2 } from 'lucide-react';
 import { Button } from '../../ui/Button';
@@ -72,26 +73,23 @@ function McpView({state}:{state:McpViewState}){
   return <><p role="alert">{state.message}</p><Button onClick={state.reload}>Обновить</Button></>;
 }
 export function createMcpAccessModel(){return createViewModel(McpView);}
-export function createMcpAccess({model,request,getContext,capture}:{model:ReturnType<typeof createMcpAccessModel>;request:ApiClient;getContext():Context;capture:Capture}) {
-  const menu = document.getElementById('mcp-access-menu');
-  const body = document.getElementById('mcp-access-body');
-  if (!(menu instanceof HTMLDetailsElement) || !body) throw new Error('MCP access host missing.');
-  const host = menu;
+export function createMcpAccess({model,request,getContext,capture,menu}:{model:ReturnType<typeof createMcpAccessModel>;request:ApiClient;getContext():Context;capture:Capture;menu:EditorMenu}) {
+  const isOpen = () => menu.getSnapshot() === 'mcp';
   let controller: AbortController | null = null, current: Operation | null = null;
   const valid = (operation: Operation) => {
     const context = getContext();
-    return host.open && current === operation && !operation.signal.aborted &&
+    return isOpen() && current === operation && !operation.signal.aborted &&
       context.documentId === operation.documentId && context.token === operation.token && context.navigationEpoch === operation.navigationEpoch;
   };
   function clear() {
     controller?.abort(); controller = null; current = null;
     model.clear();
   }
-  function reset() { capture.stop(); host.open = false; clear(); }
+  function reset() { capture.stop(); menu.close('mcp'); clear(); }
   async function load(method: Method = 'GET', tunnel = false) {
     clear();
     const context = getContext();
-    if (!context.documentId || !host.open) return;
+    if (!context.documentId || !isOpen()) return;
     controller = new AbortController();
     const operation: Operation = {...context, signal: controller.signal}; current = operation;
     model.publish({state:{kind:'loading'}});
@@ -111,6 +109,7 @@ export function createMcpAccess({model,request,getContext,capture}:{model:Return
       model.publish({state:{kind:'error',message,reload:()=>void load()}});
     }
   }
-  host.addEventListener('toggle', () => { if (host.open) void load(); else clear(); });
-  return {reset, onCaptureEvent: capture.onEvent, onCaptureDisconnect: capture.onDisconnect};
+  const unsubscribe = menu.subscribe(() => { if (isOpen()) void load(); else clear(); });
+  function dispose() { unsubscribe(); reset(); }
+  return {reset, dispose, onCaptureEvent: capture.onEvent, onCaptureDisconnect: capture.onDisconnect};
 }

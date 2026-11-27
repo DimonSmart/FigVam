@@ -176,7 +176,7 @@ test('creates, previews, saves and reopens a visual design after a server restar
     await reopened.goto(server.url);
     await signIn(reopened);
     await reopened.getByRole('link', { name: title, exact: true }).click();
-    await reopened.locator('#screens button').click();
+    await reopened.locator('#screens button.screen-select').click();
     await reopened.getByRole('button', { name: '100%', exact: true }).click();
     const reopenedDesign = reopened.locator('#screen-boundary');
     await expectVisuals(reopenedDesign, ids, 96);

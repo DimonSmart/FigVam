@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useLayoutEffect, useRef, useSyncExternalStore } from 'react';
 import type { MouseEvent, ReactNode } from 'react';
 import type { EditorMenu, MenuId } from '../../app/editor-menu';
 import { createViewModel } from '../../app/view-model';
 import { flushSync } from 'react-dom';
-import { Check, X, Ellipsis } from 'lucide-react';
+import { Check, X, Ellipsis, Pencil } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
 import { IconButton } from '../../ui/IconButton';
@@ -30,14 +30,13 @@ interface NavigatorActions {
 
 function RenameForm({ kind, draft, name, actions }: {kind: NavigatorKind; draft: RenameDraft; name: string; actions: NavigatorActions}) {
   const input = useRef<HTMLInputElement>(null);
-  const [value, setValue] = useState(draft.value);
   const noun = kind === 'page' ? 'страницы' : 'экрана';
   useLayoutEffect(() => { input.current?.focus({ preventScroll: true }); input.current?.select(); }, []);
   const discard = () => actions.discardRename(kind, draft.id);
   return <form className="navigator-rename-form" onSubmit={event => {
     event.preventDefault();
     if (actions.isBusy() || !input.current) return;
-    const newName = value.trim();
+    const newName = draft.value.trim();
     if (!newName || /[\u0000-\u001f\u007f-\u009f]/.test(newName)) {
       input.current.setCustomValidity('Укажите непустое имя без управляющих символов.');
       input.current.reportValidity();
@@ -46,9 +45,9 @@ function RenameForm({ kind, draft, name, actions }: {kind: NavigatorKind; draft:
     actions.saveRename(kind, draft.id, name, newName);
   }}>
     <TextInput ref={input} id={kind + '-name-input'} type="text" required maxLength={256} autoComplete="off"
-      aria-label={'Имя ' + noun} value={value} onChange={event => {
+      aria-label={'Имя ' + noun} value={draft.value} onChange={event => {
         const next = event.currentTarget.value;
-        event.currentTarget.setCustomValidity(''); setValue(next); actions.changeDraft(kind, next);
+        event.currentTarget.setCustomValidity(''); actions.changeDraft(kind, next);
       }} onKeyDown={event => {
         if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); discard(); }
       }}/>
@@ -107,9 +106,9 @@ function NavigatorRow({ kind, id, name, canEdit, selected, expanded, label, draf
         aria-pressed={selected} aria-expanded={kind === 'page' ? expanded : undefined}
         onClick={() => kind === 'page' ? actions.selectPage(id) : actions.selectScreen(id)}>{label}</Button>
       {canEdit && <>
-        <input type="button" value="✎" className="navigator-rename-action"
+        <IconButton className="navigator-rename-action" icon={Pencil} iconSize={14}
           data-page-rename-id={kind === 'page' ? id : undefined} data-screen-rename-id={kind === 'screen' ? id : undefined}
-          title={'Переименовать ' + noun} aria-label={'Переименовать ' + noun + ' «' + name + '»'}
+          title={'Переименовать ' + noun} label={'Переименовать ' + noun + ' «' + name + '»'}
           onClick={() => { if (!actions.isBusy()) actions.startRename(kind, id, name); }}/>
         <details className="navigator-context-menu" ref={menu} data-editor-menu={menuId} open={active}>
           <summary ref={trigger} onClick={event=>{event.preventDefault();if(!actions.isBusy())actions.menu.toggle(menuId);}} title={triggerLabel} aria-label={triggerLabel + ' «' + name + '»'}><Ellipsis size={16} aria-hidden="true"/></summary>
@@ -159,8 +158,8 @@ export function createDocumentNavigatorModel() { return createViewModel(Navigato
 
 export function createDocumentNavigator(model: ReturnType<typeof createDocumentNavigatorModel>, actions: NavigatorActions) {
   return {
-    // Navigation commands restore focus immediately after rendering.
-    render(state: NavigatorState) { flushSync(() => model.publish({state, actions})); },
+    // Only explicit immediate focus restoration needs synchronous rendering.
+    render(state: NavigatorState, synchronous=false) { const publish=()=>model.publish({state,actions}); if(synchronous)flushSync(publish);else publish(); },
     dispose() { model.clear(); },
   };
 }

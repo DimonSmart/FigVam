@@ -1,12 +1,13 @@
 import { authHeaders, credentialsMode } from '../../api/auth-client';
 import type { ApiClient } from '../../api/api-client';
 import { record } from '../../api/decode';
-import { token, navigationEpoch } from '../../core/session';
+import type { SessionLifecycle } from '../../core/session';
 import type { ApplicationShellModel } from '../../app/application-shell-state';
 import type { Retry, Work } from '../../app/request-runner';
 
 interface Options {
   shellState: ApplicationShellModel;
+  session: Pick<SessionLifecycle, 'token' | 'navigationEpoch' | 'signal'>;
   request: ApiClient;
   run(action: Retry | null, work: Work, options?: { create?: boolean; quiet?: boolean }): Promise<void>;
   message(status?: string, error?: string): void;
@@ -16,11 +17,11 @@ interface Options {
 }
 
 /** Owns document creation and the import operation for the current session. */
-export function createDocumentCreation({shellState, request, run, message, navigate, loadList, onUnauthorized}: Options) {
+export function createDocumentCreation({shellState, request, run, message, navigate, loadList, onUnauthorized, session}: Options) {
   let importOperation: { token: string; epoch: number } | null = null;
 
   async function createDocument() {
-    if (shellState.getSnapshot().controlsDisabled || !token) return;
+    if (shellState.getSnapshot().controlsDisabled || !session.token) return;
     const name = shellState.getSnapshot().documentName.trim();
     if (!name || /[\u0000-\u001f\u007f-\u009f]/.test(name)) {
       message('', 'Укажите непустое имя без управляющих символов.');
@@ -35,20 +36,20 @@ export function createDocumentCreation({shellState, request, run, message, navig
     }, { create: true });
   }
   async function importDocument() {
-    if (importOperation || !token) return;
+    if (importOperation || !session.token) return;
     const file = shellState.getSnapshot().importFile;
     if (!file) return;
     const name = file.name.toLowerCase();
     const format = name.endsWith('.figvam') ? 'container.figvam' : name.endsWith('.json') ? 'document.json' : null;
     shellState.patch({ importError: '', importStatus: '', importDiagnostics: [] });
     if (!format) { shellState.patch({ importError: 'Выберите файл document.json или .figvam.' }); return; }
-    const operation = { token, epoch: navigationEpoch };
+    const operation = { token: session.token, epoch: session.navigationEpoch };
     importOperation = operation;
-    const active = () => importOperation === operation && token === operation.token && navigationEpoch === operation.epoch;
+    const active = () => importOperation === operation && session.token === operation.token && session.navigationEpoch === operation.epoch;
     shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
     try {
       const response = await fetch(`/api/v1/documents/import/${format}`, {
-        method: 'POST', body: file, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
+        method: 'POST', body: file, signal: session.signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
         headers: { ...authHeaders(operation.token, 'POST'), 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
       });
       if (!active()) return;
@@ -70,13 +71,13 @@ export function createDocumentCreation({shellState, request, run, message, navig
       shellState.resetImport();
       shellState.patch({ importBusy: true, importStatus: 'Импорт документа…' });
       await loadList();
-      if (importOperation === operation && token === operation.token && navigationEpoch === operation.epoch + 1) navigate(`/documents/${body.documentId}`);
+      if (importOperation === operation && session.token === operation.token && session.navigationEpoch === operation.epoch + 1) navigate(`/documents/${body.documentId}`);
     } catch {
       if (active()) shellState.patch({ importStatus: '', importError: 'Результат импорта неизвестен: документ мог быть создан. Проверьте список перед повторной попыткой.' });
     } finally {
       if (importOperation === operation) {
         importOperation = null;
-        shellState.patch({ importBusy: false, ...(navigationEpoch !== operation.epoch ? { importStatus: '' } : {}) });
+        shellState.patch({ importBusy: false, ...(session.navigationEpoch !== operation.epoch ? { importStatus: '' } : {}) });
       }
     }
   }

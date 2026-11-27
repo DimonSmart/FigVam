@@ -112,7 +112,7 @@ test('inspector applies valid properties automatically, rejects invalid values a
   const { documentId, screenId, nodeId, tokenId, base } = await seedText(request);
   await page.goto(`/documents/${documentId}`);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator(`[role=treeitem][data-id="${nodeId}"]`).press('Enter');
   const panel = page.locator('#visual-inspector');
   const width = panel.getByLabel('Ширина', { exact: true });
@@ -187,7 +187,7 @@ test('inspector displays geometry in two compact rows without rounding stored va
   });
   await page.goto(`/documents/${documentId}`);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator(`[role=treeitem][data-id="${nodeId}"]`).press('Enter');
   const panel = page.locator('#visual-inspector');
   const rows = panel.locator('#visual-properties > .node-geometry-row');
@@ -262,7 +262,7 @@ test('retry after a lost acknowledgement reuses the identical atomic edit', asyn
   const { documentId, screenId, nodeId, base } = await seedText(request);
   await page.goto(`/documents/${documentId}`);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator(`[role=treeitem][data-id="${nodeId}"]`).press('Enter');
   const panel = page.locator('#visual-inspector');
   const text = panel.getByLabel('Текст', { exact: true });
@@ -296,7 +296,7 @@ test('Viewer sees profile properties with editing controls disabled and the pale
   });
   await page.goto(`/documents/${documentId}`);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator(`[role=treeitem][data-id="${nodeId}"]`).press('Enter');
   await expect(page.locator('#visual-palette')).toBeHidden();
   const panel = page.locator('#visual-inspector');
@@ -310,7 +310,7 @@ test('asset upload retries the same command after a lost acknowledgement', async
   const { documentId, base } = await seedText(request);
   await page.goto(`/documents/${documentId}`);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   const attempts = [];
   await page.route(`**${base}/assets/*`, async route => {
     if (route.request().method() !== 'PUT') return route.continue();
@@ -337,7 +337,7 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
   const first = await seedText(request), second = await seedText(request);
   await page.goto(`/documents/${first.documentId}`);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   let release;
   const hold = new Promise(resolve => { release = resolve; });
   let accepted;
@@ -355,7 +355,7 @@ test('switching documents keeps an in-flight upload isolated', async ({ page, re
   await received;
   await page.evaluate(id => { history.pushState(null, '', `/documents/${id}`); dispatchEvent(new PopStateEvent('popstate')); }, second.documentId);
   await show(page, 'layers');
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await expect(page.getByLabel('Изображение PNG')).toHaveValue('');
   release();
   await expect(page.locator('#asset-upload-status')).toBeEmpty();
@@ -381,7 +381,7 @@ test('compact numeric control binds, switches and unlinks aliases with automatic
     values: { Light: spacing(4), Dark: spacing(6) } });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
 
   const panel = page.locator('#visual-inspector');
@@ -473,7 +473,7 @@ test('token popover supports keyboard search, Escape and preserves a read-only i
   });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator('[role=treeitem][data-id="' + nodeId + '"]').press('Enter');
   const row = page.locator('#visual-inspector .node-property--token').filter({
     has: page.locator('.token-value-label', { hasText: 'Цвет текста' })
@@ -531,7 +531,7 @@ test('the creation palette accepts an optional token reference without saving un
   const { documentId, screenId, tokenId, base } = await seedText(request);
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await show(page, 'palette');
   const palette = page.locator('#visual-palette');
   await palette.getByLabel('Вид элемента').selectOption('Button');
@@ -581,7 +581,7 @@ test('letter spacing exposes a local style override reset and restores inherited
   });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator('[role=treeitem][data-id="' + nodeId + '"]').press('Enter');
   const inspector = page.locator('#visual-inspector');
   const reset = inspector.getByRole('button', { name: 'Сбросить к стилю: Межбуквенный интервал' });
@@ -609,7 +609,7 @@ test('Effects is optional, edits one typed shadow, resets variants and removes w
   await post(request, base + '/commands/add-screen-variant', { commandId: randomUUID(), screenId, variantId, name: 'Alternate' });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await show(page, 'design');
   const panel = page.locator('#visual-inspector');
   const effects = panel.locator('.shadow-effects');
@@ -687,7 +687,7 @@ test('Viewer can inspect saved shadow but cannot add, edit or remove it', async 
   });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
   const effects = page.locator('#visual-inspector .shadow-effects');
   await expect(effects.getByLabel('Drop shadow Blur', { exact: true })).toHaveValue('8');
@@ -711,7 +711,7 @@ test('padding editor retains individual controls, tokens, drafts, history and va
   await command('add-screen-variant', { screenId, variantId, name: 'Alternate' });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await show(page, 'design');
   const select = id => page.locator('[role=treeitem][data-id="' + id + '"]').press('Enter');
   const panel = page.locator('#visual-inspector');
@@ -836,7 +836,7 @@ test('automatic inspector preserves a newer edit during a delayed acknowledgemen
   await post(request, base + '/commands/add-node', { commandId: randomUUID(), nodeId: other, parentId: screenId, kind: 'Text' });
   await page.goto('/documents/' + documentId);
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator('[role=treeitem][data-id="' + nodeId + '"]').press('Enter');
   const panel = page.locator('#visual-inspector');
   const field = panel.getByLabel('Текст', { exact: true });
@@ -889,7 +889,7 @@ test('shadow token can be created, edited, bound, resolved by theme, persisted a
   await expect(page.locator('#tokens-list')).toContainText('20 px');
   await page.locator('#document-mode-editor').click();
   await show(page, 'design');
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
   const effects = page.locator('#visual-inspector .shadow-effects');
   await effects.getByRole('button', { name: 'Add drop shadow' }).click();
@@ -905,7 +905,7 @@ test('shadow token can be created, edited, bound, resolved by theme, persisted a
   const reference = (await properties()).shadow;
   await page.reload();
   await login(page);
-  await page.locator('#screens button').first().click();
+  await page.locator('#screens button.screen-select').first().click();
   await show(page, 'design');
   await page.locator('[role=treeitem][data-id="' + frameId + '"]').press('Enter');
   await expect(effects.locator('.token-value-name')).toHaveText('Elevation');

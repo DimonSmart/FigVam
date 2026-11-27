@@ -4,7 +4,8 @@ import type { ReactElement, ComponentType } from 'react';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
-import { postDocumentCommand } from '../../api/document-commands';
+import { createDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
+import { toApiTokenExpression } from '../../api/command-value-contracts';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
@@ -19,11 +20,24 @@ import { rawArray, rawText } from '../../ui/property-control-contract';
 import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
 type Command='add-token'|'set-token-value'|'delete-token'|'rename-token'|'import-design-tokens';
-type CommandData=Omit<Schema['AddTokenRequest'],'commandId'|'values'> & {values:Record<Theme,TokenExpression>}
-  | Omit<Schema['SetTokenValueRequest'],'commandId'|'value'> & {value:TokenExpression}
-  | Omit<Schema['DeleteTokenRequest'],'commandId'>
-  | Omit<Schema['RenameTokenRequest'],'commandId'>
-  | Omit<Schema['ImportDesignTokensRequest'],'commandId'>;
+type CommandData={
+  'add-token':Omit<Schema['AddTokenRequest'],'commandId'|'values'> & {values:Record<Theme,TokenExpression>};
+  'set-token-value':Omit<Schema['SetTokenValueRequest'],'commandId'|'value'> & {value:TokenExpression};
+  'delete-token':Omit<Schema['DeleteTokenRequest'],'commandId'>;
+  'rename-token':Omit<Schema['RenameTokenRequest'],'commandId'>;
+  'import-design-tokens':Omit<Schema['ImportDesignTokensRequest'],'commandId'>;
+};
+type TokenCommandInput={ [K in Command]:[command:K,data:CommandData[K],selection?:string] }[Command];
+function prepareTokenCommand(doc:string,...[command,data]:TokenCommandInput):DocumentCommandOperation{
+  switch(command){
+    case 'add-token':return createDocumentCommand(doc,command,{...data,values:{Light:toApiTokenExpression(data.values.Light),Dark:toApiTokenExpression(data.values.Dark)}});
+    case 'set-token-value':return createDocumentCommand(doc,command,{...data,value:toApiTokenExpression(data.value)});
+    case 'delete-token':return createDocumentCommand(doc,command,data);
+    case 'rename-token':return createDocumentCommand(doc,command,data);
+    case 'import-design-tokens':return createDocumentCommand(doc,command,data);
+  }
+}
+interface PendingTokenCommand{operation:DocumentCommandOperation;input:TokenCommandInput;running:boolean;}
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number;navigationEpoch:number}
 interface Options {models:ReturnType<typeof createTokenModels>;selectLayer(id:string):void;showEditor():void;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 interface Usage {label?:string;kind:string;property?:string|null;theme?:number|string|null;indirect:boolean;ownerId:string;chain:string[]}
@@ -198,7 +212,7 @@ function ThemeFields({fields}:{fields:ValueField[]}){
 type ImportKey='combined'|'light'|'dark';
 type ImportValues=Record<ImportKey|'mapping',string>;
 interface TokenPanelProps {
-  error:string;status:string;editable:boolean;busy:boolean;detailBusy:boolean;importOpen:boolean;importMode:'combined'|'pair';importValues:ImportValues;importReset:number;
+  error:string;status:string;editable:boolean;busy:boolean;detailBusy:boolean;retryVisible:boolean;retry():void;importOpen:boolean;importMode:'combined'|'pair';importValues:ImportValues;importReset:number;
   search:string;creating:boolean;selected:boolean;placeholder:string;newName:string;newType:string;newCategory:string;categoryOptions:readonly string[];
   title:string;type:string;diagnostic:string;renaming:boolean;renameName:string;usagesReady:boolean;usageCount:number;
   Menu:ComponentType;Groups:ComponentType;Table:ComponentType;CreateFields:ComponentType;DetailFields:ComponentType;Usage:ComponentType;
@@ -213,6 +227,7 @@ function TokenPanel(p:TokenPanelProps){
   return <>
       <p id="tokens-status" role="status" aria-live="polite">{p.status}</p>
       <p id="tokens-error" role="alert">{p.error}</p>
+      <Button hidden={!p.retryVisible} onClick={p.retry}>Повторить операцию</Button>
       <form id="token-import-form" className="token-import-form" hidden={!p.importOpen} inert={p.busy} onSubmit={event=>{event.preventDefault();p.submitImport();}}>
         <label>
           {"Формат импорта"}
@@ -330,10 +345,12 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
   const emptyImport=():ImportValues=>({combined:'',light:'',dark:'',mapping:''});
   let importValues=emptyImport(),importReset=0,search='',newName='',newType='Color',newCategory='',renameName='',status='',error='',diagnostic='';
   const selected = () => tokenItems.find(t => t.id === selectedToken);
-  const busy = () => commandBusy;
+  const pendingCommands=new Map<string,PendingTokenCommand>();
+  const pending=()=>pendingCommands.get(getContext().documentId??'');
+  const busy = () => commandBusy||!!pending();
   function publishPanel(){
     const item=selected();
-    models.panel.publish({error,status,editable:editable(),busy:commandBusy,detailBusy,importOpen,importMode,importValues:{...importValues},importReset,
+    models.panel.publish({error,status,editable:editable(),busy:busy(),detailBusy:detailBusy||!!pending()&&pending()?.input[0]!=='set-token-value',retryVisible:editable()&&!!pending()&&!pending()?.running,retry:()=>{const op=pending();if(op)void executeTokenCommand(op).then(saved=>{if(saved)void flushThemeSaves();});},importOpen,importMode,importValues:{...importValues},importReset,
       search,creating,selected:!!item,placeholder:group.length?group.join('.')+'.…':'Имя токена',newName,newType,newCategory,categoryOptions:allowedCategories[newType]??[],
       title:item?.name??'',type:item?[typeOf(item),categoryOf(item)].filter(Boolean).join(' · '):'',diagnostic,renaming,renameName,usagesReady,usageCount:tokenUsages.length,
       Menu:models.menu.Component,Groups:models.groups.Component,Table:models.table.Component,CreateFields:models.createFields.Component,DetailFields:models.detailFields.Component,Usage:models.usage.Component,
@@ -345,7 +362,7 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
   }
   function setError(value:string){error=value;publishPanel();}
   function resetImport(){importMode='combined';importValues=emptyImport();importReset++;importOpen=false;}
-  function clearBusy(){commandBusy=false;detailBusy=false;publishPanel();}
+  function clearBusy(){if(!pending()?.running){commandBusy=false;detailBusy=false;}publishPanel();}
   function refreshAccess() {
     syncTypeFilter();
     if (!editable()) { creating=false;pendingThemeValues.clear();importOpen=false;endRename(); }
@@ -526,7 +543,7 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
     });
     if (activeThemeSave !== operation) return;
     activeThemeSave = null;
-    if (!saved) { pendingThemeValues.clear(); return; }
+    if (!saved) { if(!pending())pendingThemeValues.clear(); return; }
     void flushThemeSaves();
   }
   function endRename(){renaming=false;publishPanel();}
@@ -655,26 +672,49 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
       if (current === tokenLoad && doc === getContext().documentId) setError(errorMessage(error));
     }
   }
-  async function tokenCommand(command:Command,data:CommandData,selection?:string):Promise<boolean|undefined> {
+  async function tokenCommand(...input:TokenCommandInput):Promise<boolean|undefined>{
     const doc=getContext().documentId;if(!doc||!editable()||busy())return;
-    stopLive(); const { signal, current } = startRequest();
-    commandBusy=true;detailBusy=command!=='set-token-value';error='';status='Сохранение…';publishPanel();
-    try {
-      await postDocumentCommand(request,doc,command,{commandId:crypto.randomUUID(),...data},signal);
-      if (signal.aborted || current !== getContext().generation) return;
-      if(selection&&'name' in data&&'type' in data){revealToken({id:selection,name:data.name,type:data.type});selectedToken=selection;creating=false;}
-      if(command==='import-design-tokens'){importEpoch++;resetImport();publishPanel();}
-      await readPages(signal);
-      if (current === getContext().generation) { status='';publishPanel();return true; }
-    } catch (error) {
-      if(!aborted(error)&&current===getContext().generation){
-        const diagnostics=error instanceof ApiError&&Array.isArray(error.diagnostics)?error.diagnostics.filter(record).map(d=>String(d.path??'')+': '+String(d.message??'')).join('; '):'';
-        setError(error instanceof TypeError||(error instanceof ApiError&&error.status>=500)?'Результат неизвестен. Обновите документ перед повтором.':diagnostics||(error instanceof ApiError&&error.code==='INVALID_TOKEN'&&error.detail?error.message+' '+error.detail:errorMessage(error)));
+    try{
+      const entry:PendingTokenCommand={operation:prepareTokenCommand(doc,...input),input,running:false};
+      pendingCommands.set(doc,entry);return await executeTokenCommand(entry);
+    }catch(failure){setError(errorMessage(failure));return false;}
+  }
+  async function executeTokenCommand(entry:PendingTokenCommand):Promise<boolean>{
+    const doc=entry.operation.documentId,epoch=getContext().navigationEpoch;
+    if(entry.running||!editable()||getContext().documentId!==doc||pendingCommands.get(doc)!==entry)return false;
+    const [command,data,selection]=entry.input;
+    stopLive();let generation=getContext().generation;const originSelection=selectedToken;
+    const active=()=>getContext().documentId===doc&&getContext().navigationEpoch===epoch&&pendingCommands.get(doc)===entry;
+    entry.running=true;commandBusy=true;detailBusy=command!=='set-token-value';error='';status='Сохранение…';publishPanel();
+    try{
+      const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
+        synchronize:async confirmation=>{
+          const {signal,current}=startRequest();generation=current;
+          if(selectedToken===originSelection&&selection&&'name' in data&&'type' in data){revealToken({id:selection,name:data.name,type:data.type});selectedToken=selection;creating=false;}
+          const refreshed=await readPages(signal);
+          return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
+        }});
+      if(result.kind==='confirmed'&&result.synchronization==='synced'){
+        if(active()){
+          if(command==='import-design-tokens'){importEpoch++;resetImport();}
+          if(command==='rename-token')endRename();
+          status='';
+        }
+        if(pendingCommands.get(doc)===entry)pendingCommands.delete(doc);
+        return true;
       }
-    } finally {
-      if (current === getContext().generation) {
-        status='';clearBusy();startLive();
-      }
+      if(result.kind==='rejected'||result.kind==='conflict'){
+        const failure=result.error;
+        if(active()){
+          const diagnostics=failure instanceof ApiError&&Array.isArray(failure.diagnostics)?failure.diagnostics.filter(record).map(d=>String(d.path??'')+': '+String(d.message??'')).join('; '):'';
+          error=diagnostics||(failure instanceof ApiError&&failure.code==='INVALID_TOKEN'&&failure.detail?failure.message+' '+failure.detail:errorMessage(failure));
+        }
+        if(pendingCommands.get(doc)===entry)pendingCommands.delete(doc);
+      }else if(active())error=result.kind==='confirmed'?'Команда подтверждена. Повторите обновление.':'Результат неизвестен. Повторите ту же операцию.';
+      return false;
+    }finally{
+      entry.running=false;
+      if(getContext().documentId===doc&&getContext().navigationEpoch===epoch){status='';commandBusy=false;detailBusy=false;publishPanel();if(generation===getContext().generation)startLive();}
     }
   }
 
@@ -702,6 +742,6 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
     if (await tokenCommand('rename-token', { tokenId: item.id, name }) && selectedToken === item.id) endRename();
   }
   updateCategoryOptions();
-  return { reset: resetTokens, read: readTokens, apply: applyTokens,
+  return { reset: resetTokens, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read: readTokens, apply: applyTokens,
     readSelectedUsages, applySelectedUsages, refreshAccess, clearBusy, get items() { return tokenItems; } };
 }

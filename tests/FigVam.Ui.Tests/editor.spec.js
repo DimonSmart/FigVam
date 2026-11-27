@@ -197,13 +197,13 @@ test('creates and selects all screens in the page tree, validates dimensions and
   const width = page.getByLabel('Ширина экрана'), height = page.getByLabel('Высота экрана');
   await width.fill('-1'); await height.fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
-  await expect(page.locator('#screens button')).toHaveCount(0);
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(0);
   await width.fill('800'); await height.fill('600'); await height.press('Enter');
-  await expect(page.locator('#screens button')).toHaveCount(1);
-  await expect(page.locator('#screens button').first()).toContainText('800 × 600');
-  await expect(page.locator('#screens button').first()).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('#screens button').first().focus(); await page.keyboard.press('Enter');
-  await expect(page.locator('#screens button').first()).toBeFocused();
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
+  await expect(page.locator('#screens button.screen-select').first()).toContainText('800 × 600');
+  await expect(page.locator('#screens button.screen-select').first()).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#screens button.screen-select').first().focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('#screens button.screen-select').first()).toBeFocused();
   for (const [status, code, expected] of [[404, 'PAGE_NOT_FOUND', 'Страница больше не существует'], [403, 'FORBIDDEN', 'Нет доступа']]) {
     await page.route('**/commands/add-screen', route => route.fulfill({ status, json: { code } }));
     await show(page, 'screen');
@@ -224,15 +224,15 @@ test('creates and selects all screens in the page tree, validates dimensions and
     await postSuccessfully(page.request, `${api}/commands/add-screen`, { headers, data: { commandId: require('node:crypto').randomUUID(), pageId: pages.items[0].id, screenId: require('node:crypto').randomUUID(), dimensions: { width: i, height: 10 } } });
   }
   await page.getByRole('link', { name: 'Screens', exact: true }).click();
-  await expect(page.locator('#screens button')).toHaveCount(21);
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(21);
   await expect(page.locator('#screens-previous')).toHaveCount(0);
   await expect(page.locator('#screens-next')).toHaveCount(0);
-  await page.locator('#screens button').last().focus(); await page.keyboard.press('Enter');
-  await expect(page.locator('#screens button').last()).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#screens button.screen-select').last().focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('#screens button.screen-select').last()).toHaveAttribute('aria-pressed', 'true');
   await page.route('**/api/v1/documents?*', async route => { const response = await route.fetch(); const body = await response.json(); body.items = body.items.map(item => ({ ...item, role: 'Viewer' })); await route.fulfill({ response, json: body }); });
   await page.reload(); await login(page);
   await expect(page.getByRole('button', { name: 'Создать экран' })).toBeHidden();
-  await expect(page.locator('#screens button')).toHaveCount(21);
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(21);
 });
 
 
@@ -271,7 +271,7 @@ test('shows selected screen and provides local accessible viewport controls', as
   await expect(page.getByText('Экран: 0 × 0 uiUnit')).toBeVisible();
   await page.getByRole('button', { name: 'Вместить экран' }).click();
   expect(await boundary.evaluate(el => el.style.transform)).not.toMatch(/NaN|Infinity/);
-  await page.locator('#screens button').filter({ hasText: '800 × 600' }).click();
+  await page.locator('#screens button.screen-select').filter({ hasText: '800 × 600' }).click();
   await expect(page.getByText('Экран: 800 × 600 uiUnit')).toBeVisible();
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await expect(boundary).toBeHidden();
@@ -287,8 +287,8 @@ test('reads paginated nested layers and clears selection on failures and page ch
   await page.getByRole('button', { name: 'Создать страницу' }).click();
   await show(page, 'screen'); await page.getByLabel('Ширина экрана').fill('800'); await page.getByLabel('Высота экрана').fill('600');
   await page.getByRole('button', { name: 'Создать экран' }).click();
-  await expect(page.locator('#screens button')).toHaveCount(1);
-  const screenId = await page.locator('#screens button').getAttribute('data-screen-id');
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
+  const screenId = await page.locator('#screens button.screen-select').getAttribute('data-screen-id');
   const root = '11111111-1111-1111-1111-111111111111';
   let mode = 'ok', requests = [];
   await page.route('**/children/**', async route => {

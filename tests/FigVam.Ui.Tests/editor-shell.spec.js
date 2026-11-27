@@ -50,7 +50,7 @@ test('editor shell gives the canvas first-screen priority and retains existing t
   await page.screenshot({ path: testInfo.outputPath('editor-shell-empty.png') });
 
   await page.getByRole('button', { name: 'Создать страницу', exact: true }).click();
-  await expect(page.locator('#pages button')).toHaveCount(1);
+  await expect(page.locator('#pages button.page-select')).toHaveCount(1);
   await page.locator('#canvas-empty button').click();
   await expect(page.locator('#screen-create')).toBeVisible();
   await page.getByLabel('Ширина экрана').fill('800');
@@ -123,7 +123,7 @@ test('screen presets initialize dimensions, follow manual edits, and reset toget
   await expect(height).toHaveValue('900');
 
   await page.locator('#screen-create button[type=submit]').click();
-  await expect(page.locator('#screens button').first()).toContainText('1440 × 900');
+  await expect(page.locator('#screens button.screen-select').first()).toContainText('1440 × 900');
 });
 
 for (const viewport of [{ width: 1200, height: 800 }, { width: 390, height: 500 }]) {

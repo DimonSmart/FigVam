@@ -63,7 +63,7 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   }
   let answer = (route, body) => { move(body.nodeId, body.expectedParentId, body.targetParentId, body.position); return ack(route, body); };
   function ack(route, body) {
-    return route.fulfill({ json: { status: 'ACCEPTED', documentId: doc, commandId: body.commandId, revision: 4 } });
+    return route.fulfill({ json: { status: 'ACCEPTED', documentId: doc, commandId: body.commandId, revision: 4, pageId:null, screenId:null, nodeId:body.nodeId, versionId:null, affectedIds:[body.nodeId] } });
   }
   await page.route('**/commands/move-node', route => {
     calls.push(route.request().postData());
@@ -72,8 +72,8 @@ async function setup(page, request, { role = 'Owner', paged = false } = {}) {
   await page.goto(`/documents/${doc}`);
   await page.getByLabel('Bearer-токен', { exact: true }).fill(bearer);
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
-  await expect(page.locator('#screens button')).toHaveCount(2);
-  await page.locator('#screens button').first().click();
+  await expect(page.locator('#screens button.screen-select')).toHaveCount(2);
+  await page.locator('#screens button.screen-select').first().click();
   await expect(layer(page, source)).toBeVisible();
   return { calls, reads, source, target, folder, descendant, leaf, existingChild, screen, anotherScreen, children, move, ack,
     answer: fn => { answer = fn; } };
@@ -212,39 +212,70 @@ test('a rejected move after access loss closes the active document', async ({ pa
   await expect(page.locator('#error')).toContainText('Доступ к документу потерян');
 });
 
+test('access loss still closes the current document after changing layer selection', async ({ page, request }) => {
+  const f = await setup(page, request);
+  const entered = deferred(), release = deferred();
+  f.answer(async route => {
+    entered.resolve();
+    await release.promise;
+    return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
+  });
+  await selectLayer(page, f.source);
+  await submit(page, f);
+  await entered.promise;
+  await selectLayer(page, f.leaf);
+  const received = page.waitForResponse(response => response.url().endsWith('/commands/move-node'));
+  release.resolve();
+  expect((await received).status()).toBe(403);
+  await expect(page.locator('#editor-view')).toBeHidden();
+  await expect(page.locator('#error')).toContainText('Доступ к документу потерян');
+  expect(f.calls).toHaveLength(1);
+});
+
 for (const exit of ['selection', 'screen', 'document', 'logout']) {
-  test(`a late move response is ignored after changing ${exit}`, async ({ page, request }) => {
+  test(`a late move response is isolated after changing ${exit}`, async ({ page, request }) => {
     const f = await setup(page, request);
     const entered = deferred(), release = deferred();
+    const status = exit === 'selection' ? 503 : 403;
     f.answer(async route => {
       entered.resolve();
       await release.promise;
-      return route.fulfill({ status: 403, json: { code: 'FORBIDDEN' } });
+      // A logout aborts the browser request before it can receive a response.
+      if (exit === 'logout') { await route.abort().catch(() => {}); return; }
+      return route.fulfill({ status, json: { code: status === 403 ? 'FORBIDDEN' : 'SERVICE_UNAVAILABLE' } });
     });
     await selectLayer(page, f.source);
     await submit(page, f);
     await entered.promise;
+    const completion = exit === 'logout'
+      ? page.waitForEvent('requestfailed', { predicate: req => req.url().endsWith('/commands/move-node') })
+      : page.waitForResponse(response => response.url().endsWith('/commands/move-node'));
     if (exit === 'selection') await selectLayer(page, f.leaf);
     if (exit === 'screen') {
-      await page.locator('#screens button').nth(1).click();
+      await page.locator('#screens button.screen-select').nth(1).click();
       await expect(page.locator('#layers')).toContainText('Other screen container');
     }
     if (exit === 'document') await page.getByRole('link', { name: '← Документы' }).click();
-    if (exit === 'logout') await page.locator('#editor-signout').click();
-    const received = page.waitForResponse(response => response.url().endsWith('/commands/move-node'));
-    release.resolve();
-    expect((await received).status()).toBe(403);
+    if (exit === 'logout') {
+      await page.locator('#editor-signout').click();
+      // Verify session cancellation independently of the route handler releasing the response.
+      await completion;
+      await expect(page.locator('#authentication')).toBeVisible();
+      release.resolve();
+    } else {
+      release.resolve();
+      expect((await completion).status()).toBe(status);
+    }
     if (exit === 'selection') {
       await expect(layer(page, f.leaf)).toHaveAttribute('aria-selected', 'true');
       await expect(retry(page)).toBeVisible();
     }
     if (exit === 'screen') {
       await expect(page.locator('#layers')).toContainText('Other screen container');
-      await page.locator('#screens button').first().click();
+      await page.locator('#screens button.screen-select').first().click();
       await expect(retry(page)).toBeVisible();
     }
     if (exit === 'document') await expect(page.locator('#documents-view')).toBeVisible();
-    if (exit === 'logout') await expect(page.locator('#authentication')).toBeVisible();
     await expect(page.locator('#error')).not.toContainText('Доступ к документу потерян');
     await expect(page.locator('.layer-drag-ghost')).toHaveCount(0);
     expect(f.calls).toHaveLength(1);

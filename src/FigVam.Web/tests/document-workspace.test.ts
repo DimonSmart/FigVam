@@ -38,6 +38,10 @@ describe('document workspace', () => {
     state.confirmNodeEdit(8);
     expect(state.revision).toBe(8);
     expect(state.catalogRevision).toBe(7);
+    state.confirmNodeEdit(6);
+    state.confirmStructure(7);
+    expect(state.revision).toBe(8);
+    expect(state.catalogRevision).toBe(7);
     state.reset();
     expect(state.revision).toBeNull();
     expect(state.catalogRevision).toBeNull();

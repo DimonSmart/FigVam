@@ -1,17 +1,17 @@
-import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
+import { prepareDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
-import { ApiError, type ApiClient } from '../../api/api-client';
+import type { ApiClient } from '../../api/api-client';
 import { requiredRecord, text, page, aborted, errorMessage } from '../../api/decode';
 import type { components } from '../../api/schema.generated';
 type VariantCommand=components['schemas']['AddScreenVariantRequest'];
 interface Variant {id:string;name:string}
 interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;catalogRevision:number|null;token:string|null;navigationEpoch:number}
 interface Options {model:ReturnType<typeof createScreenVariantsModel>;element(id:string):HTMLElement;request:ApiClient;refreshPages():Promise<unknown>;onSelectionChanged?():void;pageSize:number;workspace:Workspace}
-interface Operation {body:VariantCommand;state:'ready'|'pending'|'uncertain'}
+interface Operation {body:VariantCommand;mutation:DocumentCommandOperation;state:'ready'|'pending'|'uncertain'|'sync'}
 interface State {items:Variant[];status:string;error:string;retry:boolean;offset:number;total:number;formKey:number;hasBase:boolean}
 const initial=():State=>({items:[],status:'Выберите экран.',error:'',retry:false,offset:0,total:0,formKey:0,hasBase:false});
 function View({state,selected,editable,enabled,op,pageSize,select,create,retry,retryCommand,move}:{state:State;selected:string|null;editable:boolean;enabled:boolean;op:Operation|undefined;pageSize:number;select(id:string|null):void;create(name:string):void;retry():void;retryCommand():void;move(delta:number):void}){
@@ -26,7 +26,7 @@ function View({state,selected,editable,enabled,op,pageSize,select,create,retry,r
     <Pagination prefix="screen-variants" label="Навигация по вариантам экрана" previousLabel="Предыдущие варианты" nextLabel="Следующие варианты" offset={enabled?state.offset:0} total={enabled?state.total:0} pageSize={pageSize} previous={()=>move(-1)} next={()=>move(1)}/>
     <form id="screen-variant-create" hidden={!editable} key={state.formKey} onSubmit={e=>{e.preventDefault();const field=e.currentTarget.elements.namedItem('name');if(field instanceof HTMLInputElement)create(field.value);}}>
       <label htmlFor="screen-variant-name">Имя нового варианта</label><TextInput id="screen-variant-name" name="name" maxLength={256} required readOnly={!!op}/><Button type="submit" disabled={!!op}>Создать пустой вариант</Button>
-    </form><Button id="screen-variant-command-retry" hidden={!editable||op?.state!=='uncertain'} onClick={retryCommand}>Повторить создание варианта</Button>
+    </form><Button id="screen-variant-command-retry" hidden={!editable||!(op?.state==='uncertain'||op?.state==='sync')} onClick={retryCommand}>Повторить создание варианта</Button>
   </>;
 }
 export function createScreenVariantsModel(){return createViewModel(View);}
@@ -38,9 +38,9 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
   const canEdit=()=>!!workspace.selectedScreen&&['Owner','Editor'].includes(workspace.documentRole??'');
   function render(patch:Partial<State>={}){
     state={...state,...patch};
-    const op=operations.get(currentKey()),error=op?.state==='uncertain'?'Результат создания неизвестен. Повторите ту же команду.':commandError?.key===currentKey()?commandError.message:state.error;
+    const op=operations.get(currentKey()),error=op?.state==='uncertain'?'Результат создания неизвестен. Повторите ту же команду.':op?.state==='sync'?'Создание подтверждено. Повторите обновление.':commandError?.key===currentKey()?commandError.message:state.error;
     model.publish({state:{...state,error},selected,editable:canEdit(),enabled:!!workspace.selectedScreen,op,pageSize,
-      select:selectVariant,create:name=>void create(name),retry:()=>void load(),retryCommand:()=>{const doc=workspace.documentId,screen=workspace.selectedScreen;if(doc&&screen&&op?.state==='uncertain')void send(doc,screen,op);},
+      select:selectVariant,create:name=>void create(name),retry:()=>void load(),retryCommand:()=>{const doc=workspace.documentId,screen=workspace.selectedScreen;if(doc&&screen&&(op?.state==='uncertain'||op?.state==='sync'))void send(doc,screen,op);},
       move:delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();}});
   }
   function selectVariant(id:string|null){if(id===selected)return;selected=id;render();onSelectionChanged?.();}
@@ -63,24 +63,32 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
   }
   async function send(doc:string,screen:string,op:Operation){
     const k=key(doc,screen),token=workspace.token,epoch=workspace.navigationEpoch;
-    if(op.state==='pending'||!canEdit())return;
-    const active=()=>doc===workspace.documentId&&screen===workspace.selectedScreen&&workspace.token===token&&epoch===workspace.navigationEpoch&&workspace.isEditorVisible();
-    op.state='pending';if(active()){commandError=null;render({error:''});}
+    if(op.state==='pending'||!canEdit()||operations.get(k)!==op)return;
+    const active=()=>doc===workspace.documentId&&workspace.token===token&&epoch===workspace.navigationEpoch&&workspace.isEditorVisible()&&canEdit()&&operations.get(k)===op;
+    const visible=()=>active()&&screen===workspace.selectedScreen;
+    op.state='pending';if(visible()){commandError=null;render({error:''});}
     try{
-      await postDocumentCommand(request,doc,'add-screen-variant',op.body);
-      if(operations.get(k)!==op)return;operations.delete(k);
-      if(active()){render({formKey:state.formKey+1});selectVariant(op.body.variantId);await refreshPages();}
-    }catch(error){
+      const result=await op.mutation.execute({request,isCurrent:active,synchronize:async confirmation=>{
+        if(visible()){render({formKey:state.formKey+1});selectVariant(op.body.variantId);}
+        await refreshPages();
+        return active()&&(workspace.revision??-1)>=confirmation.revision;
+      }});
       if(operations.get(k)!==op)return;
-      if(!(error instanceof ApiError)||classifyCommandFailure(error,true,false)==='uncertain')op.state='uncertain';
-      else{operations.delete(k);if(active()){commandError={key:k,message:error.message};render({error:error.message});}}
-    }finally{if(active())render();}
+      if(result.kind==='confirmed'&&result.synchronization==='synced')operations.delete(k);
+      else if(result.kind==='confirmed')op.state='sync';
+      else if(result.kind==='uncertain')op.state='uncertain';
+      else if(result.kind==='conflict'||result.kind==='rejected'){
+        const show=visible();operations.delete(k);
+        if(show){commandError={key:k,message:errorMessage(result.error)};render({error:commandError.message});}
+      }
+    }finally{if(doc===workspace.documentId&&screen===workspace.selectedScreen&&workspace.token===token&&epoch===workspace.navigationEpoch)render();}
   }
   async function create(name:string){
     const doc=workspace.documentId,screen=workspace.selectedScreen,k=currentKey();
     if(!doc||!screen||!canEdit()||operations.has(k))return;
-    const op:Operation={body:{commandId:crypto.randomUUID(),screenId:screen,variantId:crypto.randomUUID(),name},state:'ready'};
+    const body:VariantCommand={commandId:crypto.randomUUID(),screenId:screen,variantId:crypto.randomUUID(),name};
+    const op:Operation={body,mutation:prepareDocumentCommand(doc,'add-screen-variant',body),state:'ready'};
     operations.set(k,op);await send(doc,screen,op);
   }
-  render();return{reset,load,get selectedVariantId(){return selected;}};
+  render();return{reset,load,clearCommands:()=>operations.clear(),discardDocument(doc:string){for(const id of operations.keys())if(id.startsWith(doc+'/'))operations.delete(id);},get selectedVariantId(){return selected;}};
 }

@@ -1,3 +1,4 @@
+import { prepareDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
@@ -14,7 +15,7 @@ type DatasetCommand =
   | {command:'replace-dataset-fixture';body:Schemas['ReplaceDatasetFixtureRequest']}
   | {command:'replace-dataset-fixture-from-csv';body:Schemas['ReplaceDatasetFixtureFromCsvRequest']}
   | {command:'delete-dataset';body:Schemas['DeleteDatasetRequest']};
-type Operation=DatasetCommand & {selection:string|null;busy:boolean;accepted:boolean};
+type Operation={mutation:DocumentCommandOperation;selection:string|null;busy:boolean};
 type Summary=Pick<Schemas['DatasetSummary'],'id'|'name'>;
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;catalogRevision:number|null;token:string|null;generation:number;navigationEpoch:number}
 interface Options {
@@ -90,31 +91,41 @@ export function createDatasets({model,request,getContext,pageSize,startRequest,s
   }
   async function command(op:Operation){
     const ctx=getContext(),doc=ctx.documentId;
-    if(!doc||!editable()||op.busy)return;
-    const active=()=>{const current=getContext();return current.documentId===doc&&current.token===ctx.token&&current.navigationEpoch===ctx.navigationEpoch;};
-    op.busy=true;operations.set(doc,op);render({error:'',status:'Сохранение датасета…'});
+    if(!doc||!editable()||op.busy||operations.get(doc)!==op)return;
+    const active=()=>{const now=getContext();return operations.get(doc)===op&&now.documentId===doc&&now.token===ctx.token&&now.navigationEpoch===ctx.navigationEpoch&&editable();};
+    op.busy=true;render({error:'',status:'Сохранение датасета…'});
+    let refreshing=false;
     try{
-      if(!op.accepted){await request('/api/v1/documents/'+encodeURIComponent(doc)+'/commands/'+op.command,{method:'POST',body:JSON.stringify(op.body)});op.accepted=true;}
-      if(!active())return;
-      stopLive();const {signal,current}=startRequest();
-      state.selection=op.selection;
-      await readPages(signal);
-      if(!active()||current!==getContext().generation||signal.aborted)return;
-      operations.delete(doc);render({status:'Изменение сохранено.'});startLive();
-    }catch(error){
-      if(!op.accepted&&error instanceof ApiError&&error.status<500)operations.delete(doc);
-      if(!active())return;
-      const code=error instanceof ApiError?error.code:undefined;
-      if(code==='REVISION_CONFLICT')render({error:'Документ изменился. Обновите датасеты перед повтором.',retry:true});
-      else if(code==='DATASET_IN_USE')render({error:'Датасет используется. Удалите ссылки перед удалением.'});
-      else if(operations.has(doc))render({error:'Результат операции неизвестен или обновление не завершено. Повторите операцию с тем же идентификатором.'});
-      else render({error:errorMessage(error)});
-      startLive();
-    }finally{op.busy=false;if(active())render();}
+      const result=await op.mutation.execute({request,isCurrent:active,synchronize:async confirmation=>{
+        stopLive();refreshing=true;const {signal,current}=startRequest();
+        state.selection=op.selection;
+        const refreshed=await readPages(signal);
+        return active()&&current===getContext().generation&&!signal.aborted&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
+      }});
+      if(operations.get(doc)!==op)return;
+      if(result.kind==='confirmed'&&result.synchronization==='synced'){
+        operations.delete(doc);if(active()||getContext().documentId===doc&&getContext().navigationEpoch===ctx.navigationEpoch)render({status:'Изменение сохранено.'});
+      }else if(result.kind==='rejected'||result.kind==='conflict'){
+        const visible=active(),error=result.error;operations.delete(doc);
+        if(visible){
+          const code=error instanceof ApiError?error.code:undefined;
+          if(code==='REVISION_CONFLICT')render({status:'',error:'Документ изменился. Обновите датасеты перед повтором.',retry:true});
+          else if(code==='DATASET_IN_USE')render({status:'',error:'Датасет используется. Удалите ссылки перед удалением.'});
+          else render({status:'',error:errorMessage(error)});
+        }
+      }else if(active()&&(result.kind==='confirmed'||result.kind==='uncertain')){
+        render({status:'',error:result.kind==='confirmed'?'Изменение подтверждено. Повторите обновление.':'Результат операции неизвестен. Повторите операцию с тем же идентификатором.'});
+      }
+    }finally{
+      op.busy=false;
+      if(getContext().documentId===doc&&getContext().token===ctx.token&&getContext().navigationEpoch===ctx.navigationEpoch){render();if(refreshing)startLive();}
+    }
   }
   function submit(commandValue:DatasetCommand,selection:string|null){
     const doc=getContext().documentId;if(!doc||operations.has(doc))return;
-    void command({...commandValue,selection,busy:false,accepted:false});
+    const mutation=prepareDocumentCommand(doc,commandValue.command,commandValue.body);
+    const op:Operation={mutation,selection,busy:false};
+    operations.set(doc,op);void command(op);
   }
   function create(name:string,csv:boolean,content:string){
     const datasetId=crypto.randomUUID(),base={commandId:crypto.randomUUID(),datasetId,name};
@@ -129,5 +140,5 @@ export function createDatasets({model,request,getContext,pageSize,startRequest,s
     const revision=getContext().revision,datasetId=state.selection;if(revision===null||!datasetId||!confirm('Удалить датасет «'+(state.detail?.name??'')+'»?'))return;
     submit({command:'delete-dataset',body:{commandId:crypto.randomUUID(),datasetId,expectedRevision:revision}},null);
   }
-  render();return{reset,load,refreshAccess:()=>render()};
+  render();return{reset,load,clearCommands:()=>operations.clear(),discardDocument:(doc:string)=>operations.delete(doc),refreshAccess:()=>render()};
 }
