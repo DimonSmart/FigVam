@@ -28,7 +28,7 @@ describe('document command transport', () => {
 
 describe('prepared document command lifecycle', () => {
   const prepare = () => createDocumentCommand('doc','delete-page',{pageId:'p',expectedRevision:1},'same');
-  const execution = (request: ReturnType<typeof vi.fn>, synchronize = vi.fn(async () => true)) =>
+  const execution = (request: Parameters<ReturnType<typeof prepare>['execute']>[0]['request'], synchronize = vi.fn(async () => true)) =>
     ({request, synchronize, isCurrent:()=>true});
   it('binds generated request types to names', () => {
     if (false) {

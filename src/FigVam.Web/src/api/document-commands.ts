@@ -107,6 +107,6 @@ export function prepareDocumentCommand<K extends DocumentCommandName>(documentId
 }
 
 export function createDocumentCommand<K extends DocumentCommandName>(documentId: string, command: K,
-  data: Omit<DocumentCommandRequest<NoInfer<K>>, 'commandId'>, commandId = crypto.randomUUID()): DocumentCommandOperation {
+  data: Omit<DocumentCommandRequest<NoInfer<K>>, 'commandId'>, commandId: string = crypto.randomUUID()): DocumentCommandOperation {
   return preparedOperation(documentId, command, commandId, JSON.stringify({...data,commandId}));
 }
