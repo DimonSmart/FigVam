@@ -39,7 +39,7 @@ export function createDocumentSync(deps: Dependencies) {
   async function readNodeEditRevision(signal: AbortSignal, newRevision: number, isCurrent: () => boolean,
     reveal: string[], change?: SelectionChange, resourcesChanged = false): Promise<true | undefined> {
     const start = context();
-    if (!start.documentId) return;
+    if (!start.documentId || (start.revision !== null && newRevision < start.revision)) return;
     const valid = () => {
       const now = context();
       return !signal.aborted && start.generation === now.generation && start.revision === now.revision &&
@@ -69,7 +69,7 @@ export function createDocumentSync(deps: Dependencies) {
     const base = `/api/v1/documents/${encodeURIComponent(start.documentId)}`;
     const structure = await readDocumentStructure(queries, start.documentId, signal, valid, targetRevision,
       { page: start.page, screen: start.screen });
-    if (!structure || !valid()) return;
+    if (!structure || !valid() || structure.revision < (context().revision ?? -1)) return;
     const { revision, selection: { screen } } = structure;
     const snapshot = await layers.readSnapshot({ base, screen, revision, signal, isCurrent: valid, reveal,
       shouldReportFailure: () => deps.shouldReportFailure(signal) });
@@ -77,7 +77,7 @@ export function createDocumentSync(deps: Dependencies) {
       tokens.read(base, revision, signal, valid), styles.read(base, revision, signal, valid)
     ]);
     const name = await queries.readName(start.documentId, signal, revision, valid);
-    if (!valid()) return;
+    if (!valid() || revision < (context().revision ?? -1)) return;
     if (!layers.isExpansionCurrent(snapshot)) return readPages(signal, 0, revision, isCurrent, reveal, change);
     deps.applyStructure(structure, snapshot, tokenSnapshot, styleSnapshot, name, change);
     return true;

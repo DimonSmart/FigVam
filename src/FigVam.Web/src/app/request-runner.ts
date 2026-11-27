@@ -44,6 +44,7 @@ export function createRequestRunner(session: Pick<SessionLifecycle, 'generation'
     run,
     get canRetry() { return retry !== null; },
     retry: () => retry?.(),
+    setRetry: (action: Retry | null) => { retry = action; },
     clearRetry: () => { retry = null; },
   };
 }

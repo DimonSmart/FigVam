@@ -31,7 +31,7 @@ import { aborted, errorMessage, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
 import type { components } from '../api/schema.generated';
-import { postPageCommand, type PageCommandData } from './page-commands';
+import { createPageCommands } from './page-commands';
 
 import { createRequestRunner } from './request-runner';
 import { createDocumentCatalog } from './document-catalog';
@@ -188,7 +188,7 @@ const datasets: ReturnType<typeof createDatasets> = createDatasets({
 });
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
-  if (documentId) scenarios.clearDocumentCommands(documentId);
+  if (documentId) { scenarios.clearDocumentCommands(documentId); pageCommands.discard(documentId); }
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
   members.reset(); documentExport.reset(); documentShell.patch({ role: null }); revisions.reset(); selectionState.reset();
@@ -215,6 +215,7 @@ function clearSession() {
   editorShell.menu.publish(null);
   mcpAccess.reset();
   documentCreation.reset();
+  pageCommands.clear();
   resetDeletion();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
@@ -555,6 +556,7 @@ async function openDocument(id: string): Promise<void> {
     documentHistory.load();
     if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
     message();
+    pageCommands.resume();
   });
 }
 
@@ -641,28 +643,16 @@ async function refreshPages(offset = 0): Promise<void> {
   });
 }
 
-async function pageCommand<K extends keyof PageCommandData>(command: K, data: PageCommandData[K], selection?: string | null, screenSelection?: string): Promise<void> {
-  if (!documentId || !canEditDocument(getDocumentRole())) return;
-  stopLive();
-  const { signal, current } = startRequest();
-  requestRunner.clearRetry(); message('Отправка изменений в общий черновик…');
-  documentShell.patch({ pageBusy: true });
-  try {
-    await postPageCommand(request, documentId, command, data, signal);
-    if (signal.aborted || current !== sessionState.generation) return;
-    selectionState.selectAfterCommand(selection, screenSelection);
-    await readPages(signal);
-    if (current === sessionState.generation) {
-      message('Изменения подтверждены в общем черновике.');
-    }
-  } catch (error) {
-    if (aborted(error) || current !== sessionState.generation) return;
-    const unknownResult = uncertain(error);
-    message('', unknownResult ? 'Не удалось подтвердить результат команды. Обновите страницы перед повторным действием: команда могла выполниться.' : errorMessage(error));
-  } finally {
-    if (current === sessionState.generation) { documentShell.patch({ pageBusy: false }); startLive(); }
-  }
-}
+const pageCommands = createPageCommands({
+  request,
+  context: () => ({documentId,revision:revisions.revision,navigationEpoch:sessionState.navigationEpoch,
+    sessionEpoch:sessionState.sessionEpoch,page:selectionState.selectedPage,screen:selectionState.selectedScreen,canEdit:canEditDocument(getDocumentRole())}),
+  stopLive,startLive,setBusy:pageBusy=>documentShell.patch({pageBusy}),
+  setRetry:requestRunner.setRetry,message,
+  select:selectionState.selectAfterCommand,
+  refresh:(signal,current)=>readPages(signal,0,null,current),
+});
+const pageCommand=pageCommands.start;
 
 const navigation = createNavigation({
   isAuthenticated: () => !!sessionState.token,
