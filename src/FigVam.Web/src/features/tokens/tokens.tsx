@@ -1,6 +1,6 @@
 import { createTokenModels, type ImportKey, type ImportValues } from './token-views';
 export { createTokenModels } from './token-views';
-import { knownType, literalValue, types, themes, categories, allowedCategories, typeIndex, categoryIndex, literalExpression, directText, typeOf, categoryOf, typographyFields, groupKey } from './token-values';
+import { knownType, literalValue, types, themes, categories, allowedCategories, typeIndex, categoryIndex, literalExpression, directText, typeOf, categoryOf, typographyFields, groupKey, type TypographyPart } from './token-values';
 import { createDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { toApiTokenExpression } from '../../api/command-value-contracts';
 import type { ApiClient } from '../../api/api-client';

@@ -134,6 +134,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
   onConnectionStatus: connectionStatus => documentShell.patch({ connectionStatus }),
   onAccessLost: closeInaccessibleDocument,
+  readRole: documentQueries.findRole, onRoleChanged: setDocumentRole,
   onCaptureEvent: mcpAccess.onCaptureEvent,
   onCaptureDisconnect: mcpAccess.onCaptureDisconnect,
   onUnauthorized: () => {
@@ -181,19 +182,40 @@ const datasets: ReturnType<typeof createDatasets> = createDatasets({
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token: sessionState.token, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest: startSynchronization, stopLive, startLive, readPages, run
 });
+function discardDocumentEdits(id: string) {
+  scenarios.clearDocumentCommands(id); pageCommands.discard(id); visualNodeEditor.clearDocument(id);
+  layers.discardDocument(id); documentHistory.discardDocument(id); screenResize.discardDocument(id);
+  screenVariants.discardDocument(id); datasets.discardDocument(id); tokens.discardDocument(id);
+  styles.discardDocument(id); documentMutations.discardDocument(id);
+  visualScreens.clearPropertyPreviews(); requestRunner.clearRetry();
+}
+function setDocumentRole(role: string) {
+  const previous=getDocumentRole();
+  if(previous===role||!documentId)return;
+  documentShell.patch({role});
+  if(canEditDocument(previous)&&!canEditDocument(role)){
+    discardDocumentEdits(documentId);
+    scenarios.reset(); datasets.reset(); tokens.reset(); styles.reset();
+    screenResize.resetDraft(); documentExport.reset(); mcpAccess.reset();
+    documentShell.patch({pageBusy:false,renameBusy:false});
+    // Retain the document and selection but reload authoritative read-only data.
+    void readPages(sessionState.navigationSignal).catch(error=>{
+      if(!aborted(error)&&getDocumentRole()===role)message('',errorMessage(error));
+    });
+  }
+  members.prepare(role);
+  datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability();
+  renderPages(); screenResize.render(); visualNodeEditor.refresh(); documentExport.render();
+}
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
-  if (documentId) {
-    const id=documentId;
-    scenarios.clearDocumentCommands(id);pageCommands.discard(id);visualNodeEditor.clearDocument(id);
-    layers.discardDocument(id);documentHistory.discardDocument(id);screenResize.discardDocument(id);
-    screenVariants.discardDocument(id);datasets.discardDocument(id);tokens.discardDocument(id);
-    styles.discardDocument(id);documentMutations.discardDocument(id);
-  }
+  if(documentId)discardDocumentEdits(documentId);
   visualScreens.clearPropertyPreviews(); requestRunner.clearRetry();
   cancelRequest(); advanceNavigation();
   documentShell.patch({role:null}); shellState.patch({view:'none',busy:false,controlsDisabled:false});
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
+  tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft();
+  documentId = null;
   members.reset(); documentExport.reset(); documentShell.patch({ role: null }); revisions.reset(); selectionState.reset();
   documentShell.patch({ pageBusy: false, revisionLabel: '', title: '' });
   document.title = 'FigVam — доступ потерян';
@@ -312,7 +334,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, 0, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentShell.patch({ role }); datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
+  setDocumentRole,
   closeInaccessibleDocument
 });
 

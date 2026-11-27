@@ -1,7 +1,7 @@
 import type { DesignToken, TokenType, TokenCategory, Theme, TokenValue, TokenExpression, TypographyField, ResolvableValue } from '../../core/tokens/token-model';
 import { tokenTypes, tokenCategories } from '../../core/tokens/token-model';
 import { normalizedTokenType, normalizedTokenCategory, tokenValueText } from '../../core/tokens/token-resolution';
-interface TypographyPart {name:TypographyField;label:string;type:TokenType;category:TokenCategory|null;initial:string}
+export interface TypographyPart {name:TypographyField;label:string;type:TokenType;category:TokenCategory|null;initial:string}
 export function knownType(value:unknown):TokenType{const type=normalizedTokenType(value);if(!type)throw new TypeError('Неизвестный тип токена');return type;}
 export function literalValue(value:ResolvableValue|undefined):TokenValue{
   if(!value)throw new Error('Заполните значение токена.');

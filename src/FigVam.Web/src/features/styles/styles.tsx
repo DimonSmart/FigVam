@@ -104,6 +104,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   const pending=()=>pendingCommands.get(getContext().documentId??'');
   let draftName='',draftType:StyleType='TextStyle',draftParent='',status='',error='',lastWritable=false;
   let styleUsages:Usage[]=[],styleUsageRequest=0;
+  let usageController: AbortController | null = null;
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
@@ -176,6 +177,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
 
   function reset() {
     items = []; selectedId = null; busy = false; tokenSignature = '';
+    usageController?.abort(); usageController=null;
     styleUsages = []; styleUsageRequest++;
     error = ''; status = '';
     render(true);
@@ -250,13 +252,15 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
 
   async function loadUsages() {
     const id = selectedId, doc = getContext().documentId, revision = getContext().revision;
+    usageController?.abort();
+    const controller=new AbortController(); usageController=controller;
     const generation = ++styleUsageRequest;
     styleUsages = []; render();
     if (!id || !doc || !Number.isSafeInteger(revision)) return;
     try {
       const found:Usage[]=[];let total:number;
       do {
-        const response=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(doc)+'/styles/'+encodeURIComponent(id)+'/usages?revision='+revision+'&offset='+found.length+'&limit=100'));
+        const response=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(doc)+'/styles/'+encodeURIComponent(id)+'/usages?revision='+revision+'&offset='+found.length+'&limit=100',{},controller.signal));
         if (response.revision !== revision || response.offset !== found.length ||
             !Array.isArray(response.items)||typeof response.total!=='number')throw new Error('Некорректный ответ использований стиля.');
         found.push(...response.items.map(usage)); total = response.total;
@@ -268,7 +272,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
         render();
       }
     } catch (failure) {
-      if (generation === styleUsageRequest) { error = errorMessage(failure); publishPanel(); }
+      if (!controller.signal.aborted && generation === styleUsageRequest) { error = errorMessage(failure); publishPanel(); }
     }
   }
   function saveStyle() {

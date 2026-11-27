@@ -101,3 +101,21 @@ test('unknown outcome leaves stale Owner view and explains how to recover', asyn
   await expect(page.getByRole('heading', { name: 'Документы', exact: true })).toBeVisible();
   await expect(page.locator('#error')).toContainText('Не удалось подтвердить результат');
 });
+
+test('live access reconciliation demotes and restores an open document', async ({page}) => {
+  await openDocument(page);
+  const documentUrl=page.url();
+  let role='Viewer';
+  await page.route('**/api/v1/documents?*', async route=>{
+    const response=await route.fetch(), body=await response.json();
+    body.items.forEach(item=>item.role=role);
+    await route.fulfill({response,json:body});
+  });
+  await expect(page.locator('#page-access')).toHaveText('Только просмотр страниц.',{timeout:25000});
+  await expect(page.locator('#member-management')).toBeHidden();
+  await expect(page.getByRole('heading',{name:'Members target'})).toBeVisible();
+  expect(page.url()).toBe(documentUrl);
+  role='Owner';
+  await expect(page.locator('#page-access')).toHaveText('',{timeout:25000});
+  expect(page.url()).toBe(documentUrl);
+});
