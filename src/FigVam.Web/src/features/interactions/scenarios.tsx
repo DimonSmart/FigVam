@@ -7,7 +7,7 @@ import type { Catalog } from './interaction-catalog';
 import type { ActionDraft, ScenarioDraft, EditorContext } from './interaction-editor';
 import type { LayerCaptionSource } from '../../core/layer-caption';
 type Node=LayerCaptionSource & {id:string;screenId?:string;label?:string};
-interface Workspace {documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
 interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void}
 type CommandKind='create'|'update'|'delete';
 type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain';token:string|null;doc:string;screen:string};
@@ -90,13 +90,13 @@ export function createScenarios({
   const context = ():EditorContext => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
     revision: workspace.revision, token, epoch: navigationEpoch,
-    editable: !!token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && !element('editor-view').hidden
+    editable: !!token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && workspace.isEditorVisible()
   });
   const operationKey = (c:{doc:string|null;screen:string|null}) => c.doc + '/' + c.screen;
   const currentOperation = () => operations.get(operationKey(context()));
   const opPending = () => ['pending', 'uncertain'].includes(currentOperation()?.state??'');
   const sameScreen = (c:EditorContext) => c.doc === workspace.documentId && c.screen === workspace.selectedScreen && c.token === token &&
-    c.epoch === navigationEpoch && !element('editor-view').hidden;
+    c.epoch === navigationEpoch && workspace.isEditorVisible();
   const name = (kind:keyof Catalog,id:string|null|undefined)=>interactionObjectName(catalog,kind,id??'');
   function sourceName(id:string) {
     const node = catalog?.nodes.find(n => n.id === id) ?? findLayer(id);

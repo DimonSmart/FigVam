@@ -8,7 +8,7 @@ import { requiredRecord, text, page, aborted, errorMessage } from '../../api/dec
 import type { components } from '../../api/schema.generated';
 type VariantCommand=components['schemas']['AddScreenVariantRequest'];
 interface Variant {id:string;name:string}
-interface Workspace {documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;catalogRevision:number|null;token:string|null;navigationEpoch:number}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;catalogRevision:number|null;token:string|null;navigationEpoch:number}
 interface Options {model:ReturnType<typeof createScreenVariantsModel>;element(id:string):HTMLElement;request:ApiClient;refreshPages():Promise<unknown>;onSelectionChanged?():void;pageSize:number;workspace:Workspace}
 interface Operation {body:VariantCommand;state:'ready'|'pending'|'uncertain'}
 interface State {items:Variant[];status:string;error:string;retry:boolean;offset:number;total:number;formKey:number;hasBase:boolean}
@@ -63,7 +63,7 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
   async function send(doc:string,screen:string,op:Operation){
     const k=key(doc,screen),token=workspace.token,epoch=workspace.navigationEpoch;
     if(op.state==='pending'||!canEdit())return;
-    const active=()=>doc===workspace.documentId&&screen===workspace.selectedScreen&&workspace.token===token&&epoch===workspace.navigationEpoch&&!element('editor-view').hidden;
+    const active=()=>doc===workspace.documentId&&screen===workspace.selectedScreen&&workspace.token===token&&epoch===workspace.navigationEpoch&&workspace.isEditorVisible();
     op.state='pending';if(active()){commandError=null;render({error:''});}
     try{
       await request('/api/v1/documents/'+encodeURIComponent(doc)+'/commands/add-screen-variant',{method:'POST',body:JSON.stringify(op.body)});

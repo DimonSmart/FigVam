@@ -10,7 +10,7 @@ import type { LayerContext } from '../../canvas/layer-drag';
 import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
 interface LayerItem extends LayerCaptionSource {id:string;parentId:string;childCount:number;canContainChildren?:boolean}
-interface Workspace {documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;navigationEpoch:number;token:string|null}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;navigationEpoch:number;token:string|null}
 type Work=(signal:AbortSignal,current:()=>boolean)=>Promise<unknown>;
 interface Options {model:ReturnType<typeof createLayersModel>;element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
 type MetadataKind='name'|'key';
@@ -159,7 +159,7 @@ export function createLayers({
     const current = ++nodeReadGeneration, doc = workspace.documentId, screen = workspace.selectedScreen, node = layerSelection?.id, atRevision = workspace.revision, epoch = workspace.navigationEpoch, requestToken = workspace.token;
     nodeMetadata = null; renderNodeMetadata();
     if (!doc || !node || !Number.isSafeInteger(atRevision)) return;
-    const active = () => current === nodeReadGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && node === layerSelection?.id && atRevision === workspace.revision && epoch === workspace.navigationEpoch && requestToken === workspace.token && !element('editor-view').hidden;
+    const active = () => current === nodeReadGeneration && doc === workspace.documentId && screen === workspace.selectedScreen && node === layerSelection?.id && atRevision === workspace.revision && epoch === workspace.navigationEpoch && requestToken === workspace.token && workspace.isEditorVisible();
     try {
       const result=requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(doc)}/nodes/${encodeURIComponent(node)}?fields=name,semanticKey&revision=${atRevision}`,{},undefined,active));
       if (!active()) return;
@@ -224,7 +224,7 @@ export function createLayers({
   async function sendNodeMetadata(doc:string,screen:string,node:string,op:MetadataOperation) {
     const key = nodeOperationKey(doc, node), epoch = workspace.navigationEpoch, requestToken = workspace.token, selectionEpoch = layerSelectionEpoch;
     // Rereading metadata for the same selected node must not invalidate a command.
-    const active = () => layerSelectionEpoch === selectionEpoch && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+    const active = () => layerSelectionEpoch === selectionEpoch && nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
     op.state = 'pending'; if (active()) renderNodeMetadata();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/set-node-${op.kind === 'name' ? 'name' : 'semantic-key'}`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
@@ -240,7 +240,7 @@ export function createLayers({
       }
       renderNodeMetadata();
       await runPageRefresh(signal => readCurrentPages(signal, activeAfterConfirmation));
-      function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden; }
+      function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible(); }
     } catch (error) {
       if (nodeOperations.get(key) !== op) return;
       if (!active() || !(error instanceof ApiError) || error.status >= 500) op.state = 'uncertain';
@@ -248,9 +248,9 @@ export function createLayers({
         nodeOperations.delete(key);
         if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
         if (error.code === 'NODE_NOT_FOUND') {
-          const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+          const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
           await runPageRefresh(signal => readCurrentPages(signal, currentContext));
-          if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden && !layerSelection) element('layers-status').textContent = 'Слой больше не существует.';
+          if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible() && !layerSelection) element('layers-status').textContent = 'Слой больше не существует.';
           return;
         }
         if (nodeMetadata) nodeMetadata.error = error.message;
@@ -259,7 +259,7 @@ export function createLayers({
         field.value = (op.kind === 'name' ? op.body.name : op.body.semanticKey) ?? '';
         return;
       }
-    } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden) renderNodeMetadata(); }
+    } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible()) renderNodeMetadata(); }
   }
 
   element('node-delete').addEventListener('click', () => {
@@ -278,7 +278,7 @@ export function createLayers({
     const key = `${op.doc}:${op.screen}`;
     if (nodeDeletions.get(key) !== op || op.state === 'pending') return;
     const epoch = workspace.navigationEpoch, screenEpoch = screenContextEpoch, requestToken = workspace.token;
-    const active = () => screenEpoch === screenContextEpoch && nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+    const active = () => screenEpoch === screenContextEpoch && nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
     op.state = 'pending'; renderNodeDeletion();
     try {
       const result = await request(`/api/v1/documents/${encodeURIComponent(op.doc)}/commands/delete-node`, { method: 'POST', body: JSON.stringify(op.body) }, undefined, active);
@@ -297,7 +297,7 @@ export function createLayers({
         op.error = 'Слой уже удалён другим участником.';
       } else op.error = ({ SCENARIO_IN_USE: 'Слой или его поддерево используется в сценариях. Сначала удалите ссылки сценариев.', SCREEN_VARIANT_IN_USE: 'Слой или его поддерево используется в вариантах. Сначала удалите ссылки вариантов.', INVALID_REPEATER: 'Слой используется повторителем. Сначала удалите зависимость.', INVALID_COMPONENT: 'Слой используется компонентом. Сначала удалите зависимость.' } as Record<string,string>)[error.code??''] || error.message;
       op.state = 'rejected';
-    } finally { if (nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && !element('editor-view').hidden) renderNodeDeletion(); }
+    } finally { if (nodeDeletions.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && workspace.isEditorVisible()) renderNodeDeletion(); }
   }
 
   function siblingContext(id:string|undefined):LayerContext|null {
@@ -313,7 +313,7 @@ export function createLayers({
     return workspace.selectedScreen && id ? find(workspace.selectedScreen, layerRoots) : null;
   }
   const moveKey = () => `${workspace.documentId}:${workspace.selectedScreen}`;
-  const canMove = () => ['Owner', 'Editor'].includes(workspace.documentRole??'') && !nodeMoves.has(moveKey()) && !element('editor-view').hidden;
+  const canMove = () => ['Owner', 'Editor'].includes(workspace.documentRole??'') && !nodeMoves.has(moveKey()) && workspace.isEditorVisible();
   function renderNodeOrder() {
     const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
@@ -383,7 +383,7 @@ export function createLayers({
     const key = `${op.doc}:${op.screen}`;
     if (nodeMoves.get(key) !== op || op.state === 'pending' || !['Owner', 'Editor'].includes(workspace.documentRole??'')) return;
     const epoch = workspace.navigationEpoch, screenEpoch = screenContextEpoch, selectionEpoch = layerSelectionEpoch, requestToken = workspace.token;
-    const context = () => nodeMoves.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && screenContextEpoch === screenEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && !element('editor-view').hidden;
+    const context = () => nodeMoves.get(key) === op && workspace.documentId === op.doc && workspace.selectedScreen === op.screen && screenContextEpoch === screenEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
     const active = () => context() && layerSelectionEpoch === selectionEpoch;
     const restoreFocus = element('layers').contains(document.activeElement) || document.activeElement === element('node-order-retry');
     op.state = 'pending'; renderNodeOrder();
@@ -425,7 +425,7 @@ export function createLayers({
         nodeMoveNotices.set(key, notice + (synced ? ' Дерево обновлено.' : ''));
       if (nodeMoves.get(key) === op) nodeMoves.delete(key);
     } finally {
-      if (workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && (workspace.navigationEpoch === epoch || nodeMoves.get(key) === op) && !element('editor-view').hidden)
+      if (workspace.documentId === op.doc && workspace.selectedScreen === op.screen && workspace.token === requestToken && (workspace.navigationEpoch === epoch || nodeMoves.get(key) === op) && workspace.isEditorVisible())
         renderNodeOrder();
     }
   }

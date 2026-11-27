@@ -12,7 +12,7 @@ interface Operation {state:Status;error?:string}
 interface SaveOperation extends Operation {body:Schema['SaveDocumentRequest'];versionId?:string}
 interface RestoreOperation extends Operation {body:Schema['RestoreDocumentRequest']}
 interface HistoryOperation extends Operation {action:Action;commandId:string;sending?:boolean}
-interface Workspace {documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
 interface Options {models:ReturnType<typeof createDocumentHistoryModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
 interface Version {id:string;name:string|null;authorId:string;timestamp:string;revision:number}
 interface ListState {versions:Version[];status:string;error:string;index:number;next:number|null;loading:boolean;loaded:boolean}
@@ -95,13 +95,13 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     element('history-action-retry').hidden=!writable||op?.state!=='uncertain';
   }
   function beginAction(action:Action){
-    const id=workspace.documentId;if(!id||element('editor-view').hidden||!canEdit()||blocked(historyActions.get(id)))return;
+    const id=workspace.documentId;if(!id||!workspace.isEditorVisible()||!canEdit()||blocked(historyActions.get(id)))return;
     const operation:HistoryOperation={action,commandId:crypto.randomUUID(),state:'pending'};
     historyActions.set(id,operation);void sendAction(id,operation);
   }
   async function sendAction(id:string,operation:HistoryOperation){
     if(operation.state==='pending'&&operation.sending)return;
-    const token=workspace.token,epoch=workspace.navigationEpoch,current=()=>active(id,token,epoch)&&!element('editor-view').hidden;
+    const token=workspace.token,epoch=workspace.navigationEpoch,current=()=>active(id,token,epoch)&&workspace.isEditorVisible();
     operation.sending=true;operation.state='pending';operation.error='';renderAction();
     try{
       const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/'+operation.action,{method:'POST',body:JSON.stringify({commandId:operation.commandId})}));
@@ -114,7 +114,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
       if(historyActions.get(id)!==operation)return;
       if(!current()||unknownResult(error)){operation.state='uncertain';operation.error='Результат неизвестен. Повторите ту же команду: она могла выполниться.';}
       else{operation.state='failed';const code=error instanceof ApiError?error.code:undefined;operation.error=code==='UNDO_NOT_APPLICABLE'?'Отмена неприменима к текущему состоянию: возможно, изменения несовместимы с последующими правками.':code==='REDO_NOT_APPLICABLE'?'Повтор неприменим к текущему состоянию: необходимые условия больше не выполняются.':errorMessage(error);}
-    }finally{operation.sending=false;if(historyActions.get(id)===operation&&workspace.documentId===id&&workspace.token&&!element('editor-view').hidden)renderAction();}
+    }finally{operation.sending=false;if(historyActions.get(id)===operation&&workspace.documentId===id&&workspace.token&&workspace.isEditorVisible())renderAction();}
   }
   button('undo').addEventListener('click',()=>beginAction('undo'));button('redo').addEventListener('click',()=>beginAction('redo'));
   button('history-action-retry').addEventListener('click',()=>{const op=get(historyActions);if(workspace.documentId&&op?.state==='uncertain'&&canEdit())void sendAction(workspace.documentId,op);});
@@ -123,7 +123,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     const target=event.target;
     if(target instanceof Element&&(target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')||(target instanceof HTMLElement&&target.isContentEditable)))return;
     const key=event.key.toLowerCase(),action=key==='z'?(event.shiftKey?'redo':'undo'):key==='y'&&!event.shiftKey?'redo':null;
-    if(!action||!workspace.documentId||element('editor-view').hidden||!canEdit())return;
+    if(!action||!workspace.documentId||!workspace.isEditorVisible()||!canEdit())return;
     event.preventDefault();beginAction(action);
   });
   function reset(){
@@ -159,7 +159,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
       op.error=uncertain?'Не удалось подтвердить восстановление. Повторите эту операцию: она могла выполниться.':error instanceof ApiError&&(error.code==='REVISION_CONFLICT'||error.status===409)?'Документ изменился или восстановление конфликтует с текущим состоянием. Обновите страницы и историю перед повтором.':errorMessage(error);
     }
     if(restoreOperations.get(id)!==op||!active(id,token,epoch)||!token)return;
-    renderList();if(op.state==='success'&&!element('editor-view').hidden){await refreshPages();if(active(id,token,epoch)&&!element('editor-view').hidden)void loadVersions();}
+    renderList();if(op.state==='success'&&workspace.isEditorVisible()){await refreshPages();if(active(id,token,epoch)&&workspace.isEditorVisible())void loadVersions();}
   }
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
   function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();}

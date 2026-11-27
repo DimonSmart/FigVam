@@ -5,7 +5,7 @@ import { requiredRecord, text, array, aborted } from '../../api/decode';
 interface Point { x: number; y: number }
 interface Participant { name: string; color: string; screenId: string | null; selectedIds: string[]; cursor: Point | null }
 interface Context { token: string | null; documentId: string | null; navigationEpoch: number; selectedLayer: {id:string} | null; selectedScreen: string | null }
-interface Options { models:ReturnType<typeof createPresenceModels>; element(id:string):HTMLElement; getContext():Context; toViewportPoint(point:Point):Point }
+interface Options { isEditorVisible(): boolean;  models:ReturnType<typeof createPresenceModels>; element(id:string):HTMLElement; getContext():Context; toViewportPoint(point:Point):Point }
 function participant(value:unknown):Participant {
   const p=requiredRecord(value), color=text(p.color);
   if(!/^#[0-9a-fA-F]{6}$/.test(color))throw new TypeError('Invalid presence color');
@@ -21,7 +21,7 @@ function PresenceMarkers({visible}:{visible:Marker[]}){
   return <>{visible.map(({p,i,x,y})=><span key={i} className="presence-marker" style={{left:x,top:y,borderColor:p.color}}>{'◆ '+p.name}</span>)}</>;
 }
 export function createPresenceModels(){return {list:createViewModel(PresenceList),markers:createViewModel(PresenceMarkers)};}
-export function createPresence({models,element,getContext,toViewportPoint}:Options){
+export function createPresence({models,element,getContext,toViewportPoint,isEditorVisible}:Options){
   let renderedParticipants:Participant[]|undefined;
   let controller:AbortController|null=null,timer:ReturnType<typeof setTimeout>|undefined;
   let participants:Participant[]=[],cursor:Point|null=null,cursorScreen:string|null=null,lastRead=0;
@@ -39,10 +39,10 @@ export function createPresence({models,element,getContext,toViewportPoint}:Optio
   function stop(){controller?.abort();controller=null;clearTimeout(timer);timer=undefined;participants=[];cursor=null;cursorScreen=null;lastRead=0;render();element('presence-status').textContent='';}
   function start(){
     const {token,documentId,navigationEpoch}=getContext();
-    if(controller||!token||!documentId||element('editor-view').hidden)return;
+    if(controller||!token||!documentId||!isEditorVisible())return;
     const requestToken=token;
     const operation=new AbortController();controller=operation;
-    const active=()=>{const ctx=getContext();return controller===operation&&!operation.signal.aborted&&ctx.documentId===documentId&&ctx.token===token&&ctx.navigationEpoch===navigationEpoch&&!element('editor-view').hidden;};
+    const active=()=>{const ctx=getContext();return controller===operation&&!operation.signal.aborted&&ctx.documentId===documentId&&ctx.token===token&&ctx.navigationEpoch===navigationEpoch&&isEditorVisible();};
     const path='/api/v1/documents/'+encodeURIComponent(documentId)+'/presence';
     async function exchange(method:'GET'|'PUT',body?:unknown):Promise<unknown>{
       const response=await fetch(path,{method,signal:AbortSignal.any([operation.signal,AbortSignal.timeout(5000)]),cache:'no-store',credentials:credentialsMode(),redirect:'error',headers:{...authHeaders(requestToken,method),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});

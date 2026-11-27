@@ -38,7 +38,7 @@ import type { components } from '../../api/schema.generated';
 type Axis = 'width' | 'height';
 type ResizeBody = components['schemas']['ResizeScreenRequest'];
 interface Operation { body: ResizeBody; state: 'pending' | 'uncertain' }
-interface ResizeWorkspace {
+interface ResizeWorkspace { isEditorVisible(): boolean; 
   documentId: string | null; documentRole: string | null; selectedScreen: string | null;
   screensItems: { id: string; dimensions: { width: number; height: number } }[];
   generation: number; token: string | null;
@@ -115,7 +115,7 @@ export function createScreenResize({ model, element, request, refreshPages, work
   }
   async function sendResize(id: string, screen: string, operation: Operation) {
     const key = resizeKey(id, screen), current = workspace.generation, requestToken = workspace.token;
-    const active = () => current === workspace.generation && workspace.documentId === id && workspace.token === requestToken && !element('editor-view').hidden;
+    const active = () => current === workspace.generation && workspace.documentId === id && workspace.token === requestToken && workspace.isEditorVisible();
     operation.state = 'pending'; renderScreenSize();
     try {
       await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/resize-screen`, { method: 'POST', body: JSON.stringify(operation.body) });
@@ -128,7 +128,7 @@ export function createScreenResize({ model, element, request, refreshPages, work
       if (resizeOperations.get(key) !== operation) return;
       if (!active() || error instanceof TypeError || (error instanceof ApiError && error.status >= 500) || (error instanceof Error && error.name === 'AbortError')) operation.state = 'uncertain';
       else { resizeOperations.delete(key); if (workspace.selectedScreen === screen) { dirtyAxes.clear(); resizeError = error instanceof Error ? error.message : String(error); } }
-    } finally { if (active() || (workspace.token === requestToken && workspace.documentId === id && workspace.selectedScreen === screen && resizeOperations.get(key) === operation && !element('editor-view').hidden)) { renderScreenSize(); } }
+    } finally { if (active() || (workspace.token === requestToken && workspace.documentId === id && workspace.selectedScreen === screen && resizeOperations.get(key) === operation && workspace.isEditorVisible())) { renderScreenSize(); } }
   }
 
   renderScreenSize();

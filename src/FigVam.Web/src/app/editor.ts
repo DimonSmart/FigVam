@@ -46,6 +46,7 @@ const shellState = createApplicationShellState();
 const documentShell = createDocumentShellModel();
 const deletionView = createDeletionViewModel();
 const getDocumentRole = () => documentShell.getSnapshot().role;
+const isEditorVisible = () => shellState.getSnapshot().view === 'editor';
 const requestRunner = createRequestRunner({
   stopLive: () => stopLive(), startLive: () => startLive(), message,
   setBusy: busy => shellState.patch({ busy }),
@@ -103,6 +104,7 @@ const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiag
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
     get generation() { return generation; }, get token() { return token; }
@@ -122,7 +124,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
     get revision() { return revisions.revision; },
     get token() { return token; }
   },
-  isEditorVisible: () => shellState.getSnapshot().view === 'editor',
+  isEditorVisible,
   readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
   onConnectionStatus: connectionStatus => documentShell.patch({ connectionStatus }),
   onAccessLost: closeInaccessibleDocument,
@@ -160,6 +162,7 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
   element, request, refreshPages: () => refreshPages(),
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get revision() { return revisions.revision; },
     get catalogRevision() { return revisions.catalogRevision; },
@@ -242,6 +245,7 @@ const members: ReturnType<typeof createMembers> = createMembers({ model: views.m
 const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
   element, request, pageSize, refreshPages,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
     get navigationEpoch() { return navigationEpoch; },
@@ -252,6 +256,7 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 const layers: ReturnType<typeof createLayers> = createLayers({
   model: views.layers, element, request, refreshPages, closeInaccessibleDocument, message,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; },
@@ -269,6 +274,7 @@ const layers: ReturnType<typeof createLayers> = createLayers({
 const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   models:views.scenarios,element, request, pageSize,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
     get revision() { return revisions.revision; },
@@ -402,6 +408,7 @@ function renderScreens() {
 
 
 const presence: ReturnType<typeof createPresence> = createPresence({
+  isEditorVisible,
   models: views.presence,
   element,
   getContext: () => ({ token, documentId, navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
@@ -527,6 +534,7 @@ async function openDocument(id: string): Promise<void> {
     if (!current()) return;
     shellState.patch({ view: 'editor' });
     presence.start();
+    layers.refreshMoveAvailability();
     documentHistory.load();
     if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
     message();
