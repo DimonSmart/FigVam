@@ -18,7 +18,7 @@ import { token, generation, pending, navigationEpoch, setToken, advanceNavigatio
 
 import { element, required } from './dom';
 import { createElement } from 'react';
-import { disposeApplicationRoot, mountApplicationRoot } from './react-panels';
+import { disposeApplicationRoot, mountApplicationRoot } from './application-root';
 import { ApplicationShell } from './application-shell';
 import { createApplicationViews } from './application-views';
 import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';

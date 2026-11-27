@@ -51,14 +51,19 @@ describe('frontend architecture', () => {
     }).filter(item => item.count > 0);
     expect(counts.reduce((total, item) => total + item.count, 0)).toBe(1);
   });
-  it('prevents additional direct portal implementations while migration continues', () => {
-    expect(source.filter(({path, ast}) => path !== 'src/app/react-panels.tsx' &&
-      (countCalls(ast, new Set(['createPortal'])) > 0 || ast.statements.some(statement =>
+  it('prevents direct portal implementations and legacy panel adapters', () => {
+    expect(source.filter(({path, ast}) => (countCalls(ast, new Set(['createPortal'])) > 0 || ast.statements.some(statement =>
         ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier) &&
         statement.moduleSpecifier.text === 'react-dom' &&
         statement.importClause?.namedBindings && ts.isNamedImports(statement.importClause.namedBindings) &&
         statement.importClause.namedBindings.elements.some(item => (item.propertyName ?? item.name).text === 'createPortal'))))
       .map(item => item.path)).toEqual([]);
+  });
+  it('does not retain the portal adapter or legacy static editor markup', () => {
+    expect(source.filter(({path,ast}) => path.includes('react-panels') || importedModules(ast).some(name=>name.includes('react-panels'))).map(item=>item.path)).toEqual([]);
+    const html=readFileSync(join(root,'../FigVam.Server/wwwroot/index.html'),'utf8');
+    const body=html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]?.trim();
+    expect(body).toBe('<div id="figvam-app"></div>');
   });
   it('keeps Canvas independent of React', () => {
     expect(source.filter(({path, ast}) => path.startsWith('src/canvas/') &&

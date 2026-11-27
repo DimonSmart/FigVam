@@ -3,8 +3,8 @@ import { Moon, Sun } from 'lucide-react';
 import type { ApplicationViews } from './application-views';
 import { EditorShell, type EditorShellController } from '../features/editor/editor-shell';
 
-/** The application shell is mounted once. Feature controllers still own their
- * legacy fields until their individual migration; the shell never reparents them. */
+/** The application shell is mounted once. Feature views are declared directly;
+ * the shell never reparents DOM elements. */
 export function ApplicationShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   return <>
