@@ -1,4 +1,3 @@
-using System.Text.Json;
 using FigVam.Domain.Tokens;
 using FigVam.Server.Mcp;
 
@@ -9,14 +8,11 @@ public sealed class McpCompactTokenSchemaTests
     [Fact]
     public void AllTypesKeepSharedMetadataAndComplexSchemasAreSmaller()
     {
+        var reader = new McpReadTools(null!, null!, null!, null!);
         foreach (var type in Enum.GetValues<TokenType>())
         {
-            var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-            {
-                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-            };
-            var full = JsonSerializer.SerializeToElement(McpTokenSchemas.Describe(type), options);
-            var compact = JsonSerializer.SerializeToElement(McpTokenSchemas.Describe(type, compact: true), options);
+            var full = reader.GetTokenSchema(type.ToString()).StructuredContent!.Value;
+            var compact = reader.GetTokenSchema(type.ToString(), compact: true).StructuredContent!.Value;
             Assert.Equal(type.ToString(), compact.GetProperty("type").GetString());
             Assert.Equal(full.GetProperty("example").GetRawText(), compact.GetProperty("example").GetRawText());
             Assert.Equal(full.GetProperty("category").GetProperty("allowedValues").GetRawText(),

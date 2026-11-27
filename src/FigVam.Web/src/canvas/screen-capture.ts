@@ -114,8 +114,26 @@ export async function renderModelPng(model:RenderModel, width:number, height:num
         if (!name.startsWith('--')) target.style.setProperty(name, computed.getPropertyValue(name));
       }
       if (source instanceof HTMLInputElement || source instanceof HTMLTextAreaElement) {
-        if (source.tagName === 'INPUT') target.setAttribute('value', source.value);
-        else target.textContent = source.value;
+        // SVG image documents do not reliably paint native form values and
+        // placeholder pseudo-elements. Freeze the text as ordinary XHTML.
+        const field = document.createElement('div');
+        for (const name of target.style) field.style.setProperty(name, target.style.getPropertyValue(name), target.style.getPropertyPriority(name));
+        const password = source instanceof HTMLInputElement && source.type === 'password';
+        const multiline = source instanceof HTMLTextAreaElement;
+        const displayed = source.value ? (password ? '•'.repeat(source.value.length) : source.value) : source.placeholder;
+        const text = document.createElement('span');
+        text.textContent = displayed;
+        if (!source.value) {
+          const placeholder = getComputedStyle(source, '::placeholder');
+          text.style.color = placeholder.color;
+          text.style.opacity = placeholder.opacity;
+        }
+        Object.assign(field.style, { appearance: 'none', overflow: 'hidden', display: multiline ? 'block' : 'flex',
+          alignItems: 'center', boxSizing: 'border-box' });
+        Object.assign(text.style, { display: 'block', minWidth: '0', width: '100%', overflow: 'hidden',
+          whiteSpace: multiline ? 'pre-wrap' : 'pre', overflowWrap: multiline ? 'break-word' : 'normal' });
+        field.append(text);
+        target.replaceWith(field);
       }
       if (source.dataset.captureSrc) {
         target.setAttribute('src', source.dataset.captureSrc);

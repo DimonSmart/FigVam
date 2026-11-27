@@ -15,6 +15,7 @@ const labels:Record<string,string> = {
   fontWeight: 'Толщина шрифта', fontStyle: 'Начертание', lineHeight: 'Межстрочный интервал',
   letterSpacing: 'Межбуквенный интервал', wrap: 'Перенос строк',
   enabled: 'Доступность', placeholder: 'Подсказка', value: 'Демонстрационное значение', multiline: 'Многострочный режим',
+  placeholderColor: 'Цвет подсказки', focusBorderColor: 'Цвет рамки при фокусе', focusBorderWidth: 'Толщина рамки при фокусе',
   inputType: 'Тип ввода', textStyle: 'Стиль текста', borderStyle: 'Стиль рамки',
   typography: 'Типографика', shadow: 'Drop shadow',
   backgroundColor: 'Цвет фона', borderColor: 'Цвет рамки', borderWidth: 'Толщина рамки', cornerRadius: 'Радиус углов',

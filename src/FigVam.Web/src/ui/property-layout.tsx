@@ -9,7 +9,7 @@ const sides=[['top','paddingTop','Сверху','Отступ сверху'],['r
 export const paddingProperties=sides.map(([,name])=>name);
 export interface FieldPresentation {
   name:string;field:ValueField;variantOverride?:boolean;styleOverride?:boolean;
-  resetVariant?():void;resetStyle?():void;onLeave?():void;onKey?(event:KeyboardEvent<HTMLDivElement>):void;
+  resetVariant?():void;resetStyle?():void;resetLocal?():void;onLeave?():void;onKey?(event:KeyboardEvent<HTMLDivElement>):void;
   shadow?:{active:boolean;toggle?:()=>void};
 }
 function PropertyRow({entry,displayLabel}:{entry:FieldPresentation;displayLabel?:string}){
@@ -24,6 +24,7 @@ function PropertyRow({entry,displayLabel}:{entry:FieldPresentation;displayLabel?
     <FieldValue field={field} displayLabel={displayLabel} describedBy={feedbackId}/>
     <p className="node-property-error" id={feedbackId} aria-live="polite">{state.validation.error??''}</p>
     {entry.resetStyle&&<Button className="style-override-reset" aria-label={'Сбросить к стилю: '+propertyLabel(name)} disabled={state.actionsDisabled} onClick={entry.resetStyle}>Сбросить к стилю</Button>}
+    {entry.resetLocal&&<Button className="style-override-reset" aria-label={'Сбросить свойство: '+propertyLabel(name)} disabled={state.actionsDisabled} onClick={entry.resetLocal}>Сбросить</Button>}
     {entry.resetVariant&&<Button className="variant-override-reset" disabled={state.actionsDisabled} onClick={entry.resetVariant}>Reset Override</Button>}
   </div>;
   return entry.shadow?<section className="shadow-effects"><strong>Effects</strong>{row}<Button className="shadow-action" hidden={!entry.shadow.toggle} disabled={state.actionsDisabled} onClick={entry.shadow.toggle}>{entry.shadow.active?'Remove drop shadow':'Add drop shadow'}</Button></section>:row;

@@ -24,7 +24,7 @@ async function connect(request, endpoint, token) {
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
   const tools = (await rpc('tools/list', {})).tools;
-  expect(tools).toHaveLength(34);
+  expect(tools).toHaveLength(37);
   const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
   expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
   expect(renderSchema.required).not.toContain('theme');
@@ -306,6 +306,24 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     }
   }
   for (const theme of ['Light', 'Dark']) {
+    const filled = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [
+      { nodeId: input, event: 'Change', value: 'demo@example.test' },
+      { nodeId: password, event: 'Change', value: 'not-a-real-password' }
+    ] });
+    expect(filled.isError, JSON.stringify(filled.structuredContent)).not.toBe(true);
+    expect(filled.structuredContent.activeScreenId).toBe(login);
+    expect(filled.structuredContent.simulationStatus).toBe('Completed');
+    expect(filled.structuredContent.render.status).toBe('Completed');
+    expect(filled.structuredContent.demoValues[password]).toBeUndefined();
+    expect(JSON.stringify(filled.structuredContent)).not.toContain('not-a-real-password');
+    const filledImage = filled.content.find(block => block.type === 'image');
+    expect(filledImage?.mimeType).toBe('image/png');
+    await testInfo.attach('filled-' + theme, { body: Buffer.from(filledImage.data, 'base64'), contentType: 'image/png' });
+    const empty = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [] });
+    expect(empty.isError).not.toBe(true);
+    const emptyImage = empty.content.find(block => block.type === 'image');
+    expect(emptyImage?.mimeType).toBe('image/png');
+    expect(filledImage.data).not.toBe(emptyImage.data);
     for (const event of ['Click', 'Submit']) {
       const simulated = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [
         { nodeId: input, event: 'Change', value: 'demo@example.test' },

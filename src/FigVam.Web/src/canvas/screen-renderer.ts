@@ -93,6 +93,22 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
   const letterSpacing = scalar(resolved('letterSpacing'));
   if (finite(letterSpacing)) style.letterSpacing = px(letterSpacing);
   if (scalar(property('wrap')) === false) style.whiteSpace = 'pre';
+  if (isInput(surface)) {
+    for (const name of ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft'] as const) {
+      const value = scalar(resolved(name));
+      if (finite(value)) style[name] = px(Math.min(value, name === 'paddingTop' || name === 'paddingBottom' ? bounds.height / 2 : bounds.width / 2));
+    }
+    for (const [name, variable] of [['placeholderColor', '--figvam-placeholder-color'], ['focusBorderColor', '--figvam-focus-color']] as const) {
+      const value = property(name);
+      if (!value) continue;
+      const rgba = color(value, tokens, theme);
+      if (rgba) style.setProperty(variable, rgba);
+      else report(name, 'Не удалось разрешить цветовой токен.');
+    }
+    const focusWidth = scalar(resolved('focusBorderWidth'));
+    if (finite(focusWidth)) style.setProperty('--figvam-focus-width', px(Math.min(focusWidth, bounds.width / 2, bounds.height / 2)));
+    if (property('focusBorderColor') || property('focusBorderWidth')) surface.dataset.customFocus = 'true';
+  }
 }
 
 function intersects({ bounds, clip }: LayoutBox) {
