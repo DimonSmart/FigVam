@@ -12,6 +12,19 @@
   --ui-radius: 6px;
   --ui-left: 260px;
   --ui-right: 304px;
+  --ui-hover: #f4f6fc;
+  --ui-shadow-color: #1b27381c;
+  --ui-selected-text: #344dbb;
+  --ui-control-disabled-text: #929ba9;
+  --ui-control-disabled-bg: #f5f6f8;
+  --ui-field-disabled-bg: #f3f5f8;
+  --ui-accent-hover: #3f53bb;
+  --ui-border-hover: #abb8cd;
+  --ui-on-accent: #fff;
+  --ui-home-bg: #f7f8fb;
+  --ui-home-secondary: #536075;
+  --ui-home-muted: #7b879a;
+  --ui-card-radius: 11px;
 }
 body:has(#editor-view:not([hidden])) { height: 100dvh; overflow: hidden; background: var(--ui-bg); }
 body:has(#editor-view:not([hidden])) > .brand { display: none; }
@@ -24,7 +37,7 @@ body:has(#editor-view:not([hidden])) .feedback {
 body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   pointer-events: auto; padding: 7px 12px; margin: 4px 0;
   border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
-  background: var(--ui-surface); box-shadow: 0 8px 24px #1b27381c;
+  background: var(--ui-surface); box-shadow: 0 8px 24px var(--ui-shadow-color);
 }
 #editor-view, #editor-design { min-width: 0; min-height: 0; height: 100%; }
 #editor-design.app-shell { display: flex; flex-direction: column; }
@@ -35,13 +48,13 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   color: var(--ui-text); max-width: 100%;
 }
 .app-shell button { cursor: pointer; }
-.app-shell button:hover:not(:disabled) { border-color: #abb8cd; background: #f4f6fc; }
-.app-shell button:disabled { cursor: default; color: #929ba9; background: #f5f6f8; }
+.app-shell button:hover:not(:disabled) { border-color: var(--ui-border-hover); background: var(--ui-hover); }
+.app-shell button:disabled { cursor: default; color: var(--ui-control-disabled-text); background: var(--ui-control-disabled-bg); }
 .app-shell button[type=submit], .app-shell button.primary-action {
-  background: var(--ui-accent); color: #fff; border-color: var(--ui-accent);
+  background: var(--ui-accent); color: var(--ui-on-accent); border-color: var(--ui-accent);
 }
 .app-shell button[type=submit]:hover:not(:disabled), .app-shell button.primary-action:hover:not(:disabled) {
-  background: #3f53bb; color: white;
+  background: var(--ui-accent-hover); color: white;
 }
 .app-shell input:focus-visible, .app-shell button:focus-visible, .app-shell select:focus-visible,
 .app-shell textarea:focus-visible, .app-shell summary:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 1px; }
@@ -51,13 +64,13 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell label { font-size: 12px; color: var(--ui-muted); }
 .app-shell label input, .app-shell label select, .app-shell label textarea { margin-top: 4px; color: var(--ui-text); }
 .app-shell :is(input, select, textarea) { min-width: 0; }
-.app-shell :is(input, select, textarea):disabled { background: #f3f5f8; }
+.app-shell :is(input, select, textarea):disabled { background: var(--ui-field-disabled-bg); }
 .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important;
   padding: 0 !important; margin: -1px !important; overflow: hidden !important;
   clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
 .app-shell > .app-toolbar {
   flex: 0 0 52px; min-height: 52px; padding: 0 15px; border: 0;
-  border-bottom: 1px solid var(--ui-border); background: #fff;
+  border-bottom: 1px solid var(--ui-border); background: var(--ui-surface);
   display: flex; flex-wrap: nowrap; gap: 11px; align-items: center; justify-content: flex-start;
 }
 .editor-brand { font-size: 16px; font-weight: 800; letter-spacing: -.5px; color: #314cbd; }
@@ -75,7 +88,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   display: grid; place-items: center; border-color: transparent; background: transparent; }
 .design-mode { font-weight: 650; padding: 6px 9px; color: var(--ui-accent);
   background: var(--ui-selected); border-radius: 5px; }
-.app-toolbar #open-preview { background: #212c3e; color: #fff; border-color: #212c3e; font-weight: 650; }
+.app-toolbar #open-preview { background: #212c3e; color: var(--ui-on-accent); border-color: #212c3e; font-weight: 650; }
 .app-toolbar #open-preview:hover:not(:disabled) { background: #37465d; }
 .app-toolbar #connection-status { font-size: 11px; color: var(--ui-muted);
   max-width: 96px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; margin: 0; }
@@ -91,7 +104,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   border-radius: var(--ui-radius); font-size: 12px; cursor: pointer; user-select: none; list-style: none; }
 .editor-menu > summary::-webkit-details-marker { display: none; }
 .editor-menu > summary::after { content: '⌄'; font-size: 12px; color: var(--ui-muted); margin-left: 3px; }
-.editor-menu[open] > summary, .editor-menu > summary:hover { border-color: var(--ui-border); background: #f4f6fc; }
+.editor-menu[open] > summary, .editor-menu > summary:hover { border-color: var(--ui-border); background: var(--ui-hover); }
 .app-toolbar .editor-menu > .menu-body {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 24;
   width: 345px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 85px);
@@ -129,7 +142,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   color: var(--ui-muted); cursor: pointer;
 }
 .app-shell .editor-tab:hover { background: #f6f7fb; }
-.app-shell .editor-tab[aria-selected=true] { color: #344dbb; border-bottom-color: var(--ui-accent); font-weight: 700; }
+.app-shell .editor-tab[aria-selected=true] { color: var(--ui-selected-text); border-bottom-color: var(--ui-accent); font-weight: 700; }
 .panel-stage { flex: 1; min-height: 0; min-width: 0; }
 .panel-page { height: 100%; overflow-y: auto; overflow-x: hidden;
   scrollbar-gutter: stable; padding: 10px 12px 18px; }
@@ -231,7 +244,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .app-shell #pages button[aria-pressed=true], .app-shell #screens button[aria-pressed=true] {
-  background: var(--ui-selected); border-color: transparent; color: #344dbb; font-weight: 650;
+  background: var(--ui-selected); border-color: transparent; color: var(--ui-selected-text); font-weight: 650;
 }
 
 .app-shell #screens .screen-row { display: flex; align-items: center; min-width: 0; gap: 2px; }
@@ -266,7 +279,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .inline-menu > :not(summary) {
   position: relative; display: block; width: 100%; margin-top: 6px;
 }
-.app-shell .inline-menu[open] { background: #fff; border: 1px solid var(--ui-border);
+.app-shell .inline-menu[open] { background: var(--ui-surface); border: 1px solid var(--ui-border);
   border-radius: 8px; padding: 5px; box-shadow: 0 7px 15px #1b273822; }
 .app-shell .inline-menu[open] > summary { background: var(--ui-selected); }
 .app-shell #screen-create { display: grid; gap: 7px; margin: 8px 0; }
@@ -279,7 +292,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   font-size: 12px; padding: 4px 5px; border: 1px solid transparent;
   border-radius: 4px; cursor: pointer;
 }
-.app-shell .layer-label:hover { background: #f4f6fc; }
+.app-shell .layer-label:hover { background: var(--ui-hover); }
 .app-shell .layer-disclosure {
   display: inline-grid; place-items: center; flex: 0 0 12px;
   font-size: 11px; color: var(--ui-muted);
@@ -306,7 +319,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   opacity: .8;
 }
 .app-shell #layers [aria-selected=true] > .layer-label {
-  color: #344dbb; background: var(--ui-selected); border-color: transparent; font-weight: 650;
+  color: var(--ui-selected-text); background: var(--ui-selected); border-color: transparent; font-weight: 650;
 }
 .app-shell #layers [role=group] { margin-left: 12px; border-left: 1px solid #e3e7f0; }
 .app-shell .properties-sidebar #inspector-selection { font-size: 12px; color: var(--ui-muted); }
@@ -347,9 +360,9 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   width: 34px; height: 34px; min-height: 34px; display: grid; place-items: center;
   padding: 5px; border: 1px solid transparent; background: transparent;
 }
-.app-shell .drawing-tool:hover:not(:disabled) { border-color: var(--ui-border); background: #fff; }
+.app-shell .drawing-tool:hover:not(:disabled) { border-color: var(--ui-border); background: var(--ui-surface); }
 .app-shell .drawing-tool.selected { border-color: #bdc9f6; background: var(--ui-selected); color: #384cb8; }
-.drawing-toolbar .palette-options > summary { padding: 4px 10px; border-color: var(--ui-border); background: #fff; }
+.drawing-toolbar .palette-options > summary { padding: 4px 10px; border-color: var(--ui-border); background: var(--ui-surface); }
 .drawing-toolbar .palette-options[open] {
   position: relative; z-index: 20; background: white; border: 1px solid var(--ui-border);
   border-radius: 7px; padding: 5px;
@@ -387,7 +400,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .viewport-controls {
   position: absolute; bottom: 18px; right: 17px; z-index: 7;
   display: flex; gap: 2px; flex-wrap: nowrap; align-items: center;
-  padding: 4px; background: #fff; box-shadow: 0 2px 10px #1b273822;
+  padding: 4px; background: var(--ui-surface); box-shadow: 0 2px 10px #1b273822;
   border: 1px solid var(--ui-border); border-radius: 9px;
 }
 .app-shell .viewport-controls button { white-space: nowrap; border-color: transparent; }
@@ -402,7 +415,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .canvas-blank p { color: var(--ui-muted); margin-bottom: 16px; }
 .app-shell #design-render-status:not(:empty), .app-shell #canvas-edit-error:not(:empty) {
   position: absolute; z-index: 8; top: 74px; left: 12px;
-  background: #fff; border: 1px solid var(--ui-border);
+  background: var(--ui-surface); border: 1px solid var(--ui-border);
   border-radius: var(--ui-radius); padding: 7px 10px;
 }
 .app-shell #design-render-status:empty, .app-shell #canvas-edit-error:empty { display: none; }
@@ -412,7 +425,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   position: absolute; z-index: 8; bottom: 44px; left: 12px;
   max-width: min(470px, 60%); padding: 5px 8px; margin: 0;
   border: 1px solid var(--ui-border); border-radius: var(--ui-radius);
-  background: var(--ui-surface); box-shadow: 0 3px 10px #1b27381c;
+  background: var(--ui-surface); box-shadow: 0 3px 10px var(--ui-shadow-color);
   color: var(--ui-muted); font-size: 11px; pointer-events: none;
 }
 .app-shell #canvas-edit-hint { bottom: 72px; }
@@ -788,7 +801,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .token-tree-toolbar #token-search { flex:1; min-width:0; width:0; }
 .app-shell .token-menu-button { position:relative; flex:0 0 var(--ui-control); padding:0; }
 .token-menu-button[data-filtered=true]::after { content:''; position:absolute; top:3px; right:3px; width:7px; height:7px; border-radius:50%; background:var(--ui-accent); }
-.token-menu { position:fixed; inset:auto; margin:0; width:220px; max-width:calc(100vw - 16px); overflow:auto; padding:5px; border:1px solid var(--ui-border); border-radius:var(--ui-radius); background:var(--ui-surface); color:var(--ui-text); box-shadow:0 8px 24px #1b27381c; }
+.token-menu { position:fixed; inset:auto; margin:0; width:220px; max-width:calc(100vw - 16px); overflow:auto; padding:5px; border:1px solid var(--ui-border); border-radius:var(--ui-radius); background:var(--ui-surface); color:var(--ui-text); box-shadow:0 8px 24px var(--ui-shadow-color); }
 .app-shell .token-menu > button { display:block; width:100%; text-align:left; border-color:transparent; background:transparent; }
 .app-shell .token-menu > button:not(:disabled):hover, .token-type-filter label:hover { background:var(--ui-selected); }
 .token-menu hr { border:0; border-top:1px solid var(--ui-border); margin:4px 0; }
@@ -861,6 +874,9 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
     color-scheme:dark;
     --ui-bg:#181e29; --ui-surface:#202836; --ui-text:#e2e8f4; --ui-muted:#aab6ca;
     --ui-border:#465164; --ui-accent:#a9baff; --ui-selected:#344263;
+    --ui-hover:var(--ui-selected); --ui-selected-text:var(--ui-accent);
+    --ui-control-disabled-bg:var(--ui-bg); --ui-field-disabled-bg:var(--ui-bg);
+    --ui-control-disabled-text:var(--ui-muted); --ui-border-hover:var(--ui-border);
     color:var(--ui-text);
   }
   .app-shell .prototype-page { background: var(--ui-surface); }

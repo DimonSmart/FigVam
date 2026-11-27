@@ -14,3 +14,5 @@ Application chrome only; not the component catalog or design tokens of user docu
 | Pagination | `src/ui/Pagination.tsx` | `<Pagination prefix="components" ... />`. Revision-pinned navigation with consistent disabled states. |
 
 Use the existing component before adding an alternative. Native select, checkbox, file and numeric fields remain appropriate where their browser behavior is sufficient; specialized canvas controls are separate. Standard application icons use Lucide React. Shared components inherit the application's semantic CSS tokens and must not reference user document tokens.
+
+The drawing toolbar uses the shared Base UI Button with Lucide glyphs (18px, 1.7 stroke width), explicit accessible names and profile-based availability. Common hover, selection, disabled, surface, border and error colors are defined as application CSS variables; keep document colors and layout geometry independent.

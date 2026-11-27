@@ -1,4 +1,4 @@
-:root { color-scheme: light; font-family: system-ui, sans-serif; color: #202b3b; background: #f3f5f8; }
+:root { --ui-base-error: #a01e2c; --ui-base-border: #ccd3df; color-scheme: light; font-family: system-ui, sans-serif; color: #202b3b; background: #f3f5f8; }
 * { box-sizing: border-box; }
 body { margin: 0; }
 [hidden] { display: none !important; }
@@ -12,7 +12,7 @@ input { min-width: 0; background: white; color: #202b3b; }
 h1 { font-size: 1.7rem; margin: .25rem 0 1rem; }
 h2 { font-size: 1rem; }
 p { line-height: 1.6; }
-.brand { padding: 1rem 2rem; background: #fff; border-bottom: 1px solid #ccd3df; display: flex; gap: 2rem; align-items: center; flex-wrap: wrap; }
+.brand { padding: 1rem 2rem; background: #fff; border-bottom: 1px solid var(--ui-base-border); display: flex; gap: 2rem; align-items: center; flex-wrap: wrap; }
 .brand > a { font-size: 1.4rem; font-weight: 750; text-decoration: none; }
 .brand > span { flex: 1; }
 #authentication, #documents-view { max-width: 1000px; margin: 3rem auto; padding: 0 2rem; }
@@ -21,21 +21,21 @@ p { line-height: 1.6; }
 #token-help { margin: 0; color: #48536a; font-size: .9rem; }
 .heading, .document-panel { display: flex; justify-content: space-between; gap: 1rem; align-items: center; flex-wrap: wrap; }
 .eyebrow { text-transform: uppercase; font-size: .75rem; letter-spacing: .12em; color: #465675; }
-.create { padding: 1.3rem; border: 1px solid #ccd3df; border-radius: 8px; background: white; display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
+.create { padding: 1.3rem; border: 1px solid var(--ui-base-border); border-radius: 8px; background: white; display: flex; gap: .7rem; align-items: center; flex-wrap: wrap; }
 .create input { flex: 1; }
 #document-list { padding: 0; list-style: none; }
-#document-list li { padding: 1.2rem; margin: .6rem 0; border: 1px solid #ccd3df; border-radius: 8px; background: white; display: flex; justify-content: space-between; gap: 1rem; }
+#document-list li { padding: 1.2rem; margin: .6rem 0; border: 1px solid var(--ui-base-border); border-radius: 8px; background: white; display: flex; justify-content: space-between; gap: 1rem; }
 #document-list a { overflow-wrap: anywhere; font-weight: 600; }
 .pagination { display: flex; gap: 1rem; align-items: center; justify-content: center; }
-.document-panel { background: #fff; padding: 1rem 2rem; border-bottom: 1px solid #ccd3df; }
+.document-panel { background: #fff; padding: 1rem 2rem; border-bottom: 1px solid var(--ui-base-border); }
 .document-panel h1 { margin: 0; overflow-wrap: anywhere; }
 .notice { padding: .8rem 2rem; background: #fff2ce; margin: 0; }
 .workspace { display: grid; grid-template-columns: 240px minmax(200px, 1fr) 260px; min-height: 60vh; }
-.workspace > * { padding: 1.5rem; border: 1px solid #ccd3df; }
+.workspace > * { padding: 1.5rem; border: 1px solid var(--ui-base-border); }
 .workspace aside { background: white; }
 .canvas { background: #e9edf4; min-width: 0; }
 .feedback { max-width: 1000px; margin: 1rem auto; padding: 0 2rem 2rem; }
-#error { color: #a01e2c; font-weight: 600; }
+#error { color: var(--ui-base-error); font-weight: 600; }
 .skip { position: absolute; top: -100px; left: 1rem; background: white; padding: 1rem; z-index: 1; }
 .skip:focus { top: 0; }
 @media (max-width: 800px) { .workspace { grid-template-columns: 1fr; } .brand { padding: 1rem; } .create { align-items: stretch; flex-direction: column; } }
@@ -91,15 +91,15 @@ p { line-height: 1.6; }
 #visual-inspector textarea { min-height: 3rem; resize: vertical; }
 #visual-inspector input[type=color] { height: 2.5rem; padding: .2rem; }
 #visual-properties { display: grid; gap: .55rem; }
-.node-property fieldset { min-width: 0; margin: 0; border: 1px solid #ccd3df; border-radius: 6px; }
-.node-property-error, #visual-palette-error, #visual-inspector-error { color: #a01e2c; overflow-wrap: anywhere; }
+.node-property fieldset { min-width: 0; margin: 0; border: 1px solid var(--ui-base-border); border-radius: 6px; }
+.node-property-error, #visual-palette-error, #visual-inspector-error { color: var(--ui-base-error); overflow-wrap: anywhere; }
 .node-property-error { margin: .2rem 0 0; font-size: .9rem; }
 #visual-palette p:empty, #visual-inspector p:empty { display: none; }
-#node-reparent-form { display: grid; gap: .55rem; margin-top: .65rem; padding-top: .55rem; border-top: 1px solid #ccd3df; }
+#node-reparent-form { display: grid; gap: .55rem; margin-top: .65rem; padding-top: .55rem; border-top: 1px solid var(--ui-base-border); }
 #node-reparent-form p { margin: 0; }
 #node-reparent-form select, #node-reparent-form input { display: block; width: 100%; font: inherit; }
 
-#scenario-edit fieldset { min-width: 0; padding: .55rem; border: 1px solid #ccd3df; border-radius: 6px; }
+#scenario-edit fieldset { min-width: 0; padding: .55rem; border: 1px solid var(--ui-base-border); border-radius: 6px; }
 #scenario-edit label { display: block; margin: .45rem 0; }
 #scenario-edit select, #scenario-edit input[type=text], #scenario-edit textarea { display: block; width: 100%; max-width: 100%; font: inherit; }
 #scenario-edit button { max-width: 100%; margin: .2rem .2rem .2rem 0; padding: .35rem .45rem; }
@@ -111,10 +111,10 @@ p { line-height: 1.6; }
 .presence-marker { position: absolute; padding: 2px 5px; background: white; border: 2px solid; color: #172033; font-size: 12px; white-space: nowrap; }
 
 #google-login { display: inline-block; padding: .75rem 1.2rem; border-radius: 6px; background: #214da6; color: white; text-decoration: none; font-weight: 600; }
-#authentication-error { color: #a01e2c; }
-#user-admin { margin: 2rem 0; border-top: 1px solid #ccd3df; padding-top: 1rem; }
+#authentication-error { color: var(--ui-base-error); }
+#user-admin { margin: 2rem 0; border-top: 1px solid var(--ui-base-border); padding-top: 1rem; }
 #user-admin-list { list-style: none; padding: 0; }
-#user-admin-list li { display: flex; gap: 1rem; flex-wrap: wrap; padding: .6rem 0; border-bottom: 1px solid #ccd3df; }
+#user-admin-list li { display: flex; gap: 1rem; flex-wrap: wrap; padding: .6rem 0; border-bottom: 1px solid var(--ui-base-border); }
 #user-admin-list input { min-width: auto; }
 
 .shadow-effects { display: grid; gap: .35rem; margin-block: .5rem; }

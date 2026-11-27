@@ -8,11 +8,16 @@ From this directory: `npm ci`, `npm run typecheck`, `npm run test`, `npm run bui
 
 ## Modules and ownership
 
-- `app/editor.ts`: application coordinator; owns document identity, role, committed revision, page/screen selection and the document list cursor.
+- `app/editor.ts`: application coordinator; composes feature controllers and browser views. Document identity, role, page/screen selection and list pagination still reside here during migration.
+- `app/document-workspace.ts`: confirmed document revision, full catalog revision and revision-pinned page/screen selection reconciliation.
+- `app/request-runner.ts`: foreground operation lifecycle, cancellation, retry and restart of collaboration; the view supplies busy/status callbacks.
+- `app/navigation.ts`: document route parsing, history and dirty-draft navigation guard.
+- `features/home/session-authentication.ts`: validated authentication configuration and session transport.
 - `core/session.ts`: in-memory authentication token, navigation epoch and cancellation of the current request.
 - `api/`: transport, generated OpenAPI DTOs, checked decoders and typed revision-pinned document queries; `app/page-commands.ts` builds page/screen commands.
-- `features/`: domain-specific controllers and React views. Each feature owns its drafts, validation, operation state and retry policy. Collaboration owns the live subscription, layers own layer selection, and the document revision is authoritative in the coordinator.
+- `features/`: domain-specific controllers and React views. Each feature owns its drafts, validation, operation state and retry policy. Collaboration owns the live subscription, layers own layer selection, and the confirmed document revision has an explicit owner in the workspace.
 - `app/react-panels.tsx`: a single React root with separately subscribed portal slots. This is a migration adapter for the existing HTML shell, not a second application or a final component hierarchy. Legacy controls must not change children inside React-owned slots. The remaining imperative shell and specialized property/token controls still need conversion before the full migration is complete.
+- `features/editor/drawing-tools.tsx`: React-owned toolbar using Lucide icons and direct palette actions; legacy palette fields remain a separate migration item.
 - `canvas/`: independent rendering, hit testing, viewport, drag and export logic; it does not import React.
 - `ui/`: reusable application controls; see [UI Kit](UI-KIT.md).
 
@@ -22,4 +27,4 @@ Run `npm run generate:api` to regenerate the committed API types from an isolate
 
 ## Regression verification
 
-The repository CI runs frontend typecheck/build/tests, generated-contract comparison, server build/publish and tests, published asset route checks, MCP smoke, Aspire tunnel lifecycle and Playwright (including Login Prototype E2E). The presence of a successful frontend job does not replace full CI. Visual and performance comparisons require matching baseline and candidate runs; do not claim them from typecheck alone.
+The repository CI runs frontend typecheck/build/tests, generated-contract comparison, server build/publish and tests, published asset route checks, MCP smoke, Aspire tunnel lifecycle and Playwright (including Login Prototype E2E). Architecture tests prohibit handwritten runtime JavaScript, more than one application React root, new direct portal adapters, and React imports in the rendering engine. The presence of a successful frontend job does not replace full CI. Visual and performance comparisons require matching baseline and candidate runs; do not claim them from typecheck alone.
