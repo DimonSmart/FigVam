@@ -244,7 +244,7 @@ export function createLayers({
       function activeAfterConfirmation() { return workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible(); }
     } catch (error) {
       if (nodeOperations.get(key) !== op) return;
-      if (classifyCommandFailure(error, active(), false) === 'uncertain') op.state = 'uncertain';
+      if (!(error instanceof ApiError) || classifyCommandFailure(error, active(), false) === 'uncertain') op.state = 'uncertain';
       else {
         nodeOperations.delete(key);
         if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
@@ -290,7 +290,7 @@ export function createLayers({
       if (active() && synced) { nodeDeletions.delete(key); renderNodeDeletion(); }
       else op.state = 'uncertain';
     } catch (error) {
-      if (classifyCommandFailure(error, active(), false) === 'uncertain') { op.state = 'uncertain'; return; }
+      if (!(error instanceof ApiError) || classifyCommandFailure(error, active(), false) === 'uncertain') { op.state = 'uncertain'; return; }
       if (error instanceof ApiError && error.status === 403) { nodeDeletions.delete(key); closeInaccessibleDocument(403); return; }
       if (error.code === 'NODE_NOT_FOUND') {
         await runPageRefresh(signal => readCurrentPages(signal, active));
@@ -404,7 +404,7 @@ export function createLayers({
         }
       } else op.state = 'uncertain';
     } catch (error) {
-      if (classifyCommandFailure(error, active()) === 'uncertain') { op.state = 'uncertain'; return; }
+      if (!(error instanceof ApiError) || classifyCommandFailure(error, active()) === 'uncertain') { op.state = 'uncertain'; return; }
       if (error instanceof ApiError && error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
       const explanations:Record<string,string> = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',

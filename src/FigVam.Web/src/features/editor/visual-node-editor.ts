@@ -480,7 +480,7 @@ export function createVisualNodeEditor({
       input('asset-upload-file').value = '';
       op.draft.uploadStatus = 'Изображение загружено. Выберите его в поле «Ассет».';
     } catch (error) {
-      if(classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
+      if (!(error instanceof ApiError) || classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
       else {
         uploads.delete(op.documentId);
         if (error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
@@ -626,7 +626,7 @@ export function createVisualNodeEditor({
       op.draft.status = adding ? 'Элемент добавлен.' : op.canvas ? 'Геометрия сохранена.' : 'Свойства сохранены.';
       if (scopeKey(getContext()) === op.key && (!op.auto || resolvedModelKey === modelKey)) render();
     } catch (error) {
-      if(classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
+      if (!(error instanceof ApiError) || classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
       else {
         operations.delete(op.key);
         if (error.code === 'DOCUMENT_NOT_FOUND') {

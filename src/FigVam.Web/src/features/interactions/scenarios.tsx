@@ -337,7 +337,7 @@ export function createScenarios({
       render(); next?.();
     } catch (error) {
       if (operations.get(k) !== op) return;
-      if (classifyCommandFailure(error, active()) === 'uncertain' || (error instanceof ApiError && !error.status)) { op.state = 'uncertain'; return; }
+      if (!(error instanceof ApiError) || classifyCommandFailure(error, active()) === 'uncertain' || (error instanceof ApiError && !error.status)) { op.state = 'uncertain'; return; }
       operations.delete(k); leave = null; closeDialog();
       if (error.code === 'REVISION_CONFLICT') {
         await reloadPages(null, () => sameScreen(c));

@@ -7,7 +7,7 @@ type CommandBody = { commandId: string };
 type Transport = (path: string, options: RequestInit, signal?: AbortSignal | null, isCurrent?: () => boolean) => Promise<unknown>;
 
 /** Allocate an ID only at the user-intent boundary. Retry the original body, not this factory. */
-export function createCommandBody<T extends object>(data: T, commandId = crypto.randomUUID()): T & CommandBody {
+export function createCommandBody<T extends object>(data: T, commandId: string = crypto.randomUUID()): T & CommandBody {
   return { ...data, commandId };
 }
 
