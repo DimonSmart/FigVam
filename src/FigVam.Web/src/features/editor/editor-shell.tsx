@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Ellipsis, PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
 import { createPanelStore } from '../../app/panel-store';
+import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
 
@@ -97,12 +98,12 @@ function TokenWorkspace({active}:{active:boolean}){
               <Ellipsis size={16} aria-hidden="true"/>
             </button>
             <div className="token-menu" id="token-menu" popover="auto" role="group" aria-label="Управление токенами" ref={menu} onToggle={position}>
-              <Button id="new-token-open" type="button" hidden onClick={closeMenu}>{"+ Новый токен…"}</Button>
+              <button id="new-token-open" type="button" hidden onClick={closeMenu}>{"+ Новый токен…"}</button>
               <hr/>
-              <Button id="token-import-open" type="button" hidden onClick={closeMenu}>{"Импорт токенов…"}</Button>
-              <Button id="token-export" type="button" disabled onClick={closeMenu}>{"Экспорт токенов…"}</Button>
-              <Button id="token-export-light" type="button" disabled onClick={closeMenu}>{"Экспорт Light"}</Button>
-              <Button id="token-export-dark" type="button" disabled onClick={closeMenu}>{"Экспорт Dark"}</Button>
+              <button id="token-import-open" type="button" hidden onClick={closeMenu}>{"Импорт токенов…"}</button>
+              <button id="token-export" type="button" disabled onClick={closeMenu}>{"Экспорт токенов…"}</button>
+              <button id="token-export-light" type="button" disabled onClick={closeMenu}>{"Экспорт Light"}</button>
+              <button id="token-export-dark" type="button" disabled onClick={closeMenu}>{"Экспорт Dark"}</button>
               <hr/>
               <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы"/>
             </div>
@@ -173,7 +174,7 @@ function TokenWorkspace({active}:{active:boolean}){
     </section>
   );
 }
-export function EditorShell({shell}:{shell:EditorShellController}){
+export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
@@ -264,7 +265,7 @@ export function EditorShell({shell}:{shell:EditorShellController}){
             <Redo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
           </button>
           <button id="open-preview" type="button" disabled>{"Preview"}</button>
-          <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"/>
+          <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"><views.presence.list.Component/></ul>
           <p id="connection-status" aria-live="polite"/>
           <details className="editor-menu share-menu">
             <summary className="menu-trigger">{"Поделиться"}</summary>
@@ -623,7 +624,7 @@ export function EditorShell({shell}:{shell:EditorShellController}){
           </div>
           <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">
             <div id="screen-boundary" hidden/>
-            <div id="presence-markers" aria-hidden="true"/>
+            <div id="presence-markers" aria-hidden="true"><views.presence.markers.Component/></div>
           </div>
           <p id="canvas-edit-hint" role="status"/>
           <p id="canvas-edit-status" role="status"/>

@@ -1,7 +1,6 @@
 import { InlineError } from '../../ui/Feedback';
 import { useState } from 'react';
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import type { AuthMode } from '../../api/auth-client';
 import { Button } from '../../ui/Button';
 
@@ -37,13 +36,16 @@ function Authentication({ state, submit }: {
   </section>;
 }
 
-/** Transitional boundary: editor commands remain outside the React-owned subtree. */
-export function createAuthenticationView(host: HTMLElement, submit: (token: string) => void) {
-  const root = createPanelRoot(host);
+function AuthenticationView(props: Parameters<typeof Authentication>[0]) {
+  return <Authentication key={props.state.reset} {...props}/>;
+}
+export function createAuthenticationModel() { return createViewModel(AuthenticationView); }
+
+export function createAuthenticationView(model: ReturnType<typeof createAuthenticationModel>, submit: (token: string) => void) {
   let state: AuthenticationState = { visible: true, mode: null, error: '', reset: 0 };
   function update(patch: Partial<AuthenticationState>) {
     state = { ...state, ...patch };
-    flushSync(() => root.render(<Authentication key={state.reset} state={state} submit={submit} />));
+    model.publish({ state, submit });
   }
   update({});
   return {
@@ -51,6 +53,6 @@ export function createAuthenticationView(host: HTMLElement, submit: (token: stri
     setVisible: (visible: boolean) => update({ visible }),
     setError: (error: string) => update({ error }),
     clearToken: () => update({ reset: state.reset + 1 }),
-    focusToken: () => host.querySelector<HTMLInputElement>('#token')?.focus(),
+    focusToken: () => requestAnimationFrame(() => document.getElementById('token')?.focus()),
   };
 }

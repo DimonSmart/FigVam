@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
 import { Moon, Sun } from 'lucide-react';
+import type { ApplicationViews } from './application-views';
 import { EditorShell, type EditorShellController } from '../features/editor/editor-shell';
 
 /** The application shell is mounted once. Feature controllers still own their
  * legacy fields until their individual migration; the shell never reparents them. */
-export function ApplicationShell({shell}:{shell:EditorShellController}){
+export function ApplicationShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
   return <>
     <a className="skip" href="#content">{"К содержимому"}</a>
@@ -18,7 +19,7 @@ export function ApplicationShell({shell}:{shell:EditorShellController}){
         {signoutLabel}
       </button>
     </header>
-    <div id="authentication-root"/>
+    <div id="authentication-root"><views.authentication.Component/></div>
     <main id="content" tabIndex={-1} hidden>
       <section id="delete-result" hidden aria-label="Удаление документа">
         <p id="delete-message" role="alert"/>
@@ -28,7 +29,7 @@ export function ApplicationShell({shell}:{shell:EditorShellController}){
         <div className="home-layout">
           <aside className="home-sidebar" aria-label="Разделы рабочего пространства">
             <p className="home-sidebar-title">{"Рабочее пространство"}</p>
-            <nav id="home-navigation" className="home-navigation" aria-label="Навигация"/>
+            <nav id="home-navigation" className="home-navigation" aria-label="Навигация"><views.homeNavigation.Component/></nav>
             <div className="home-sidebar-footer">
               {"FigVam"}
               <br/>
@@ -51,7 +52,7 @@ export function ApplicationShell({shell}:{shell:EditorShellController}){
                     <h2 id="recent-documents-title">{"Все документы"}</h2>
                     <span className="home-count" id="home-count"/>
                   </div>
-                  <ul id="document-list" aria-label="Доступные документы"/>
+                  <ul id="document-list" aria-label="Доступные документы"><views.documentList.Component/></ul>
                   <div id="home-empty" className="home-empty" hidden>
                     <strong>{"Пока нет документов"}</strong>
                     <p>{"Создайте документ или откройте существующий файл."}</p>
@@ -106,7 +107,7 @@ export function ApplicationShell({shell}:{shell:EditorShellController}){
         </div>
       </div>
       <div id="editor-view" hidden>
-        <EditorShell shell={shell}/>
+        <EditorShell shell={shell} views={views}/>
         <section id="editor-preview" aria-labelledby="preview-title" hidden>
           <header className="document-panel">
             <h1 id="preview-title">{"Preview"}</h1>

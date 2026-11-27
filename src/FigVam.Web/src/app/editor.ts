@@ -20,6 +20,7 @@ import { element, required } from './dom';
 import { createElement } from 'react';
 import { disposeApplicationRoot, mountApplicationRoot } from './react-panels';
 import { ApplicationShell } from './application-shell';
+import { createApplicationViews } from './application-views';
 import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
@@ -50,10 +51,11 @@ const requestRunner = createRequestRunner({
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
 
 const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage });
-mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell }));
-const authenticationView = createAuthenticationView(element('authentication-root'), submitBearerToken);
-const documentListView = createDocumentListView(element('document-list'), deleteCatalogDocument);
-const homeNavigation = createHomeNavigation(element('home-navigation'), selectHomeView);
+const views = createApplicationViews();
+mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views }));
+const authenticationView = createAuthenticationView(views.authentication, submitBearerToken);
+const documentListView = createDocumentListView(views.documentList, deleteCatalogDocument);
+const homeNavigation = createHomeNavigation(views.homeNavigation, selectHomeView);
 const userAdmin = createUserAdmin(element);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
@@ -428,6 +430,7 @@ function renderScreens() {
 
 
 const presence: ReturnType<typeof createPresence> = createPresence({
+  models: views.presence,
   element,
   getContext: () => ({ token, documentId, navigationEpoch, selectedScreen, selectedLayer: layers.selection }),
   toViewportPoint: point => canvasViewport.toViewportPoint(point)
