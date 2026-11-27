@@ -1,9 +1,10 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
-import { ApiError, type ApiClient } from '../../api/api-client';
+import type { ApiClient } from '../../api/api-client';
 import { requiredRecord, text, page, aborted, errorMessage } from '../../api/decode';
 import type { components } from '../../api/schema.generated';
 type VariantCommand=components['schemas']['AddScreenVariantRequest'];
@@ -66,12 +67,12 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
     const active=()=>doc===workspace.documentId&&screen===workspace.selectedScreen&&workspace.token===token&&epoch===workspace.navigationEpoch&&workspace.isEditorVisible();
     op.state='pending';if(active()){commandError=null;render({error:''});}
     try{
-      await request('/api/v1/documents/'+encodeURIComponent(doc)+'/commands/add-screen-variant',{method:'POST',body:JSON.stringify(op.body)});
+      await postDocumentCommand(request,doc,'add-screen-variant',op.body);
       if(operations.get(k)!==op)return;operations.delete(k);
       if(active()){render({formKey:state.formKey+1});selectVariant(op.body.variantId);await refreshPages();}
     }catch(error){
       if(operations.get(k)!==op)return;
-      if(!(error instanceof ApiError)||error.status>=500)op.state='uncertain';
+      if(classifyCommandFailure(error,true,false)==='uncertain')op.state='uncertain';
       else{operations.delete(k);if(active()){commandError={key:k,message:error.message};render({error:error.message});}}
     }finally{if(active())render();}
   }

@@ -244,7 +244,7 @@ const members: ReturnType<typeof createMembers> = createMembers({ model: views.m
 });
 
 const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
-  element, request, pageSize, refreshPages,
+  request, pageSize, refreshPages,
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },
@@ -520,7 +520,7 @@ async function openDocument(id: string): Promise<void> {
   resetDocumentRename();
   shellState.patch({ view: 'none' });
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);

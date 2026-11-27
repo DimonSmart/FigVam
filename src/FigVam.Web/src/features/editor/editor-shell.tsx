@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
+import { PanelLeft, PanelRight, Pencil, Check, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createPanelStore } from '../../app/panel-store';
 import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from '../../app/document-shell-state';
 import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
+import { TextInput, NumberInput } from '../../ui/Inputs';
 
 interface ShellActions {
   beforePrototypeLeave(resume:()=>void):boolean;
@@ -132,24 +133,24 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
             <label id="new-token-category-label" htmlFor="new-token-category" hidden>{"Назначение"}</label>
             <select id="new-token-category" hidden/>
             <div id="new-token-values" className="token-theme-values"><views.tokens.createFields.Component/></div>
-            <button type="submit">{"Создать токен"}</button>
+            <Button type="submit">{"Создать токен"}</Button>
             <Button id="new-token-cancel" type="button">{"Отмена"}</Button>
           </form>
           <div id="token-detail" hidden>
             <div className="token-name-header">
               <h3 id="token-detail-title"/>
-              <button id="token-rename-open" className="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен">{"✎"}</button>
+              <Button id="token-rename-open" className="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен"><Pencil size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
               <form id="token-rename" hidden>
                 <input id="token-name" aria-label="Новое имя токена" required maxLength={256}/>
-                <button type="submit" className="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя">{"✓"}</button>
-                <button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена">{"×"}</button>
+                <Button type="submit" className="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя"><Check size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
+                <Button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена"><X size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
               </form>
             </div>
             <p id="token-detail-type"/>
             <p className="token-invalid" id="token-detail-diagnostic" role="status"/>
             <div id="token-values" className="token-theme-values"><views.tokens.detailFields.Component/></div>
             <div id="token-edit" hidden>
-              <button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</button>
+              <Button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</Button>
             </div>
             <h4>{"Использования"}</h4>
             <ul id="token-usages" aria-label="Прямые и косвенные использования токена"><views.tokens.usage.Component/></ul>
@@ -248,13 +249,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
         <div className="app-header-actions">
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть слои" aria-label="Показать или скрыть слои" aria-expanded={!leftCollapsed} hidden={tokensMode} onClick={()=>setLeftCollapsed(value=>!value)}><PanelLeft size={18} aria-hidden="true"/></Button>
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть инспектор" aria-label="Показать или скрыть инспектор" aria-expanded={!rightCollapsed} hidden={tokensMode} onClick={()=>setRightCollapsed(value=>!value)}><PanelRight size={18} aria-hidden="true"/></Button>
-          <button id="undo" type="button" className="icon-action" title="Отменить действие" aria-label="Отменить действие">
-            <Undo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
-          </button>
-          <button id="redo" type="button" className="icon-action" title="Повторить действие" aria-label="Повторить действие">
-            <Redo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
-          </button>
-          <button id="open-preview" type="button" disabled>{"Preview"}</button>
+          <views.history.toolbar.Component/>
+          <Button id="open-preview" type="button" disabled>{"Preview"}</Button>
           <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"><views.presence.list.Component/></ul>
           <p id="connection-status" aria-live="polite">{state.connectionStatus}</p>
           <details className="editor-menu share-menu">
@@ -266,11 +262,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section aria-labelledby="presence-title">
                   <p className="visually-hidden">{"Настройки присутствия"}</p>
                   <h2 id="presence-title">{"Участники в документе"}</h2>
-                  <label htmlFor="presence-name">{"Ваше имя для участников"}</label>
-                  <input id="presence-name" maxLength={128} defaultValue="Участник" autoComplete="off"/>
-                  <label htmlFor="presence-color">{"Ваш цвет"}</label>
-                  <input id="presence-color" type="color" defaultValue="#2455a4"/>
-                  <p id="presence-status" role="status" aria-live="polite"/>
+                  <views.presence.settings.Component/>
                 </section>
               </section>
             </div>
@@ -286,12 +278,12 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <h3 className="editor-group-title">{"Документ"}</h3>
                 <form id="document-rename" hidden={!canEdit} onSubmit={event=>{event.preventDefault();shell.renameDocument();}}>
                   <label htmlFor="rename-document-name">{"Имя документа"}</label>
-                  <input id="rename-document-name" value={state.renameName} onChange={event=>shell.document.patch({renameName:event.currentTarget.value})} required maxLength={256} autoComplete="off"/>
-                  <button type="submit" disabled={state.renameBusy}>{"Переименовать документ"}</button>
+                  <TextInput id="rename-document-name" value={state.renameName} onChange={event=>shell.document.patch({renameName:event.currentTarget.value})} required maxLength={256} autoComplete="off"/>
+                  <Button type="submit" disabled={state.renameBusy}>{"Переименовать документ"}</Button>
                   <p id="document-rename-status" role="status" aria-live="polite">{state.renameStatus}</p>
                   <p id="document-rename-error" role="alert">{state.renameError}</p>
                 </form>
-                <button id="delete-document" type="button" hidden={state.role!=='Owner'} disabled={deletion.status!=='idle'} onClick={shell.deleteDocument}>{"Удалить документ"}</button>
+                <Button id="delete-document" type="button" hidden={state.role!=='Owner'} disabled={deletion.status!=='idle'} onClick={shell.deleteDocument}>{"Удалить документ"}</Button>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Экспорт"}</h3>
@@ -304,10 +296,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"История команд"}</h3>
-                <span id="history-access"/>
-                <p id="history-action-status" role="status" aria-live="polite"/>
-                <p id="history-action-error" role="alert"/>
-                <button id="history-action-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+                <views.history.feedback.Component/>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Аккаунт"}</h3>
@@ -337,7 +326,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                   <h3 className="editor-group-title">{"Страницы и экраны"}</h3>
                   <div className="navigator-toolbar" ref={navigatorToolbar}>
                     <div id="page-edit" hidden={!canEdit} inert={state.pageBusy}>
-                      <button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</button>
+                      <Button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</Button>
                     </div>
                     <details className="editor-menu inline-menu screen-options" hidden={!canEdit} ref={screenMenu} onToggle={onScreenMenuToggle}>
                       <summary className="menu-trigger">{"+ Экран"}</summary>
@@ -350,14 +339,14 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                         </select>
                         <form id="screen-create" hidden={!canEdit} inert={state.pageBusy} onSubmit={event=>{event.preventDefault();shell.createScreen();}}>
                           <label htmlFor="screen-width">{"Ширина экрана"}</label>
-                          <input id="screen-width" type="number" min="0" step="any" required value={state.screenWidth} ref={screenWidth} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenWidth:event.currentTarget.value})}/>
+                          <NumberInput id="screen-width" min="0" step="any" required value={state.screenWidth} ref={screenWidth} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenWidth:event.currentTarget.value})}/>
                           <label htmlFor="screen-height">{"Высота экрана"}</label>
-                          <input id="screen-height" type="number" min="0" step="any" required value={state.screenHeight} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenHeight:event.currentTarget.value})}/>
-                          <button type="submit" disabled={!state.hasPage}>{"Создать экран"}</button>
+                          <NumberInput id="screen-height" min="0" step="any" required value={state.screenHeight} disabled={!state.hasPage} onChange={event=>shell.document.patch({screenHeight:event.currentTarget.value})}/>
+                          <Button type="submit" disabled={!state.hasPage}>{"Создать экран"}</Button>
                         </form>
                       </div>
                     </details>
-                    <button id="page-refresh" type="button" title="Обновить страницы" onClick={shell.refreshPages}>{"Обновить страницы"}</button>
+                    <Button id="page-refresh" type="button" title="Обновить страницы" onClick={shell.refreshPages}>{"Обновить страницы"}</Button>
                   </div>
                   <div className="navigator-tree-host"><views.navigator.Component/></div>
                   <p id="page-access">{state.role==='Viewer'?'Только просмотр страниц.':state.role?'':'Права на редактирование не определены. Обновите страницу.'}</p>
@@ -373,7 +362,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                   <p id="layers-status" role="status" aria-live="polite">{"Выберите экран."}</p>
                   <div id="layers" role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
                   <p id="node-order-status" role="status" tabIndex={-1}/>
-                  <button id="node-order-retry" type="button" hidden>{"Повторить перемещение слоя"}</button>
+                  <Button id="node-order-retry" type="button" hidden>{"Повторить перемещение слоя"}</Button>
                 </section>
               </div>
             </div>
@@ -388,12 +377,12 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     {"Изображение PNG "}
                     <input id="asset-upload-file" type="file" accept="image/png" required/>
                   </label>
-                  <button id="asset-upload" type="submit">{"Загрузить изображение"}</button>
+                  <Button id="asset-upload" type="submit">{"Загрузить изображение"}</Button>
                 </form>
                 <p>{"PNG до 5 МиБ; сервер проверяет формат и размеры изображения."}</p>
                 <p id="asset-upload-status" role="status"/>
                 <p id="asset-upload-error" role="alert"/>
-                <button id="asset-upload-retry" type="button" hidden>{"Повторить загрузку изображения"}</button>
+                <Button id="asset-upload-retry" type="button" hidden>{"Повторить загрузку изображения"}</Button>
               </section>
               <section aria-labelledby="datasets-title"><views.datasets.Component/></section>
               <section className="editor-group">
@@ -415,9 +404,9 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     <label htmlFor="styles-based-on">{"Основан на (BasedOn)"}</label>
                     <select id="styles-based-on"/>
                     <div id="styles-fields"><views.styles.fields.Component/></div>
-                    <button id="styles-save" type="submit">{"Сохранить стиль"}</button>
+                    <Button id="styles-save" type="submit">{"Сохранить стиль"}</Button>
                   </form>
-                  <button id="styles-delete" type="button" hidden>{"Удалить неиспользуемый стиль"}</button>
+                  <Button id="styles-delete" type="button" hidden>{"Удалить неиспользуемый стиль"}</Button>
                   <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"/>
                   <h4>{"Использования стиля"}</h4>
                   <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"><views.styles.usage.Component/></ul>
@@ -448,12 +437,12 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                     <summary>{"Токены и оформление"}</summary>
                     <div id="visual-optional-properties"><views.propertyFields.optional.Component/></div>
                   </details>
-                  <button id="visual-add" type="submit">{"Добавить элемент"}</button>
+                  <Button id="visual-add" type="submit">{"Добавить элемент"}</Button>
                 </form>
                 <p id="visual-palette-status" role="status"/>
                 <p id="visual-palette-error" role="alert"/>
-                <button id="visual-palette-retry" type="button" hidden>{"Повторить загрузку палитры"}</button>
-                <button id="visual-add-retry" type="button" hidden>{"Повторить добавление"}</button>
+                <Button id="visual-palette-retry" type="button" hidden>{"Повторить загрузку палитры"}</Button>
+                <Button id="visual-add-retry" type="button" hidden>{"Повторить добавление"}</Button>
               </section>
             </details>
           </div>
@@ -461,7 +450,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <p id="canvas-selection" className="canvas-caption">{"Выберите экран, чтобы показать его на холсте."}</p>
           <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
           <p id="design-render-status" role="status"/>
-          <button id="design-render-retry" type="button" hidden>{"Повторить загрузку экрана"}</button>
+          <Button id="design-render-retry" type="button" hidden>{"Повторить загрузку экрана"}</Button>
           <ul id="design-render-diagnostics" aria-label="Диагностика отображения"/>
           <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen}>
             <h2>{"Нет выбранного экрана"}</h2>
@@ -475,13 +464,13 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <p id="canvas-edit-hint" role="status"/>
           <p id="canvas-edit-status" role="status"/>
           <p id="canvas-edit-error" role="alert"/>
-          <button id="canvas-edit-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+          <Button id="canvas-edit-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</Button>
           <div className="viewport-controls" role="group" aria-label="Управление холстом">
-            <button id="zoom-out" type="button" title="Уменьшить">{"Уменьшить"}</button>
+            <Button id="zoom-out" type="button" title="Уменьшить">{"Уменьшить"}</Button>
             <output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{"100%"}</output>
-            <button id="zoom-in" type="button" title="Увеличить">{"Увеличить"}</button>
-            <button id="fit-screen" type="button" title="Вместить экран в холст">{"Вместить экран"}</button>
-            <button id="actual-size" type="button">{"100%"}</button>
+            <Button id="zoom-in" type="button" title="Увеличить">{"Увеличить"}</Button>
+            <Button id="fit-screen" type="button" title="Вместить экран в холст">{"Вместить экран"}</Button>
+            <Button id="actual-size" type="button">{"100%"}</Button>
           </div>
         </section>
         <aside className="properties-sidebar" aria-labelledby="inspector-title">
@@ -490,19 +479,19 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="inspector-page panel-page" id="shell-design" role="tabpanel" aria-labelledby="tab-design" hidden={rightTab!=="design"}>
               <h2 id="inspector-title">{"Инспектор"}</h2>
               <p id="inspector-selection">{"Выберите слой."}</p>
-              <button id="node-delete" type="button" hidden>{"Удалить слой"}</button>
+              <Button id="node-delete" type="button" hidden>{"Удалить слой"}</Button>
               <p id="node-delete-status" role="alert"/>
-              <button id="node-delete-retry" type="button" hidden>{"Повторить удаление слоя"}</button>
+              <Button id="node-delete-retry" type="button" hidden>{"Повторить удаление слоя"}</Button>
               <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
                 <h3 id="visual-inspector-title">{"Свойства элемента"}</h3>
                 <form id="visual-properties-form" noValidate hidden>
                   <div id="visual-properties"><views.propertyFields.inspector.Component/></div>
-                  <button id="visual-properties-reset" type="button" hidden>{"Сбросить изменения свойств"}</button>
+                  <Button id="visual-properties-reset" type="button" hidden>{"Сбросить изменения свойств"}</Button>
                 </form>
                 <p id="visual-inspector-status" role="status"/>
                 <p id="visual-inspector-error" role="alert"/>
-                <button id="visual-save-retry" type="button" hidden>{"Повторить сохранение свойств"}</button>
-                <button id="visual-data-retry" type="button" hidden>{"Повторить загрузку свойств"}</button>
+                <Button id="visual-save-retry" type="button" hidden>{"Повторить сохранение свойств"}</Button>
+                <Button id="visual-data-retry" type="button" hidden>{"Повторить загрузку свойств"}</Button>
               </section>
               <div id="node-metadata" hidden>
                 <p id="node-metadata-status" role="status"/>
@@ -520,7 +509,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                   </label>
                   <p id="node-key-help">{"Пустое значение удаляет semantic key."}</p>
                 </form>
-                <button id="node-metadata-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+                <Button id="node-metadata-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</Button>
               </div>
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
@@ -533,17 +522,17 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <p id="scenarios-context"/>
                 <p id="scenarios-status" role="status" aria-live="polite">{"Выберите экран."}</p>
                 <p id="scenarios-error" role="alert"/>
-                <button id="scenarios-retry" type="button" hidden>{"Повторить загрузку сценариев"}</button>
-                <button id="scenario-create" type="button" hidden>{"Добавить взаимодействие"}</button>
+                <Button id="scenarios-retry" type="button" hidden>{"Повторить загрузку сценариев"}</Button>
+                <Button id="scenario-create" type="button" hidden>{"Добавить взаимодействие"}</Button>
                 <p id="scenario-command-status" role="status" aria-live="polite"/>
                 <p id="scenario-command-error" role="alert"/>
-                <button id="scenario-command-retry" type="button" hidden>{"Повторить команду"}</button>
+                <Button id="scenario-command-retry" type="button" hidden>{"Повторить команду"}</Button>
                 <ul id="scenarios-list" aria-label="Взаимодействия"><views.scenarios.list.Component/></ul>
                 <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
                   <h3 id="scenario-edit-title" tabIndex={-1}>{"Настройка взаимодействия"}</h3>
                   <p id="scenario-edit-source"/>
                   <p id="scenario-edit-conflict" role="alert"/>
-                  <button id="scenario-edit-reload" type="button" hidden>{"Загрузить актуальное взаимодействие"}</button>
+                  <Button id="scenario-edit-reload" type="button" hidden>{"Загрузить актуальное взаимодействие"}</Button>
                   <fieldset id="scenario-edit-fields">
                     <legend>{"Настройка события и действий"}</legend>
                     <label>
@@ -551,24 +540,24 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                       <select id="scenario-edit-event" aria-label="Событие"/>
                     </label>
                     <ol id="scenario-edit-actions" aria-label="Порядок действий"><views.scenarios.actions.Component/></ol>
-                    <button id="scenario-edit-add" type="button">{"Добавить действие"}</button>
+                    <Button id="scenario-edit-add" type="button">{"Добавить действие"}</Button>
                   </fieldset>
                   <p id="scenario-edit-validation" role="status" aria-live="polite"/>
-                  <button id="scenario-edit-recheck" type="button" hidden>{"Повторить проверку"}</button>
-                  <button id="scenario-edit-submit" type="submit">{"Сохранить взаимодействие"}</button>
-                  <button id="scenario-edit-cancel" type="button">{"Отмена"}</button>
+                  <Button id="scenario-edit-recheck" type="button" hidden>{"Повторить проверку"}</Button>
+                  <Button id="scenario-edit-submit" type="submit">{"Сохранить взаимодействие"}</Button>
+                  <Button id="scenario-edit-cancel" type="button">{"Отмена"}</Button>
                 </form>
                 <div id="scenarios-pagination" role="group" aria-label="Страницы взаимодействий" hidden>
-                  <button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled>{"‹"}</button>
+                  <Button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled><ChevronLeft size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
                   <span id="scenarios-number" aria-live="polite"/>
-                  <button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled>{"›"}</button>
+                  <Button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled><ChevronRight size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
                 </div>
                 <dialog id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
                   <h3 id="scenario-leave-title">{"Несохранённое взаимодействие"}</h3>
                   <p>{"Сохранить изменения перед сменой контекста?"}</p>
-                  <button type="button" id="scenario-leave-save">{"Сохранить"}</button>
-                  <button type="button" id="scenario-leave-discard">{"Отбросить изменения"}</button>
-                  <button type="button" id="scenario-leave-stay">{"Продолжить редактирование"}</button>
+                  <Button type="button" id="scenario-leave-save">{"Сохранить"}</Button>
+                  <Button type="button" id="scenario-leave-discard">{"Отбросить изменения"}</Button>
+                  <Button type="button" id="scenario-leave-stay">{"Продолжить редактирование"}</Button>
                 </dialog>
               </section>
             </div>

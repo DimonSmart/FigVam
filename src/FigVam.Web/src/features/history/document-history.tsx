@@ -1,4 +1,6 @@
 import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
+import { Undo2, Redo2 } from 'lucide-react';
+import { IconButton } from '../../ui/IconButton';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
@@ -14,7 +16,7 @@ interface SaveOperation extends Operation {body:Schema['SaveDocumentRequest'];ve
 interface RestoreOperation extends Operation {body:Schema['RestoreDocumentRequest']}
 interface HistoryOperation extends Operation {action:Action;commandId:string;sending?:boolean}
 interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
-interface Options {models:ReturnType<typeof createDocumentHistoryModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
+interface Options {models:ReturnType<typeof createDocumentHistoryModels>;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
 interface Version {id:string;name:string|null;authorId:string;timestamp:string;revision:number}
 interface ListState {versions:Version[];status:string;error:string;index:number;next:number|null;loading:boolean;loaded:boolean}
 const initial=():ListState=>({versions:[],status:'',error:'',index:0,next:null,loading:false,loaded:false});
@@ -53,8 +55,15 @@ function VersionList({state,operation,canEdit,restore,refresh,previous,next,retr
 function VersionSaveView({visible,save,...props}:{visible:boolean;save():void}&Parameters<typeof VersionForm>[0]){
   return <form id="version-save" hidden={!visible} onSubmit={event=>{event.preventDefault();save();}}><VersionForm {...props}/></form>;
 }
-export function createDocumentHistoryModels(){return {form:createViewModel(VersionSaveView),list:createViewModel(VersionList)};}
-export function createDocumentHistory({models,element,request,pageSize,refreshPages,workspace}:Options){
+interface HistoryActionsViewProps {disabled:boolean;access:string;status:string;error:string;retryVisible:boolean;begin(action:Action):void;retry():void}
+function HistoryToolbar({disabled,begin}:Pick<HistoryActionsViewProps,'disabled'|'begin'>){
+  return <><IconButton id="undo" className="icon-action" icon={Undo2} iconSize={18} label="Отменить действие" disabled={disabled} onClick={()=>begin('undo')}/><IconButton id="redo" className="icon-action" icon={Redo2} iconSize={18} label="Повторить действие" disabled={disabled} onClick={()=>begin('redo')}/></>;
+}
+function HistoryFeedback({access,status,error,retryVisible,retry}:Omit<HistoryActionsViewProps,'disabled'|'begin'>){
+  return <><span id="history-access">{access}</span><StatusMessage id="history-action-status">{status}</StatusMessage><InlineError id="history-action-error">{error}</InlineError><Button id="history-action-retry" hidden={!retryVisible} onClick={retry}>Повторить неподтверждённую команду</Button></>;
+}
+export function createDocumentHistoryModels(){return {form:createViewModel(VersionSaveView),list:createViewModel(VersionList),toolbar:createViewModel(HistoryToolbar),feedback:createViewModel(HistoryFeedback)};}
+export function createDocumentHistory({models,request,pageSize,refreshPages,workspace}:Options){
   const versionOperations=new Map<string,SaveOperation>(),restoreOperations=new Map<string,RestoreOperation>(),historyActions=new Map<string,HistoryOperation>();
   let visible=false;
   let state=initial(),draft='',generation=0,controller:AbortController|null=null,cursors:(number|null)[]=[null];
@@ -86,14 +95,12 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     }catch(error){const uncertain=unknownResult(error);operation.state=uncertain?'uncertain':'failed';operation.error=uncertain?'Не удалось подтвердить создание версии. Повторите эту операцию: она могла выполниться.':errorMessage(error);}
     if(versionOperations.get(id)===operation&&active(id,token,epoch)&&token){renderForm();if(operation.state==='success')void loadVersions();}
   }
-  function button(id:string):HTMLButtonElement{const b=element(id);if(!(b instanceof HTMLButtonElement))throw new Error('Missing history button '+id);return b;}
   function renderAction(){
     const op=get(historyActions),writable=canEdit();
-    button('undo').disabled=button('redo').disabled=!writable||blocked(op);
-    element('history-access').textContent=writable?'Сочетания: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z или Ctrl+Y.':'Только просмотр: отмена и повтор недоступны.';
-    element('history-action-status').textContent=op?.state==='pending'?'Ожидание подтверждения…':op?.state==='success'?'Действие подтверждено.':'';
-    element('history-action-error').textContent=op?.error??'';
-    element('history-action-retry').hidden=!writable||op?.state!=='uncertain';
+    models.toolbar.publish({disabled:!writable||blocked(op),begin:beginAction});
+    models.feedback.publish({access:writable?'Сочетания: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z или Ctrl+Y.':'Только просмотр: отмена и повтор недоступны.',
+      status:op?.state==='pending'?'Ожидание подтверждения…':op?.state==='success'?'Действие подтверждено.':'',error:op?.error??'',
+      retryVisible:writable&&op?.state==='uncertain',retry:retryAction});
   }
   function beginAction(action:Action){
     const id=workspace.documentId;if(!id||!workspace.isEditorVisible()||!canEdit()||blocked(historyActions.get(id)))return;
@@ -117,8 +124,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
       else{operation.state='failed';const code=error instanceof ApiError?error.code:undefined;operation.error=code==='UNDO_NOT_APPLICABLE'?'Отмена неприменима к текущему состоянию: возможно, изменения несовместимы с последующими правками.':code==='REDO_NOT_APPLICABLE'?'Повтор неприменим к текущему состоянию: необходимые условия больше не выполняются.':errorMessage(error);}
     }finally{operation.sending=false;if(historyActions.get(id)===operation&&workspace.documentId===id&&workspace.token&&workspace.isEditorVisible())renderAction();}
   }
-  button('undo').addEventListener('click',()=>beginAction('undo'));button('redo').addEventListener('click',()=>beginAction('redo'));
-  button('history-action-retry').addEventListener('click',()=>{const op=get(historyActions);if(workspace.documentId&&op?.state==='uncertain'&&canEdit())void sendAction(workspace.documentId,op);});
+  function retryAction(){const op=get(historyActions);if(workspace.documentId&&op?.state==='uncertain'&&canEdit())void sendAction(workspace.documentId,op);}
   document.addEventListener('keydown',event=>{
     if(event.defaultPrevented||event.isComposing||event.altKey||!(event.ctrlKey||event.metaKey))return;
     const target=event.target;
@@ -128,7 +134,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     event.preventDefault();beginAction(action);
   });
   function reset(){
-    controller?.abort();controller=null;generation++;visible=false;cursors=[null];state=initial();draft='';renderForm();renderList();
+    controller?.abort();controller=null;generation++;visible=false;cursors=[null];state=initial();draft='';renderForm();renderList();renderAction();
   }
   async function loadVersions(index=0,cursor:number|null=null){
     const id=workspace.documentId,token=workspace.token,epoch=workspace.navigationEpoch;if(!id||!token)return;
@@ -163,7 +169,7 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     renderList();if(op.state==='success'&&workspace.isEditorVisible()){await refreshPages();if(active(id,token,epoch)&&workspace.isEditorVisible())void loadVersions();}
   }
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
-  function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();}
+  function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();renderAction();}
   function load(){renderList();renderAction();return loadVersions();}
   renderForm();renderList();return {reset,clearCommands,prepare,load};
 }

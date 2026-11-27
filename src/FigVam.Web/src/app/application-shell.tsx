@@ -1,4 +1,6 @@
 import { memo, useSyncExternalStore } from 'react';
+import { Button } from '../ui/Button';
+import { TextInput } from '../ui/Inputs';
 import { Moon, Sun } from 'lucide-react';
 import type { ApplicationShellModel, ApplicationShellActions } from './application-shell-state';
 import type { ApplicationViews } from './application-views';
@@ -20,15 +22,15 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
         {"FigVam"}
       </a>
       <span className="brand-section">{"Рабочее пространство"}</span>
-      <button id="disconnect" hidden={!state.authenticated} onClick={shell.signOut}>
+      <Button id="disconnect" hidden={!state.authenticated} onClick={shell.signOut}>
         {signoutLabel}
-      </button>
+      </Button>
     </header>
     <div id="authentication-root"><views.authentication.Component/></div>
     <main id="content" tabIndex={-1} hidden={!state.authenticated} aria-busy={state.busy}>
       <section id="delete-result" hidden={deletion.status==='idle'} aria-label="Удаление документа">
         <p id="delete-message" role="alert">{deletion.message}</p>
-        <button id="delete-retry" type="button" hidden={deletion.status!=='uncertain'} onClick={shell.retryDeletion}>{"Повторить проверку удаления"}</button>
+        <Button id="delete-retry" type="button" hidden={deletion.status!=='uncertain'} onClick={shell.retryDeletion}>{"Повторить проверку удаления"}</Button>
       </section>
       <div id="documents-view" hidden={state.view !== 'documents'}>
         <div className="home-layout">
@@ -49,7 +51,7 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
                   <h1 id="home-documents-title">{"Документы"}</h1>
                   <p className="home-description">{"Макеты, компоненты и прототипы интерфейсов"}</p>
                 </div>
-                <button id="refresh" className="home-refresh" type="button" onClick={actions.refresh}>{"Обновить список"}</button>
+                <Button id="refresh" className="home-refresh" type="button" onClick={actions.refresh}>{"Обновить список"}</Button>
               </div>
               <div className="home-content-grid">
                 <section className="home-projects" aria-labelledby="recent-documents-title">
@@ -63,9 +65,9 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
                     <p>{"Создайте документ или откройте существующий файл."}</p>
                   </div>
                   <nav id="home-pagination" className="pagination home-pagination" aria-label="Страницы списка" hidden={!catalog || (catalog.index === 0 && !catalog.canGoForward)}>
-                    <button id="previous" type="button" disabled={state.controlsDisabled || !catalog?.canGoBack} onClick={actions.previous}>{"Предыдущая"}</button>
+                    <Button id="previous" type="button" disabled={state.controlsDisabled || !catalog?.canGoBack} onClick={actions.previous}>{"Предыдущая"}</Button>
                     <span id="page-number">{catalog ? `Страница ${catalog.index + 1}` : ''}</span>
-                    <button id="next" type="button" disabled={state.controlsDisabled || !catalog?.canGoForward} onClick={actions.next}>{"Следующая"}</button>
+                    <Button id="next" type="button" disabled={state.controlsDisabled || !catalog?.canGoForward} onClick={actions.next}>{"Следующая"}</Button>
                   </nav>
                 </section>
                 <aside className="home-actions" aria-label="Действия с документами">
@@ -75,8 +77,8 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
                     <p>{"Создайте макет и начните работу в редакторе."}</p>
                     <form id="create-form" className="create" onSubmit={event => { event.preventDefault(); actions.createDocument(); }}>
                       <label htmlFor="document-name">{"Имя нового документа"}</label>
-                      <input id="document-name" value={state.documentName} onChange={event => actions.changeDocumentName(event.currentTarget.value)} required maxLength={256} autoComplete="off" placeholder="Например, LoginDialog"/>
-                      <button type="submit" disabled={state.controlsDisabled}>{"Создать документ"}</button>
+                      <TextInput id="document-name" value={state.documentName} onChange={event => actions.changeDocumentName(event.currentTarget.value)} required maxLength={256} autoComplete="off" placeholder="Например, LoginDialog"/>
+                      <Button type="submit" disabled={state.controlsDisabled}>{"Создать документ"}</Button>
                     </form>
                   </section>
                   <section className="home-action-card home-action-secondary" aria-labelledby="import-title">
@@ -89,7 +91,7 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
                         <span className="home-file-trigger" aria-hidden="true">{"Выбрать файл"}</span>
                         <span id="import-file-name" className="home-file-name" aria-live="polite">{state.importFile?.name || "Файл не выбран"}</span>
                       </div>
-                      <button type="submit" disabled={state.importBusy}>{"Открыть файл как новый документ"}</button>
+                      <Button type="submit" disabled={state.importBusy}>{"Открыть файл как новый документ"}</Button>
                       <p id="import-status" role="status" aria-live="polite">{state.importStatus}</p>
                       <p id="import-error" role="alert">{state.importError}</p>
                       <ul id="import-diagnostics" aria-label="Диагностика импорта">{state.importDiagnostics.map((diagnostic, index) => <li key={index}>{diagnostic}</li>)}</ul>
@@ -116,23 +118,23 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
         <section id="editor-preview" aria-labelledby="preview-title" hidden>
           <header className="document-panel">
             <h1 id="preview-title">{"Preview"}</h1>
-            <button id="close-preview" type="button">{"Вернуться в Design"}</button>
-            <button id="preview-back" type="button" disabled>{"Назад по сценарию"}</button>
-            <button id="preview-reset" type="button">{"Сбросить Preview"}</button>
+            <Button id="close-preview" type="button">{"Вернуться в Design"}</Button>
+            <Button id="preview-back" type="button" disabled>{"Назад по сценарию"}</Button>
+            <Button id="preview-reset" type="button">{"Сбросить Preview"}</Button>
             <div className="preview-theme-control">
               <span id="preview-theme-label">{"Тема"}</span>
               <div id="preview-theme" className="theme-segments" role="group" aria-labelledby="preview-theme-label">
-                <button type="button" data-theme="Light" aria-pressed="true" aria-label="Светлая тема" title="Светлая тема (Light)">
+                <Button type="button" data-theme="Light" aria-pressed="true" aria-label="Светлая тема" title="Светлая тема (Light)">
                   <Sun size={18} strokeWidth={1.8} aria-hidden="true"/>
-                </button>
-                <button type="button" data-theme="Dark" aria-pressed="false" aria-label="Тёмная тема" title="Тёмная тема (Dark)">
+                </Button>
+                <Button type="button" data-theme="Dark" aria-pressed="false" aria-label="Тёмная тема" title="Тёмная тема (Dark)">
                   <Moon size={18} strokeWidth={1.8} aria-hidden="true"/>
-                </button>
+                </Button>
               </div>
             </div>
           </header>
           <p id="preview-render-status" role="status"/>
-          <button id="preview-render-retry" type="button" hidden>{"Повторить загрузку Preview"}</button>
+          <Button id="preview-render-retry" type="button" hidden>{"Повторить загрузку Preview"}</Button>
           <ul id="preview-render-diagnostics" aria-label="Диагностика Preview"/>
           <div id="preview-viewport" role="region" aria-label="Экран Preview"/>
         </section>
@@ -141,7 +143,7 @@ export function ApplicationShell({shell,views,model,actions}:{shell:EditorShellC
     <div className="feedback">
       <p id="status" role="status" aria-live="polite">{state.status}</p>
       <p id="error" role="alert">{state.error}</p>
-      <button id="retry" hidden={!state.error || !state.canRetry} onClick={actions.retry}>{"Повторить запрос"}</button>
+      <Button id="retry" hidden={!state.error || !state.canRetry} onClick={actions.retry}>{"Повторить запрос"}</Button>
     </div>
   </>;
 }
