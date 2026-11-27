@@ -864,6 +864,9 @@ public sealed class McpProtocolTests
         foreach (var invalid in new[] { "", "!!!!", "AAAA AAA", "data:image/png;base64,AAAA", Convert.ToBase64String(new byte[] { 1, 2, 3 }) })
             Assert.Equal("INVALID_ASSET", (await Call("upload_asset", new { contentType = "image/png", contentBase64 = invalid }, true)).GetProperty("code").GetString());
         Assert.Equal("INVALID_ASSET", (await Call("upload_asset", new { contentType = "font/woff2", contentBase64 }, true)).GetProperty("code").GetString());
+        // 5 MiB + 1 has the same encoded length as 5 MiB, so the decoded bound must be checked too.
+        var oversized = Convert.ToBase64String(new byte[FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes + 1]);
+        Assert.Equal("ASSET_TOO_LARGE", (await Call("upload_asset", new { contentType = "image/png", contentBase64 = oversized }, true)).GetProperty("code").GetString());
         Assert.Equal(revision + 1, (await Call("list_assets")).GetProperty("revision").GetInt64());
 
         using (var otherUpload = new ByteArrayContent(png))
@@ -888,7 +891,7 @@ public sealed class McpProtocolTests
         using var revoked = server.CreateClient();
         revoked.DefaultRequestHeaders.Authorization = new("Bearer", token);
         using var denied = await revoked.PostAsJsonAsync("/mcp", new { jsonrpc = "2.0", id = 1, method = "tools/call",
-            @params = new { name = "upload_asset", arguments = args } });
+            @params = new { name = "upload_asset", arguments = new { contentType = "image/png", contentBase64 = Convert.ToBase64String(DocumentAssetTests.Png()) } } });
         Assert.Equal(HttpStatusCode.Unauthorized, denied.StatusCode);
     }
 

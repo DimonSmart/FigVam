@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Text.Json;
 using FigVam.Application.Documents;
 using FigVam.Domain.Documents;
 using ModelContextProtocol.Protocol;
@@ -44,7 +45,12 @@ public sealed class McpAssetTools(IHttpContextAccessor accessor, IDocumentAssets
     {
         var id = commandId ?? Guid.NewGuid();
         var requestedAsset = assetId ?? Guid.NewGuid();
-        CallToolResult Error(string code, string message) => McpReadTools.Result(code, null, message);
+        CallToolResult Error(string code, string message)
+        {
+            var data = JsonSerializer.SerializeToElement(new { status = "REJECTED", code, message, commandId = id });
+            return new CallToolResult { IsError = true, StructuredContent = data,
+                Content = [new TextContentBlock { Text = data.GetRawText() }] };
+        }
         if (id == Guid.Empty || requestedAsset == Guid.Empty)
             return Error("INVALID_ID", "commandId and assetId must be nonempty UUIDs.");
         if (!DocumentAssetContentFormat.IsSupported(contentType))
