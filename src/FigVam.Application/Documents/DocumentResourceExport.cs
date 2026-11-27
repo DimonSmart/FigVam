@@ -54,6 +54,7 @@ public sealed class DocumentResourceExporter(IDocumentAuthorization authorizatio
             var refs = token.Values.Values.SelectMany(expr => expr switch
             {
                 TokenAlias a => new[] { a.TokenId },
+                LiteralTokenValue { Value: ShadowFieldsValue { Color: TokenAlias a } } => new[] { a.TokenId },
                 LiteralTokenValue { Value: TypographyFieldsValue t } => new[] { t.FontFamily, t.FontSize, t.FontWeight, t.LineHeight, t.LetterSpacing }
                     .OfType<TokenAlias>().Select(x => x.TokenId),
                 _ => Enumerable.Empty<Guid>()
@@ -201,6 +202,9 @@ internal sealed class CssResourceWriter(DocumentStructure document)
         }
     }
 
+    private static string ShadowCss(double x, double y, double blur, double spread, string color) =>
+        $"{Number(x)}px {Number(y)}px {Number(blur)}px {Number(spread)}px {color}";
+
     private static string Scalar(TokenExpression expression, TokenType type)
     {
         if (expression is TokenAlias alias) return Var(alias.TokenId);
@@ -208,6 +212,8 @@ internal sealed class CssResourceWriter(DocumentStructure document)
         return (type, literal.Value) switch
         {
             (TokenType.Color, ColorValue c) => CssColor(c.Red, c.Green, c.Blue, c.Alpha),
+            (TokenType.Shadow, ShadowValue v) => ShadowCss(v.OffsetX, v.OffsetY, v.BlurRadius, v.SpreadRadius, CssColor(v.Color.Red, v.Color.Green, v.Color.Blue, v.Color.Alpha)),
+            (TokenType.Shadow, ShadowFieldsValue v) => ShadowCss(v.OffsetX, v.OffsetY, v.BlurRadius, v.SpreadRadius, Scalar(v.Color, TokenType.Color)),
             (TokenType.Spacing, SpacingValue v) => Number(v.Value) + "px",
             (TokenType.Geometry, GeometryValue v) => Number(v.Radius) + "px",
             (TokenType.Dimension, DimensionValue v) => Number(v.Value) + "px",

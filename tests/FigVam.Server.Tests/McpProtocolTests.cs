@@ -18,6 +18,7 @@ public sealed class McpProtocolTests
         var config = ServerTestIdentity.Production(key);
         var directory = Path.Combine(Path.GetTempPath(), "figvam-mcp-" + Guid.NewGuid().ToString("N"));
         config["Storage__Directory"] = directory;
+        config["Mcp__ChromiumExecutable"] = Path.Combine(directory, "missing-chromium");
         await using var server = new ServerProcess(config);
         await server.WaitUntilReadyAsync();
         using var user = server.CreateClient();
@@ -42,10 +43,42 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(34, tools.Count);
+        Assert.Equal(38, tools.Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
+        var batchRevision = doc.GetProperty("revision").GetInt64();
+        var batchId = Guid.NewGuid();
+        var operations = new object[]
+        {
+            new { id = "page", command = "create_page", arguments = new { name = "Atomic" } },
+            new { id = "screen", command = "create_screen", arguments = new { pageId = new Dictionary<string,string> { ["$ref"] = "page.pageId" }, width = 320, height = 240 } },
+            new { id = "color", command = "create_token", arguments = new { name = "batch.color", type = "Color", light = "#00000040", dark = "#FFFFFF60" } },
+            new { id = "shadow", command = "create_token", arguments = new { name = "batch.shadow", type = "Shadow",
+                light = new { offsetX = 0, offsetY = 4, blurRadius = 8, spreadRadius = 0, color = new { tokenId = new Dictionary<string,string> { ["$ref"] = "color.tokenId" } } },
+                dark = new { offsetX = 0, offsetY = 4, blurRadius = 8, spreadRadius = 0, color = new { tokenId = new Dictionary<string,string> { ["$ref"] = "color.tokenId" } } } } },
+            new { id = "button", command = "create_node", arguments = new {
+                parentId = new Dictionary<string,string> { ["$ref"] = "screen.screenId" }, kind = "Button",
+                properties = new { shadow = new { tokenId = new Dictionary<string,string> { ["$ref"] = "shadow.tokenId" } } } } }
+        };
+        var batchArgs = new { commandId = batchId, expectedRevision = batchRevision, operations };
+        var batch = await Call("execute_batch", batchArgs);
+        Assert.Equal(batchRevision + 1, batch.GetProperty("revision").GetInt64());
+        Assert.Equal(batch.GetRawText(), (await Call("execute_batch", batchArgs)).GetRawText());
+        var batchNode = batch.GetProperty("results")[4].GetProperty("nodeId").GetGuid();
+        var shadowColor = (await Call("get_node", new { nodeId = batchNode, includeResolvedProperties = true, theme = "Dark" }))
+            .GetProperty("items")[0].GetProperty("resolvedProperties").GetProperty("shadow").GetProperty("color");
+        Assert.Equal(96, shadowColor.GetProperty("alpha").GetInt32());
+        var failed = await Call("execute_batch", new { expectedRevision = batchRevision + 1, operations = new object[]
+        {
+            new { id = "temporary", command = "create_page", arguments = new { name = "Not committed" } },
+            new { id = "broken", command = "create_screen", arguments = new { pageId = new Dictionary<string,string> { ["$ref"] = "future.pageId" }, width = 320, height = 240 } }
+        } }, true);
+        Assert.True(failed.GetProperty("rolledBack").GetBoolean());
+        Assert.Equal(1, failed.GetProperty("operationIndex").GetInt32());
+        Assert.Equal(batchRevision + 1, (await Call("get_document")).GetProperty("revision").GetInt64());
+        Assert.DoesNotContain((await Call("list_pages")).GetProperty("items").EnumerateArray(), p => p.GetProperty("name").GetString() == "Not committed");
+        doc = await Call("get_document");
         var commandId = Guid.NewGuid();
         var page = await Call("create_page", new { commandId, name = "Login Prototype" });
         Assert.Equal(doc.GetProperty("revision").GetInt64() + 1, page.GetProperty("revision").GetInt64());
@@ -121,6 +154,15 @@ public sealed class McpProtocolTests
             { shadow = new { offsetX = 0, offsetY = 3, blurRadius = 8, spreadRadius = 0, color = "#2563EB" } } });
         var colorTokenId = (await Call("create_token", new { name = "login.primary", type = "Color", light = "#2563EB", dark = "#60A5FA" })).GetProperty("tokenId").GetGuid();
         await Call("set_node_properties", new { nodeId, properties = new { backgroundColor = new { tokenId = colorTokenId } } });
+        var useRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        var tokenUsages = await Call("get_token_usages", new { tokenId = colorTokenId, revision = useRevision });
+        Assert.Contains(tokenUsages.GetProperty("items").EnumerateArray(), u => u.GetProperty("ownerId").GetGuid() == nodeId);
+        var refused = await Call("delete_token", new { tokenId = colorTokenId, expectedRevision = useRevision }, true);
+        Assert.Equal("TOKEN_IN_USE", refused.GetProperty("code").GetString());
+        Assert.True(refused.GetProperty("referenceCount").GetInt32() > 0);
+        Assert.Equal(useRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
+        var renamed = await Call("rename_token", new { tokenId = colorTokenId, name = "login.renamed", expectedRevision = useRevision });
+        Assert.Equal(colorTokenId, renamed.GetProperty("tokenId").GetGuid());
         var storedProperties = (await Call("get_node", new { nodeId })).GetProperty("items")[0].GetProperty("properties");
         Assert.Equal(255, storedProperties.GetProperty("shadow").GetProperty("color").GetProperty("alpha").GetInt32());
         Assert.Equal(colorTokenId, storedProperties.GetProperty("backgroundColor").GetProperty("tokenId").GetGuid());
@@ -201,12 +243,19 @@ public sealed class McpProtocolTests
         {
             var simulation = await Call("simulate_preview", new { screenId, theme, events = new[] { new { nodeId, @event = "Click" } } });
             Assert.Equal("Completed", simulation.GetProperty("status").GetString());
+            Assert.Equal("Completed", simulation.GetProperty("simulationStatus").GetString());
+            Assert.Equal("NotRequested", simulation.GetProperty("render").GetProperty("status").GetString());
             Assert.Equal(target, simulation.GetProperty("activeScreenId").GetGuid());
             Assert.Equal(theme, simulation.GetProperty("theme").GetString());
             Assert.Equal("navigate", simulation.GetProperty("steps")[0].GetProperty("executedActions")[0].GetProperty("type").GetString());
             var independent = await Call("simulate_preview", new { screenId, theme, events = Array.Empty<object>() });
             Assert.Equal(screenId, independent.GetProperty("activeScreenId").GetGuid());
         }
+        var unavailable = await Call("simulate_preview", new { screenId, includeImage = true, events = new[] { new { nodeId, @event = "Click" } } }, true);
+        Assert.Equal("Completed", unavailable.GetProperty("simulationStatus").GetString());
+        Assert.Equal(target, unavailable.GetProperty("activeScreenId").GetGuid());
+        Assert.Equal("Failed", unavailable.GetProperty("render").GetProperty("status").GetString());
+        Assert.Equal("RENDER_UNAVAILABLE", unavailable.GetProperty("render").GetProperty("code").GetString());
         Assert.Equal(simulationRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
         await Call("delete_scenario", new { scenarioId, expectedRevision = updatedScenario.GetProperty("revision").GetInt64() });
         await Call("list_pages");
@@ -218,7 +267,8 @@ public sealed class McpProtocolTests
         await Call("list_node_types");
         await Call("get_node_schema", new { kind = "Button" });
         await Call("list_tokens");
-        await Call("get_screen_layout", new { screenId });
+        Assert.Equal("Light", (await Call("get_screen_layout", new { screenId })).GetProperty("theme").GetString());
+        Assert.Equal("Dark", (await Call("get_screen_layout", new { screenId, theme = "Dark" })).GetProperty("theme").GetString());
         await Call("move_node", new { nodeId, expectedParentId = screenId, targetParentId = screenId, position = 0 });
         await Call("delete_node", new { nodeId });
         Assert.Equal(updated.GetRawText(), (await Call("set_node_properties", new { nodeId, commandId = updateCommandId, properties = new { text = "Sign in" } })).GetRawText());
@@ -470,7 +520,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(34, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>

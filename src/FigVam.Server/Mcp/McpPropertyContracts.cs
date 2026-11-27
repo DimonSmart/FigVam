@@ -137,6 +137,13 @@ internal static class McpPropertyContracts
         return WithTag(schema, "shadow");
     }
 
+    private static JsonObject ShadowTokenSchema()
+    {
+        var schema = ShadowSchema();
+        schema["properties"]!["color"] = Choice(ColorSchema(), ReferenceSchema<McpTokenReferenceInput>());
+        return schema;
+    }
+
     private static JsonObject ApplyRange(JsonObject schema, TokenType type, TokenCategory? category = null, string? field = null)
     {
         var range = DesignTokenValidator.Range(type, category, field);
@@ -158,7 +165,7 @@ internal static class McpPropertyContracts
         return schema;
     }
 
-    private static JsonObject CompactTokenLiteral(TokenType type, TokenCategory? category = null)
+    internal static JsonObject CompactTokenLiteral(TokenType type, TokenCategory? category = null)
     {
         var schema = type switch
         {
@@ -167,7 +174,7 @@ internal static class McpPropertyContracts
             TokenType.FontFamily => Schema<string>(),
             TokenType.FontWeight => Schema<int>(),
             TokenType.Typography => FlatTypography(),
-            TokenType.Shadow => ShadowSchema(),
+            TokenType.Shadow => ShadowTokenSchema(),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
         };
         if (type == TokenType.FontFamily)
@@ -179,7 +186,7 @@ internal static class McpPropertyContracts
         return ApplyRange(schema, type, category);
     }
 
-    private static JsonObject CanonicalTokenLiteral(TokenType type, TokenCategory? category = null)
+    internal static JsonObject CanonicalTokenLiteral(TokenType type, TokenCategory? category = null)
     {
         if (type == TokenType.Color)
         {
@@ -203,7 +210,10 @@ internal static class McpPropertyContracts
                 channel.Value["maximum"] = 255;
             }
             schema["properties"]!["color"] = color;
-            return schema;
+            var fields = (JsonObject)schema.DeepClone();
+            fields["properties"]!["type"] = new JsonObject { ["const"] = "shadowFields" };
+            fields["properties"]!["color"] = TokenExpressionSchema(TokenType.Color);
+            return Choice(schema, fields);
         }
         if (type == TokenType.Typography)
         {

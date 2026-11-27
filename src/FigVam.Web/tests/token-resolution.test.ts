@@ -15,6 +15,17 @@ describe('token resolution', () => {
     expect(resolvePropertyToken({ type: 'token', tokenId: 'alias' }, tokens, 'Dark',
       { type: 'Number', tokenType: 'Dimension', tokenCategory: 'Size', maximum: 30 }).error).toContain('пределы');
   });
+  it('resolves nested shadow color without discarding alpha or alias identity', () => {
+    const color:DesignToken={id:'color',name:'Color',type:'Color',values:{
+      Light:{expression:'literal',value:{type:'color',red:0,green:0,blue:0,alpha:32}},
+      Dark:{expression:'literal',value:{type:'color',red:255,green:255,blue:255,alpha:96}}}};
+    const shadow:DesignToken={id:'shadow',name:'Shadow',type:'Shadow',values:{
+      Dark:{expression:'literal',value:{type:'shadowFields',offsetX:0,offsetY:4,blurRadius:8,spreadRadius:0,color:{expression:'alias',tokenId:'color'}}}}};
+    const tokens=new Map([[color.id,color],[shadow.id,shadow]]);
+    expect(resolveTokenValue({type:'token',tokenId:'shadow'},tokens,'Dark')).toMatchObject({
+      value:{type:'shadow',color:{red:255,green:255,blue:255,alpha:96}},error:null});
+    expect(resolveTokenValue({type:'token',tokenId:'shadow'},new Map([[shadow.id,shadow]]),'Dark').error).toContain('color:');
+  });
   it('rejects cycles and missing theme expressions', () => {
     const cycle: DesignToken = { ...alias, values: { Light: { expression: 'alias', tokenId: 'alias' } } };
     const tokens = new Map([[cycle.id, cycle]]);

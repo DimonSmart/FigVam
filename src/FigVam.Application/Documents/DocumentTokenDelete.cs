@@ -10,7 +10,7 @@ public sealed partial class DocumentCommandHandler
         ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? detail = null) =>
             new(command.DocumentId, command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow,
-                Explanation: detail, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null);
+                Explanation: detail, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, ct))
             return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.TokenId == Guid.Empty)
@@ -26,7 +26,7 @@ public sealed partial class DocumentCommandHandler
             if (uses.Count != 0)
             {
                 var first = uses[0];
-                return new(Result("TOKEN_IN_USE", detail:
+                return new(Result("TOKEN_IN_USE", state.Revision, detail:
                     $"Token has {uses.Count} dependent usages. First: {first.Label} ({first.Kind}.{first.Property})."), null);
             }
             var changed = state.Document with
@@ -34,7 +34,7 @@ public sealed partial class DocumentCommandHandler
                 Tokens = state.Document.Tokens.Where(t => t.Id != command.TokenId).ToArray()
             };
             if (DocumentStructureValidator.Validate(changed, profile).FirstOrDefault() is { } error)
-                return new(Result("TOKEN_IN_USE", detail: $"{error.ObjectId} · {error.Property}: {error.Message}"), null);
+                return new(Result("TOKEN_IN_USE", state.Revision, detail: $"{error.ObjectId} · {error.Property}: {error.Message}"), null);
             var next = new DocumentState(changed, checked(state.Revision + 1));
             return new(Result("ACCEPTED", next.Revision), next, new TokenDeleted(command.TokenId));
         }, ct, authorize: async () =>

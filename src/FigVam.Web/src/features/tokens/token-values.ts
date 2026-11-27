@@ -5,7 +5,7 @@ export interface TypographyPart {name:TypographyField;label:string;type:TokenTyp
 export function knownType(value:unknown):TokenType{const type=normalizedTokenType(value);if(!type)throw new TypeError('Неизвестный тип токена');return type;}
 export function literalValue(value:ResolvableValue|undefined):TokenValue{
   if(!value)throw new Error('Заполните значение токена.');
-  switch(value.type){case 'color':case 'shadow':case 'geometry':case 'spacing':case 'dimension':case 'fontFamily':case 'fontWeight':case 'number':case 'typographyFields':return value;case 'typography':if(!('value' in value))return value;}
+  switch(value.type){case 'color':case 'shadow':case 'shadowFields':case 'geometry':case 'spacing':case 'dimension':case 'fontFamily':case 'fontWeight':case 'number':case 'typographyFields':return value;case 'typography':if(!('value' in value))return value;}
   throw new TypeError('Некорректное значение токена.');
 }
 export const types=tokenTypes;export const themes:Theme[]=['Light','Dark'];

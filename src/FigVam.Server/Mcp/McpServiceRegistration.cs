@@ -44,7 +44,7 @@ public static class McpServiceRegistration
             .WithRequestFilters(filters => filters.AddListToolsFilter(next => async (context, ct) =>
             {
                 var result = await next(context, ct);
-                foreach (var tool in result.Tools.Where(t => t.Name is "render_screen" or "get_node" or "get_screen_tree" or "simulate_preview"))
+                foreach (var tool in result.Tools.Where(t => t.Name is "render_screen" or "get_node" or "get_screen_tree" or "get_screen_layout" or "simulate_preview"))
                 {
                     var schema = System.Text.Json.Nodes.JsonNode.Parse(tool.InputSchema.GetRawText())!.AsObject();
                     schema["properties"]!["theme"] = System.Text.Json.Nodes.JsonNode.Parse(tool.Name == "render_screen"
@@ -60,7 +60,8 @@ public static class McpServiceRegistration
             .WithTools<McpReadTools>()
             .WithTools<McpRenderTools>()
             .WithTools<McpPreviewTools>()
-            .WithTools<McpWriteTools>();
+            .WithTools<McpWriteTools>()
+            .WithTools<McpBatchTools>();
     }
 
     public static void MapDocumentMcp(this WebApplication app)

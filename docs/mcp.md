@@ -82,9 +82,9 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 ## Инструменты
 
-Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `list_scenarios`, `get_screen_layout`.
+Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `get_token_usages`, `list_scenarios`, `get_screen_layout`.
 
-Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
+Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `rename_token`, `delete_token`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
 
 Все инструменты доступны через tools/list со схемами и описаниями. documentId не передаётся. Для постраничного чтения используйте offset, limit (1–100), revision; дерево по умолчанию ограничено глубиной 3. Ответ содержит структурированные данные; ошибки содержат status REJECTED и code. Изменения возвращают commandId, revision и идентификаторы результата. Для повторной доставки используйте тот же commandId. Перед операциями с expectedRevision прочитайте актуальную ревизию. При конфликте обновите состояние, а не перезаписывайте данные вслепую.
 
@@ -120,7 +120,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 | set_node_properties | {"nodeId":"UUID","properties":{"paddingRight":{"tokenId":"UUID"},"shadow":{"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}}} |
 | create_scenario | {"screenId":"UUID","nodeId":"UUID","event":"Click","actions":[{"type":"navigate","screenId":"UUID"}]} |
 
-Для отзыва откройте меню MCP-доступ и нажмите кнопку с корзиной «Отозвать MCP-доступ». Подтверждённый отзыв делает прежний токен недействительным. MVP не предоставляет управление документами, произвольные команды, массовые операции, импорт изображений и OAuth discovery.
+Для отзыва откройте меню MCP-доступ и нажмите кнопку с корзиной «Отозвать MCP-доступ». Подтверждённый отзыв делает прежний токен недействительным. MVP не предоставляет управление документами, произвольные команды, импорт изображений и OAuth discovery.
 
 ## Проверка
 
@@ -169,3 +169,36 @@ npx playwright test mcp-login-flow.spec.js
 - `get_token_schema`: новый тип Shadow без категории, значения Light/Dark включают offsetX, offsetY, blurRadius, spreadRadius, color. Создавайте через create_token, привязывайте свойство shadow объектом {"tokenId":"UUID"}, изменяйте через set_token_value.
 - `simulate_preview`: передайте screenId, theme и events, например {"screenId":"UUID","theme":"Dark","events":[{"nodeId":"UUID","event":"Change","value":"demo"},{"nodeId":"UUID","event":"Submit"}],"includeImage":true}. Возвращаются initialScreenId, activeScreenId, theme, steps с scenarioIds/executedActions, demoValues и diagnostics. Пароли не возвращаются в текстовой трассе. Каждый вызов независим; операции чтения и симуляции не изменяют документ или редактор.
 - Для автономной визуализации установите Chromium/Chrome на сервере и задайте `Mcp__ChromiumExecutable` абсолютным путём к исполняемому файлу. При отсутствии Chromium симуляция без includeImage доступна, запрос изображения возвращает RENDER_UNAVAILABLE. Снимок использует общий с render_screen рендерер в изолированном процессе; пока стек оверлеев не поддерживается для изображения и возвращает диагностику.
+
+### Управление токенами и тематический layout
+
+- `rename_token`: tokenId, name, необязательные expectedRevision и commandId. Ссылки сохраняются по ID.
+- `delete_token`: tokenId, обязательный expectedRevision, необязательный commandId. Используемый токен отклоняется с TOKEN_IN_USE; ответ содержит до 20 зависимостей из ревизии отказа и referenceCount.
+- `get_token_usages`: tokenId, необязательные revision, offset (0), limit (50, максимум 100). Возвращает прямые и косвенные зависимости обеих тем.
+- `get_screen_layout`: необязательный theme (Light по умолчанию, Dark); ответ содержит theme. Недопустимое значение — INVALID_THEME.
+- `simulate_preview`: simulationStatus отражает результат событий независимо от render.status (NotRequested, Completed, Failed, Skipped). При ошибке рендеринга общий status остаётся Rejected, а isError — true. При запуске через Aspire настройку Mcp:ChromiumExecutable можно задать в конфигурации AppHost; при прямом запуске — в конфигурации сервера. Укажите абсолютный путь к установленному Chromium.
+
+`get_token_schema(type, compact: true)` использует общие форматы compactAlias, canonicalAlias и canonicalLiteral. literalSchema (либо literalSchemaByCategory) задаёт ограничения непосредственного значения; canonicalTag и payloadField определяют каноническую оболочку скалярного значения. Для Color/Shadow имеется canonicalValueSchema, а для Typography — ограничения плоского литерала и типы, категории, ограничения и обязательность вложенных полей typographyFields. Полная JSON-схема по-прежнему доступна без compact.
+
+Для TextInput доступны paddingTop/paddingRight/paddingBottom/paddingLeft (Dimension/Spacing), placeholderColor и focusBorderColor (Color), focusBorderWidth (Dimension/BorderWidth), в том числе ссылки на токены. lineHeight доступен Text, TextInput и Button. Без явной настройки фокуса и placeholder сохраняется штатное оформление; фокус не записывается в документ.
+
+
+## execute_batch
+
+Пакет выполняется в одной транзакции SQLite с одной итоговой ревизией. Поддерживаются create_page, rename_page, create_screen, rename_screen, resize_screen, duplicate_screen, create_node, rename_node, move_node, delete_node, set_node_properties, remove_node_properties, create_token, set_token_value, rename_token, delete_token, create_scenario, update_scenario, delete_scenario. Аргументы берутся из схем одноимённых инструментов; вложенные commandId и expectedRevision запрещены. Остальные предусловия сохраняются. Ссылки — строго объекты с единственным ключом "$ref": "operationId.resultField", где resultField — pageId, screenId, nodeId, tokenId или scenarioId. Ссылки допустимы внутри объектов и массивов. Максимум 128 операций и 1 MiB. Ошибка содержит failedOperation, operationIndex, code, message, rolledBack; временные ID не возвращаются. Повтор commandId возвращает сохранённый исходный результат. История хранит один патч, Undo/Redo применяются к целому пакету. Пример (замените expectedRevision актуальной ревизией get_document):
+
+```json
+{"expectedRevision":1,"operations":[
+  {"id":"page","command":"create_page","arguments":{"name":"Login"}},
+  {"id":"screen","command":"create_screen","arguments":{"pageId":{"$ref":"page.pageId"},"width":800,"height":600}},
+  {"id":"ink","command":"create_token","arguments":{"name":"login.ink","type":"Color","light":"#00000040","dark":"#FFFFFF60"}},
+  {"id":"shadow","command":"create_token","arguments":{"name":"login.shadow","type":"Shadow","light":{"offsetX":0,"offsetY":4,"blurRadius":8,"spreadRadius":0,"color":{"tokenId":{"$ref":"ink.tokenId"}}},"dark":{"offsetX":0,"offsetY":4,"blurRadius":8,"spreadRadius":0,"color":{"tokenId":{"$ref":"ink.tokenId"}}}}},
+  {"id":"button","command":"create_node","arguments":{"parentId":{"$ref":"screen.screenId"},"kind":"Button","properties":{"text":"Login","shadow":{"tokenId":{"$ref":"shadow.tokenId"}}}}}
+]}
+```
+
+Shadow принимает прежний прямой RGBA или вложенный компактный color: {tokenId: UUID}. Каноническое представление вложенной ссылки — literal со значением type: shadowFields и color: {expression: alias, tokenId: UUID}. Разрешение возвращает обычный shadow с RGBA, но хранение, DTCG и зависимости сохраняют ссылку. Полный пример Login Prototype с обеими темами, Typography, вложенным Color, вводом и переходами находится в tests/FigVam.Ui.Tests/mcp-login-flow.spec.js.
+
+### Полный Login Prototype
+
+Готовый JSON: [examples/login-prototype-batch.json](examples/login-prototype-batch.json). Перед вызовом `execute_batch` замените `expectedRevision` на ревизию из `get_document`. Пример используется непосредственно в Playwright-сценарии автономного MCP-рендеринга. Повторный вызов с тем же `commandId` возвращает исходные идентификаторы.

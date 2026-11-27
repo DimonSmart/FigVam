@@ -25,7 +25,7 @@ public sealed record AddDatasetCommand(Guid DocumentId, Guid CommandId, Guid Dat
 public sealed record ReplaceDatasetFixtureCommand(Guid DocumentId, Guid CommandId, Guid DatasetId, long ExpectedRevision, string FixtureJson);
 public sealed record SaveDocumentCommand(Guid DocumentId, Guid CommandId, string? Name = null);
 public sealed record SetTokenValueCommand(Guid DocumentId, Guid CommandId, Guid TokenId, TokenTheme Theme, TokenExpression Value);
-public sealed record RenameTokenCommand(Guid DocumentId, Guid CommandId, Guid TokenId, string Name);
+public sealed record RenameTokenCommand(Guid DocumentId, Guid CommandId, Guid TokenId, string Name, long? ExpectedRevision = null);
 public sealed record AddTokenCommand(Guid DocumentId, Guid CommandId, DesignToken Token);
 public sealed record DeleteTokenCommand(Guid DocumentId, Guid CommandId, Guid TokenId, long ExpectedRevision);
 public sealed record UpsertStyleCommand(Guid DocumentId, Guid CommandId, DesignStyle Style, long ExpectedRevision);
@@ -75,12 +75,14 @@ public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code,
     public string? Actual { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? PropertyPath { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? BatchResponse { get; init; }
     public bool Accepted => Code == "ACCEPTED";
     public bool Equals(CommandResult? other) => other is not null &&
         DocumentId == other.DocumentId && CommandId == other.CommandId && Code == other.Code && Revision == other.Revision &&
         ActorId == other.ActorId && Source == other.Source && PageId == other.PageId && Timestamp == other.Timestamp && ScreenId == other.ScreenId &&
         NodeId == other.NodeId && VersionId == other.VersionId && Explanation == other.Explanation && Property == other.Property &&
-        Expected == other.Expected && Actual == other.Actual && PropertyPath == other.PropertyPath &&
+        Expected == other.Expected && Actual == other.Actual && PropertyPath == other.PropertyPath && BatchResponse == other.BatchResponse &&
         (AffectedIds is null ? other.AffectedIds is null : other.AffectedIds is not null && AffectedIds.SequenceEqual(other.AffectedIds)) &&
         (Diagnostics is null ? other.Diagnostics is null : other.Diagnostics is not null && Diagnostics.SequenceEqual(other.Diagnostics));
     public override int GetHashCode() => HashCode.Combine(DocumentId, CommandId, Code, Revision, ActorId, Timestamp);
@@ -144,6 +146,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionSaved), "VERSION_SAVED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionRestored), "VERSION_RESTORED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(HistoryCompensated), "HISTORY_COMPENSATED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BatchApplied), "BATCH_APPLIED")]
 public abstract record DocumentEvent;
 public sealed record ComponentSlotAdded(Guid DefinitionId, ComponentSlot Slot) : DocumentEvent;
 public sealed record ComponentSlotContentSet(Guid NodeId, Guid SlotId, IReadOnlyList<Guid> ContentNodeIds) : DocumentEvent;
@@ -670,9 +673,11 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
             revision, actor.Id, null, DateTimeOffset.UtcNow, AffectedIds: code == "ACCEPTED" ? [command.TokenId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id) || !await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty || command.TokenId == Guid.Empty) return Result("INVALID_ID");
+        if (command.ExpectedRevision < 0) return Result("INVALID_REVISION");
         return await journal.ExecuteAsync(command.DocumentId, command.CommandId, (state, _, _) =>
         {
             if (state is null) return new(Result("DOCUMENT_NOT_FOUND"), null);
+            if (command.ExpectedRevision is { } expected && state.Revision != expected) return new(Result("REVISION_CONFLICT", state.Revision), null);
             if (!state.Document.Tokens.Any(t => t.Id == command.TokenId)) return new(Result("TOKEN_NOT_FOUND"), null);
             if (!DesignTokenValidator.IsValidName(command.Name)) return new(Result("INVALID_TOKEN"), null);
             var document = state.Document with { Tokens = state.Document.Tokens.Select(t => t.Id == command.TokenId ? t with { Name = command.Name } : t).ToArray() };

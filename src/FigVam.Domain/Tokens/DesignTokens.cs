@@ -19,6 +19,7 @@ public enum TokenTheme { Light, Dark }
 [JsonDerivedType(typeof(FontFamilyValue), "fontFamily")]
 [JsonDerivedType(typeof(FontWeightValue), "fontWeight")]
 [JsonDerivedType(typeof(ShadowValue), "shadow")]
+[JsonDerivedType(typeof(ShadowFieldsValue), "shadowFields")]
 public abstract record TokenValue;
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed record ColorValue([property: JsonRequired] byte Red, [property: JsonRequired] byte Green, [property: JsonRequired] byte Blue, byte Alpha = 255) : TokenValue;
@@ -53,6 +54,12 @@ public sealed record ShadowValue(
 {
     public FigVam.Domain.Documents.NodeShadowValue ToNodeValue() => new(OffsetX, OffsetY, BlurRadius, SpreadRadius, Color);
 }
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record ShadowFieldsValue(
+    [property: JsonRequired] double OffsetX, [property: JsonRequired] double OffsetY,
+    [property: JsonRequired] double BlurRadius, [property: JsonRequired] double SpreadRadius,
+    [property: JsonRequired] TokenExpression Color) : TokenValue;
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "expression")]
 [JsonDerivedType(typeof(LiteralTokenValue), "literal")]
@@ -112,6 +119,8 @@ public static class DesignTokenValidator
             {
                 if (literal.Value is TypographyFieldsValue fields && token.Type == TokenType.Typography)
                     ValidateTypographyFields(token, theme, fields, byId, errors);
+                else if (literal.Value is ShadowFieldsValue shadow && token.Type == TokenType.Shadow)
+                    ValidateShadowFields(token, theme, shadow, byId, errors);
                 else if (LiteralIssue(token, literal.Value) is { } issue)
                     errors.Add(new("type-mismatch", token.Id, theme, null, issue.Message, issue.Field)
                         { Expected = issue.Expected, Actual = issue.Actual });
@@ -163,6 +172,28 @@ public static class DesignTokenValidator
                 ["lineHeight"] = (TokenType.Number, TokenCategory.LineHeight),
                 ["letterSpacing"] = (TokenType.Dimension, TokenCategory.LetterSpacing)
             });
+
+    internal static bool ValidShadowGeometry(ShadowFieldsValue value) =>
+        FigVam.Domain.Documents.NodePropertyValidator.IsValidShadow(new(value.OffsetX, value.OffsetY,
+            value.BlurRadius, value.SpreadRadius, new(0, 0, 0, 255)));
+
+    private static void ValidateShadowFields(DesignToken owner, TokenTheme theme, ShadowFieldsValue value,
+        IReadOnlyDictionary<Guid, DesignToken> byId, List<TokenDiagnostic> diagnostics)
+    {
+        if (!ValidShadowGeometry(value))
+            diagnostics.Add(new("type-mismatch", owner.Id, theme, null, "Invalid shadow geometry."));
+        void Error(string code, Guid? reference, string reason) =>
+            diagnostics.Add(new(code, owner.Id, theme, reference, $"{owner.Name}.color: {reason}", "color"));
+        if (value.Color is TokenAlias alias)
+        {
+            if (!byId.TryGetValue(alias.TokenId, out var target))
+                Error("missing-reference", alias.TokenId, "Referenced color does not exist.");
+            else if (target.Type != TokenType.Color || target.Category is not null)
+                Error("type-mismatch", alias.TokenId, "Referenced token must be Color.");
+        }
+        else if (value.Color is not LiteralTokenValue { Value: ColorValue })
+            Error("type-mismatch", null, "Expected a color literal or Color token reference.");
+    }
 
     private static void ValidateTypographyFields(DesignToken owner, TokenTheme theme, TypographyFieldsValue value,
         IReadOnlyDictionary<Guid, DesignToken> byId, List<TokenDiagnostic> diagnostics)
@@ -331,6 +362,8 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
                     var composite = ResolveTypography(token, fields, theme);
                     return Complete(composite);
                 }
+                if (literal.Value is ShadowFieldsValue shadow && token.Type == TokenType.Shadow)
+                    return Complete(ResolveShadow(token, shadow, theme));
                 return DesignTokenValidator.Matches(token, literal.Value)
                     ? Complete(new(literal.Value, [])) : Error("type-mismatch", token.Id, "Literal value does not match token type.");
             }
@@ -359,6 +392,29 @@ internal sealed class DesignTokenResolver(IReadOnlyList<DesignToken> tokens)
     internal TokenResolution ResolveInlineTypography(TypographyFieldsValue fields, TokenTheme theme, Guid ownerId, string name) =>
         ResolveTypography(new DesignToken(ownerId, name, TokenType.Typography,
             new Dictionary<TokenTheme, TokenExpression>()), fields, theme);
+
+    private TokenResolution ResolveShadow(DesignToken owner, ShadowFieldsValue fields, TokenTheme theme)
+    {
+        TokenResolution Error(string code, Guid? reference, string message) =>
+            new(null, [new(code, owner.Id, theme, reference, $"{owner.Name}.color: {message}", "color")]);
+        if (!DesignTokenValidator.ValidShadowGeometry(fields))
+            return new(null, [new("type-mismatch", owner.Id, theme, null, "Invalid shadow geometry.")]);
+        ColorValue? color = null;
+        if (fields.Color is LiteralTokenValue { Value: ColorValue literal }) color = literal;
+        else if (fields.Color is TokenAlias alias)
+        {
+            if (Find(alias.TokenId) is not { } target)
+                return Error("missing-reference", alias.TokenId, "Referenced color does not exist.");
+            if (target.Type != TokenType.Color || target.Category is not null)
+                return Error("type-mismatch", alias.TokenId, "Referenced token must be Color.");
+            var result = Resolve(alias.TokenId, theme);
+            if (!result.IsSuccess) return Error(result.Diagnostics[0].Code, alias.TokenId, result.Diagnostics[0].Message);
+            color = result.Value as ColorValue;
+        }
+        if (color is null) return Error("type-mismatch", null, "Expected a color literal or Color token reference.");
+        return new(new ShadowValue(fields.OffsetX, fields.OffsetY, fields.BlurRadius, fields.SpreadRadius,
+            new(color.Red, color.Green, color.Blue, color.Alpha)), []);
+    }
 
     private TokenResolution ResolveTypography(DesignToken owner, TypographyFieldsValue fields, TokenTheme theme)
     {

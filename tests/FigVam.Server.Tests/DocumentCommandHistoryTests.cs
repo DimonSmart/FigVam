@@ -37,6 +37,46 @@ public sealed class DocumentCommandHistoryTests : IDisposable
     private async Task<DocumentStructure> Document() => (await Journal().ReadAsync(id))!.Document;
 
     [Fact]
+    public async Task BatchIsOneRecoverableRevisionWithDurableResultAndUndoRedo()
+    {
+        await Seed();
+        var commandId = Guid.NewGuid();
+        var node = Guid.NewGuid(); var child = Guid.NewGuid();
+        var executor = new DocumentBatchExecutor(new Authorization(), Journal(), new Profile());
+        var result = await executor.ExecuteAsync(id, commandId, 0, alice, async scope =>
+        {
+            Assert.True((await scope.Handler.HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), screen, node, "container"), alice)).Accepted);
+            Assert.True((await scope.Handler.HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), node, child, "leaf"), alice)).Accepted);
+            return new BatchExecution("ACCEPTED", "durable outcome");
+        });
+        Assert.True(result.Accepted);
+        Assert.Equal(1, result.Revision);
+        Assert.Equal(2, (await Document()).Nodes.Count);
+        Assert.Empty((await Journal().ReadAsync(id, 0)).State!.Document.Nodes);
+        var events = (await Journal().ReadEventsAsync(id, 0)).Events!;
+        Assert.Equal("EXECUTE_BATCH", Assert.Single(events).Type);
+        Assert.IsType<BatchApplied>(events[0].Payload);
+        var reopened = new DocumentBatchExecutor(new Authorization(), Journal(), new Profile());
+        Assert.Equal(result, await reopened.ExecuteAsync(id, commandId, 0, alice,
+            _ => throw new InvalidOperationException("Replay must not execute the callback.")));
+        Assert.True((await Undo()).Accepted);
+        Assert.Empty((await Document()).Nodes);
+        Assert.True((await Redo()).Accepted);
+        Assert.Equal(2, (await Document()).Nodes.Count);
+        var before = (await Journal().ReadAsync(id))!.Revision;
+        var failed = await reopened.ExecuteAsync(id, Guid.NewGuid(), before, alice, async scope =>
+        {
+            Assert.True((await scope.Handler.HandleAsync(new AddNodeCommand(id, Guid.NewGuid(), screen, Guid.NewGuid(), "leaf"), alice)).Accepted);
+            return new BatchExecution("INVALID_PROPERTY", "rejected");
+        });
+        Assert.False(failed.Accepted);
+        Assert.Equal(before, (await Journal().ReadAsync(id))!.Revision);
+        Assert.Equal(2, (await Document()).Nodes.Count);
+        Assert.Equal("REVISION_CONFLICT", (await reopened.ExecuteAsync(id, Guid.NewGuid(), 0, alice,
+            _ => throw new InvalidOperationException("Stale batch must not execute."))).Code);
+    }
+
+    [Fact]
     public async Task AutomaticEditsAreGroupedDurablyWithoutChangingAcknowledgementsOrForeignHistory()
     {
         await Seed();

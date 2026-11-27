@@ -311,6 +311,11 @@ export function createVisualNodeEditor({
           const current=getContext();if(current.variantId||!node||!canEdit(current.documentRole))return;
           begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
         };
+        if(!context.variantId&&state&&node?.kind==='TextInput'&&node.properties[name]!==undefined&&!localOverride&&
+          ['paddingTop','paddingRight','paddingBottom','paddingLeft','placeholderColor','focusBorderColor','focusBorderWidth','lineHeight'].includes(name))entry.resetLocal=()=>{
+          const current=getContext();if(current.variantId||!node||!canEdit(current.documentRole))return;
+          begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
+        };
         if(overridden&&state)entry.resetVariant=()=>{
           const current=getContext();if(!current.variantId||!node||!canEdit(current.documentRole))return;
           begin('remove-screen-variant-override',{screenId:current.screen,variantId:current.variantId,nodeId:node.id,property:name,expectedRevision:current.revision},inspector);

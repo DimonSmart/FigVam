@@ -13214,11 +13214,16 @@ export interface components {
             id: string;
             name: string;
         };
-        DocumentEvent: components["schemas"]["DocumentEventScenarioChanged"] | components["schemas"]["DocumentEventScreenVariantChanged"] | components["schemas"]["DocumentEventComponentSlotAdded"] | components["schemas"]["DocumentEventComponentSlotContentSet"] | components["schemas"]["DocumentEventComponentVariantAdded"] | components["schemas"]["DocumentEventComponentInstanceVariantSet"] | components["schemas"]["DocumentEventComponentDefinitionDeleted"] | components["schemas"]["DocumentEventComponentInstanceDetached"] | components["schemas"]["DocumentEventComponentInstanceInserted"] | components["schemas"]["DocumentEventComponentVariantParameterChangeSet"] | components["schemas"]["DocumentEventComponentParameterDefaultSet"] | components["schemas"]["DocumentEventComponentParameterOverrideSet"] | components["schemas"]["DocumentEventComponentParameterAdded"] | components["schemas"]["DocumentEventComponentDefinitionAdded"] | components["schemas"]["DocumentEventNodeRepeaterSet"] | components["schemas"]["DocumentEventNodeDataBindingSet"] | components["schemas"]["DocumentEventDatasetConnectorSet"] | components["schemas"]["DocumentEventDatasetDeleted"] | components["schemas"]["DocumentEventDatasetAdded"] | components["schemas"]["DocumentEventDatasetFixtureReplaced"] | components["schemas"]["DocumentEventTokensImported"] | components["schemas"]["DocumentEventTokenAdded"] | components["schemas"]["DocumentEventTokenDeleted"] | components["schemas"]["DocumentEventStyleUpserted"] | components["schemas"]["DocumentEventStyleDeleted"] | components["schemas"]["DocumentEventNodePropertiesRemoved"] | components["schemas"]["DocumentEventTokenValueSet"] | components["schemas"]["DocumentEventTokenRenamed"] | components["schemas"]["DocumentEventAssetAdded"] | components["schemas"]["DocumentEventPageDeleted"] | components["schemas"]["DocumentEventPageAdded"] | components["schemas"]["DocumentEventDocumentDeleted"] | components["schemas"]["DocumentEventDocumentRenamed"] | components["schemas"]["DocumentEventPageRenamed"] | components["schemas"]["DocumentEventScreenRenamed"] | components["schemas"]["DocumentEventScreenResized"] | components["schemas"]["DocumentEventScreenAdded"] | components["schemas"]["DocumentEventScreenDuplicated"] | components["schemas"]["DocumentEventNodeAdded"] | components["schemas"]["DocumentEventNodeMoved"] | components["schemas"]["DocumentEventNodeDeleted"] | components["schemas"]["DocumentEventNodeNameSet"] | components["schemas"]["DocumentEventNodeSemanticKeySet"] | components["schemas"]["DocumentEventNodePropertySet"] | components["schemas"]["DocumentEventNodePropertiesSet"] | components["schemas"]["DocumentEventVersionSaved"] | components["schemas"]["DocumentEventVersionRestored"] | components["schemas"]["DocumentEventHistoryCompensated"];
+        DocumentEvent: components["schemas"]["DocumentEventScenarioChanged"] | components["schemas"]["DocumentEventScreenVariantChanged"] | components["schemas"]["DocumentEventComponentSlotAdded"] | components["schemas"]["DocumentEventComponentSlotContentSet"] | components["schemas"]["DocumentEventComponentVariantAdded"] | components["schemas"]["DocumentEventComponentInstanceVariantSet"] | components["schemas"]["DocumentEventComponentDefinitionDeleted"] | components["schemas"]["DocumentEventComponentInstanceDetached"] | components["schemas"]["DocumentEventComponentInstanceInserted"] | components["schemas"]["DocumentEventComponentVariantParameterChangeSet"] | components["schemas"]["DocumentEventComponentParameterDefaultSet"] | components["schemas"]["DocumentEventComponentParameterOverrideSet"] | components["schemas"]["DocumentEventComponentParameterAdded"] | components["schemas"]["DocumentEventComponentDefinitionAdded"] | components["schemas"]["DocumentEventNodeRepeaterSet"] | components["schemas"]["DocumentEventNodeDataBindingSet"] | components["schemas"]["DocumentEventDatasetConnectorSet"] | components["schemas"]["DocumentEventDatasetDeleted"] | components["schemas"]["DocumentEventDatasetAdded"] | components["schemas"]["DocumentEventDatasetFixtureReplaced"] | components["schemas"]["DocumentEventTokensImported"] | components["schemas"]["DocumentEventTokenAdded"] | components["schemas"]["DocumentEventTokenDeleted"] | components["schemas"]["DocumentEventStyleUpserted"] | components["schemas"]["DocumentEventStyleDeleted"] | components["schemas"]["DocumentEventNodePropertiesRemoved"] | components["schemas"]["DocumentEventTokenValueSet"] | components["schemas"]["DocumentEventTokenRenamed"] | components["schemas"]["DocumentEventAssetAdded"] | components["schemas"]["DocumentEventPageDeleted"] | components["schemas"]["DocumentEventPageAdded"] | components["schemas"]["DocumentEventDocumentDeleted"] | components["schemas"]["DocumentEventDocumentRenamed"] | components["schemas"]["DocumentEventPageRenamed"] | components["schemas"]["DocumentEventScreenRenamed"] | components["schemas"]["DocumentEventScreenResized"] | components["schemas"]["DocumentEventScreenAdded"] | components["schemas"]["DocumentEventScreenDuplicated"] | components["schemas"]["DocumentEventNodeAdded"] | components["schemas"]["DocumentEventNodeMoved"] | components["schemas"]["DocumentEventNodeDeleted"] | components["schemas"]["DocumentEventNodeNameSet"] | components["schemas"]["DocumentEventNodeSemanticKeySet"] | components["schemas"]["DocumentEventNodePropertySet"] | components["schemas"]["DocumentEventNodePropertiesSet"] | components["schemas"]["DocumentEventVersionSaved"] | components["schemas"]["DocumentEventVersionRestored"] | components["schemas"]["DocumentEventHistoryCompensated"] | components["schemas"]["DocumentEventBatchApplied"];
         DocumentEventAssetAdded: {
             asset: components["schemas"]["DocumentAsset"];
             /** @enum {string} */
             payloadType?: "ASSET_ADDED";
+        };
+        DocumentEventBatchApplied: {
+            patch: components["schemas"]["DocumentPatch"];
+            /** @enum {string} */
+            payloadType?: "BATCH_APPLIED";
         };
         DocumentEventComponentDefinitionAdded: {
             definition: components["schemas"]["ComponentDefinition"];
@@ -14852,7 +14857,7 @@ export interface components {
             /** Format: int32 */
             total: number | string;
         };
-        TokenValue: components["schemas"]["TokenValueColorValue"] | components["schemas"]["TokenValueSpacingValue"] | components["schemas"]["TokenValueTypographyValue"] | components["schemas"]["TokenValueTypographyFieldsValue"] | components["schemas"]["TokenValueGeometryValue"] | components["schemas"]["TokenValueDimensionValue"] | components["schemas"]["TokenValueNumberValue"] | components["schemas"]["TokenValueFontFamilyValue"] | components["schemas"]["TokenValueFontWeightValue"] | components["schemas"]["TokenValueShadowValue"];
+        TokenValue: components["schemas"]["TokenValueColorValue"] | components["schemas"]["TokenValueSpacingValue"] | components["schemas"]["TokenValueTypographyValue"] | components["schemas"]["TokenValueTypographyFieldsValue"] | components["schemas"]["TokenValueGeometryValue"] | components["schemas"]["TokenValueDimensionValue"] | components["schemas"]["TokenValueNumberValue"] | components["schemas"]["TokenValueFontFamilyValue"] | components["schemas"]["TokenValueFontWeightValue"] | components["schemas"]["TokenValueShadowValue"] | components["schemas"]["TokenValueShadowFieldsValue"];
         TokenValueColorValue: {
             /**
              * Format: uint8
@@ -14896,6 +14901,19 @@ export interface components {
             type?: "number";
             /** Format: double */
             value: number | string;
+        };
+        TokenValueShadowFieldsValue: {
+            /** Format: double */
+            blurRadius: number | string;
+            color: components["schemas"]["TokenExpression"];
+            /** Format: double */
+            offsetX: number | string;
+            /** Format: double */
+            offsetY: number | string;
+            /** Format: double */
+            spreadRadius: number | string;
+            /** @enum {string} */
+            type?: "shadowFields";
         };
         TokenValueShadowValue: {
             /** Format: double */

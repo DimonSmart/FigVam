@@ -67,6 +67,7 @@ public sealed class VisualNodeProfile : INodeProfile
             ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
             ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(14, White),
+            ("lineHeight", Number(1.25, 0.1, 10) with { DefaultValue = null }),
             .. Decoration(new(47, 87, 191), 0, Transparent, 6)
         ]),
         Kind("TextInput", NodeSemanticRole.TextInput, 220, 40, events: [PreviewEvent.Change, PreviewEvent.Submit], demoValue: true, properties:
@@ -80,6 +81,14 @@ public sealed class VisualNodeProfile : INodeProfile
             ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
             ("typography", new(NodePropertyType.TokenReference, TokenType: TokenType.Typography)),
             .. Typography(14, Ink),
+            ("paddingTop", Length(0)),
+            ("paddingRight", Length(4)),
+            ("paddingBottom", Length(0)),
+            ("paddingLeft", Length(4)),
+            ("placeholderColor", Color(Ink) with { DefaultValue = null }),
+            ("focusBorderColor", Color(Outline) with { DefaultValue = null }),
+            ("focusBorderWidth", Length(2) with { DefaultValue = null }),
+            ("lineHeight", Number(1.25, 0.1, 10) with { DefaultValue = null }),
             .. Decoration(White, 1, Outline, 6)
         ]),
         Kind("Image", NodeSemanticRole.Image, 160, 120, properties:
@@ -102,7 +111,7 @@ public sealed class VisualNodeProfile : INodeProfile
         { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Spacing, LegacyTokenType = TokenType.Spacing },
         "cornerRadius" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Radius,
             LegacyTokenType = TokenType.Geometry },
-        "borderWidth" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.BorderWidth },
+        "borderWidth" or "focusBorderWidth" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.BorderWidth },
         "fontSize" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.FontSize },
         "fontFamily" => old with { TokenType = TokenType.FontFamily },
         "fontWeight" => old with { TokenType = TokenType.FontWeight, NumericFontWeight = true,

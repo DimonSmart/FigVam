@@ -10,7 +10,7 @@ import { token as readToken } from '../../canvas/render-model';
 import type { DesignToken, TokenType, TokenCategory, Theme, TokenValue, TokenExpression, TypographyFieldsValue, TypographyField, ResolvableValue } from '../../core/tokens/token-model';
 import { tokenTypes, tokenCategories } from '../../core/tokens/token-model';
 import type { TokenGroup } from '../../core/tokens/token-groups';
-import { createShadowSpec,createReferenceSpec,createValueField,type ValueSpec,type ValueField,type EditKind,type CompositeSpec } from '../../ui/property-value';
+import { createShadowSpec,shadowPreset,createReferenceSpec,createValueField,type ValueSpec,type ValueField,type EditKind,type CompositeSpec,type ReferenceSpec } from '../../ui/property-value';
 import { rawArray, rawText } from '../../ui/property-control-contract';
 import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
@@ -166,12 +166,19 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
     if(expression?.expression==='literal'&&expression.value.type==='typographyFields'){
       const value=expression.value;return typographyFields.some(field=>{const part=value[field.name];return part?.expression==='alias'&&dependsOn(part.tokenId,ownerId,theme,visited);});
     }
+    if(expression?.expression==='literal'&&expression.value.type==='shadowFields'&&expression.value.color.expression==='alias')
+      return dependsOn(expression.value.color.tokenId,ownerId,theme,visited);
     return false;
   }
   function makeTokenSpec(prefix:string,label:string,type:TokenType,category:TokenCategory|null,theme:Theme,expression?:TokenExpression|null,ownerId?:string,initialText=''):ValueSpec {
     const literal=expression?.expression==='literal'?expression.value:null;
     let direct:ValueSpec;
-    if(type==='Shadow')direct=createShadowSpec(literal?.type==='shadow'?literal:null);
+    if(type==='Shadow'){
+      const color:TokenExpression=literal?.type==='shadowFields'?literal.color:{expression:'literal',value:{type:'color',...(literal?.type==='shadow'?literal.color:shadowPreset.color)}};
+      const colorEditor=makeTokenSpec(prefix+'-color-value','Color','Color',null,theme,color,ownerId) as ReferenceSpec;
+      const geometry=literal?.type==='shadowFields'?{...literal,color:undefined}:literal?.type==='shadow'?literal:null;
+      direct=createShadowSpec(geometry,colorEditor);
+    }
     else if(type==='Typography'){
       const children=typographyFields.map(field=>makeTokenSpec(prefix+'-'+field.name+'-value',field.label,field.type,field.category,theme,typographyPart(literal,field),ownerId,field.initial));
       const composite:CompositeSpec={

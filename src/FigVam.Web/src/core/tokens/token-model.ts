@@ -24,7 +24,8 @@ export interface ShadowValue {
   spreadRadius: number;
   color: ColorChannels;
 }
-export type TokenValue = ColorValue | TypographyValue | TypographyFieldsValue | ShadowValue
+export type ShadowFieldsValue = Omit<ShadowValue, "type" | "color"> & {type:"shadowFields";color:TokenExpression};
+export type TokenValue = ColorValue | TypographyValue | TypographyFieldsValue | ShadowValue | ShadowFieldsValue
   | { type: 'spacing' | 'dimension' | 'number' | 'fontWeight'; value: number }
   | { type: 'geometry'; radius: number }
   | { type: 'fontFamily'; value: string };

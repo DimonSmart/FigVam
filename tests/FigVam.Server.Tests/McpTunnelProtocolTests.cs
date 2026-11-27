@@ -83,7 +83,7 @@ public sealed class McpTunnelProtocolTests
             Assert.Equal(HttpStatusCode.Forbidden, (await unauthenticated.SendAsync(wrongOrigin)).StatusCode);
 
             await using var mcp = await Connect(server, McpTunnelCredential.Header, key);
-            Assert.Equal(34, (await mcp.ListToolsAsync()).Count);
+            Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
             await Denied(mcp);
             var status = await alice.GetFromJsonAsync<JsonElement>(PathFor(a));
             Assert.True(status.GetProperty("tunnel").GetProperty("configured").GetBoolean());
@@ -156,7 +156,7 @@ public sealed class McpTunnelProtocolTests
         {
             await restarted.WaitUntilReadyAsync();
             await using var mcp = await Connect(restarted, McpTunnelCredential.Header, key);
-            Assert.Equal(34, (await mcp.ListToolsAsync()).Count);
+            Assert.Equal(38, (await mcp.ListToolsAsync()).Count);
             await Denied(mcp);
             using var alice = AsUser(restarted, "alice");
             var status = await alice.GetFromJsonAsync<JsonElement>(PathFor(a));

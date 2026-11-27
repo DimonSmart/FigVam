@@ -110,7 +110,7 @@ export function ValueEditor(p:EditorProps){
         <NumberInput {...propsFor(p,1)} aria-label={spec.label+' — числовое значение'} hidden={mode!=='Custom'} min={1} max={1000} step={1} required value={value} onChange={e=>onEdit([mode,e.currentTarget.value],'input')} onBlur={e=>onEdit([mode,e.currentTarget.value],'commit')}/></>;
     }
     case 'shadow':return <><div className="shadow-geometry">{shadowDimensions.map(([,label,min,max],index)=><Labeled key={label} label={label}><NumberInput {...propsFor(p,index)} aria-label={'Drop shadow '+label} min={min} max={max} required step="any" value={rawText(values[index])} onChange={e=>onEdit(replace(raw,index,e.currentTarget.value),'input')} onBlur={e=>onEdit(replace(raw,index,e.currentTarget.value),'commit')}/></Labeled>)}</div>
-      <ValueEditor {...childProps(p,spec.color,values.slice(4),4,(next,kind)=>onEdit([...values.slice(0,4),...rawArray(next)],kind))}/></>;
+      <ValueEditor {...childProps(p,spec.color,spec.nestedColor?values[4]??null:values.slice(4),4,(next,kind)=>onEdit([...values.slice(0,4),...(spec.nestedColor?[next]:rawArray(next))],kind))}/></>;
     case 'token-scalar':{
       const value=rawText(raw);
       return <div className="token-scalar-direct">

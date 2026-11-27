@@ -11,7 +11,7 @@ namespace FigVam.Server.Mcp;
 
 [McpServerToolType]
 public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentCommandHandler handler,
-    IDocumentStateReader reader, INodeProfile profile, IDocumentCommandResultReader results)
+    IDocumentStateReader reader, INodeProfile profile, IDocumentCommandResultReader results, IDocumentTokenQueries tokenQueries)
 {
     private McpDocumentGrant Grant => (McpDocumentGrant)accessor.HttpContext!.Items[McpServiceRegistration.GrantKey]!;
     private Guid DocumentId => Grant.DocumentId;
@@ -43,14 +43,16 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
         return McpReadTools.Result(result.Code, data);
     }
 
-    private async Task<CallToolResult> Run(Guid? commandId, Func<Guid, Task<CommandResult>> action, string? affected = null)
+    private async Task<CallToolResult> Run(Guid? commandId, Func<Guid, Task<CommandResult>> action, string? affected = null,
+        Func<CommandResult, Task<CallToolResult>>? format = null)
     {
         var id = commandId ?? Guid.NewGuid();
         try
         {
             if (commandId is not null && await results.ReadResultAsync(DocumentId, id, Actor) is { } original)
-                return Result(original, affected);
-            return Result(await action(id), affected);
+                return format is null ? Result(original, affected) : await format(original);
+            var result = await action(id);
+            return format is null ? Result(result, affected) : await format(result);
         }
         catch (McpContractException e) { return Error(e.Code, e.Message, id, property: e.Property, expected: e.Expected, actual: e.Actual); }
     }
@@ -165,6 +167,24 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
             return await handler.HandleAsync(new SetTokenValueCommand(DocumentId, id, tokenId, EnumName<TokenTheme>(theme),
                 McpPropertyAdapter.Token(token.Type, value)), Actor, ct);
         }, "tokenId");
+
+    [McpServerTool(Name = "rename_token"), Description("Rename a token without changing its ID, values or references. Optional expectedRevision prevents concurrent changes.")]
+    public Task<CallToolResult> RenameToken(Guid tokenId, string name, long? expectedRevision = null, Guid? commandId = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new RenameTokenCommand(DocumentId, id, tokenId, name, expectedRevision), Actor, ct), "tokenId");
+
+    [McpServerTool(Name = "delete_token"), Description("Delete an unused token at the required expectedRevision. TOKEN_IN_USE includes a bounded list of dependencies; use get_token_usages to read all.")]
+    public Task<CallToolResult> DeleteToken(Guid tokenId, long expectedRevision, Guid? commandId = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new DeleteTokenCommand(DocumentId, id, tokenId, expectedRevision), Actor, ct), "tokenId",
+            async result =>
+            {
+                if (result.Code != "TOKEN_IN_USE" || result.Revision is not { } revision) return Result(result, "tokenId");
+                var usages = await tokenQueries.UsagesAsync(DocumentId, tokenId, revision, 0, 20, Actor, ct);
+                if (usages.Response is not { } response) return Result(result, "tokenId");
+                var detail = McpReadTools.Result(result.Code, new { status = "REJECTED", code = result.Code,
+                    result.CommandId, revision, tokenId, message = result.Explanation, referenceCount = response.Total,
+                    references = response.Items });
+                return new CallToolResult { StructuredContent = detail.StructuredContent, Content = detail.Content, IsError = true };
+            });
 
     public sealed record ScenarioAction(string Type, Guid ScreenId);
 

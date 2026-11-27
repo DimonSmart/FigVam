@@ -24,7 +24,7 @@ async function connect(request, endpoint, token) {
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
   const tools = (await rpc('tools/list', {})).tools;
-  expect(tools).toHaveLength(34);
+  expect(tools).toHaveLength(38);
   const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
   expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
   expect(renderSchema.required).not.toContain('theme');
@@ -225,39 +225,52 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
   const access = await grant(page);
   const call = await connect(request, access.endpoint, access.token);
-  const { pageId } = await call('create_page', { name: 'Login flow' });
-  const { screenId: login } = await call('create_screen', { pageId, width: 800, height: 600, name: 'Login' });
   const { types } = await call('list_token_types');
-  expect(types).toContain('Color');
   expect(types).toContain('Typography');
-  const colorSchema = await call('get_token_schema', { type: 'Color' });
-  const typographySchema = await call('get_token_schema', { type: 'Typography' });
-  const dimensionSchema = await call('get_token_schema', { type: 'Dimension' });
-  const { tokenId: bg } = await call('create_token', { name: 'login.background', type: colorSchema.type, light: '#EEF2F7', dark: '#15243A' });
-  const { tokenId: typography } = await call('create_token', { name: 'login.typography', type: typographySchema.type,
-    light: typographySchema.example, dark: typographySchema.example });
-  const { tokenId: spacing } = await call('create_token', { name: 'login.spacing', type: dimensionSchema.type,
-    category: dimensionSchema.category.allowedValues.find(c => c === 'Spacing'), light: 0, dark: 0 });
+  const colorSchema = await call('get_token_schema', { type: 'Color', compact: true });
+  const typographySchema = await call('get_token_schema', { type: 'Typography', compact: true });
+  const dimensionSchema = await call('get_token_schema', { type: 'Dimension', compact: true });
+  expect(colorSchema.compact && typographySchema.compact && dimensionSchema.compact).toBe(true);
+  const ref = (id, field) => ({ $ref: id + '.' + field });
+  const op = (id, command, args) => ({ id, command, arguments: args });
+  const { operations } = require('../../docs/examples/login-prototype-batch.json');
+  const buttonShadow = operations.find(item => item.id === 'buttonShadow').arguments.light;
+  expect(operations.find(item => item.id === 'typography').arguments.light).toEqual(typographySchema.example);
+  const beforeBatch = (await call('get_document')).revision;
+  const batchArgs = { commandId: require('node:crypto').randomUUID(), expectedRevision: beforeBatch, operations };
+  const batch = await call('execute_batch', batchArgs);
+  expect(batch.revision).toBe(beforeBatch + 1);
+  expect(await call('execute_batch', batchArgs)).toEqual(batch);
+  const results = Object.fromEntries(batch.results.map(item => [item.id, item]));
+  const { pageId } = results.page;
+  const login = results.login.screenId, error = results.error.screenId;
+  const bg = results.background.tokenId, radius = results.radius.tokenId, primary = results.button.tokenId;
+  const cardShadowId = results.cardShadow.tokenId, buttonShadowId = results.buttonShadow.tokenId;
+  const shadowColorId = results.shadowColor.tokenId;
+  const background = results.surface.nodeId, input = results.input.nodeId, password = results.password.nodeId, button = results.submit.nodeId;
+  const failedBatch = await call.raw('execute_batch', { expectedRevision: batch.revision, operations: [
+    op('temporary','create_page',{name:'Must roll back'}),
+    op('invalid','create_node',{parentId:ref('future','screenId'),kind:'Text'})] });
+  expect(failedBatch.isError).toBe(true);
+  expect(failedBatch.structuredContent.rolledBack).toBe(true);
+  expect((await call('get_document')).revision).toBe(batch.revision);
+  for (const theme of ['Light','Dark']) {
+    const layout = await call('get_screen_layout', {screenId:login,theme});
+    expect(layout.theme).toBe(theme);
+    expect(layout.boxes.find(box => box.objectId === input).bounds.height).toBe(theme === 'Light' ? 44 : 48);
+    const node = (await call('get_node',{nodeId:input,includeResolvedProperties:true,theme})).items[0];
+    expect(node.resolvedProperties.paddingLeft.value).toBe(theme==='Light'?12:16);
+    expect(node.resolvedProperties.height.value).toBe(theme==='Light'?44:48);
+  }
+  const renamed = await call('rename_token',{tokenId:shadowColorId,name:'login.shadow.color',expectedRevision:batch.revision});
+  expect(renamed.tokenId).toBe(shadowColorId);
+  const usages = await call('get_token_usages',{tokenId:shadowColorId});
+  expect(usages.items.some(item=>item.ownerId===buttonShadowId)).toBe(true);
+  const refused = await call.raw('delete_token',{tokenId:shadowColorId,expectedRevision:renamed.revision});
+  expect(refused.structuredContent.code).toBe('TOKEN_IN_USE');
+  const unused = await call('create_token',{name:'login.unused',type:'Color',light:'#000000',dark:'#FFFFFF'});
+  await call('delete_token',{tokenId:unused.tokenId,expectedRevision:unused.revision});
   const create = async (parentId, kind, properties) => (await call('create_node', { parentId, kind, properties })).nodeId;
-  const { tokenId: radius } = await call('create_token', { name: 'login.radius', type: 'Dimension', category: 'Radius', light: 8, dark: 8 });
-  const { tokenId: primary } = await call('create_token', { name: 'login.button', type: 'Color', light: '#2563EB', dark: '#2563EB' });
-  const cardShadow = { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000020' };
-  const buttonShadow = { offsetX: 0, offsetY: 4, blurRadius: 8, spreadRadius: 0, color: '#00000060' };
-  const { tokenId: cardShadowId } = await call('create_token', { name: 'login.shadow.card', type: 'Shadow', light: cardShadow, dark: { ...cardShadow, blurRadius: 12 } });
-  const { tokenId: buttonShadowId } = await call('create_token', { name: 'login.shadow.button', type: 'Shadow', light: buttonShadow, dark: { ...buttonShadow, blurRadius: 12 } });
-  const background = await create(login, 'Frame', { x: 0, y: 0, width: 800, height: 600,
-    backgroundColor: { tokenId: bg }, borderWidth: 0, cornerRadius: 0, paddingLeft: { tokenId: spacing }, shadow: { tokenId: cardShadowId } });
-  await create(login, 'Text', { x: 250, y: 80, width: 300, height: 40, text: 'Sign in', typography: { tokenId: typography } });
-  const input = await create(login, 'TextInput', { x: 250, y: 140, width: 300, height: 44, placeholder: 'Email', backgroundColor: '#FFFFFF' });
-  const password = await create(login, 'TextInput', { x: 250, y: 255, width: 300, height: 40, placeholder: 'Password', inputType: 'Password', backgroundColor: '#FFFFFF' });
-  const button = await create(login, 'Button', { x: 250, y: 200, width: 300, height: 48, text: 'Login',
-    backgroundColor: { tokenId: primary }, borderWidth: 0, cornerRadius: { tokenId: radius }, textColor: '#FFFFFF',
-    shadow: { tokenId: buttonShadowId } });
-  const { screenId: error } = await call('duplicate_screen', { screenId: login, expectedRevision: (await call('get_document')).revision, name: 'Login Error' });
-  await call('create_scenario', { screenId: login, nodeId: button, event: 'Click', actions: [{ type: 'navigate', screenId: error }] });
-  await call('create_scenario', { screenId: login, nodeId: password, event: 'Submit', actions: [{ type: 'navigate', screenId: error }] });
-  await create(error, 'Text', { x: 250, y: 300, width: 300, height: 40, text: 'Invalid password',
-    fontSize: 22, textColor: '#FF0000' });
   const { pageId: otherPage } = await call('create_page', { name: 'Other page' });
   const { screenId: other } = await call('create_screen', { pageId: otherPage, width: 320, height: 240, name: 'Other screen' });
   await show(page, 'layers');
@@ -306,6 +319,24 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     }
   }
   for (const theme of ['Light', 'Dark']) {
+    const filled = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [
+      { nodeId: input, event: 'Change', value: 'demo@example.test' },
+      { nodeId: password, event: 'Change', value: 'not-a-real-password' }
+    ] });
+    expect(filled.isError, JSON.stringify(filled.structuredContent)).not.toBe(true);
+    expect(filled.structuredContent.activeScreenId).toBe(login);
+    expect(filled.structuredContent.simulationStatus).toBe('Completed');
+    expect(filled.structuredContent.render.status).toBe('Completed');
+    expect(filled.structuredContent.demoValues[password]).toBeUndefined();
+    expect(JSON.stringify(filled.structuredContent)).not.toContain('not-a-real-password');
+    const filledImage = filled.content.find(block => block.type === 'image');
+    expect(filledImage?.mimeType).toBe('image/png');
+    await testInfo.attach('filled-' + theme, { body: Buffer.from(filledImage.data, 'base64'), contentType: 'image/png' });
+    const empty = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [] });
+    expect(empty.isError).not.toBe(true);
+    const emptyImage = empty.content.find(block => block.type === 'image');
+    expect(emptyImage?.mimeType).toBe('image/png');
+    expect(filledImage.data).not.toBe(emptyImage.data);
     for (const event of ['Click', 'Submit']) {
       const simulated = await call.raw('simulate_preview', { screenId: login, theme, includeImage: true, events: [
         { nodeId: input, event: 'Change', value: 'demo@example.test' },
@@ -377,12 +408,12 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   // Changes are rendered from the server revision, not a stale editor DOM.
   const changedToken = await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#102030' });
   await inspect(login, 'Dark', 'changed-token', changedToken.revision, [16, 32, 48], false);
-  const changedShadow = await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 20 } });
+  const changedShadow = await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 20, color: { tokenId: shadowColorId } } });
   for (const screenId of [login, error]) {
     const tree = await call('get_screen_tree', { screenId, includeResolvedProperties: true, theme: 'Dark' });
     expect(tree.items.find(n => n.kind === 'Button').resolvedProperties.shadow.blurRadius).toBe(20);
   }
-  await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 12 } });
+  await call('set_token_value', { tokenId: buttonShadowId, theme: 'Dark', value: { ...buttonShadow, blurRadius: 12, color: { tokenId: shadowColorId } } });
   const changedButton = await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#DC2626' });
   await inspect(login, 'Dark', 'changed-button', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
 
@@ -397,11 +428,24 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await page.locator('#preview-theme button[data-theme=Dark]').click();
   await expect(page.locator('#preview-theme button[data-theme=Dark]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#preview-viewport [data-visual-node="' + background + '"] > .visual-surface')).toHaveCSS('background-color', 'rgb(16, 32, 48)');
+  const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] > .visual-surface');
+  const fieldBounds = await field.boundingBox();
+  await field.focus();
+  await expect(field).toHaveCSS('outline-width', '3px');
+  await expect(field).toHaveCSS('outline-color', 'rgb(96, 165, 250)');
+  expect(await field.boundingBox()).toEqual(fieldBounds);
+  await testInfo.attach('focused-dark', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
+  await field.blur();
   const previewBefore = await editorState();
   await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false);
   await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
   expect(await editorState()).toEqual(previewBefore);
   await page.locator('#preview-theme button[data-theme=Light]').click();
+  await field.focus();
+  await expect(field).toHaveCSS('outline-width', '2px');
+  await expect(field).toHaveCSS('outline-color', 'rgb(37, 99, 235)');
+  await testInfo.attach('focused-light', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
+  await field.blur();
   await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true, [220, 38, 38]);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });

@@ -125,19 +125,26 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
     public CallToolResult ListTokenTypes() =>
         Result("OK", new { types = Enum.GetNames<TokenType>() });
 
-    [McpServerTool(Name = "get_token_schema", ReadOnly = true), Description("Read the value schema, categories, constraints, examples, aliases and theme semantics for a design token type.")]
-    public CallToolResult GetTokenSchema(string type)
+    [McpServerTool(Name = "get_token_schema", ReadOnly = true), Description("Read the value schema, categories, constraints, examples, aliases and theme semantics for a design token type. Use compact=true for shared expression formats and literal constraints.")]
+    public CallToolResult GetTokenSchema(string type, bool compact = false)
     {
         if (!Enum.GetNames<TokenType>().Contains(type, StringComparer.Ordinal))
             return Result("INVALID_ENUM", null, "Expected one of: " + string.Join(", ", Enum.GetNames<TokenType>()));
         var tokenType = Enum.Parse<TokenType>(type);
-        return Result("OK", McpTokenSchemas.Describe(tokenType));
+        return Result("OK", McpTokenSchemas.Describe(tokenType, compact));
     }
 
     [McpServerTool(Name = "list_tokens"), Description("List design tokens and Light/Dark values.")]
     public async Task<CallToolResult> ListTokens(int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default)
     {
         var r = await tokens.ListAsync(Grant.DocumentId, revision, offset, limit, Actor, ct);
+        return Result(r.Code, r.Response);
+    }
+
+    [McpServerTool(Name = "get_token_usages", ReadOnly = true), Description("List direct and indirect token dependencies in both themes at a pinned revision. Use offset and limit (1-100) to paginate.")]
+    public async Task<CallToolResult> GetTokenUsages(Guid tokenId, long? revision = null, int offset = 0, int limit = 50, CancellationToken ct = default)
+    {
+        var r = await tokens.UsagesAsync(Grant.DocumentId, tokenId, revision, offset, limit, Actor, ct);
         return Result(r.Code, r.Response);
     }
 
@@ -148,10 +155,14 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
         return Result(r.Code, r.Response);
     }
 
-    [McpServerTool(Name = "get_screen_layout"), Description("Read computed bounds and layout diagnostics.")]
-    public async Task<CallToolResult> GetScreenLayout(Guid screenId, int offset = 0, int limit = 50, long? revision = null, CancellationToken ct = default)
+    [McpServerTool(Name = "get_screen_layout"), Description("Read computed bounds and layout diagnostics for Light (default) or Dark at the selected revision.")]
+    public async Task<CallToolResult> GetScreenLayout(Guid screenId, int offset = 0, int limit = 50, long? revision = null, string theme = "Light", CancellationToken ct = default)
     {
-        var r = await queries.ReadScreenLayoutAsync(Grant.DocumentId, new(screenId, revision, offset, limit), Actor, ct);
-        return Result(r.Code, r.Response);
+        if (theme is not ("Light" or "Dark")) return Result("INVALID_THEME", null, "Theme must be Light or Dark.");
+        var r = await queries.ReadScreenLayoutAsync(Grant.DocumentId, new(screenId, revision, offset, limit, Theme: Enum.Parse<TokenTheme>(theme)), Actor, ct);
+        if (r.Response is null) return Result(r.Code, null);
+        var response = JsonSerializer.SerializeToNode(r.Response, ResponseOptions)!.AsObject();
+        response["theme"] = theme;
+        return Result(r.Code, response);
     }
 }
