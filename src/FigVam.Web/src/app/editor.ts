@@ -1,7 +1,7 @@
 import { authHeaders, credentialsMode, isGoogleMode, setCsrf } from '../api/auth-client';
 import { createScreenCapture } from '../canvas/screen-capture';
 import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
-import { createDocumentQueries, type PageItem, type ScreenItem } from '../api/document-queries';
+import { createDocumentQueries } from '../api/document-queries';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from '../features/home/index';
 import { createDocumentCollaboration } from '../features/collaboration/document-collaboration';
 import { createCanvasViewport } from '../canvas/canvas-viewport';
@@ -31,6 +31,7 @@ import { createRequestRunner } from './request-runner';
 import { createDocumentCatalog } from './document-catalog';
 import { createNavigation } from './navigation';
 import { createDocumentRevisionState } from './document-workspace';
+import { createWorkspaceSelection } from './workspace-selection';
 import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
@@ -64,9 +65,9 @@ function selectHomeView(view: 'users' | 'documents') {
   homeNavigation.select(users ? 'users' : 'documents');
 }
 const pageSize = 20;
-let documentId: string | null = null, documentRole: string | null = null, selectedPage: string | null = null, pagesOffset = 0, pagesTotal = 0;
+let documentId: string | null = null, documentRole: string | null = null;
+const selectionState = createWorkspaceSelection();
 const revisions = createDocumentRevisionState();
-let pagesItems: PageItem[] = [];
 let importOperation: ImportOperation | null = null;
 let deletion: Deletion | null = null;
 function resetDeletion() {
@@ -82,9 +83,6 @@ function leaveDeletion() {
   element('delete-retry').hidden = false;
   element('delete-message').textContent = `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.`;
 }
-let selectedScreen: string | null = null, screensOffset = 0, screensTotal = 0, screensItems: ScreenItem[] = [];
-let editingPageName: RenameDraft | null = null, editingScreenName: RenameDraft | null = null;
-let pageExpanded = true;
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
   getToken: () => token,
@@ -96,13 +94,13 @@ const request: ApiClient = createApiClient({
 
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
   element, request, pageSize,
-  getContext: () => ({ documentId, screen: selectedScreen, revision: revisions.revision, token, navigationEpoch })
+  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; }, get screensItems() { return screensItems; },
+    get selectedScreen() { return selectionState.selectedScreen; }, get selectionState.screens() { return selectionState.screens; },
     get generation() { return generation; }, get token() { return token; }
   }
 });
@@ -121,7 +119,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
     get token() { return token; }
   },
   isEditorVisible: () => !element('editor-view').hidden,
-  readRevision: (signal, targetRevision) => readPages(signal, pagesOffset, targetRevision),
+  readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
   onConnectionStatus: status => { element('connection-status').textContent = status; },
   onAccessLost: closeInaccessibleDocument,
   onCaptureEvent: mcpAccess.onCaptureEvent,
@@ -159,7 +157,7 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; }, get revision() { return revisions.revision; },
+    get selectedScreen() { return selectionState.selectedScreen; }, get revision() { return revisions.revision; },
     get catalogRevision() { return revisions.catalogRevision; },
     get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
   }
@@ -174,7 +172,7 @@ function closeInaccessibleDocument(status: number) {
   if (documentId) scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revisions.reset(); pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingPageName = editingScreenName = null; pageExpanded = true;
+  members.reset(); documentExport.reset(); documentRole = null; revisions.reset(); selectionState.reset();
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
@@ -219,8 +217,7 @@ function clearSession() {
   authenticationView.clearToken();
   element('document-name').value = '';
   documentListView.clear();
-  documentId = documentRole = selectedPage = null; revisions.reset(); pagesOffset = pagesTotal = 0; pagesItems = [];
-  selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingPageName = editingScreenName = null;
+  documentId = documentRole = null; revisions.reset(); selectionState.reset();
   renderPages();
   layers.reset();
   tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
@@ -269,13 +266,13 @@ const layers: ReturnType<typeof createLayers> = createLayers({
   workspace: {
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; },
+    get selectedScreen() { return selectionState.selectedScreen; },
     get revision() { return revisions.revision; },
     get navigationEpoch() { return navigationEpoch; },
     get token() { return token; }
   },
   runPageRefresh: work => run(() => refreshPages(), work),
-  readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, pagesOffset, null, isCurrent, reveal),
+  readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, 0, null, isCurrent, reveal),
   beforeSelectionChange: next => scenarios.requestLeave(next),
   onSelectionCleared: () => { scenarios.clearLayerSelection(); visualScreens.syncSelection(); visualNodeEditor.refresh(); },
   onLayerSelected: () => { scenarios.onLayerSelected(); visualScreens.syncSelection(); visualNodeEditor.refresh(); }
@@ -287,14 +284,14 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
     get revision() { return revisions.revision; },
-    get selectedScreen() { return selectedScreen; },
+    get selectedScreen() { return selectionState.selectedScreen; },
     get layerSelection() { return layers.selection; }
   },
   findLayer: layers.findLayer,
   setInteractiveNodes: layers.setInteractiveNodes,
   selectSource: layers.selectFromCanvas,
   reloadPages: (targetRevision, isCurrent) =>
-    run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
+    run(() => refreshPages(), signal => readPages(signal, 0, targetRevision, isCurrent)),
   findRole,
   setDocumentRole: role => { documentRole = role; datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
@@ -308,7 +305,7 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   stopLive();
   layers.reset();
   documentHistory.reset(); documentId = documentRole = null; revisions.reset();
-  selectedScreen = null; screensItems = []; renderCanvas();
+  selectionState.reset(); renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
   selectHomeView('documents');
@@ -359,11 +356,10 @@ function navigatorCanEdit() {
   return ['Owner', 'Editor'].includes(documentRole ?? '');
 }
 function navigatorEditState(kind: NavigatorKind) {
-  return kind === 'page' ? editingPageName : editingScreenName;
+  return selectionState.renameDraft(kind);
 }
 function setNavigatorEditState(kind: NavigatorKind, value: RenameDraft | null) {
-  if (kind === 'page') editingPageName = value;
-  else editingScreenName = value;
+  selectionState.setRenameDraft(kind, value);
 }
 function renderNavigatorKind(kind: NavigatorKind) {
   if (kind === 'page') renderPages();
@@ -381,28 +377,25 @@ function discardNavigatorRename(kind: NavigatorKind, id: string) {
   document.querySelector<HTMLElement>('[data-' + kind + '-rename-id="' + id + '"]')?.focus({ preventScroll: true });
 }
 function renderPages() {
-  if (editingPageName && (!pagesItems.some(item => item.id === editingPageName?.id) || !navigatorCanEdit())) editingPageName = null;
-  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName?.id) || !navigatorCanEdit())) editingScreenName = null;
-  navigatorView.render({pages:pagesItems, screens:screensItems, selectedPage, selectedScreen, pageExpanded, screensOffset,
-    canEdit:navigatorCanEdit(), editingPageName, editingScreenName});
+  navigatorView.render(selectionState.navigatorState(navigatorCanEdit()));
 }
 function selectPage(id: string) {
-  if (selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
-  if (selectedPage === id) {
-    pageExpanded = !pageExpanded;
+  if (selectionState.selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
+  if (selectionState.selectedPage === id) {
+    selectionState.togglePage();
     renderPages();
     element('pages').querySelector<HTMLElement>('[data-page-id="' + id + '"]')?.focus();
     return;
   }
   layers.onScreenContextChanged();
-  selectedPage = id; selectedScreen = null; screensItems = []; screensTotal = 0; pageExpanded = true;
+  selectionState.selectPage(id);
   diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
   renderPages(); renderScreens(); void refreshPages();
 }
 function selectScreen(id: string) {
-  if ((selectedScreen !== id || layers.selection) && !scenarios.requestLeave(() => selectScreen(id))) return;
-  if (selectedScreen !== id) {
-    layers.onScreenContextChanged(); selectedScreen = id; diagnostics.reset(); scenarios.reset();
+  if ((selectionState.selectedScreen !== id || layers.selection) && !scenarios.requestLeave(() => selectScreen(id))) return;
+  if (selectionState.selectedScreen !== id) {
+    layers.onScreenContextChanged(); selectionState.selectScreen(id); diagnostics.reset(); scenarios.reset();
     screenVariants.reset(); screenResize.render(); void refreshPages();
   } else layers.clearSelection();
   renderPages(); renderCanvas();
@@ -410,20 +403,20 @@ function selectScreen(id: string) {
 function renderScreens() {
   renderPages();
   renderCanvas(); screenResize.render();
-  const activeScreen = screensItems.find(item => item.id === selectedScreen);
+  const activeScreen = selectionState.activeScreen;
   element('layers-title').textContent = activeScreen
-    ? `Слои · ${activeScreen.name ?? 'Экран ' + (screensItems.indexOf(activeScreen) + 1)}`
+    ? `Слои · ${activeScreen.name ?? 'Экран ' + (selectionState.screens.indexOf(activeScreen) + 1)}`
     : 'Слои выбранного экрана';
-  element('screen-create').querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button').forEach(control => { control.disabled = !selectedPage; });
+  element('screen-create').querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button').forEach(control => { control.disabled = !selectionState.selectedPage; });
   const screenMenu = required(element('screen-preset').closest('details'));
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
   // Only suggest creation on the first empty page. Opening the popover on every
   // navigation obscures the page tree, and closing a user-opened menu mid-command
   // makes the form unusable while the page creation is still being committed.
-  if (selectedScreen || screensItems.length > 0 || pagesItems.length > 1) screenMenu.open = false;
-  else if (selectedPage && pagesItems.length === 1 &&
+  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) screenMenu.open = false;
+  else if (selectionState.selectedPage && selectionState.pages.length === 1 &&
       (documentRole === 'Owner' || documentRole === 'Editor') &&
-      !document.querySelector('.navigator-context-menu[open]') && !editingPageName) screenMenu.open = true;
+      !document.querySelector('.navigator-context-menu[open]') && !selectionState.renameDraft('page')) screenMenu.open = true;
 }
 
 
@@ -432,19 +425,19 @@ function renderScreens() {
 const presence: ReturnType<typeof createPresence> = createPresence({
   models: views.presence,
   element,
-  getContext: () => ({ token, documentId, navigationEpoch, selectedScreen, selectedLayer: layers.selection }),
+  getContext: () => ({ token, documentId, navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
   toViewportPoint: point => canvasViewport.toViewportPoint(point)
 });
 const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasViewport({
   element,
-  getScreen: () => screensItems.find(item => item.id === selectedScreen),
-  getSelectedScreen: () => selectedScreen,
+  getScreen: () => selectionState.activeScreen,
+  getSelectedScreen: () => selectionState.selectedScreen,
   onViewportChange: presence.render,
   setPresenceCursor: presence.setCursor
 });
 const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreens({
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
-  getContext: () => ({ documentId, revision: revisions.revision, screen: screensItems.find(item => item.id === selectedScreen),
+  getContext: () => ({ documentId, revision: revisions.revision, screen: selectionState.activeScreen,
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
@@ -452,14 +445,14 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
-  getContext: () => ({ documentId, documentRole, revision: revisions.revision, screen: selectedScreen,
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, screen: selectionState.selectedScreen,
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {
       synced = (revisions.revision !== null && newRevision === revisions.revision + 1
         ? await readNodeEditRevision(signal, newRevision, isCurrent, reveal, selection, resourcesChanged)
-        : await readPages(signal, pagesOffset, null, isCurrent, reveal, selection)) === true;
+        : await readPages(signal, 0, null, isCurrent, reveal, selection)) === true;
       if (current() && !synced) message();
     }, { quiet: true });
     return synced;
@@ -474,13 +467,13 @@ const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeE
 function renderCanvas(nodeEdit = false) {
   canvasViewport.render();
   const empty = element('canvas-empty');
-  empty.hidden = Boolean(selectedScreen);
-  if (!selectedScreen) {
+  empty.hidden = Boolean(selectionState.selectedScreen);
+  if (!selectionState.selectedScreen) {
     const allowed = documentRole === 'Owner' || documentRole === 'Editor';
     const action = required(empty.querySelector('button'));
     action.hidden = !allowed;
-    action.textContent = selectedPage ? 'Создать экран' : 'Создать страницу';
-    required(empty.querySelector('p')).textContent = selectedPage
+    action.textContent = selectionState.selectedPage ? 'Создать экран' : 'Создать страницу';
+    required(empty.querySelector('p')).textContent = selectionState.selectedPage
       ? 'Выберите экран слева или создайте новый, чтобы начать работу.'
       : 'Создайте первую страницу, затем добавьте экран.';
   }
@@ -499,7 +492,7 @@ function renderRevision() {
 }
 
 const documentSync = createDocumentSync({
-  context: () => ({ documentId, screen: selectedScreen, page: selectedPage, generation, revision: revisions.revision }),
+  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation, revision: revisions.revision }),
   shouldReportFailure: signal => signal === pending?.signal,
   queries: documentQueries, layers, tokens, styles,
   applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {
@@ -513,14 +506,9 @@ const documentSync = createDocumentSync({
     renderRevision();
   },
   applyStructure(structure, layerSnapshot, tokenSnapshot, styleSnapshot, name, selectionChange) {
-    const { revision: nextRevision, pages: result, screens, selection: { page, screen } } = structure;
-    if (page !== selectedPage) pageExpanded = true;
+    const { revision: nextRevision, selection: { screen } } = structure;
     const selection = selectionAfterCommand(selectionChange);
-    const pagesChanged = page !== selectedPage || JSON.stringify(result.items) !== JSON.stringify(pagesItems);
-    const screensChanged = screen !== selectedScreen || JSON.stringify(screens.items) !== JSON.stringify(screensItems);
-    if (page !== selectedPage || screen !== selectedScreen) layers.reset();
-    pagesOffset = 0; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
-    screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
+    const { pagesChanged, screensChanged } = selectionState.accept(structure, () => layers.reset());
     revisions.confirmStructure(nextRevision);
     tokens.apply(tokenSnapshot);
     styles.apply(styleSnapshot);
@@ -559,7 +547,7 @@ async function openDocument(id: string): Promise<void> {
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; revisions.reset(); selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
@@ -582,7 +570,7 @@ async function openDocument(id: string): Promise<void> {
     element('editor-view').hidden = false;
     presence.start();
     documentHistory.load();
-    if (selectedScreen) requestAnimationFrame(fitScreen);
+    if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
     message();
   });
 }
@@ -676,7 +664,7 @@ element('document-rename').addEventListener('submit', async event => {
   }
 });
 
-async function refreshPages(offset = pagesOffset): Promise<void> {
+async function refreshPages(offset = 0): Promise<void> {
   await run(() => refreshPages(offset), async (signal, current) => {
     await readPages(signal, offset);
     if (current()) message('Страницы обновлены.');
@@ -693,8 +681,7 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
   try {
     await postPageCommand(request, documentId, command, data, signal);
     if (signal.aborted || current !== generation) return;
-    if (selection !== undefined) selectedPage = selection;
-    if (screenSelection) selectedScreen = screenSelection;
+    selectionState.selectAfterCommand(selection, screenSelection);
     await readPages(signal);
     if (current === generation) {
       message('Изменения подтверждены в общем черновике.');
@@ -817,9 +804,9 @@ element('screen-create').addEventListener('submit', event => {
   event.preventDefault();
   const width = element('screen-width').valueAsNumber, height = element('screen-height').valueAsNumber;
   if (!Number.isFinite(width) || width < 0 || !Number.isFinite(height) || height < 0) { message('', 'Укажите конечные неотрицательные ширину и высоту.'); return; }
-  if (!selectedPage) return;
+  if (!selectionState.selectedPage) return;
   const screenId = crypto.randomUUID();
-  pageCommand('add-screen', { pageId: selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
+  pageCommand('add-screen', { pageId: selectionState.selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 });
 const navigatorView = createDocumentNavigator(views.navigator, {
   isBusy: () => element('page-edit').inert || !navigatorCanEdit(),
@@ -835,7 +822,7 @@ const navigatorView = createDocumentNavigator(views.navigator, {
   },
   deletePage(item) {
     if (revisions.revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
-      void pageCommand('delete-page', {pageId:item.id, expectedRevision: revisions.revision}, selectedPage === item.id ? null : undefined);
+      void pageCommand('delete-page', {pageId:item.id, expectedRevision: revisions.revision}, selectionState.selectedPage === item.id ? null : undefined);
   },
   duplicateScreen(item) {
     if (revisions.revision === null) return;
