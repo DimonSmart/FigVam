@@ -723,7 +723,7 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
   if (!documentId || !['Owner', 'Editor'].includes(documentRole ?? '')) return;
   stopLive();
   const { signal, current } = startRequest();
-  retry = null; message('Отправка изменений в общий черновик…');
+  requestRunner.clearRetry(); message('Отправка изменений в общий черновик…');
   element('page-edit').inert = true;
   element('screen-create').inert = true;
   try {
