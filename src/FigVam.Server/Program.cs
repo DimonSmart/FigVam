@@ -81,8 +81,8 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
     if (document.Paths.TryGetValue("/api/v1/documents/{documentId}/assets/{assetId}", out var assetPath))
         foreach (var (method, operation) in assetPath.Operations!)
         {
-            var binaryContent = new Dictionary<string, OpenApiMediaType>
-            { ["image/png"] = new() { Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary", MaxLength = FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes } } };
+            var binaryContent = FigVam.Application.Documents.DocumentAssetContentFormat.SupportedContentTypes.ToDictionary(
+                type => type, _ => new OpenApiMediaType { Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary", MaxLength = FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes } });
             if (method.ToString().Equals("PUT", StringComparison.OrdinalIgnoreCase))
                 operation.RequestBody = new OpenApiRequestBody { Required = true, Content = binaryContent };
             if (method.ToString().Equals("GET", StringComparison.OrdinalIgnoreCase) && operation.Responses?.TryGetValue("200", out var success) == true)

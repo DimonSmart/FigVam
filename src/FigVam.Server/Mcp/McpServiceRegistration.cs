@@ -3,6 +3,7 @@ using System.Text.Encodings.Web;
 using FigVam.Application.Documents;
 using FigVam.Server.Authentication;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Protocol;
@@ -55,9 +56,17 @@ public static class McpServiceRegistration
                             """{"type":"array","maxItems":128,"items":{"type":"object","properties":{"nodeId":{"type":"string","format":"uuid"},"event":{"type":"string","enum":["Click","Change","Submit"]},"value":{"description":"Optional demonstration value for Change.","type":["string","null"],"maxLength":4096}},"required":["nodeId","event"]}}""");
                     tool.InputSchema = JsonSerializer.SerializeToElement(schema);
                 }
+                foreach (var tool in result.Tools.Where(t => t.Name == "upload_asset"))
+                {
+                    var schema = System.Text.Json.Nodes.JsonNode.Parse(tool.InputSchema.GetRawText())!.AsObject();
+                    schema["properties"]!["contentType"]!["enum"] = JsonSerializer.SerializeToNode(DocumentAssetContentFormat.SupportedContentTypes);
+                    schema["properties"]!["contentBase64"]!["maxLength"] = McpAssetTools.MaxEncodedAssetLength;
+                    tool.InputSchema = JsonSerializer.SerializeToElement(schema);
+                }
                 return result;
             }))
             .WithTools<McpReadTools>()
+            .WithTools<McpAssetTools>()
             .WithTools<McpRenderTools>()
             .WithTools<McpPreviewTools>()
             .WithTools<McpWriteTools>()
@@ -134,6 +143,10 @@ public static class McpServiceRegistration
                 await context.ChallengeAsync(Scheme);
                 return;
             }
+            // Raise the body limit only for an admitted document grant, before the MCP SDK reads it.
+            if (HttpMethods.IsPost(context.Request.Method) &&
+                context.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = McpAssetTools.MaxRequestBytes;
             context.Response.Headers.CacheControl = "no-store";
             await next(context);
         });

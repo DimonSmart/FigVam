@@ -62,7 +62,7 @@ public sealed partial class DocumentCommandHandler
         ArgumentNullException.ThrowIfNull(command); ArgumentNullException.ThrowIfNull(actor);
         CommandResult Result(string code, long? revision = null, string? explanation = null) => new(command.DocumentId,
             command.CommandId, code, revision, actor.Id, null, DateTimeOffset.UtcNow, Explanation: explanation,
-            AffectedIds: code == "ACCEPTED" ? [command.AssetId] : null);
+            AffectedIds: code == "ACCEPTED" ? [command.AssetId] : null) { Source = actor.Source };
         if (string.IsNullOrWhiteSpace(actor.Id)) return Result("FORBIDDEN");
         if (command.DocumentId == Guid.Empty || command.CommandId == Guid.Empty) return Result("INVALID_ID");
         // Bound allocation even for internal clients. Freeze bytes before asynchronous execution.

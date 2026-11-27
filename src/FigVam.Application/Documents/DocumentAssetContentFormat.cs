@@ -2,27 +2,29 @@ using FigVam.Domain.Documents;
 
 namespace FigVam.Application.Documents;
 
-// One dispatch boundary for uploads, portable containers and transactional storage.
-// Unknown formats must fail closed until they have an authoritative inspector.
+// One format registry for upload transports, container extensions and content validation.
 public static class DocumentAssetContentFormat
 {
-    public static bool IsSupported(string? contentType) => Extension(contentType) is not null;
+    private sealed record Format(string Extension, Func<Guid, string?, byte[]?, DocumentAsset?> Inspect);
 
-    public static string? Extension(string? contentType) => contentType switch
-    {
-        "image/png" => ".png",
-        _ => null
-    };
+    private static readonly IReadOnlyDictionary<string, Format> Formats =
+        new Dictionary<string, Format>(StringComparer.Ordinal)
+        {
+            ["image/png"] = new(".png", SafeRasterImage.Inspect)
+        };
 
-    public static string? ContentTypeForExtension(string extension) => extension switch
-    {
-        ".png" => "image/png",
-        _ => null
-    };
+    public static IReadOnlyList<string> SupportedContentTypes { get; } =
+        Array.AsReadOnly(Formats.Keys.Order(StringComparer.Ordinal).ToArray());
 
-    public static DocumentAsset? Inspect(Guid id, string? contentType, byte[]? content) => contentType switch
-    {
-        "image/png" => SafeRasterImage.Inspect(id, contentType, content),
-        _ => null
-    };
+    public static bool IsSupported(string? contentType) => contentType is not null && Formats.ContainsKey(contentType);
+
+    public static string? Extension(string? contentType) =>
+        contentType is not null && Formats.TryGetValue(contentType, out var format) ? format.Extension : null;
+
+    public static string? ContentTypeForExtension(string extension) =>
+        Formats.FirstOrDefault(pair => pair.Value.Extension == extension).Key;
+
+    public static DocumentAsset? Inspect(Guid id, string? contentType, byte[]? content) =>
+        contentType is not null && Formats.TryGetValue(contentType, out var format)
+            ? format.Inspect(id, contentType, content) : null;
 }
