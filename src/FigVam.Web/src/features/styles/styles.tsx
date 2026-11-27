@@ -224,15 +224,17 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     lastWritable=editable();
     models.panel.publish({items,selectedId,name:draftName,type:draftType,parentId:draftParent,writable:lastWritable,busy:busy||!!pending(),retryVisible:lastWritable&&!!pending()&&!pending()?.running,retry:()=>{const op=pending();if(op)void executeStyleCommand(op);},preview:previewText(chosen()),error,status,
       Fields:models.fields.Component,Usages:models.usage.Component,
-      select:id=>{selectedId=id||null;void loadUsages();},
+      select:id=>{selectedId=id||null;render(true);void loadUsages();},
       changeName:value=>{draftName=value;publishPanel();},
       changeType:value=>{draftType=value;draftParent='';buildFields(chosen(),value);publishPanel();},
       changeParent:value=>{draftParent=value;publishPanel();},save:saveStyle,remove:deleteStyle});
   }
-  function render() {
-    const selected = chosen();
-    draftType=styleType(selected);draftName=selected?.name??'';draftParent=selected?.basedOnStyleId??'';
-    buildFields(selected,draftType);
+  function render(resetDraft = false) {
+    if (resetDraft) {
+      const selected = chosen();
+      draftType=styleType(selected);draftName=selected?.name??'';draftParent=selected?.basedOnStyleId??'';
+      buildFields(selected,draftType);
+    } else renderFields();
     publishPanel();
     models.usage.publish({usages:styleUsages,name:id=>items.find(item=>item.id===id)?.name??id,selectLayer});
   }
@@ -268,7 +270,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     items = []; selectedId = null; busy = false; tokenSignature = '';
     styleUsages = []; styleUsageRequest++;
     error = ''; status = '';
-    render();
+    render(true);
   }
 
   async function read(base:string,revision:number,signal:AbortSignal,isCurrent:()=>boolean) {
@@ -290,10 +292,11 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       [token.id, token.name, token.type, token.category]));
     const changed = JSON.stringify(items) !== JSON.stringify(next) ||
       tokenSignature !== nextTokenSignature;
+    const previous=JSON.stringify(chosen());
     tokenSignature = nextTokenSignature;
     items = next;
     if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
-    if (changed || lastWritable !== editable()) render();
+    if (changed || lastWritable !== editable()) render(previous!==JSON.stringify(chosen()));
     if (changed && selectedId) loadUsages();
   }
 
@@ -320,7 +323,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
         synchronize:async confirmation=>{
           const {signal,current}=startRequest();generation=current;
-          if(selectedId===originSelection)selectedId=entry.selection;
+          if(selectedId===originSelection){selectedId=entry.selection;render(true);}
           const refreshed=await readPages(signal);
           return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
         }});
@@ -383,6 +386,6 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   function deleteStyle() {
     if (selectedId) void write('delete-style', { styleId: selectedId }, null);
   }
-  render();
+  render(true);
   return { reset, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read, apply, get items() { return items; } };
 }

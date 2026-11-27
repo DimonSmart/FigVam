@@ -44,6 +44,8 @@ import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '.
 const sessionState = createSessionLifecycle();
 const auth = createAuthContext();
 const { setToken, advanceNavigation, cancelRequest, startRequest } = sessionState;
+// Synchronization reads must not supersede unrelated foreground work.
+const startSynchronization = () => ({signal:sessionState.navigationSignal,current:sessionState.generation});
 const catalog = createDocumentCatalog();
 const shellState = createApplicationShellState();
 const documentShell = createDocumentShellModel();
@@ -152,12 +154,12 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 const tokens: ReturnType<typeof createTokens> = createTokens({
   models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),request,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
-  startRequest, stopLive, startLive, readPages
+  startRequest: startSynchronization, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
   models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
-  startRequest, stopLive, startLive, readPages
+  startRequest: startSynchronization, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
   model: views.components, request, pageSize,
@@ -177,7 +179,7 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
   model: views.datasets, request, pageSize,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token: sessionState.token, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
-  startRequest, stopLive, startLive, readPages, run
+  startRequest: startSynchronization, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
@@ -321,7 +323,7 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); styles.reset(); components.reset(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
+  documentHistory.reset(); tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
   selectionState.reset(); renderCanvas();
   shellState.patch({ view: 'documents' });
   selectHomeView('documents');
@@ -471,7 +473,7 @@ function renderRevision() {
 }
 
 const documentSync = createDocumentSync({
-  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation: sessionState.generation, revision: revisions.revision }),
+  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, navigationEpoch: sessionState.navigationEpoch, revision: revisions.revision }),
   shouldReportFailure: signal => signal === sessionState.pending?.signal,
   queries: documentQueries, layers, tokens, styles,
   applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {

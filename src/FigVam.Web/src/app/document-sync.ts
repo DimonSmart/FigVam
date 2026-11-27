@@ -17,7 +17,7 @@ interface Context {
   documentId: string | null;
   screen: string | null;
   page: string | null;
-  generation: number;
+  navigationEpoch: number;
   revision: number | null;
 }
 interface Dependencies {
@@ -42,7 +42,7 @@ export function createDocumentSync(deps: Dependencies) {
     if (!start.documentId || (start.revision !== null && newRevision < start.revision)) return;
     const valid = () => {
       const now = context();
-      return !signal.aborted && start.generation === now.generation && start.revision === now.revision &&
+      return !signal.aborted && start.navigationEpoch === now.navigationEpoch && start.revision === now.revision &&
         start.documentId === now.documentId && start.screen === now.screen && isCurrent();
     };
     const base = `/api/v1/documents/${encodeURIComponent(start.documentId)}`;
@@ -64,7 +64,7 @@ export function createDocumentSync(deps: Dependencies) {
     if (!start.documentId) return;
     const valid = () => {
       const now = context();
-      return !signal.aborted && start.documentId === now.documentId && start.generation === now.generation && start.page===now.page && start.screen===now.screen && isCurrent();
+      return !signal.aborted && start.documentId === now.documentId && start.navigationEpoch === now.navigationEpoch && start.page===now.page && start.screen===now.screen && isCurrent();
     };
     const base = `/api/v1/documents/${encodeURIComponent(start.documentId)}`;
     const structure = await readDocumentStructure(queries, start.documentId, signal, valid, targetRevision,

@@ -25,6 +25,18 @@ describe('session request lifetime', () => {
     expect(session.navigationEpoch).toBe(epoch + 1);
     expect(session.generation).toBe(generation);
   });
+  it('does not cancel independent synchronization on foreground replacement', () => {
+    const synchronization=session.navigationSignal;
+    const first=session.startRequest();
+    session.startRequest();
+    expect(first.signal.aborted).toBe(true);
+    expect(synchronization.aborted).toBe(false);
+    session.advanceNavigation();
+    expect(synchronization.aborted).toBe(true);
+    const next=session.navigationSignal;
+    session.setToken('new');
+    expect(next.aborted).toBe(true);
+  });
   it('invalidates the session even when the next credentials are identical', () => {
     session.setToken('same');
     const epoch = session.sessionEpoch, signal = session.signal;

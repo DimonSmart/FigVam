@@ -93,6 +93,23 @@ describe('API transport', () => {
     expect(unauthorized).toHaveBeenCalledOnce();
   });
 
+  it('keeps definitive command outcomes without expiring a replacement session', async () => {
+    const session=createSessionLifecycle();
+    session.setToken('same');
+    const unauthorized=vi.fn();
+    const client=createApiClient({getToken:()=>session.token,getSessionEpoch:()=>session.sessionEpoch,
+      getSessionSignal:()=>session.signal,onUnauthorized:unauthorized});
+    vi.stubGlobal('fetch',vi.fn(async()=>{
+      session.setToken('same');
+      return Response.json({code:'REVISION_CONFLICT'},{status:409});
+    }));
+    await expect(client.command!('/api/test',{method:'POST'})).rejects.toMatchObject({status:409,code:'REVISION_CONFLICT'});
+    vi.stubGlobal('fetch',vi.fn(async()=>{
+      session.setToken('same');return new Response(null,{status:401});
+    }));
+    await expect(client.command!('/api/test',{method:'POST'})).rejects.toMatchObject({status:401});
+    expect(unauthorized).not.toHaveBeenCalled();
+  });
   it('keeps structured server errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(
       { code: 'REVISION_CONFLICT', detail: 'stale', property: 'width', diagnostics: [] },
