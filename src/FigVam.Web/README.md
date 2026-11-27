@@ -42,3 +42,19 @@ The repository CI runs frontend typecheck/build/tests, generated-contract compar
 - New state: identify the authoritative owner (session, workspace revision, selection, feature draft, operation or UI state). Project derived values into views; never use a DOM attribute or a label as the source of a revision or permission. Cancel or invalidate asynchronous work on context change. Dispose subscriptions, timers and browser resources with their owner.
 - New common control: reuse UI Kit and Base UI when they provide actual behavioral/accessibility value. Use Lucide for standard icons. Reserve native DOM integration for focus, positioning, files, browser APIs, and engine-owned rendering. Use synchronous React rendering only at a required immediate geometry/focus boundary.
 - Verification: run typecheck, tests, build, generated-contract check and full CI including Playwright and Frontend comparison. Architecture and performance budgets must not be weakened to make a change pass.
+
+## State ownership and operation lifetimes
+
+| State | Authoritative owner |
+| --- | --- |
+| Authentication mode and CSRF | Instance of the authentication client, injected into API consumers |
+| Session identity, session and navigation cancellation | Session state |
+| Active document, revision, selection | Composition root bindings, document revision and workspace selection models |
+| Shell, editor chrome, layer move availability | Application and document shell models; React subscribes to snapshots |
+| Resource and inspector drafts | Feature controllers; transient input is not read back from rendered DOM |
+| Command ID, immutable prepared payload, outcome | Prepared document operation |
+| Collaboration and presence | Document-scoped controllers; collaboration rechecks membership on READY and HEARTBEAT |
+
+Navigation cancels document reads; the foreground request lane must not abort independent command confirmation. A known server rejection remains a rejection even when its originating UI context is obsolete. A stale result must not update a new workspace. Downgrade to Viewer discards pending edits for the current document. Native DOM use is limited to canvas rendering, geometry, focus, browser APIs and positioning.
+
+Token and layer views are separate from their controllers. Token/style validation, interaction model and scenario serialization, and node command payload preparation have dedicated modules. The comparison workflow captures the existing visual states and measures five post-GC heap checkpoints across 20 additional navigation cycles in one browser session. Sustained growth above the checkpoint heuristic produces a heap snapshot and requires investigation. The existing timing and bundle budgets remain unchanged. A passing pixel comparison is not manual visual approval.

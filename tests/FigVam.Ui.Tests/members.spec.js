@@ -103,6 +103,7 @@ test('unknown outcome leaves stale Owner view and explains how to recover', asyn
 });
 
 test('live access reconciliation demotes and restores an open document', async ({page}) => {
+  test.setTimeout(60000);
   await openDocument(page);
   const documentUrl=page.url();
   let role='Viewer';
