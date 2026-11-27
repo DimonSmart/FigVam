@@ -15,7 +15,7 @@ interface Operation {state:Status;error?:string;mutation:DocumentCommandOperatio
 interface SaveOperation extends Operation {body:Schema['SaveDocumentRequest'];versionId?:string}
 interface RestoreOperation extends Operation {body:Schema['RestoreDocumentRequest']}
 interface HistoryOperation extends Operation {action:Action;commandId:string;sending?:boolean}
-interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null;revision:number|null}
 interface Options {models:ReturnType<typeof createDocumentHistoryModels>;request:ApiClient;pageSize:number;refreshPages():Promise<boolean>;workspace:Workspace}
 interface Version {id:string;name:string|null;authorId:string;timestamp:string;revision:number}
 interface ListState {versions:Version[];status:string;error:string;index:number;next:number|null;loading:boolean;loaded:boolean}
@@ -33,7 +33,7 @@ function VersionForm({operation,draft,setDraft}:{operation:SaveOperation|undefin
   return <>
     <label htmlFor="version-name">Имя версии (необязательно)</label><input id="version-name" maxLength={256} autoComplete="off" value={draft} readOnly={blocked(operation)} onChange={e=>setDraft(e.target.value)}/>
     <Button type="submit" disabled={operation?.state==='pending'}>{operation?.state==='sync'?'Повторить обновление':operation?.state==='uncertain'?'Повторить создание версии':'Создать версию'}</Button>
-    <StatusMessage id="version-result">{operation?.state==='success'?'Версия создана: '+operation.versionId:operation?.state==='pending'?'Создание версии…':''}</StatusMessage>
+    <StatusMessage id="version-result">{(operation?.state==='success'||operation?.state==='sync')&&operation.versionId?'Версия создана: '+operation.versionId:operation?.state==='pending'?'Создание версии…':''}</StatusMessage>
     <InlineError id="version-error">{operation?.error??''}</InlineError>
   </>;
 }
@@ -52,7 +52,7 @@ function VersionList({state,operation,canEdit,restore,refresh,previous,next,retr
       <span id="versions-number">{state.loaded?'Страница '+(state.index+1):''}</span>
       <Button id="versions-next" disabled={!state.loaded||state.loading||state.next===null} onClick={next}>Следующие версии</Button>
     </nav>
-    <StatusMessage id="restore-status">{operation?.state==='pending'?'Восстановление версии…':operation?.state==='success'?'Версия восстановлена в общий черновик.':''}</StatusMessage>
+    <StatusMessage id="restore-status">{operation?.state==='pending'?'Восстановление версии…':operation?.state==='success'||operation?.state==='sync'?'Версия восстановлена в общий черновик.':''}</StatusMessage>
     <InlineError id="restore-error">{operation?.error??''}</InlineError>
     <Button id="restore-retry" hidden={!canEdit||!retryable(operation)} onClick={retry}>Повторить восстановление</Button>
   </>;
@@ -99,8 +99,11 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
     const result=await op.mutation.execute({request,isCurrent:current,
       validate:ack=>{if(!ack.versionId)throw new TypeError('Отсутствует идентификатор версии');},
       synchronize:async ack=>{op.versionId=ack.versionId??undefined;return loadVersions();}});
+    if(result.kind==='confirmed')op.versionId=result.confirmation.versionId??undefined;
     updateOperation(op,result);
-    if(current())renderForm();
+    if(get(versionOperations)===op&&workspace.isEditorVisible()){
+      renderForm();if(!current()&&op.state==='sync')void load();
+    }
   }
   function renderAction(){
     const op=get(historyActions),writable=canEdit();
@@ -172,10 +175,31 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
       return loadVersions();
     }});
     updateOperation(op,result);
-    if(current())renderList();
+    if(result.kind==='conflict')op.error='Восстановление конфликтует с текущим состоянием документа. Обновите документ перед повтором.';
+    if(get(restoreOperations)===op&&workspace.isEditorVisible()){
+      renderList();if(!current()&&op.state==='sync')void load();
+    }
   }
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
   function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();renderAction();}
-  function load(){renderList();renderAction();return loadVersions();}
+  async function load(){
+    const id=workspace.documentId,token=workspace.token,epoch=workspace.navigationEpoch;
+    renderForm();renderList();renderAction();
+    const loaded=await loadVersions();
+    if(!loaded||!id||!active(id,token,epoch)||!canEdit())return loaded;
+    const saved=versionOperations.get(id),restored=restoreOperations.get(id);
+    // Reopening has already read a current structure and version history. Reconcile
+    // confirmed operations with these reads, without sending the write again.
+    for(const op of [saved,restored]){
+      if(!op||op.state!=='sync')continue;
+      const ack=op.mutation.getSnapshot();
+      if(ack.kind!=='confirmed'||(op===restored&&(workspace.revision??-1)<ack.confirmation.revision))continue;
+      const current=()=>active(id,token,epoch)&&canEdit()&&(op===saved?versionOperations.get(id)===op:restoreOperations.get(id)===op);
+      const result=await op.mutation.execute({request,isCurrent:current,synchronize:async()=>true});
+      if(current())updateOperation(op,result);
+    }
+    if(active(id,token,epoch)){renderForm();renderList();}
+    return loaded;
+  }
   renderForm();renderList();return {reset,clearCommands,prepare,load,dispose(){lifetime.abort();controller?.abort();clearCommands();}};
 }

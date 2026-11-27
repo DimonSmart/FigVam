@@ -257,7 +257,8 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
     get navigationEpoch() { return sessionState.navigationEpoch; },
-    get token() { return sessionState.token; }
+    get token() { return sessionState.token; },
+    get revision() { return revisions.revision; }
   }
 });
 
