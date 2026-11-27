@@ -15,7 +15,7 @@ public sealed partial class SqliteDocumentJournal
             return;
         }
         var content = change.AssetContent ?? throw new InvalidOperationException("Asset upload requires content.");
-        if (content.Asset != added.Asset || SafeRasterImage.Inspect(added.Asset.Id, added.Asset.ContentType, content.Content) != added.Asset ||
+        if (content.Asset != added.Asset || DocumentAssetContentFormat.Inspect(added.Asset.Id, added.Asset.ContentType, content.Content) != added.Asset ||
             change.State?.Document.Assets.Count(a => a == added.Asset) != 1)
             throw new InvalidOperationException("Asset content does not match its manifest.");
         using var command = connection.CreateCommand();

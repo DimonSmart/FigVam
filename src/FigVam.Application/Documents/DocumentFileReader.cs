@@ -104,9 +104,9 @@ public sealed class DocumentFileReader(INodeProfile profile) : IDocumentFileRead
             var assets = new List<DocumentAssetContent>();
             foreach (var asset in parsed.Document.Document.Assets)
             {
-                var path = DocumentContainerFormat.AssetPath(asset.Id);
+                var path = DocumentContainerFormat.AssetPath(asset);
                 if (!contents.TryGetValue(path, out var bytes)) return Failure("MISSING_DEPENDENCY", path, "Document asset content is missing.");
-                if (SafeRasterImage.Inspect(asset.Id, asset.ContentType, bytes) != asset)
+                if (DocumentAssetContentFormat.Inspect(asset.Id, asset.ContentType, bytes) != asset)
                     return Failure("INVALID_ASSET", path, "Asset content does not match its safe raster metadata and hash.");
                 assets.Add(new(asset, bytes));
             }

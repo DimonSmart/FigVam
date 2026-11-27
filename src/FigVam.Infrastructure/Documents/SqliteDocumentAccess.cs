@@ -35,7 +35,7 @@ public sealed partial class SqliteDocumentJournal : IDocumentAuthorization, IDoc
             if (id == Guid.Empty) return new DocumentAccessResult("INVALID_ID", id);
             Validate(document);
             if (importedAssets.Length != document.Assets.Count || importedAssets.Select(a => a.Asset.Id).Distinct().Count() != importedAssets.Length ||
-                importedAssets.Any(a => !document.Assets.Contains(a.Asset) || SafeRasterImage.Inspect(a.Asset.Id, a.Asset.ContentType, a.Content) != a.Asset))
+                importedAssets.Any(a => !document.Assets.Contains(a.Asset) || DocumentAssetContentFormat.Inspect(a.Asset.Id, a.Asset.ContentType, a.Content) != a.Asset))
                 return new DocumentAccessResult("INVALID_ASSET", id);
             using var connection = Open(id);
             using var transaction = connection.BeginTransaction(deferred: false);
