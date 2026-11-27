@@ -2,6 +2,8 @@ import { authHeaders, credentialsMode } from './auth-client.js';
 
 export interface ApiClientOptions {
   getToken: () => string;
+  getSessionEpoch?: () => number;
+  getSessionSignal?: () => AbortSignal;
   onUnauthorized: () => void;
 }
 
@@ -74,15 +76,18 @@ export interface ApiClient {
   readPng(...args: RequestArgs): Promise<Blob>;
 }
 
-export function createApiClient({ getToken, onUnauthorized }: ApiClientOptions): ApiClient {
+export function createApiClient({ getToken, getSessionEpoch, getSessionSignal, onUnauthorized }: ApiClientOptions): ApiClient {
   async function readResponse(
     path: string, options?: RequestInit, signal?: AbortSignal | null,
     isCurrent: () => boolean = () => true,
   ): Promise<{ response: Response; assertCurrent: () => void }> {
     const requestToken = getToken();
-    const requestSignal = signal === undefined ? options?.signal : signal;
+    const epoch = getSessionEpoch?.();
+    const operationSignal = signal === undefined ? options?.signal : signal;
+    const sessionSignal = getSessionSignal?.();
+    const requestSignal = sessionSignal && operationSignal ? AbortSignal.any([sessionSignal, operationSignal]) : sessionSignal ?? operationSignal;
     const assertCurrent = () => {
-      if (requestSignal?.aborted || requestToken !== getToken() || !isCurrent())
+      if (requestSignal?.aborted || requestToken !== getToken() || epoch !== getSessionEpoch?.() || !isCurrent())
         throw new DOMException('Cancelled', 'AbortError');
     };
     assertCurrent();

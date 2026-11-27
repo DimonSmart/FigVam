@@ -15,7 +15,7 @@ import { createScenarios } from '../features/interactions/scenarios';
 import { createScreenResize } from '../features/editor/screen-resize';
 import { createTokens } from '../features/tokens/tokens';
 import { createStyles } from '../features/styles/styles';
-import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
+import { createSessionLifecycle } from '../core/session';
 
 import { element } from './dom';
 import { createElement } from 'react';
@@ -44,13 +44,15 @@ import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '.
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
+const sessionState = createSessionLifecycle();
+const { setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } = sessionState;
 const catalog = createDocumentCatalog();
 const shellState = createApplicationShellState();
 const documentShell = createDocumentShellModel();
 const deletionView = createDeletionViewModel();
 const getDocumentRole = () => documentShell.getSnapshot().role;
 const isEditorVisible = () => shellState.getSnapshot().view === 'editor';
-const requestRunner = createRequestRunner({
+const requestRunner = createRequestRunner(sessionState, {
   stopLive: () => stopLive(), startLive: () => startLive(), message,
   setBusy: busy => shellState.patch({ busy }),
   setControlsDisabled: controlsDisabled => shellState.patch({ controlsDisabled }),
@@ -93,7 +95,9 @@ function leaveDeletion() {
 }
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
-  getToken: () => token,
+  getToken: () => sessionState.token,
+  getSessionEpoch: () => sessionState.sessionEpoch,
+  getSessionSignal: () => sessionState.signal,
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -107,7 +111,7 @@ const documentCreation = createDocumentCreation({
 
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
   request, pageSize,
-  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch, isEditorVisible: isEditorVisible() })
+  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, isEditorVisible: isEditorVisible() })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
@@ -115,14 +119,14 @@ const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
     isEditorVisible,
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
-    get generation() { return generation; }, get token() { return token; }
+    get generation() { return sessionState.generation; }, get token() { return sessionState.token; }
   }
 });
 
 const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
-const mcpContext = () => ({ documentId, token, navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
+const mcpContext = () => ({ documentId, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
 const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
@@ -130,7 +134,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   workspace: {
     get documentId() { return documentId; },
     get revision() { return revisions.revision; },
-    get token() { return token; }
+    get token() { return sessionState.token; }
   },
   isEditorVisible,
   readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
@@ -145,7 +149,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
-  model: views.documentExport, isEditorVisible, getContext: () => ({ token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch }),
+  model: views.documentExport, isEditorVisible, getContext: () => ({ token: sessionState.token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch: sessionState.navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -154,12 +158,12 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
   models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),request,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
   models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation: sessionState.generation }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
@@ -174,12 +178,12 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get revision() { return revisions.revision; },
     get catalogRevision() { return revisions.catalogRevision; },
-    get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
+    get token() { return sessionState.token; }, get navigationEpoch() { return sessionState.navigationEpoch; }
   }
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
   model: views.datasets, request, pageSize,
-  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token: sessionState.token, generation: sessionState.generation, navigationEpoch: sessionState.navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
@@ -246,8 +250,8 @@ const members: ReturnType<typeof createMembers> = createMembers({ model: views.m
     isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
-    get navigationEpoch() { return navigationEpoch; },
-    get token() { return token; }
+    get navigationEpoch() { return sessionState.navigationEpoch; },
+    get token() { return sessionState.token; }
   }
 });
 
@@ -257,8 +261,8 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
     isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
-    get navigationEpoch() { return navigationEpoch; },
-    get token() { return token; }
+    get navigationEpoch() { return sessionState.navigationEpoch; },
+    get token() { return sessionState.token; }
   }
 });
 
@@ -270,8 +274,8 @@ const layers: ReturnType<typeof createLayers> = createLayers({
     get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; },
     get revision() { return revisions.revision; },
-    get navigationEpoch() { return navigationEpoch; },
-    get token() { return token; }
+    get navigationEpoch() { return sessionState.navigationEpoch; },
+    get token() { return sessionState.token; }
   },
   runPageRefresh: work => run(() => refreshPages(), work),
   readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, 0, null, isCurrent, reveal),
@@ -304,7 +308,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
 async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
   mcpAccess.reset();
   leaveDeletion();
-  if (!token) return;
+  if (!sessionState.token) return;
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
@@ -327,22 +331,22 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
 
 async function deleteCatalogDocument(item: DocumentListItem, command: DeleteCatalogCommand): Promise<void> {
   const body = JSON.stringify(command);
-  const epoch = navigationEpoch;
+  const epoch = sessionState.navigationEpoch;
   try {
     const result = requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(item.documentId)}/commands/delete-document`, { method: 'POST', body }));
-    if (epoch !== navigationEpoch) return;
+    if (epoch !== sessionState.navigationEpoch) return;
     if (result.code !== 'ACCEPTED' || (typeof result.commandId === 'string' ? result.commandId.toLowerCase() : undefined) !== command.commandId.toLowerCase() ||
         (typeof result.documentId === 'string' ? result.documentId.toLowerCase() : undefined) !== item.documentId.toLowerCase() || result.revision !== command.expectedRevision + 1)
       throw new TypeError('Некорректное подтверждение');
-    const loading = loadList(), listEpoch = navigationEpoch;
+    const loading = loadList(), listEpoch = sessionState.navigationEpoch;
     await loading;
-    if (token && listEpoch === navigationEpoch) message('Документ удалён.');
+    if (sessionState.token && listEpoch === sessionState.navigationEpoch) message('Документ удалён.');
   } catch (error) {
-    if (epoch !== navigationEpoch || !token) return;
+    if (epoch !== sessionState.navigationEpoch || !sessionState.token) return;
     if ([400, 403, 404, 409].includes(statusOf(error) ?? 0)) {
-      const loading = loadList(), listEpoch = navigationEpoch;
+      const loading = loadList(), listEpoch = sessionState.navigationEpoch;
       await loading;
-      if (token && listEpoch === navigationEpoch) message('', errorMessage(error));
+      if (sessionState.token && listEpoch === sessionState.navigationEpoch) message('', errorMessage(error));
     } else {
       message('', 'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
     }
@@ -420,7 +424,7 @@ const presence: ReturnType<typeof createPresence> = createPresence({
   isEditorVisible,
   models: views.presence,
   element,
-  getContext: () => ({ token, documentId, navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
+  getContext: () => ({ token: sessionState.token, documentId, navigationEpoch: sessionState.navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
   toViewportPoint: point => canvasViewport.toViewportPoint(point)
 });
 const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasViewport({
@@ -442,7 +446,7 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, screen: selectionState.selectedScreen,
-    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
+    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch: sessionState.navigationEpoch, token: sessionState.token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {
@@ -479,8 +483,8 @@ function renderRevision() {
 }
 
 const documentSync = createDocumentSync({
-  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation, revision: revisions.revision }),
-  shouldReportFailure: signal => signal === pending?.signal,
+  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation: sessionState.generation, revision: revisions.revision }),
+  shouldReportFailure: signal => signal === sessionState.pending?.signal,
   queries: documentQueries, layers, tokens, styles,
   applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {
     const selection = selectionAfterCommand(selectionChange);
@@ -564,9 +568,9 @@ function retryDeletion() { if (deletion?.state === 'uncertain') void submitDelet
 async function submitDeletion(operation: Deletion): Promise<void> {
   if (deletion !== operation || operation.state === 'pending') return;
   operation.state = 'pending';
-  const epoch = navigationEpoch, id = operation.id, requestToken = token;
+  const epoch = sessionState.navigationEpoch, id = operation.id, requestToken = sessionState.token;
   stopLive(); const signal = replacePendingRequest();
-  const active = () => !signal.aborted && deletion === operation && epoch === navigationEpoch && token === requestToken;
+  const active = () => !signal.aborted && deletion === operation && epoch === sessionState.navigationEpoch && sessionState.token === requestToken;
   deletionView.publish({ status: 'pending', message: 'Удаление документа…' });
   try {
     const result = requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/delete-document`, { method: 'POST', body: operation.body }, signal));
@@ -574,9 +578,9 @@ async function submitDeletion(operation: Deletion): Promise<void> {
     if (!Number.isSafeInteger(result.revision) || (typeof result.commandId === 'string' ? result.commandId.toLowerCase() : undefined) !== operation.commandId.toLowerCase() || (typeof result.documentId === 'string' ? result.documentId.toLowerCase() : undefined) !== id.toLowerCase()) throw new TypeError('Некорректное подтверждение');
     resetDeletion();
     history.pushState(null, '', '/');
-    const loading = loadList(), listEpoch = navigationEpoch;
+    const loading = loadList(), listEpoch = sessionState.navigationEpoch;
     await loading;
-    if (token && listEpoch === navigationEpoch) message('Документ удалён.');
+    if (sessionState.token && listEpoch === sessionState.navigationEpoch) message('Документ удалён.');
   } catch (error) {
     if (!active() || aborted(error)) return;
     if (uncertain(error)) {
@@ -589,16 +593,16 @@ async function submitDeletion(operation: Deletion): Promise<void> {
       const explanation = statusOf(error) === 403 ? 'Нет прав на удаление документа или доступ к нему потерян.' : 'Документ уже удалён или больше недоступен.';
       resetDeletion();
       history.pushState(null, '', '/');
-      const loading = loadList(), listEpoch = navigationEpoch;
+      const loading = loadList(), listEpoch = sessionState.navigationEpoch;
       await loading;
-      if (token && listEpoch === navigationEpoch) message('', explanation);
+      if (sessionState.token && listEpoch === sessionState.navigationEpoch) message('', explanation);
       return;
     }
     resetDeletion();
     if (statusOf(error) === 409) {
-      const reopening = openDocument(id), refreshEpoch = navigationEpoch;
+      const reopening = openDocument(id), refreshEpoch = sessionState.navigationEpoch;
       await reopening;
-      if (refreshEpoch === navigationEpoch && documentId === id && shellState.getSnapshot().view === 'editor') message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
+      if (refreshEpoch === sessionState.navigationEpoch && documentId === id && shellState.getSnapshot().view === 'editor') message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
     } else { message('', errorMessage(error)); startLive(); }
   }
 }
@@ -609,22 +613,22 @@ async function renameDocument() {
   stopLive(); const { signal, current } = startRequest(), id = documentId;
   documentShell.patch({ renameBusy: true, renameStatus: 'Сохранение имени…', renameError: '' });
   signal.addEventListener('abort', () => {
-    if (current === generation && id === documentId) documentShell.patch({ renameBusy: false, renameStatus: '' });
+    if (current === sessionState.generation && id === documentId) documentShell.patch({ renameBusy: false, renameStatus: '' });
   }, { once: true });
   try {
     await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/rename-document`, {
       method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), name })
     }, signal);
-    if (signal.aborted || current !== generation || id !== documentId) return;
+    if (signal.aborted || current !== sessionState.generation || id !== documentId) return;
     await readPages(signal);
-    if (signal.aborted || current !== generation || id !== documentId) return;
+    if (signal.aborted || current !== sessionState.generation || id !== documentId) return;
     documentShell.patch({ renameName: documentShell.getSnapshot().title, renameStatus: 'Имя документа изменено.' });
   } catch (error) {
-    if (aborted(error) || current !== generation || id !== documentId) return;
+    if (aborted(error) || current !== sessionState.generation || id !== documentId) return;
     documentShell.patch({ renameStatus: '', renameError: uncertain(error)
       ? 'Не удалось подтвердить результат. Обновите документ перед повторной попыткой: команда могла выполниться.' : errorMessage(error) });
   } finally {
-    if (current === generation && id === documentId) { documentShell.patch({ renameBusy: false }); startLive(); }
+    if (current === sessionState.generation && id === documentId) { documentShell.patch({ renameBusy: false }); startLive(); }
   }
 }
 
@@ -643,23 +647,23 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
   documentShell.patch({ pageBusy: true });
   try {
     await postPageCommand(request, documentId, command, data, signal);
-    if (signal.aborted || current !== generation) return;
+    if (signal.aborted || current !== sessionState.generation) return;
     selectionState.selectAfterCommand(selection, screenSelection);
     await readPages(signal);
-    if (current === generation) {
+    if (current === sessionState.generation) {
       message('Изменения подтверждены в общем черновике.');
     }
   } catch (error) {
-    if (aborted(error) || current !== generation) return;
+    if (aborted(error) || current !== sessionState.generation) return;
     const unknownResult = uncertain(error);
     message('', unknownResult ? 'Не удалось подтвердить результат команды. Обновите страницы перед повторным действием: команда могла выполниться.' : errorMessage(error));
   } finally {
-    if (current === generation) { documentShell.patch({ pageBusy: false }); startLive(); }
+    if (current === sessionState.generation) { documentShell.patch({ pageBusy: false }); startLive(); }
   }
 }
 
 const navigation = createNavigation({
-  isAuthenticated: () => !!token,
+  isAuthenticated: () => !!sessionState.token,
   openDocument, loadList,
   requestLeave: resume => scenarios.requestLeave(resume),
   currentDocument: () => documentId,
@@ -732,8 +736,10 @@ window.addEventListener('pagehide', event => {
   try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
 });
 async function initializeAuthentication() {
+  const epoch = sessionState.sessionEpoch;
   try {
     const mode = await readAuthenticationMode();
+    if (epoch !== sessionState.sessionEpoch) return;
     if (mode === 'bearer') {
       authenticationView.setMode('bearer');
       editorShell.setSignoutLabel('Забыть токен');
@@ -743,7 +749,7 @@ async function initializeAuthentication() {
     const authError = new URLSearchParams(location.search).get('auth_error');
     if (authError) authenticationView.setError('Google-аккаунт не подтверждён или доступ к FigVam не разрешён.');
     const session = await restoreGoogleSession();
-    if (!session) return;
+    if (!session || epoch !== sessionState.sessionEpoch) return;
     setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
@@ -752,8 +758,8 @@ async function initializeAuthentication() {
     homeNavigation.setAdmin(session.admin === true);
     await userAdmin.show(session.admin === true);
   } catch (error) {
-    authenticationView.setError(errorMessage(error));
+    if (epoch === sessionState.sessionEpoch) authenticationView.setError(errorMessage(error));
   }
 }
-initializeAuthentication();
 clearSession();
+initializeAuthentication();

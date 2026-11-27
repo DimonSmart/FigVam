@@ -1,4 +1,4 @@
-import { generation, startRequest, token } from '../core/session';
+import type { SessionLifecycle } from '../core/session';
 import { aborted, errorMessage } from '../api/decode';
 
 export type Work = (signal: AbortSignal, current: () => boolean) => Promise<unknown>;
@@ -13,11 +13,11 @@ interface RequestLifecycle {
 }
 
 /** One owner for the foreground request lifecycle and its retry action. */
-export function createRequestRunner(view: RequestLifecycle) {
+export function createRequestRunner(session: Pick<SessionLifecycle, 'generation' | 'startRequest' | 'token'>, view: RequestLifecycle) {
   let retry: Retry | null = null;
   async function run(action: Retry | null, work: Work, { create = false, quiet = false } = {}): Promise<void> {
     view.stopLive();
-    const { signal, current } = startRequest();
+    const { signal, current } = session.startRequest();
     retry = create ? null : action;
     if (!quiet) {
       view.message(create ? 'Создание документа…' : 'Загрузка…');
@@ -25,15 +25,15 @@ export function createRequestRunner(view: RequestLifecycle) {
     }
     view.setControlsDisabled(true);
     try {
-      await work(signal, () => current === generation);
+      await work(signal, () => current === session.generation);
     } catch (error) {
       if (aborted(error)) return;
-      // A 401 clears the whole session, including its generation.
-      if (current !== generation && token) return;
+      // Stale work, including requests from a former session, cannot publish feedback.
+      if (current !== session.generation) return;
       const explanation = error instanceof TypeError ? 'Не удалось связаться с сервером. Проверьте соединение.' : errorMessage(error);
-      view.message('', explanation + (create && token ? ' Перед повторным созданием обновите список: запрос мог успеть выполниться.' : ''));
+      view.message('', explanation + (create && session.token ? ' Перед повторным созданием обновите список: запрос мог успеть выполниться.' : ''));
     } finally {
-      if (current === generation) {
+      if (current === session.generation) {
         if (!quiet) view.setBusy(false);
         view.setControlsDisabled(false);
         view.startLive();
