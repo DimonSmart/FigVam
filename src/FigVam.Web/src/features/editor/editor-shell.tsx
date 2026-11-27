@@ -85,7 +85,7 @@ function TokenWorkspace({active}:{active:boolean}){
         </label>
         <label>
           {"Сопоставление типов/категорий (JSON, необязательно)"}
-          <textarea id="token-import-mapping" rows={3} placeholder="{\"dimensionTypes\":{\"space\":\"Spacing\"}}"/>
+          <textarea id="token-import-mapping" rows={3} placeholder={'{"dimensionTypes":{"space":"Spacing"}}'}/>
         </label>
         <Button type="submit">{"Импортировать токены"}</Button>
         <Button type="button" onClick={()=>{if(importForm.current)importForm.current.hidden=true;}}>{"Отмена"}</Button>
