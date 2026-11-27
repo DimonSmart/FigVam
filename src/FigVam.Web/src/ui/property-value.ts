@@ -181,7 +181,7 @@ export function createNodeValueSpec(name:string,definition:ControlDefinition,mod
   return hasTokenChoice?createReferenceSpec(definition,model,initial,direct,propertyLabel(name),
     compactGeometry?compactGeometryLabel(name):propertyLabel(name),{theme:model.theme??'Light',customDirect:definition.type==='Shadow'}):direct;
 }
-export function isGeometryField(name:string,spec:ValueSpec){return geometryProperties.has(name)&&((spec.kind==='scalar'&&spec.round)||(spec.kind==='reference'&&spec.direct.kind==='scalar'&&spec.direct.round));}
+export function isGeometryField(name:string,spec:ValueSpec){return geometryProperties.has(name)&&((spec.kind==='scalar'&&spec.round===true)||(spec.kind==='reference'&&spec.direct.kind==='scalar'&&spec.direct.round===true));}
 export interface ValueSnapshot {raw:RawValue;disabled:boolean;actionsDisabled:boolean;validation:ValueValidation;version:number}
 export function createValueField(spec:ValueSpec,id:string,options:{onEdit?(kind:EditKind):void;disabled?:boolean;validateInitial?:boolean}={}){
   const store=createPanelStore<ValueSnapshot>({raw:spec.initial,disabled:options.disabled??false,actionsDisabled:false,validation:options.validateInitial?spec.validate(spec.initial):{},version:0});
