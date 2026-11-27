@@ -1,5 +1,4 @@
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { NumberInput } from '../../ui/Inputs';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
@@ -45,18 +44,17 @@ interface ResizeWorkspace {
   generation: number; token: string | null;
 }
 interface ResizeOptions {
+  model:ReturnType<typeof createScreenResizeModel>;
   element(id: string): HTMLElement;
   request(path: string, options: RequestInit): Promise<unknown>;
   refreshPages(): Promise<unknown>;
   workspace: ResizeWorkspace;
 }
-export function createScreenResize({ element, request, refreshPages, workspace }: ResizeOptions) {
+export function createScreenResizeModel(){return createViewModel(ResizeView);}
+export function createScreenResize({ model, element, request, refreshPages, workspace }: ResizeOptions) {
   const resizeOperations = new Map<string, Operation>();
   let resizeDraftScreen: string | null = null, resizeError: string | null = null, resizeTimer: ReturnType<typeof setTimeout> | undefined;
   const dirtyAxes = new Set<Axis>();
-  const section = element('screen-size-title').closest('section');
-  if (!section) throw new Error('Missing screen size section');
-  const root = createPanelRoot(section);
   const draft: Record<Axis, string> = { width: '', height: '' };
   function resizeKey(id: string | null, screen: string | null) { return `${id}:${screen}`; }
   function renderScreenSize() {
@@ -72,13 +70,13 @@ export function createScreenResize({ element, request, refreshPages, workspace }
         else if (!dirtyAxes.has(axis)) draft[axis] = String(screen.dimensions[axis]);
       }
     }
-    flushSync(() => root.render(<ResizeView
-      saved={screen ? `Подтверждённый размер: ${screen.dimensions.width} × ${screen.dimensions.height} uiUnit` : 'Выберите экран.'}
-      hidden={!screen || !['Owner','Editor'].includes(workspace.documentRole ?? '')}
-      draft={{...draft}} readOnly={!!operation} pending={operation?.state === 'pending'}
-      retry={operation?.state === 'uncertain'} error={operation?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : resizeError ?? ''}
-      change={change} apply={applyResize} cancel={cancelDraft} repeat={repeat}
-    />));
+    model.publish({
+      saved:screen ? `Подтверждённый размер: ${screen.dimensions.width} × ${screen.dimensions.height} uiUnit` : 'Выберите экран.',
+      hidden:!screen || !['Owner','Editor'].includes(workspace.documentRole ?? ''),
+      draft:{...draft},readOnly:!!operation,pending:operation?.state==='pending',
+      retry:operation?.state==='uncertain',error:operation?.state==='uncertain'?'Результат неизвестен. Повторите ту же команду.':resizeError??'',
+      change,apply:applyResize,cancel:cancelDraft,repeat
+    });
   }
   function change(axis: Axis, value: string) {
     draft[axis] = value; dirtyAxes.add(axis); resizeError = null;
@@ -136,7 +134,7 @@ export function createScreenResize({ element, request, refreshPages, workspace }
   renderScreenSize();
   return {
     render: renderScreenSize,
-    dispose() { clearTimeout(resizeTimer); root.unmount(); resizeOperations.clear(); },
+    dispose() { clearTimeout(resizeTimer); model.clear(); resizeOperations.clear(); },
     resetDraft() { clearTimeout(resizeTimer); dirtyAxes.clear(); resizeError = null; resizeDraftScreen = null; },
     clear() { clearTimeout(resizeTimer); resizeOperations.clear(); resizeDraftScreen = null; dirtyAxes.clear(); resizeError = null; }
   };

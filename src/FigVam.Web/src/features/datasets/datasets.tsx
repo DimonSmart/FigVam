@@ -1,7 +1,6 @@
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { TextInput } from '../../ui/Inputs';
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { Pagination } from '../../ui/Pagination';
 import { ApiError, type ApiClient } from '../../api/api-client';
@@ -19,7 +18,7 @@ type Operation=DatasetCommand & {selection:string|null;busy:boolean;accepted:boo
 type Summary=Pick<Schemas['DatasetSummary'],'id'|'name'>;
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;catalogRevision:number|null;token:string|null;generation:number;navigationEpoch:number}
 interface Options {
-  element(id:string):HTMLElement;request:ApiClient;getContext():Context;pageSize:number;
+  model:ReturnType<typeof createDatasetsModel>;request:ApiClient;getContext():Context;pageSize:number;
   startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;
   readPages(signal:AbortSignal):Promise<unknown>;
   run(action:()=>Promise<unknown>,work:(signal:AbortSignal)=>Promise<unknown>):Promise<unknown>;
@@ -55,16 +54,16 @@ function View({state,editable,op,pageSize,select,move,reload,retryCommand,create
     </div><Button id="dataset-command-retry" hidden={!op||op.busy} onClick={retryCommand}>Повторить операцию с датасетом</Button>
   </>;
 }
-export function createDatasets({element,request,getContext,pageSize,startRequest,stopLive,startLive,readPages,run}:Options){
-  const host=element('datasets-title').closest('section');if(!host)throw new Error('Missing datasets host');
-  const root=createPanelRoot(host),operations=new Map<string,Operation>();let state=initial(),generation=0;
+export function createDatasetsModel(){return createViewModel(View);}
+export function createDatasets({model,request,getContext,pageSize,startRequest,stopLive,startLive,readPages,run}:Options){
+  const operations=new Map<string,Operation>();let state=initial(),generation=0;
   const editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   function render(patch:Partial<State>={}){
     state={...state,...patch};const doc=getContext().documentId,op=doc?operations.get(doc):undefined;
-    flushSync(()=>root.render(<View state={state} editable={editable()} op={op} pageSize={pageSize}
-      select={id=>{state.selection=id;void load();}} move={delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();}}
-      reload={()=>{if(getContext().documentId)void run(load,readPages);}} retryCommand={()=>{if(op)void command(op);}}
-      create={create} replace={replace} remove={remove}/>));
+    model.publish({state,editable:editable(),op,pageSize,
+      select:id=>{state.selection=id;void load();},move:delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();},
+      reload:()=>{if(getContext().documentId)void run(load,readPages);},retryCommand:()=>{if(op)void command(op);},
+      create,replace,remove});
   }
   function reset(){generation++;state={...initial(),formKey:state.formKey+1};render();}
   async function load():Promise<void>{

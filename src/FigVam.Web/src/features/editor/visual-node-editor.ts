@@ -3,16 +3,16 @@ import { ApiError } from '../../api/api-client';
 import { requiredRecord, text, aborted, errorMessage } from '../../api/decode';
 import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
-import type { RawValue, PropertyModel, ControlDefinition, ControlInput } from '../../ui/property-control-contract';
+import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
 
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;screen:string|null;variantId:string|null;selection?:{id:string;name?:string|null;kind:string}|null;navigationEpoch:number;token:string|null}
 interface Target extends Context {documentId:string;screen:string;revision:number;nodeId:string}
 interface Model extends PropertyModel {nodes:ReadonlyMap<string,CanvasNode>;kinds:ReadonlyMap<string,CanvasKind & {kind:string}>;overridden?:ReadonlyMap<string,ReadonlySet<string>>}
 interface Selection {nodeId:string;previousId?:string}
-interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void}
+interface Options {models:ReturnType<typeof createPropertyFieldModels>;element(id:string):HTMLElement;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
 interface Draft {values:Map<string,RawValue>;error:string;status:string;coordinateParentId?:string}
 interface Palette extends Draft {kind:string;parent:string|null|undefined;selectionId?:string;uploadStatus?:string;uploadError?:string}
-interface Field extends ReturnType<typeof createPropertyControl> {signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
+interface Field extends ValueField {baseline:RawValue;signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
 interface EditValue {raw:RawValue;value:NodePropertyValue}
 interface Automatic {target:Target;fields:Map<string,EditValue>;due:number;rejected:boolean}
 type Command='add-node'|'set-node-properties'|'set-screen-variant-properties'|'remove-screen-variant-override'|'remove-node-properties';
@@ -27,9 +27,8 @@ function propertyValue(value:ResolvableValue|undefined):NodePropertyValue|undefi
   return undefined;
 }
 function definitionValue(value:unknown):unknown{return value&&typeof value==='object'&&'value' in value?value.value:undefined;}
-import { createPropertyControl, propertyLabel, shadowPreset } from '../../ui/node-property-controls';
-
-import { paddingProperties, createPaddingEditor, updatePaddingEditor, createGapRow, updateGapRow } from '../../ui/padding-editor';
+import { createNodeValueSpec, createValueField, propertyLabel, shadowPreset, type ValueField, type EditKind } from '../../ui/property-value';
+import { createPropertyFieldModels, type FieldPresentation } from '../../ui/property-layout';
 
 const canEdit = (role:string|null) => role === 'Owner' || role === 'Editor';
 const sameRaw = (left:RawValue|undefined, right:RawValue|undefined) => JSON.stringify(left) === JSON.stringify(right);
@@ -39,12 +38,11 @@ const scopeKey = (context:Context) => context.documentId && context.screen && Nu
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}
+  models, element, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
 }:Options) {
   const input=(id:string)=>typed(element(id),HTMLInputElement),button=(id:string)=>typed(element(id),HTMLButtonElement);
   const kindSelect=typed(element('visual-kind'),HTMLSelectElement),parentSelect=typed(element('visual-parent'),HTMLSelectElement);
-  const paletteProperties = element('visual-required-properties');
-  const paletteOptional = element('visual-optional-properties'), paletteDetails=typed(element('visual-optional-details'),HTMLDetailsElement);
+  const paletteDetails=typed(element('visual-optional-details'),HTMLDetailsElement);
   const inspectorProperties = element('visual-properties');
   const textStyledFields = new Set(['textColor', 'fontFamily', 'fontSize', 'fontWeight',
     'lineHeight', 'letterSpacing', 'fontStyle', 'fontFallback']);
@@ -219,13 +217,11 @@ export function createVisualNodeEditor({
       inspectorFields = new Map();
       inspectorControlKey = key;
     }
-    inspectorFields = renderFields(inspectorProperties, definition?.properties, node?.properties,
+    inspectorFields = renderFields(models.inspector, definition?.properties, node?.properties,
       editable ? inspector : undefined, 'visual-property', inspectorFields);
     updateControls();
     const focusId = focus || (loadingFocus && loadingFocus.key === loadedKey ? loadingFocus.id : null);
-    const nextFocus = focusId && element(focusId);
-    if (document.activeElement === document.body && nextFocus && !nextFocus.closest('[hidden]') && !('disabled' in nextFocus && nextFocus.disabled))
-      nextFocus.focus({ preventScroll: true });
+    if(focusId)requestAnimationFrame(()=>{const nextFocus=document.getElementById(focusId);if(document.activeElement===document.body&&nextFocus&&!nextFocus.closest('[hidden]')&&!('disabled' in nextFocus&&nextFocus.disabled))nextFocus.focus({preventScroll:true});});
     if (model) loadingFocus = null;
   }
 
@@ -240,37 +236,36 @@ export function createVisualNodeEditor({
     }
     const properties = model?.kinds.get(palette.kind)?.properties ?? {};
     const required = Object.fromEntries(Object.entries(properties).filter(([, definition]) => definition?.required));
-    paletteFields = renderFields(paletteProperties, required, null, palette, 'visual-required', paletteFields);
+    paletteFields = renderFields(models.required, required, null, palette, 'visual-required', paletteFields);
     const optional = Object.fromEntries(Object.entries(properties)
       .filter(([, definition]) => definition && !definition.required && definition.tokenType != null &&
         (definition.type === 'Color' || definition.type === 'Number' ||
           definition.type === 'String' || definition.type === 'Enum')));
     paletteDetails.hidden = !Object.keys(optional).length;
-    paletteOptionalFields = renderFields(paletteOptional, optional, null, palette,
+    paletteOptionalFields = renderFields(models.optional, optional, null, palette,
       'visual-optional', paletteOptionalFields);
     if ([...paletteOptionalFields.keys()].some(name => palette?.values.has(name)))
       paletteDetails.open = true;
   }
 
-  function renderFields(container:HTMLElement,definitions:PropertyDefinitions|undefined,values:NodeProperties|null|undefined,state:Draft|undefined,prefix:string,existing=new Map<string,Field>()):Map<string,Field>{
-    const fields=new Map<string,Field>(),rows:HTMLElement[]=[];
+  function renderFields(view:ReturnType<typeof createPropertyFieldModels>['inspector'],definitions:PropertyDefinitions|undefined,values:NodeProperties|null|undefined,state:Draft|undefined,prefix:string,existing=new Map<string,Field>()):Map<string,Field>{
+    const fields=new Map<string,Field>(),entries:FieldPresentation[]=[];
     for(const [name,definition] of Object.entries(definitions??{})){
       if(!model||!definition||!definition.type)continue;
       const controlDefinition:ControlDefinition={...definition,type:definition.type};
-      const choices = definition.type === 'Asset' ? [...model.assets.values()] :
-        definition.type === 'TokenReference' || definition.tokenType != null ? [...model.tokens.values()] : null;
-      const signature = JSON.stringify([definition, choices, Boolean(state)]);
-      const valueSignature = JSON.stringify(values?.[name] ?? definition.defaultValue);
+      const choices=definition.type==='Asset'?[...model.assets.values()]:definition.type==='TokenReference'||definition.tokenType!=null?[...model.tokens.values()]:null;
+      const signature=JSON.stringify([definition,choices,Boolean(state)]);
+      const valueSignature=JSON.stringify(values?.[name]??definition.defaultValue);
       const previous=existing.get(name);
       let field:Field;
       if(!previous||previous.signature!==signature){
-        field={...createPropertyControl(name,controlDefinition,model,values?.[name],prefix),signature,valueSignature};
-        function update(event:Event){
-          if(!state||!(event.target instanceof Element))return;
+        const spec=createNodeValueSpec(name,controlDefinition,model,values?.[name],prefix);
+        field={...createValueField(spec,prefix+'-'+name,{onEdit:update,validateInitial:values?.[name]?.type==='token'}),baseline:spec.initial,signature,valueSignature};
+        function update(kind:EditKind){
+          if(!state)return;
           const raw = field.read();
           const automaticField = prefix === 'visual-property';
-          const target = event.target;
-          const discrete = event.type === 'change' && target.matches('select, input[type=checkbox], input[type=color], .token-value-link');
+          const discrete = kind === 'discrete' || kind === 'commit';
           // Browsers emit both input and change, including a delayed change on blur.
           // A no-op must not clear the last acknowledgement or requeue saved values.
           if (automaticField && sameRaw(field.lastRaw, raw)) {
@@ -292,188 +287,77 @@ export function createVisualNodeEditor({
           field.validate();
           if (automaticField) {
             // A native color picker may emit many input events before its change event.
-            if (target.matches('input[type=color]') && event.type === 'input') {
+            if (kind === 'color-preview') {
               scheduleApply(state, name, field, false, true); updateControls(); return;
             }
             scheduleApply(state, name, field, discrete);
           }
           updateControls();
         }
-        if (state) {
-          field.row.addEventListener('input', update);
-          field.row.addEventListener('change', update);
-          if (prefix === 'visual-property') {
-            field.row.addEventListener('focusout', event => {
-              if(!(event.relatedTarget instanceof Node)||!field.row.contains(event.relatedTarget)) finishApply(state);
-            });
-            field.row.addEventListener('keydown', event => {
-              if(event.isComposing||!(event.target instanceof Element))return;
-              if (event.key === 'Enter' && event.target.matches('input:not([type=search])')) {
-                event.preventDefault(); finishApply(state);
-              }
-              if (event.key === 'Escape' && event.target.matches('input, textarea') && !event.target.closest('.token-value-popover')) {
-                const op = [...operations.values()].find(item => item.auto && item.draft === state);
-                if (op?.sent.has(name)) return;
-                state.values.delete(name); automatic.get(state)?.fields.delete(name);
-                const entry = automatic.get(state);
-                if (entry) previewProperties(entry.target, Object.fromEntries([...entry.fields].map(([key, item]) => [key, item.value])));
-                field.write(field.baseline); field.lastRaw = field.read(); field.validate(); state.error = ''; updateControls(); planApply();
-              }
-            });
-          }
-        }
+
       }else{
         field=previous;
         if(field.valueSignature!==valueSignature){
-          field.baseline=createPropertyControl(name,controlDefinition,model,values?.[name],prefix).baseline;
+          field.baseline=createNodeValueSpec(name,controlDefinition,model,values?.[name],prefix).initial;
           field.valueSignature=valueSignature;
         }
       }
-      field.hasValue = values?.[name] !== undefined;
-      if (state?.values.has(name)) {
-        const value = state.values.get(name);
-        if (!sameRaw(field.read(), value)) field.write(value??null);
-        field.validate();
-      } else if (!sameRaw(field.read(), field.baseline)) field.write(field.baseline);
-      field.lastRaw = field.read();
-      if (prefix === 'visual-property') {
-        const overridden = Boolean(context.variantId && model?.overridden?.get(node?.id??'')?.has(name));
-        field.row.dataset.variantOverride = String(overridden);
-        const hasStyle = textStyledFields.has(name) ? node?.properties.textStyle?.type === 'style'
-          || node?.properties.typography?.type === 'token' && name !== 'textColor'
-          : borderStyledFields.has(name) && node?.properties.borderStyle?.type === 'style';
-        const localOverride = !context.variantId && hasStyle && node?.properties[name] !== undefined;
-        field.row.dataset.styleOverride = String(Boolean(localOverride));
-        let styleReset = field.row.querySelector<HTMLButtonElement>('.style-override-reset');
-        if (!styleReset && localOverride && state) {
-          styleReset = document.createElement('button');
-          styleReset.className = 'style-override-reset';
-          styleReset.type = 'button';
-          styleReset.textContent = 'Сбросить к стилю';
-          styleReset.setAttribute('aria-label', 'Сбросить к стилю: ' + propertyLabel(name));
-          styleReset.addEventListener('click', () => {
-            const current = getContext();
-            if (current.variantId || !node || !canEdit(current.documentRole)) return;
-            begin('remove-node-properties', {
-              nodeId: node.id, properties: [name], expectedRevision: current.revision
-            }, inspector);
-          });
-          field.row.append(styleReset);
-        }
-        if (styleReset) styleReset.hidden = !localOverride || !state;
-        let reset = field.row.querySelector<HTMLButtonElement>('.variant-override-reset');
-        if (!reset && overridden && state) {
-          reset = document.createElement('button');
-          reset.className = 'variant-override-reset'; reset.type = 'button';
-          reset.addEventListener('click', () => {
-            const current = getContext();
-            if (!current.variantId || !node || !canEdit(current.documentRole)) return;
-            begin('remove-screen-variant-override', {
-              screenId: current.screen, variantId: current.variantId,
-              nodeId: node.id, property: name, expectedRevision: current.revision
-            }, inspector);
-          });
-          field.row.append(reset);
-        }
-        if (reset) {
-          reset.textContent = 'Reset Override';
-          reset.hidden = !overridden || !state;
-        }
-      }
-      fields.set(name, field);
-      if (name === 'shadow' && prefix === 'visual-property') {
-        let section = container.querySelector<HTMLElement>(':scope > .shadow-effects');
-        if (!section) {
-          section = document.createElement('section');
-          section.className = 'shadow-effects';
-        }
-        const title = section.querySelector('strong') ?? document.createElement('strong');
-        title.textContent = 'Effects';
-        const active = values?.shadow !== undefined || state?.values.has(name);
-        const action = section.querySelector<HTMLButtonElement>('.shadow-action') ?? document.createElement('button');
-        action.type = 'button';
-        action.className = 'shadow-action';
-        action.textContent = active ? 'Remove drop shadow' : 'Add drop shadow';
-        action.onclick = () => {
-          const current = getContext();
-          if(!state||!node||!model||!canEdit(current.documentRole)||operations.has(scopeKey(current)??'')||
-              resolvedModelKey !== modelKey) return;
-          if (!active) {
-            const preset = createPropertyControl(name,controlDefinition,model,shadowPreset,prefix).baseline;
-            state.values.set(name, preset);
-            render();
-            scheduleApply(state, name, inspectorFields.get(name), true);
-          } else if (current.variantId) {
-            if (model?.overridden?.get(node?.id??'')?.has(name))
-              begin('remove-screen-variant-override', { screenId: current.screen, variantId: current.variantId,
-                nodeId: node.id, property: name, expectedRevision: current.revision }, state);
-            else if (state.values.has(name)) { state.values.delete(name); render(); }
-          } else if (values?.shadow !== undefined) {
-            begin('remove-node-properties', { nodeId: node.id, properties: [name],
-              expectedRevision: current.revision }, state);
-          } else {
-            state.values.delete(name);
-            render();
+      field.hasValue=values?.[name]!==undefined;
+      if(state?.values.has(name)){
+        const raw=state.values.get(name);if(!sameRaw(field.read(),raw))field.write(raw??null);field.validate();
+      }else if(!sameRaw(field.read(),field.baseline)){field.write(field.baseline);field.validate();}
+      field.lastRaw=field.read();
+      const entry:FieldPresentation={name,field};
+      if(state&&prefix==='visual-property'){
+        entry.onLeave=()=>finishApply(state);
+        entry.onKey=event=>{
+          if(event.nativeEvent.isComposing||!(event.target instanceof Element))return;
+          if(event.key==='Enter'&&event.target.matches('input:not([type=search])')){event.preventDefault();finishApply(state);}
+          if(event.key==='Escape'&&event.target.matches('input, textarea')&&!event.target.closest('.token-value-popover')){
+            const op=[...operations.values()].find(item=>item.auto&&item.draft===state);
+            if(op?.sent.has(name))return;
+            state.values.delete(name);automatic.get(state)?.fields.delete(name);
+            const pending=automatic.get(state);if(pending)previewProperties(pending.target,Object.fromEntries([...pending.fields].map(([key,item])=>[key,item.value])));
+            field.write(field.baseline);field.lastRaw=field.read();field.validate();state.error='';updateControls();planApply();
           }
         };
-        action.hidden = !state || Boolean(currentlyInheritedShadow());
-        function currentlyInheritedShadow() {
-          return active && context.variantId && values?.shadow !== undefined &&
-            !model?.overridden?.get(node?.id??'')?.has(name) && !state?.values.has(name);
-        }
-        field.row.hidden = !active;
-        reconcileChildren(section, [title, field.row, action]);
-        rows.push(section);
-      } else rows.push(field.row);
-    }
-    // Keep the compact geometry rows while retaining input DOM identity between revisions.
-    const geometryGroups:HTMLElement[]=[],groupedRows=new Set<HTMLElement>();
-    if (prefix === 'visual-property') {
-      for(const names of [['x','y'],['width','height']] as const) {
-        const children = names.map(name => fields.get(name)?.row)
-          .filter((row):row is HTMLDivElement=>!!row?.classList.contains('node-property--geometry'));
-        if (!children.length) continue;
-        let group = [...container.querySelectorAll<HTMLElement>(':scope > *')].find(child =>
-          child.classList.contains('node-geometry-row') && child.dataset.geometryGroup === names[0]);
-        if (!group) {
-          group = document.createElement('div');
-          group.className = 'node-geometry-row';
-          group.dataset.geometryGroup = names[0];
-        }
-        reconcileChildren(group, children);
-        geometryGroups.push(group);
-        children.forEach(row => groupedRows.add(row));
       }
-    }
-    if (prefix === 'visual-property' && paddingProperties.every(name => fields.has(name))) {
-      const paddingRows:HTMLElement[]=paddingProperties.map(name=>fields.get(name)?.row).filter((row):row is HTMLDivElement=>!!row);
-      const padding = container.querySelector<HTMLElement>(':scope > .padding-editor') ?? createPaddingEditor();
-      updatePaddingEditor(padding, fields, reconcileChildren);
-      // Keep the section at the first padding property's original position.
-      const index = rows.findIndex(row => paddingRows.includes(row));
-      rows.splice(index, 0, padding);
-      paddingRows.forEach(row => groupedRows.add(row));
-      const gapField=fields.get('gap');if(gapField){
-        const gap = container.querySelector<HTMLElement>(':scope > .padding-gap-row') ?? createGapRow();
-        updateGapRow(gap, gapField, reconcileChildren);
-        rows.splice(index + 1, 0, gap);
-        groupedRows.add(gapField.row);
+      if(prefix==='visual-property'){
+        const overridden=Boolean(context.variantId&&model?.overridden?.get(node?.id??'')?.has(name));
+        entry.variantOverride=overridden;
+        const hasStyle=textStyledFields.has(name)?node?.properties.textStyle?.type==='style'||node?.properties.typography?.type==='token'&&name!=='textColor':
+          borderStyledFields.has(name)&&node?.properties.borderStyle?.type==='style';
+        const localOverride=!context.variantId&&hasStyle&&node?.properties[name]!==undefined;
+        entry.styleOverride=Boolean(localOverride);
+        if(localOverride&&state)entry.resetStyle=()=>{
+          const current=getContext();if(current.variantId||!node||!canEdit(current.documentRole))return;
+          begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
+        };
+        if(overridden&&state)entry.resetVariant=()=>{
+          const current=getContext();if(!current.variantId||!node||!canEdit(current.documentRole))return;
+          begin('remove-screen-variant-override',{screenId:current.screen,variantId:current.variantId,nodeId:node.id,property:name,expectedRevision:current.revision},inspector);
+        };
+        if(name==='shadow'){
+          const active=values?.shadow!==undefined||Boolean(state?.values.has(name));
+          const inherited=active&&context.variantId&&values?.shadow!==undefined&&!overridden&&!state?.values.has(name);
+          entry.shadow={active,toggle:!state||inherited?undefined:()=>{
+            const current=getContext();
+            if(!node||!model||!canEdit(current.documentRole)||operations.has(scopeKey(current)??'')||resolvedModelKey!==modelKey)return;
+            if(!active){
+              const preset=createNodeValueSpec(name,controlDefinition,model,shadowPreset,prefix).initial;
+              state.values.set(name,preset);render();scheduleApply(state,name,inspectorFields.get(name),true);
+            }else if(current.variantId){
+              if(model?.overridden?.get(node?.id??'')?.has(name))begin('remove-screen-variant-override',{screenId:current.screen,variantId:current.variantId,nodeId:node.id,property:name,expectedRevision:current.revision},state);
+              else if(state.values.has(name)){state.values.delete(name);render();}
+            }else if(values?.shadow!==undefined)begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},state);
+            else{state.values.delete(name);render();}
+          }};
+        }
       }
+      fields.set(name,field);entries.push(entry);
     }
-    reconcileChildren(container, [...geometryGroups, ...rows.filter(row => !groupedRows.has(row))]);
+    view.publish({entries,inspector:prefix==='visual-property'});
     return fields;
-  }
-
-  function reconcileChildren(parent:HTMLElement,rows:HTMLElement[]){
-    let following:HTMLElement|null=null;
-    for (let index = rows.length - 1; index >= 0; index--) {
-      const row=rows[index];if(!row)continue;
-      if(row.parentNode !== parent || row.nextElementSibling !== following)
-        parent.insertBefore(row, following);
-      following = row;
-    }
-    const wanted = new Set(rows);
-    for (const child of [...parent.children]) if(!(child instanceof HTMLElement)||!wanted.has(child)) child.remove();
   }
 
   function eligibleParent() {
@@ -502,8 +386,7 @@ export function createVisualNodeEditor({
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
     for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(op && !op.canvas && !op.auto));
-    for (const button of inspectorProperties.querySelectorAll<HTMLButtonElement>('.shadow-action, .variant-override-reset, .style-override-reset'))
-      button.disabled = blocked;
+    for(const field of inspectorFields.values())field.setActionsDisabled(blocked);
     const validParent = model?.kinds.size && eligibleParent();
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
     const optionalReady = [...paletteOptionalFields].every(([name, field]) =>
@@ -533,6 +416,8 @@ export function createVisualNodeEditor({
       operationStatus(op, 'Добавление элемента…') : loading || [palette?.status, paletteStatus].filter(Boolean).join(' ');
     element('visual-inspector-status').textContent = editing ?
       operationStatus(op,'Сохранение свойств…') : loading || (autoEntry?.fields.size && !autoEntry.rejected ? 'Сохранение свойств…' : inspector?.status || '');
+    onDrawingToolsChanged(!element('visual-palette').hidden && !element('visual-palette-form').hidden && !kindSelect.disabled
+      ? [...kindSelect.options].map(option => option.value) : []);
   }
 
   function operationStatus(op:Operation|undefined,pending:string) {
@@ -540,14 +425,14 @@ export function createVisualNodeEditor({
   }
 
   function readProperties(fields:ReadonlyMap<string,Field>,names:Iterable<string>):NodeProperties|null{
-    const properties:NodeProperties={};let invalid:ControlInput|undefined;let failed=false;
+    const properties:NodeProperties={};let invalid:{field:Field;index:number}|undefined;let failed=false;
     for (const name of names) {
       const field=fields.get(name);if(!field){failed=true;continue;}
-      const {value,input,error}=field.validate();const parsed=propertyValue(value);
-      if(error){invalid??=input;failed=true;}
+      const {value,index,error}=field.validate();const parsed=propertyValue(value);
+      if(error){invalid??={field,index:index??0};failed=true;}
       else if(parsed!==undefined)properties[name]=parsed;
     }
-    invalid?.focus();
+    if(invalid){const target=invalid;requestAnimationFrame(()=>target.field.focus(target.index));}
     return failed?null:properties;
   }
 
@@ -605,21 +490,22 @@ export function createVisualNodeEditor({
     } finally { startLive(); refresh(); }
   }
 
-  kindSelect.addEventListener('change', () => {
+  function changeKind() {
     if(!palette||palette.kind===kindSelect.value) return;
     palette.kind = kindSelect.value;
     palette.values.clear();
     palette.error = palette.status = '';
     renderRequiredFields();
     updateControls();
-  });
-  parentSelect.addEventListener('change', () => {
+  }
+  kindSelect.addEventListener('change', changeKind);
+  function changeParent() {
     if(!palette)return;palette.parent=parentSelect.value;
     palette.error = palette.status = '';
     updateControls();
-  });
-  element('visual-palette-form').addEventListener('submit', event => {
-    event.preventDefault();
+  }
+  parentSelect.addEventListener('change', changeParent);
+  function submitPalette() {
     const kind = model?.kinds.get(kindSelect.value);
     if(!palette||!kind||!eligibleParent() || !canEdit(getContext().documentRole)) return;
     const properties = readProperties(paletteFields, paletteFields.keys());
@@ -631,7 +517,24 @@ export function createVisualNodeEditor({
       nodeId: crypto.randomUUID(), parentId: parentSelect.value, kind: kind.kind,
       properties: { ...properties, ...selected }
     }, palette);
+  }
+  element('visual-palette-form').addEventListener('submit', event => {
+    event.preventDefault();
+    submitPalette();
   });
+  function addFromToolbar(kind: string): boolean {
+    if (kindSelect.disabled || element('visual-palette').hidden || element('visual-palette-form').hidden ||
+        ![...kindSelect.options].some(option => option.value === kind)) return true;
+    kindSelect.value = kind;
+    changeKind();
+    if (button('visual-add').disabled && parentSelect.options.length) {
+      parentSelect.selectedIndex = 0;
+      changeParent();
+    }
+    if (button('visual-add').disabled) return false;
+    submitPalette();
+    return true;
+  }
   element('visual-properties-form').addEventListener('submit', event => {
     event.preventDefault();
     finishApply(inspector);
@@ -758,7 +661,7 @@ export function createVisualNodeEditor({
   }
 
   return {
-    refresh, editGeometry,
+    refresh, editGeometry, addFromToolbar,
     get editPending() { return operations.has(scopeKey(getContext())??''); },
     clear() { clearTimeout(applyTimer); automatic.clear(); operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
   };

@@ -1,7 +1,7 @@
-import { authHeaders, credentialsMode, configureAuth, isGoogleMode, setCsrf } from '../api/auth-client';
+import { authHeaders, credentialsMode, isGoogleMode, setCsrf } from '../api/auth-client';
 import { createScreenCapture } from '../canvas/screen-capture';
-import { ApiError, createApiClient, parseDocumentList, type ApiClient } from '../api/api-client';
-import { createDocumentQueries, type PageItem, type ScreenItem } from '../api/document-queries';
+import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
+import { createDocumentQueries } from '../api/document-queries';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from '../features/home/index';
 import { createDocumentCollaboration } from '../features/collaboration/document-collaboration';
 import { createCanvasViewport } from '../canvas/canvas-viewport';
@@ -17,40 +17,57 @@ import { createStyles } from '../features/styles/styles';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
 
 import { element, required } from './dom';
-import { disposeApplicationRoot } from './react-panels';
+import { createElement } from 'react';
+import { disposeApplicationRoot, mountApplicationRoot } from './application-root';
+import { ApplicationShell } from './application-shell';
+import { createApplicationViews } from './application-views';
 import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
 import type { components } from '../api/schema.generated';
 import { postPageCommand, type PageCommandData } from './page-commands';
 
-type Work = (signal: AbortSignal, current: () => boolean) => Promise<unknown>;
-type Retry = () => Promise<unknown>;
+import { createRequestRunner } from './request-runner';
+import { createDocumentCatalog } from './document-catalog';
+import { createNavigation } from './navigation';
+import { createDocumentRevisionState } from './document-workspace';
+import { createWorkspaceSelection } from './workspace-selection';
+import { createDocumentSync, type SelectionChange } from './document-sync';
+import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
-type SelectionChange = { nodeId: string; previousId?: string };
 type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
-const authenticationView = createAuthenticationView(element('authentication-root'), submitBearerToken);
-const documentListView = createDocumentListView(element('document-list'), deleteCatalogDocument);
-const homeNavigation = createHomeNavigation(element('home-navigation'), selectHomeView);
-createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next) });
-const userAdmin = createUserAdmin(element);
+const catalog = createDocumentCatalog();
+const requestRunner = createRequestRunner({
+  stopLive: () => stopLive(), startLive: () => startLive(), message,
+  setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
+  setControlsDisabled(disabled) {
+    required(element('create-form').querySelector('button')).disabled = disabled;
+    element('previous').disabled = disabled || !catalog.canGoBack;
+    element('next').disabled = disabled || !catalog.canGoForward;
+  },
+});
+function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
+
+const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage });
+const views = createApplicationViews();
+mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views }));
+const authenticationView = createAuthenticationView(views.authentication, submitBearerToken);
+const documentListView = createDocumentListView(views.documentList, deleteCatalogDocument);
+const homeNavigation = createHomeNavigation(views.homeNavigation, selectHomeView);
+const userAdmin = createUserAdmin(views.userAdmin);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
   element('home-documents-content').hidden = users;
   element('home-admin-content').hidden = !users;
   homeNavigation.select(users ? 'users' : 'documents');
 }
-let cursors: (string | null | undefined)[] = [null];
-let pageIndex = 0;
-let nextCursor: string | null | undefined = null;
-let retry: Retry | null = null;
 const pageSize = 20;
-let documentId: string | null = null, documentRole: string | null = null, revision: number | null = null, selectedPage: string | null = null, pagesOffset = 0, pagesTotal = 0;
-let catalogRevision: number | null = null;
-let pagesItems: PageItem[] = [];
+let documentId: string | null = null, documentRole: string | null = null;
+const selectionState = createWorkspaceSelection();
+const revisions = createDocumentRevisionState();
 let importOperation: ImportOperation | null = null;
 let deletion: Deletion | null = null;
 function resetDeletion() {
@@ -66,9 +83,6 @@ function leaveDeletion() {
   element('delete-retry').hidden = false;
   element('delete-message').textContent = `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.`;
 }
-let selectedScreen: string | null = null, screensOffset = 0, screensTotal = 0, screensItems: ScreenItem[] = [];
-let editingPageName: RenameDraft | null = null, editingScreenName: RenameDraft | null = null;
-let pageExpanded = true;
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
   getToken: () => token,
@@ -78,15 +92,15 @@ const request: ApiClient = createApiClient({
   }
 });
 
-const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({
+const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
   element, request, pageSize,
-  getContext: () => ({ documentId, screen: selectedScreen, revision, token, navigationEpoch })
+  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch })
 });
-const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
+const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; }, get screensItems() { return screensItems; },
+    get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
     get generation() { return generation; }, get token() { return token; }
   }
 });
@@ -95,17 +109,17 @@ const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
 const mcpContext = () => ({ documentId, token, navigationEpoch, role: documentRole, theme: visualScreens.currentTheme });
-const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
+const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
   workspace: {
     get documentId() { return documentId; },
-    get revision() { return revision; },
+    get revision() { return revisions.revision; },
     get token() { return token; }
   },
   isEditorVisible: () => !element('editor-view').hidden,
-  readRevision: (signal, targetRevision) => readPages(signal, pagesOffset, targetRevision),
+  readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
   onConnectionStatus: status => { element('connection-status').textContent = status; },
   onAccessLost: closeInaccessibleDocument,
   onCaptureEvent: mcpAccess.onCaptureEvent,
@@ -117,7 +131,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
-  element, getContext: () => ({ token, documentId, documentRole, revision, navigationEpoch }),
+  element, getContext: () => ({ token, documentId, documentRole, revision: revisions.revision, navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -125,32 +139,32 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 });
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
-  element, request,
-  getContext: () => ({ documentId, documentRole, revision, generation, navigationEpoch }),
+  models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),element, request,
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
-  element, request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole, revision, generation }),
+  models:views.styles,selectLayer:id=>layers.selectById(id),element, request, getTokens: () => tokens.items,
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
-  element, request, pageSize,
-  getContext: () => ({ documentId, revision, catalogRevision })
+  model: views.components, request, pageSize,
+  getContext: () => ({ documentId, revision: revisions.revision, catalogRevision: revisions.catalogRevision })
 });
-const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVariants({
+const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVariants({ model: views.screenVariants,
   element, request, refreshPages: () => refreshPages(),
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; }, get revision() { return revision; },
-    get catalogRevision() { return catalogRevision; },
+    get selectedScreen() { return selectionState.selectedScreen; }, get revision() { return revisions.revision; },
+    get catalogRevision() { return revisions.catalogRevision; },
     get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
   }
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
-  element, request, pageSize,
-  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation, navigationEpoch }),
+  model: views.datasets, request, pageSize,
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
@@ -158,7 +172,7 @@ function closeInaccessibleDocument(status: number) {
   if (documentId) scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingPageName = editingScreenName = null; pageExpanded = true;
+  members.reset(); documentExport.reset(); documentRole = null; revisions.reset(); selectionState.reset();
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
@@ -171,7 +185,7 @@ function message(status = '', error = '') {
   statusDismissTimer = undefined;
   element('status').textContent = status;
   element('error').textContent = error;
-  element('retry').hidden = !error || !retry;
+  element('retry').hidden = !error || !requestRunner.canRetry;
   // Progress and errors are persistent; successful editor notifications expire.
   if (status && !error && !status.endsWith('…') && !element('editor-view').hidden) {
     statusDismissTimer = setTimeout(() => {
@@ -203,8 +217,7 @@ function clearSession() {
   authenticationView.clearToken();
   element('document-name').value = '';
   documentListView.clear();
-  documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
-  selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingPageName = editingScreenName = null;
+  documentId = documentRole = null; revisions.reset(); selectionState.reset();
   renderPages();
   layers.reset();
   tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
@@ -223,12 +236,12 @@ function clearSession() {
   element('editor-view').hidden = true;
   authenticationView.setVisible(true);
   element('disconnect').hidden = true;
-  cursors = [null]; pageIndex = 0; nextCursor = null;
-  retry = null;
+  catalog.reset();
+  requestRunner.clearRetry();
   message();
 }
 
-const members: ReturnType<typeof createMembers> = createMembers({
+const members: ReturnType<typeof createMembers> = createMembers({ model: views.members,
   element, request, findRole, openDocument, loadList, message, stopLive, startLive,
   workspace: {
     get documentId() { return documentId; },
@@ -238,7 +251,7 @@ const members: ReturnType<typeof createMembers> = createMembers({
   }
 });
 
-const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({
+const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
   element, request, pageSize, refreshPages,
   workspace: {
     get documentId() { return documentId; },
@@ -249,70 +262,40 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 });
 
 const layers: ReturnType<typeof createLayers> = createLayers({
-  element, request, refreshPages, closeInaccessibleDocument, message,
+  model: views.layers, element, request, refreshPages, closeInaccessibleDocument, message,
   workspace: {
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; },
-    get revision() { return revision; },
+    get selectedScreen() { return selectionState.selectedScreen; },
+    get revision() { return revisions.revision; },
     get navigationEpoch() { return navigationEpoch; },
     get token() { return token; }
   },
   runPageRefresh: work => run(() => refreshPages(), work),
-  readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, pagesOffset, null, isCurrent, reveal),
+  readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, 0, null, isCurrent, reveal),
   beforeSelectionChange: next => scenarios.requestLeave(next),
   onSelectionCleared: () => { scenarios.clearLayerSelection(); visualScreens.syncSelection(); visualNodeEditor.refresh(); },
   onLayerSelected: () => { scenarios.onLayerSelected(); visualScreens.syncSelection(); visualNodeEditor.refresh(); }
 });
 
 const scenarios: ReturnType<typeof createScenarios> = createScenarios({
-  element, request, pageSize,
+  models:views.scenarios,element, request, pageSize,
   workspace: {
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
-    get revision() { return revision; },
-    get selectedScreen() { return selectedScreen; },
+    get revision() { return revisions.revision; },
+    get selectedScreen() { return selectionState.selectedScreen; },
     get layerSelection() { return layers.selection; }
   },
   findLayer: layers.findLayer,
   setInteractiveNodes: layers.setInteractiveNodes,
   selectSource: layers.selectFromCanvas,
   reloadPages: (targetRevision, isCurrent) =>
-    run(() => refreshPages(), signal => readPages(signal, pagesOffset, targetRevision, isCurrent)),
+    run(() => refreshPages(), signal => readPages(signal, 0, targetRevision, isCurrent)),
   findRole,
   setDocumentRole: role => { documentRole = role; datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
-
-async function run(action: Retry | null, work: Work, { create = false, quiet = false } = {}): Promise<void> {
-  stopLive();
-  const { signal, current } = startRequest();
-  retry = create ? null : action;
-  if (!quiet) {
-    message(create ? 'Создание документа…' : 'Загрузка…');
-    element('content').setAttribute('aria-busy', 'true');
-  }
-  required(element('create-form').querySelector('button')).disabled = true;
-  element('next').disabled = true;
-  element('previous').disabled = true;
-  try {
-    await work(signal, () => current === generation);
-  } catch (error) {
-    if (aborted(error)) return;
-    // A 401 clears the whole session, including its generation.
-    if (current !== generation && token) return;
-    const explanation = error instanceof TypeError ? 'Не удалось связаться с сервером. Проверьте соединение.' : errorMessage(error);
-    message('', explanation + (create && token ? ' Перед повторным созданием обновите список: запрос мог успеть выполниться.' : ''));
-  } finally {
-    if (current === generation) {
-      if (!quiet) element('content').setAttribute('aria-busy', 'false');
-      required(element('create-form').querySelector('button')).disabled = false;
-      element('previous').disabled = pageIndex === 0;
-      element('next').disabled = !nextCursor;
-      startLive();
-    }
-  }
-}
 
 async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
   mcpAccess.reset();
@@ -321,8 +304,8 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = documentRole = null;
-  selectedScreen = null; screensItems = []; renderCanvas();
+  documentHistory.reset(); documentId = documentRole = null; revisions.reset();
+  selectionState.reset(); renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
   selectHomeView('documents');
@@ -332,20 +315,14 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   element('home-pagination').hidden = true;
   element('page-number').textContent = '';
   document.title = 'FigVam — документы';
-  nextCursor = null;
+  catalog.beginLoad();
   await run(() => loadList(index, cursor), async (signal, current) => {
-    const query = new URLSearchParams({ limit: String(pageSize) });
-    if (cursor) query.set('cursor', cursor);
-    const result = parseDocumentList(await request(`/api/v1/documents?${query}`, {}, signal));
-    if (!current()) return;
-    pageIndex = index;
-    cursors[index] = cursor;
-    cursors.length = index + 1;
-    nextCursor = result.nextCursor;
+    const result = await catalog.read(request, index, cursor, pageSize, signal, current);
+    if (!result) return;
     documentListView.render(result.items);
     element('home-count').textContent = `${result.items.length} на странице`;
     element('home-empty').hidden = result.items.length > 0 || index > 0;
-    element('home-pagination').hidden = index === 0 && !nextCursor;
+    element('home-pagination').hidden = index === 0 && !catalog.canGoForward;
     element('page-number').textContent = `Страница ${index + 1}`;
     message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
   });
@@ -379,11 +356,10 @@ function navigatorCanEdit() {
   return ['Owner', 'Editor'].includes(documentRole ?? '');
 }
 function navigatorEditState(kind: NavigatorKind) {
-  return kind === 'page' ? editingPageName : editingScreenName;
+  return selectionState.renameDraft(kind);
 }
 function setNavigatorEditState(kind: NavigatorKind, value: RenameDraft | null) {
-  if (kind === 'page') editingPageName = value;
-  else editingScreenName = value;
+  selectionState.setRenameDraft(kind, value);
 }
 function renderNavigatorKind(kind: NavigatorKind) {
   if (kind === 'page') renderPages();
@@ -401,28 +377,25 @@ function discardNavigatorRename(kind: NavigatorKind, id: string) {
   document.querySelector<HTMLElement>('[data-' + kind + '-rename-id="' + id + '"]')?.focus({ preventScroll: true });
 }
 function renderPages() {
-  if (editingPageName && (!pagesItems.some(item => item.id === editingPageName?.id) || !navigatorCanEdit())) editingPageName = null;
-  if (editingScreenName && (!screensItems.some(item => item.id === editingScreenName?.id) || !navigatorCanEdit())) editingScreenName = null;
-  navigatorView.render({pages:pagesItems, screens:screensItems, selectedPage, selectedScreen, pageExpanded, screensOffset,
-    canEdit:navigatorCanEdit(), editingPageName, editingScreenName});
+  navigatorView.render(selectionState.navigatorState(navigatorCanEdit()));
 }
 function selectPage(id: string) {
-  if (selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
-  if (selectedPage === id) {
-    pageExpanded = !pageExpanded;
+  if (selectionState.selectedPage !== id && !scenarios.requestLeave(() => selectPage(id))) return;
+  if (selectionState.selectedPage === id) {
+    selectionState.togglePage();
     renderPages();
     element('pages').querySelector<HTMLElement>('[data-page-id="' + id + '"]')?.focus();
     return;
   }
   layers.onScreenContextChanged();
-  selectedPage = id; selectedScreen = null; screensItems = []; screensTotal = 0; pageExpanded = true;
+  selectionState.selectPage(id);
   diagnostics.reset(); scenarios.reset(); screenVariants.reset(); layers.reset();
   renderPages(); renderScreens(); void refreshPages();
 }
 function selectScreen(id: string) {
-  if ((selectedScreen !== id || layers.selection) && !scenarios.requestLeave(() => selectScreen(id))) return;
-  if (selectedScreen !== id) {
-    layers.onScreenContextChanged(); selectedScreen = id; diagnostics.reset(); scenarios.reset();
+  if ((selectionState.selectedScreen !== id || layers.selection) && !scenarios.requestLeave(() => selectScreen(id))) return;
+  if (selectionState.selectedScreen !== id) {
+    layers.onScreenContextChanged(); selectionState.selectScreen(id); diagnostics.reset(); scenarios.reset();
     screenVariants.reset(); screenResize.render(); void refreshPages();
   } else layers.clearSelection();
   renderPages(); renderCanvas();
@@ -430,60 +403,63 @@ function selectScreen(id: string) {
 function renderScreens() {
   renderPages();
   renderCanvas(); screenResize.render();
-  const activeScreen = screensItems.find(item => item.id === selectedScreen);
+  const activeScreen = selectionState.activeScreen;
   element('layers-title').textContent = activeScreen
-    ? `Слои · ${activeScreen.name ?? 'Экран ' + (screensItems.indexOf(activeScreen) + 1)}`
+    ? `Слои · ${activeScreen.name ?? 'Экран ' + (selectionState.screens.indexOf(activeScreen) + 1)}`
     : 'Слои выбранного экрана';
-  element('screen-create').querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button').forEach(control => { control.disabled = !selectedPage; });
+  element('screen-create').querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button').forEach(control => { control.disabled = !selectionState.selectedPage; });
   const screenMenu = required(element('screen-preset').closest('details'));
   screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
   // Only suggest creation on the first empty page. Opening the popover on every
   // navigation obscures the page tree, and closing a user-opened menu mid-command
   // makes the form unusable while the page creation is still being committed.
-  if (selectedScreen || screensItems.length > 0 || pagesItems.length > 1) screenMenu.open = false;
-  else if (selectedPage && pagesItems.length === 1 &&
+  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) screenMenu.open = false;
+  else if (selectionState.selectedPage && selectionState.pages.length === 1 &&
       (documentRole === 'Owner' || documentRole === 'Editor') &&
-      !document.querySelector('.navigator-context-menu[open]') && !editingPageName) screenMenu.open = true;
+      !document.querySelector('.navigator-context-menu[open]') && !selectionState.renameDraft('page')) screenMenu.open = true;
 }
 
 
 
 
 const presence: ReturnType<typeof createPresence> = createPresence({
+  models: views.presence,
   element,
-  getContext: () => ({ token, documentId, navigationEpoch, selectedScreen, selectedLayer: layers.selection }),
+  getContext: () => ({ token, documentId, navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
   toViewportPoint: point => canvasViewport.toViewportPoint(point)
 });
 const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasViewport({
   element,
-  getScreen: () => screensItems.find(item => item.id === selectedScreen),
-  getSelectedScreen: () => selectedScreen,
+  getScreen: () => selectionState.activeScreen,
+  getSelectedScreen: () => selectionState.selectedScreen,
   onViewportChange: presence.render,
   setPresenceCursor: presence.setCursor
 });
 const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreens({
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
-  getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
+  getContext: () => ({ documentId, revision: revisions.revision, screen: selectionState.activeScreen,
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
+  models: views.propertyFields,
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
-  getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen,
+  onDrawingToolsChanged: editorShell.setDrawingTools,
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, screen: selectionState.selectedScreen,
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {
-      synced = (revision !== null && newRevision === revision + 1
+      synced = (revisions.revision !== null && newRevision === revisions.revision + 1
         ? await readNodeEditRevision(signal, newRevision, isCurrent, reveal, selection, resourcesChanged)
-        : await readPages(signal, pagesOffset, null, isCurrent, reveal, selection)) === true;
+        : await readPages(signal, 0, null, isCurrent, reveal, selection)) === true;
       if (current() && !synced) message();
     }, { quiet: true });
     return synced;
   }
 });
 const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeEditor({
-  element, getContext: () => ({ documentRole, revision, selection: layers.selection }),
+  element, getContext: () => ({ documentRole, revision: revisions.revision, selection: layers.selection }),
   getModel: () => visualScreens.designModel, getScale: () => canvasViewport.scale,
   selectLayer: layers.selectFromCanvas, editGeometry: visualNodeEditor.editGeometry,
   isEditPending: () => visualNodeEditor.editPending
@@ -491,13 +467,13 @@ const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeE
 function renderCanvas(nodeEdit = false) {
   canvasViewport.render();
   const empty = element('canvas-empty');
-  empty.hidden = Boolean(selectedScreen);
-  if (!selectedScreen) {
+  empty.hidden = Boolean(selectionState.selectedScreen);
+  if (!selectionState.selectedScreen) {
     const allowed = documentRole === 'Owner' || documentRole === 'Editor';
     const action = required(empty.querySelector('button'));
     action.hidden = !allowed;
-    action.textContent = selectedPage ? 'Создать экран' : 'Создать страницу';
-    required(empty.querySelector('p')).textContent = selectedPage
+    action.textContent = selectionState.selectedPage ? 'Создать экран' : 'Создать страницу';
+    required(empty.querySelector('p')).textContent = selectionState.selectedPage
       ? 'Выберите экран слева или создайте новый, чтобы начать работу.'
       : 'Создайте первую страницу, затем добавьте экран.';
   }
@@ -511,88 +487,45 @@ function selectionAfterCommand(change?: SelectionChange) {
 }
 
 function renderRevision() {
-  element('revision').textContent = `Общий черновик · ревизия ${revision}`;
+  element('revision').textContent = `Общий черновик · ревизия ${revisions.revision}`;
   documentExport.render();
 }
 
-async function readNodeEditRevision(signal: AbortSignal, newRevision: number, isCurrent: () => boolean, reveal: string[], selectionChange?: SelectionChange, resourcesChanged = false): Promise<true | undefined> {
-  const doc = documentId, screen = selectedScreen, current = generation, previousRevision = revision;
-  if (!doc) return;
-  const valid = () => !signal.aborted && current === generation && previousRevision === revision &&
-    doc === documentId && screen === selectedScreen && isCurrent();
-  const base = `/api/v1/documents/${encodeURIComponent(doc)}`;
-  // One confirmed node command cannot change the document header, page and screen lists, or token definitions.
-  const [layerSnapshot, usages] = await Promise.all([
-    layers.readSnapshot({ base, screen, revision: newRevision, signal, isCurrent: valid, reveal,
-      shouldReportFailure: () => signal === pending?.signal }),
-    tokens.readSelectedUsages(base, newRevision, signal, valid)
-  ]);
-  if (!valid()) return;
-  if (!layers.isExpansionCurrent(layerSnapshot)) return readNodeEditRevision(signal, newRevision, isCurrent, reveal, selectionChange, resourcesChanged);
-  const selection = selectionAfterCommand(selectionChange);
-  revision = newRevision;
-  tokens.applySelectedUsages(usages);
-  layers.applySnapshot(layerSnapshot, selection);
-  renderCanvas(!resourcesChanged);
-  scenarios.retainAfterNodeEdit(screen);
-  diagnostics.refresh();
-  renderRevision();
-  return true;
-}
-
-async function readPages(signal: AbortSignal, _offset = 0, targetRevision: number | null = null, isCurrent = () => true, reveal: string[] = [], selectionChange?: SelectionChange): Promise<true | undefined> {
-  const id = documentId, current = generation;
-  if (!id) return;
-  const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
-  const base = `/api/v1/documents/${encodeURIComponent(id)}`;
-  const result = await documentQueries.readPages(id, signal, valid, targetRevision);
-  if (!valid() || !result) return;
-  const nextRevision = result.revision;
-  const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
-  if (page !== selectedPage) pageExpanded = true;
-  let screen = page === selectedPage ? selectedScreen : null;
-  let screens: {items: ScreenItem[]; total: number} = { items: [], total: 0 };
-  if (page) {
-    const result = await documentQueries.readScreens(id, page, signal, valid, nextRevision);
-    if (!valid() || !result) return;
-    screens = result;
+const documentSync = createDocumentSync({
+  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, generation, revision: revisions.revision }),
+  shouldReportFailure: signal => signal === pending?.signal,
+  queries: documentQueries, layers, tokens, styles,
+  applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {
+    const selection = selectionAfterCommand(selectionChange);
+    revisions.confirmNodeEdit(newRevision);
+    tokens.applySelectedUsages(usages);
+    layers.applySnapshot(layerSnapshot, selection);
+    renderCanvas(!resourcesChanged);
+    scenarios.retainAfterNodeEdit(screen);
+    diagnostics.refresh();
+    renderRevision();
+  },
+  applyStructure(structure, layerSnapshot, tokenSnapshot, styleSnapshot, name, selectionChange) {
+    const { revision: nextRevision, selection: { screen } } = structure;
+    const selection = selectionAfterCommand(selectionChange);
+    const { pagesChanged, screensChanged } = selectionState.accept(structure, () => layers.reset());
+    revisions.confirmStructure(nextRevision);
+    tokens.apply(tokenSnapshot);
+    styles.apply(styleSnapshot);
+    if (pagesChanged) renderPages();
+    if (screensChanged || pagesChanged) renderScreens();
+    else renderCanvas();
+    layers.applySnapshot(layerSnapshot, selection);
+    element('document-title').textContent = name; document.title = `${name} — FigVam`;
+    element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
+    components.load(); datasets.load(); screenVariants.load();
+    diagnostics.refresh();
+    scenarios.refresh(screen);
+    renderRevision();
   }
-  if (!screens.items.some(item => item.id === screen)) screen = null;
-  const layerSnapshot = await layers.readSnapshot({
-    base, screen, revision: nextRevision, signal, isCurrent: valid, reveal,
-    shouldReportFailure: () => signal === pending?.signal
-  });
-  const [tokenSnapshot, styleSnapshot] = await Promise.all([
-    tokens.read(base, nextRevision, signal, valid), styles.read(base, nextRevision, signal, valid)
-  ]);
-  const name = await documentQueries.readName(id, signal, nextRevision, valid);
-  if (!valid()) return;
-  if (!layers.isExpansionCurrent(layerSnapshot))
-    return readPages(signal, 0, nextRevision, isCurrent, reveal, selectionChange);
-  const selection = selectionAfterCommand(selectionChange);
-  const pagesChanged = page !== selectedPage ||
-    JSON.stringify(result.items) !== JSON.stringify(pagesItems);
-  const screensChanged = screen !== selectedScreen ||
-    JSON.stringify(screens.items) !== JSON.stringify(screensItems);
-  if (page !== selectedPage || screen !== selectedScreen) layers.reset();
-  pagesOffset = 0; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
-  screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
-  revision = catalogRevision = nextRevision;
-  tokens.apply(tokenSnapshot);
-  styles.apply(styleSnapshot);
-  if (pagesChanged) renderPages();
-  if (screensChanged || pagesChanged) renderScreens();
-  else renderCanvas();
-  layers.applySnapshot(layerSnapshot, selection);
-  element('document-title').textContent = name; document.title = `${name} — FigVam`;
-  element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
-  components.load(); datasets.load(); screenVariants.load();
-  diagnostics.refresh();
-  scenarios.refresh(screen);
-  renderRevision();
-  return true;
-}
-
+});
+function readPages(...args: Parameters<typeof documentSync.readPages>) { return documentSync.readPages(...args); }
+function readNodeEditRevision(...args: Parameters<typeof documentSync.readNodeEditRevision>) { return documentSync.readNodeEditRevision(...args); }
 
 function resetDocumentRename() {
   const form = element('document-rename');
@@ -614,7 +547,7 @@ async function openDocument(id: string): Promise<void> {
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
@@ -637,16 +570,16 @@ async function openDocument(id: string): Promise<void> {
     element('editor-view').hidden = false;
     presence.start();
     documentHistory.load();
-    if (selectedScreen) requestAnimationFrame(fitScreen);
+    if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
     message();
   });
 }
 
 element('delete-document').addEventListener('click', () => {
-  if (deletion || !documentId || documentRole !== 'Owner' || revision === null || !Number.isSafeInteger(revision) || element('editor-view').hidden) return;
+  if (deletion || !documentId || documentRole !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || element('editor-view').hidden) return;
   if (!confirm(`Удалить документ «${element('document-title').textContent}»? Это действие нельзя отменить.`)) return;
   const commandId = crypto.randomUUID();
-  const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revision };
+  const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revisions.revision };
   deletion = { id: documentId, name: element('document-title').textContent ?? '', body: JSON.stringify(body), commandId, state: 'ready' };
   submitDeletion(deletion);
 });
@@ -731,7 +664,7 @@ element('document-rename').addEventListener('submit', async event => {
   }
 });
 
-async function refreshPages(offset = pagesOffset): Promise<void> {
+async function refreshPages(offset = 0): Promise<void> {
   await run(() => refreshPages(offset), async (signal, current) => {
     await readPages(signal, offset);
     if (current()) message('Страницы обновлены.');
@@ -742,14 +675,13 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
   if (!documentId || !['Owner', 'Editor'].includes(documentRole ?? '')) return;
   stopLive();
   const { signal, current } = startRequest();
-  retry = null; message('Отправка изменений в общий черновик…');
+  requestRunner.clearRetry(); message('Отправка изменений в общий черновик…');
   element('page-edit').inert = true;
   element('screen-create').inert = true;
   try {
     await postPageCommand(request, documentId, command, data, signal);
     if (signal.aborted || current !== generation) return;
-    if (selection !== undefined) selectedPage = selection;
-    if (screenSelection) selectedScreen = screenSelection;
+    selectionState.selectAfterCommand(selection, screenSelection);
     await readPages(signal);
     if (current === generation) {
       message('Изменения подтверждены в общем черновике.');
@@ -763,21 +695,19 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
   }
 }
 
-function route() {
-  if (!token) return;
-  const match = location.pathname.match(/^\/documents\/([0-9a-f-]+)\/?$/i);
-  return match?.[1] ? openDocument(match[1]) : loadList();
-}
-
-function navigate(path: string) {
-  if (!scenarios.requestLeave(() => navigate(path))) return;
-  history.pushState(null, '', path);
-  route();
-  element('content').focus();
-}
+const navigation = createNavigation({
+  isAuthenticated: () => !!token,
+  openDocument, loadList,
+  requestLeave: resume => scenarios.requestLeave(resume),
+  currentDocument: () => documentId,
+  focusContent: () => element('content').focus(),
+  hasDirtyDraft: () => scenarios.hasDirtyDraft(),
+});
+function route() { return navigation.route(); }
+function navigate(path: string) { navigation.navigate(path); }
 
 function submitBearerToken(supplied: string) {
-  if (!supplied || /\s/.test(supplied)) {
+  if (!isValidBearerToken(supplied)) {
     message('', 'Введите токен без пробелов и префикса Bearer.');
     return;
   }
@@ -789,17 +719,15 @@ function submitBearerToken(supplied: string) {
   route();
   element('content').focus();
 }
-element('disconnect').addEventListener('click', async () => {
+async function signOut() {
   if (isGoogleMode()) {
     try {
-      const response = await fetch('/api/auth/logout', { method: 'POST', cache: 'no-store',
-        credentials: 'same-origin', redirect: 'error', headers: authHeaders('', 'POST') });
-      if (!response.ok) throw new Error('Не удалось завершить серверную сессию.');
+      await logoutGoogleSession();
     } catch (error) { message('', errorMessage(error)); return; }
   }
   clearSession();
   if (!isGoogleMode()) authenticationView.focusToken();
-});
+}
 element('create-form').addEventListener('submit', async event => {
   event.preventDefault();
   const name = element('document-name').value.trim();
@@ -876,11 +804,11 @@ element('screen-create').addEventListener('submit', event => {
   event.preventDefault();
   const width = element('screen-width').valueAsNumber, height = element('screen-height').valueAsNumber;
   if (!Number.isFinite(width) || width < 0 || !Number.isFinite(height) || height < 0) { message('', 'Укажите конечные неотрицательные ширину и высоту.'); return; }
-  if (!selectedPage) return;
+  if (!selectionState.selectedPage) return;
   const screenId = crypto.randomUUID();
-  pageCommand('add-screen', { pageId: selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
+  pageCommand('add-screen', { pageId: selectionState.selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
 });
-const navigatorView = createDocumentNavigator(element('pages'), element('screens'), {
+const navigatorView = createDocumentNavigator(views.navigator, {
   isBusy: () => element('page-edit').inert || !navigatorCanEdit(),
   selectPage, selectScreen,
   startRename: startNavigatorNameEdit,
@@ -893,13 +821,13 @@ const navigatorView = createDocumentNavigator(element('pages'), element('screens
     else void pageCommand('rename-screen', {screenId:id, name});
   },
   deletePage(item) {
-    if (revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
-      void pageCommand('delete-page', {pageId:item.id, expectedRevision:revision}, selectedPage === item.id ? null : undefined);
+    if (revisions.revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
+      void pageCommand('delete-page', {pageId:item.id, expectedRevision: revisions.revision}, selectionState.selectedPage === item.id ? null : undefined);
   },
   duplicateScreen(item) {
-    if (revision === null) return;
+    if (revisions.revision === null) return;
     const newScreenId = crypto.randomUUID();
-    void pageCommand('duplicate-screen', {screenId:item.id, newScreenId, expectedRevision:revision}, undefined, newScreenId);
+    void pageCommand('duplicate-screen', {screenId:item.id, newScreenId, expectedRevision: revisions.revision}, undefined, newScreenId);
   },
 });
 renderPages();
@@ -909,54 +837,32 @@ function closeNavigatorContextMenus() {
 element('pages').addEventListener('scroll', closeNavigatorContextMenus);
 window.addEventListener('resize', closeNavigatorContextMenus);
 element('page-refresh').addEventListener('click', () => refreshPages());
-element('page-create').addEventListener('click', () => {
+function createPage() {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
-});
+}
 element('refresh').addEventListener('click', () => loadList());
-element('previous').addEventListener('click', () => loadList(pageIndex - 1, cursors[pageIndex - 1]));
-element('next').addEventListener('click', () => loadList(pageIndex + 1, nextCursor));
-element('retry').addEventListener('click', () => retry?.());
-document.addEventListener('click', event => {
-  const link = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>('a[data-navigation]') : null;
-  if (!link || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  const href = link.getAttribute('href');
-  if (href) navigate(href);
-});
-window.addEventListener('popstate', () => {
-  const destination = location.pathname;
-  if (scenarios.requestLeave(() => navigate(destination))) route();
-  else history.replaceState(null, '', documentId ? '/documents/' + documentId : '/');
-});
-window.addEventListener('beforeunload', event => {
-  if (scenarios.hasDirtyDraft()) { event.preventDefault(); event.returnValue = ''; }
-});
+element('previous').addEventListener('click', () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); });
+element('next').addEventListener('click', () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); });
+element('retry').addEventListener('click', () => requestRunner.retry());
+navigation.attach();
 window.addEventListener('pagehide', event => {
   try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
 });
 async function initializeAuthentication() {
   try {
-    const config = await fetch('/api/auth/config', { credentials: 'same-origin', cache: 'no-store' });
-    if (!config.ok) throw new Error('Режим аутентификации недоступен.');
-    const info = requiredRecord(await config.json());
-    if (info.mode !== 'bearer' && info.mode !== 'google') throw new TypeError('Некорректный режим аутентификации.');
-    configureAuth(info.mode);
-    if (!isGoogleMode()) {
+    const mode = await readAuthenticationMode();
+    if (mode === 'bearer') {
       authenticationView.setMode('bearer');
-      element('disconnect').textContent = 'Забыть токен';
-      element('editor-signout').textContent = 'Забыть токен';
-      element('editor-signout-menu').textContent = 'Забыть токен';
+      editorShell.setSignoutLabel('Забыть токен');
       return;
     }
     authenticationView.setMode('google');
     const authError = new URLSearchParams(location.search).get('auth_error');
     if (authError) authenticationView.setError('Google-аккаунт не подтверждён или доступ к FigVam не разрешён.');
-    const response = await fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' });
-    if (!response.ok) throw new Error('Не удалось восстановить сессию.');
-    const session = requiredRecord(await response.json());
-    if (session.authenticated !== true) return;
-    setCsrf(text(session.csrfToken));
+    const session = await restoreGoogleSession();
+    if (!session) return;
+    setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
     element('disconnect').hidden = false;

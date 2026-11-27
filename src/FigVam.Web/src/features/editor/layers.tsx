@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
+import { ChevronDown, ChevronRight, ArrowUpRight } from 'lucide-react';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
@@ -11,7 +12,7 @@ type Schema=components['schemas'];
 interface LayerItem extends LayerCaptionSource {id:string;parentId:string;childCount:number;canContainChildren?:boolean}
 interface Workspace {documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;navigationEpoch:number;token:string|null}
 type Work=(signal:AbortSignal,current:()=>boolean)=>Promise<unknown>;
-interface Options {element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
+interface Options {model:ReturnType<typeof createLayersModel>;element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
 type MetadataKind='name'|'key';
 type State='ready'|'pending'|'uncertain'|'rejected';
 interface Metadata {id?:string;name?:string|null;semanticKey?:string|null;error?:string}
@@ -38,8 +39,42 @@ import { layerDisplayName } from '../../core/layer-caption';
 export { layerDisplayName };
 const layerKindIcons: Record<string,string> = { Frame: '▣', Container: '▣', Text: 'T', Button: '▭', TextInput: '▤', Image: '▧' };
 
+interface LayerTreeProps {
+  layerRoots: LayerItem[];
+  layerChildren: ReadonlyMap<string, LayerItem[]>;
+  layerExpanded: ReadonlySet<string>;
+  interactiveNodes: ReadonlySet<string>;
+  selectedId: string | undefined;
+  focus: string | undefined;
+  onSelect(id: string, row: HTMLElement | null): void;
+}
+
+function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,selectedId,focus,onSelect}: LayerTreeProps) {
+    function renderBranch(items: LayerItem[]): ReactElement[] {
+      return items.map((item, index) => {
+        const {text: name, source, origin} = layerDisplayName(item);
+        const expanded = layerExpanded.has(item.id);
+        const interactive = interactiveNodes.has(item.id);
+        return <div key={item.id} role="treeitem" data-id={item.id} tabIndex={focus === item.id ? 0 : -1}
+          aria-posinset={index + 1} aria-setsize={items.length}
+          aria-selected={selectedId === item.id} aria-expanded={item.childCount ? expanded : undefined}
+          aria-label={name + ', ' + item.kind + (interactive ? ', есть взаимодействия' : '')}>
+          <span className="layer-label" title={name + ' · ' + item.kind + ' · ' + origin} onClick={event => onSelect(item.id, event.currentTarget.closest<HTMLElement>('[role=treeitem]'))}>
+            <span className="layer-disclosure" aria-hidden="true">{item.childCount ? (expanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>) : ''}</span>
+            <span className="layer-kind-icon" aria-hidden="true" title={item.kind}>{layerKindIcons[item.kind] ?? '◇'}</span>
+            <span className="layer-name" data-label-source={source}>{name}</span>
+            {interactive && <span className="layer-interaction" title="Есть взаимодействия" aria-hidden="true"><ArrowUpRight size={12}/></span>}
+          </span>
+          {item.childCount > 0 && expanded && <div role="group">{renderBranch(layerChildren.get(item.id) ?? [])}</div>}
+        </div>;
+      });
+    }
+  return <>{renderBranch(layerRoots)}</>;
+}
+export function createLayersModel() { return createViewModel(LayerTree); }
+
 export function createLayers({
-  element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
+  model, element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
   closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected, beforeSelectionChange = () => true
 }:Options) {
   let layerController:AbortController|null=null,layerGeneration=0,layerSelection:LayerItem|null=null;
@@ -56,7 +91,6 @@ export function createLayers({
   let layerRoots:LayerItem[]=[],layerExpanded=new Set<string>(),layerChildren=new Map<string,LayerItem[]>();
   let interactiveNodes=new Set<string>();
   const tree = element('layers');
-  const treeRoot = createPanelRoot(tree);
 
   function reset() {
     drag.cancel();
@@ -408,31 +442,15 @@ export function createLayers({
     }
     collect(layerRoots);
     const focus = [focusId, focusedId, layerSelection?.id, visible[0]].find(id => id && visible.includes(id));
-    function renderBranch(items: LayerItem[]): ReactElement[] {
-      return items.map((item, index) => {
-        const {text: name, source, origin} = layerDisplayName(item);
-        const expanded = layerExpanded.has(item.id);
-        const interactive = interactiveNodes.has(item.id);
-        return <div key={item.id} role="treeitem" data-id={item.id} tabIndex={focus === item.id ? 0 : -1}
-          aria-posinset={index + 1} aria-setsize={items.length}
-          aria-selected={layerSelection?.id === item.id} aria-expanded={item.childCount ? expanded : undefined}
-          aria-label={name + ', ' + item.kind + (interactive ? ', есть взаимодействия' : '')}>
-          <span className="layer-label" title={name + ' · ' + item.kind + ' · ' + origin} onClick={event => {
-            const latest = findLayer(item.id), row = event.currentTarget.closest<HTMLElement>('[role=treeitem]');
-            if (!latest) return;
-            const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) void toggleLayer(latest); };
-            if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
-          }}>
-            <span className="layer-disclosure" aria-hidden="true">{item.childCount ? (expanded ? '▾' : '▸') : ''}</span>
-            <span className="layer-kind-icon" aria-hidden="true" title={item.kind}>{layerKindIcons[item.kind] ?? '◇'}</span>
-            <span className="layer-name" data-label-source={source}>{name}</span>
-            {interactive && <span className="layer-interaction" title="Есть взаимодействия" aria-hidden="true">↗</span>}
-          </span>
-          {item.childCount > 0 && expanded && <div role="group">{renderBranch(layerChildren.get(item.id) ?? [])}</div>}
-        </div>;
-      });
-    }
-    flushSync(() => treeRoot.render(<>{renderBranch(layerRoots)}</>));
+    const onSelect = (id:string, row:HTMLElement|null) => {
+      const latest = findLayer(id);
+      if (!latest) return;
+      const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) void toggleLayer(latest); };
+      if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
+    };
+    // Keyboard navigation and drag/drop read the committed tree geometry immediately.
+    flushSync(() => model.publish({layerRoots, layerChildren: new Map(layerChildren),
+      layerExpanded: new Set(layerExpanded), interactiveNodes, selectedId: layerSelection?.id, focus, onSelect}));
     if (focusId || (focusedId && focus)) {
       const row = [...tree.querySelectorAll<HTMLElement>('[role=treeitem]')].find(item => item.dataset.id === focus);
       if (row && document.activeElement !== row) row.focus({preventScroll: true});
@@ -588,6 +606,7 @@ export function createLayers({
 
   return {
     reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    selectById(id:string){const item=findLayer(id);if(!item)return;const select=()=>{selectLayer(item);if(item.childCount)void toggleLayer(item);renderLayers(id);};if(layerSelection?.id===id||beforeSelectionChange(select))select();},
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },
     clearSelection() {

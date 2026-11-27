@@ -1,6 +1,5 @@
 import { useState } from 'react';
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { Trash2 } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { ApiError } from '../../api/api-client';
@@ -66,12 +65,18 @@ const errors: Record<string, string | undefined> = {
   MCP_TUNNEL_NOT_CONFIGURED: 'Туннель ChatGPT не настроен.',
   MCP_TUNNEL_IN_USE: 'Другой документ уже разрешён для ChatGPT. Сначала отзовите доступ в нём.'
 };
-export function createMcpAccess({request, getContext, capture}: {request: ApiClient; getContext(): Context; capture: Capture}) {
+type McpViewState={kind:'loading'}|{kind:'ready';props:Parameters<typeof AccessPanel>[0]}|{kind:'error';message:string;reload():void};
+function McpView({state}:{state:McpViewState}){
+  if(state.kind==='loading')return <p>Загрузка MCP-доступа…</p>;
+  if(state.kind==='ready')return <AccessPanel {...state.props}/>;
+  return <><p role="alert">{state.message}</p><Button onClick={state.reload}>Обновить</Button></>;
+}
+export function createMcpAccessModel(){return createViewModel(McpView);}
+export function createMcpAccess({model,request,getContext,capture}:{model:ReturnType<typeof createMcpAccessModel>;request:ApiClient;getContext():Context;capture:Capture}) {
   const menu = document.getElementById('mcp-access-menu');
   const body = document.getElementById('mcp-access-body');
   if (!(menu instanceof HTMLDetailsElement) || !body) throw new Error('MCP access host missing.');
   const host = menu;
-  const root = createPanelRoot(body);
   let controller: AbortController | null = null, current: Operation | null = null;
   const valid = (operation: Operation) => {
     const context = getContext();
@@ -80,7 +85,7 @@ export function createMcpAccess({request, getContext, capture}: {request: ApiCli
   };
   function clear() {
     controller?.abort(); controller = null; current = null;
-    flushSync(() => root.render(null));
+    model.clear();
   }
   function reset() { capture.stop(); host.open = false; clear(); }
   async function load(method: Method = 'GET', tunnel = false) {
@@ -89,7 +94,7 @@ export function createMcpAccess({request, getContext, capture}: {request: ApiCli
     if (!context.documentId || !host.open) return;
     controller = new AbortController();
     const operation: Operation = {...context, signal: controller.signal}; current = operation;
-    flushSync(() => root.render(<p>Загрузка MCP-доступа…</p>));
+    model.publish({state:{kind:'loading'}});
     try {
       const path = '/api/v1/documents/' + encodeURIComponent(context.documentId) + '/mcp-access';
       if (tunnel) {
@@ -99,11 +104,11 @@ export function createMcpAccess({request, getContext, capture}: {request: ApiCli
       const response = await request(path, {method: tunnel ? 'GET' : method}, operation.signal, () => valid(operation));
       if (!valid(operation)) return;
       const status = decodeMcpAccess(response);
-      flushSync(() => root.render(<AccessPanel status={status} load={load} title={document.getElementById('document-title')?.textContent ?? ''} valid={() => valid(operation)} />));
+      model.publish({state:{kind:'ready',props:{status,load,title:document.getElementById('document-title')?.textContent??'',valid:()=>valid(operation)}}});
     } catch (error) {
       if (!valid(operation) || (error instanceof Error && error.name === 'AbortError')) return;
       const message = (error instanceof ApiError && error.code ? errors[error.code] : undefined) ?? (error instanceof Error ? error.message : String(error));
-      flushSync(() => root.render(<><p role="alert">{message}</p><Button onClick={() => void load()}>Обновить</Button></>));
+      model.publish({state:{kind:'error',message,reload:()=>void load()}});
     }
   }
   host.addEventListener('toggle', () => { if (host.open) void load(); else clear(); });

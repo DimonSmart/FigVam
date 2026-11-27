@@ -1,12 +1,11 @@
-import { createPanelRoot } from '../../app/react-panels';
-import { flushSync } from 'react-dom';
+import { createViewModel } from '../../app/view-model';
 import { authHeaders, credentialsMode } from '../../api/auth-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, text, array, aborted } from '../../api/decode';
 interface Point { x: number; y: number }
 interface Participant { name: string; color: string; screenId: string | null; selectedIds: string[]; cursor: Point | null }
 interface Context { token: string | null; documentId: string | null; navigationEpoch: number; selectedLayer: {id:string} | null; selectedScreen: string | null }
-interface Options { element(id:string):HTMLElement; getContext():Context; toViewportPoint(point:Point):Point }
+interface Options { models:ReturnType<typeof createPresenceModels>; element(id:string):HTMLElement; getContext():Context; toViewportPoint(point:Point):Point }
 function participant(value:unknown):Participant {
   const p=requiredRecord(value), color=text(p.color);
   if(!/^#[0-9a-fA-F]{6}$/.test(color))throw new TypeError('Invalid presence color');
@@ -14,8 +13,16 @@ function participant(value:unknown):Participant {
   if(p.cursor!=null){const c=requiredRecord(p.cursor);if(typeof c.x!=='number'||typeof c.y!=='number'||!Number.isFinite(c.x)||!Number.isFinite(c.y))throw new TypeError('Invalid presence cursor');cursor={x:c.x,y:c.y};}
   return {name:text(p.name),color,screenId:p.screenId==null?null:text(p.screenId),selectedIds:array(p.selectedIds,text),cursor};
 }
-export function createPresence({element,getContext,toViewportPoint}:Options){
-  const list=createPanelRoot(element('presence-list')), markers=createPanelRoot(element('presence-markers'));
+type Marker={p:Participant;i:number;x:number;y:number};
+function PresenceList({participants}:{participants:Participant[]}){
+  return <>{participants.map((p,i)=><li key={i}>{p.name+' · цвет '+p.color+' · экран: '+(p.screenId||'не выбран')+' · выбранные ID: '+(p.selectedIds.length?p.selectedIds.join(', '):'нет')+' · '+(p.cursor?'курсор: '+p.cursor.x+', '+p.cursor.y:'курсор недоступен')}</li>)}</>;
+}
+function PresenceMarkers({visible}:{visible:Marker[]}){
+  return <>{visible.map(({p,i,x,y})=><span key={i} className="presence-marker" style={{left:x,top:y,borderColor:p.color}}>{'◆ '+p.name}</span>)}</>;
+}
+export function createPresenceModels(){return {list:createViewModel(PresenceList),markers:createViewModel(PresenceMarkers)};}
+export function createPresence({models,element,getContext,toViewportPoint}:Options){
+  let renderedParticipants:Participant[]|undefined;
   let controller:AbortController|null=null,timer:ReturnType<typeof setTimeout>|undefined;
   let participants:Participant[]=[],cursor:Point|null=null,cursorScreen:string|null=null,lastRead=0;
   function input(id:string){const node=element(id);if(!(node instanceof HTMLInputElement))throw new TypeError('Missing input: '+id);return node.value;}
@@ -26,10 +33,8 @@ export function createPresence({element,getContext,toViewportPoint}:Options){
       const {x,y}=toViewportPoint(p.cursor);
       return x>=0&&y>=0&&x<area.clientWidth&&y<area.clientHeight?[{p,i,x,y}]:[];
     });
-    flushSync(()=>{
-      list.render(<>{participants.map((p,i)=><li key={i}>{p.name+' · цвет '+p.color+' · экран: '+(p.screenId||'не выбран')+' · выбранные ID: '+(p.selectedIds.length?p.selectedIds.join(', '):'нет')+' · '+(p.cursor?'курсор: '+p.cursor.x+', '+p.cursor.y:'курсор недоступен')}</li>)}</>);
-      markers.render(<>{visible.map(({p,i,x,y})=><span key={i} className="presence-marker" style={{left:x,top:y,borderColor:p.color}}>{'◆ '+p.name}</span>)}</>);
-    });
+    if(renderedParticipants!==participants){renderedParticipants=participants;models.list.publish({participants});}
+    models.markers.publish({visible});
   }
   function stop(){controller?.abort();controller=null;clearTimeout(timer);timer=undefined;participants=[];cursor=null;cursorScreen=null;lastRead=0;render();element('presence-status').textContent='';}
   function start(){

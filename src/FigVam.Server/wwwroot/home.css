@@ -1,6 +1,6 @@
 /* Start-page workspace. Uses the same UI tokens as editor-shell.css. */
-body:has(#documents-view:not([hidden])) { background: #f7f8fb; }
-body:has(#documents-view:not([hidden])) > .brand {
+body:has(#documents-view:not([hidden])) { background: var(--ui-home-bg); }
+body:has(#documents-view:not([hidden])) > #figvam-app > .brand {
   height: 64px; padding: 0 clamp(18px, 3vw, 44px); gap: 22px;
   border-color: var(--ui-border); flex-wrap: nowrap;
 }
@@ -18,14 +18,14 @@ body:has(#documents-view:not([hidden])) > .brand {
   margin: 0; padding: 0; color: var(--ui-text); }
 #documents-view .home-layout { display: grid; grid-template-columns: 225px minmax(0, 1fr);
   min-height: calc(100dvh - 64px); }
-#documents-view .home-sidebar { background: #fff; border-right: 1px solid var(--ui-border);
+#documents-view .home-sidebar { background: var(--ui-surface); border-right: 1px solid var(--ui-border);
   padding: 38px 14px 22px; display: flex; flex-direction: column; }
 #documents-view .home-sidebar-title { margin: 0 13px 15px; color: #8892a3;
   font-size: 10px; letter-spacing: .11em; font-weight: 750; text-transform: uppercase; }
 #documents-view .home-navigation { display: grid; gap: 5px; }
 #documents-view .home-navigation button { display: flex; align-items: center; width: 100%;
   padding: 11px 13px; gap: 10px; text-align: left; border: 1px solid transparent;
-  border-radius: 8px; background: transparent; color: #536075; font-size: 13px; font-weight: 600; }
+  border-radius: 8px; background: transparent; color: var(--ui-home-secondary); font-size: 13px; font-weight: 600; }
 #documents-view .home-navigation button:hover { background: #f5f7fa; }
 #documents-view .home-navigation button[aria-current=page] { background: var(--ui-selected);
   color: #354cb5; border-color: #e1e8fc; }
@@ -42,8 +42,8 @@ body:has(#documents-view:not([hidden])) > .brand {
 #documents-view .home-heading .eyebrow { margin: 0 0 9px; color: #748197; font-size: 10px;
   font-weight: 750; letter-spacing: .12em; line-height: 1.5; }
 #documents-view .home-description { margin: 9px 0 0; color: #778397; font-size: 13px; line-height: 1.45; }
-#documents-view .home-refresh { padding: 9px 12px; background: #fff; border: 1px solid var(--ui-border);
-  border-radius: 7px; color: #536075; font-size: 12px; font-weight: 600; }
+#documents-view .home-refresh { padding: 9px 12px; background: var(--ui-surface); border: 1px solid var(--ui-border);
+  border-radius: 7px; color: var(--ui-home-secondary); font-size: 12px; font-weight: 600; }
 #documents-view .home-refresh:hover { border-color: #b1bdd1; background: #f8faff; }
 #documents-view .home-content-grid { display: grid; grid-template-columns: minmax(0, 1fr) 310px;
   align-items: start; gap: clamp(22px, 2.5vw, 36px); }
@@ -55,7 +55,7 @@ body:has(#documents-view:not([hidden])) > .brand {
   align-content: start; gap: 17px; margin: 0; padding: 0; list-style: none; }
 #documents-view #document-list li { min-width: 0; margin: 0; padding: 0;
   display: flex; flex-direction: column; gap: 0;
-  background: #fff; border: 1px solid var(--ui-border); border-radius: 11px;
+  background: var(--ui-surface); border: 1px solid var(--ui-border); border-radius: var(--ui-card-radius);
   overflow: hidden; position: relative; transition: border-color .15s, box-shadow .15s, transform .15s; }
 #documents-view #document-list li:hover, #documents-view #document-list li:focus-within {
   border-color: #a9b9ef; box-shadow: 0 9px 30px #22395b13; transform: translateY(-2px); }
@@ -63,7 +63,7 @@ body:has(#documents-view:not([hidden])) > .brand {
   overflow: hidden; background: linear-gradient(135deg, #edf1fa 0%, #f8faff 55%, #e5ebf7 100%);
   border-bottom: 1px solid #e8edf5; }
 #documents-view .document-art-window { width: 62%; max-width: 210px; height: 102px;
-  border: 1px solid #cfd9ed; border-radius: 6px; background: #fff;
+  border: 1px solid #cfd9ed; border-radius: 6px; background: var(--ui-surface);
   box-shadow: 0 9px 23px #465d881c; overflow: hidden; }
 #documents-view .document-art-window::before { content: ''; display: block; height: 17px;
   background: #f3f5fb; border-bottom: 1px solid #e4e9f3; }
@@ -80,23 +80,23 @@ body:has(#documents-view:not([hidden])) > .brand {
 #documents-view #document-list a:focus-visible { outline: 3px solid #7c2eb8; outline-offset: -4px; }
 #documents-view .document-role { font-size: 12px; color: #8791a2; }
 #documents-view .home-empty { min-height: 205px; border: 1px dashed #ccd5e4;
-  border-radius: 11px; background: #fff; padding: 38px 28px;
+  border-radius: var(--ui-card-radius); background: var(--ui-surface); padding: 38px 28px;
   display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
 #documents-view .home-empty strong { font-size: 15px; color: #28374c; }
-#documents-view .home-empty p { margin: 8px 0 0; font-size: 13px; color: #7b879a; }
+#documents-view .home-empty p { margin: 8px 0 0; font-size: 13px; color: var(--ui-home-muted); }
 #documents-view .home-pagination { padding: 24px 0; }
 #documents-view .home-pagination button { padding: 8px 11px; font-size: 12px;
-  border-color: var(--ui-border); color: #536075; }
-#documents-view .home-pagination span { font-size: 12px; color: #7b879a; }
+  border-color: var(--ui-border); color: var(--ui-home-secondary); }
+#documents-view .home-pagination span { font-size: 12px; color: var(--ui-home-muted); }
 
 #documents-view .home-actions { display: grid; gap: 18px; }
-#documents-view .home-action-card { background: #fff; padding: 23px;
-  border: 1px solid var(--ui-border); border-radius: 11px; }
+#documents-view .home-action-card { background: var(--ui-surface); padding: 23px;
+  border: 1px solid var(--ui-border); border-radius: var(--ui-card-radius); }
 #documents-view .home-action-icon { display: grid; place-items: center;
   width: 36px; height: 36px; margin-bottom: 16px; background: #edf1ff; color: #3e57be;
   border-radius: 9px; font-size: 23px; font-weight: 400; line-height: 1; }
 #documents-view .home-action-card h2 { font-size: 15px; margin: 0 0 6px; font-weight: 720; }
-#documents-view .home-action-card > p { font-size: 12px; color: #7b879a; margin: 0 0 18px; line-height: 1.55; }
+#documents-view .home-action-card > p { font-size: 12px; color: var(--ui-home-muted); margin: 0 0 18px; line-height: 1.55; }
 #documents-view .home-action-card form { margin: 0; padding: 0; border: 0; background: none;
   display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
 #documents-view .home-action-card label { font-size: 11px; font-weight: 650; color: #59667b; }
@@ -108,7 +108,7 @@ body:has(#documents-view:not([hidden])) > .brand {
   color: #fff; font-size: 12px; font-weight: 650; border-color: var(--ui-accent); }
 #documents-view .home-action-card button[type=submit]:hover:not(:disabled) { background: #3e54bf; }
 #documents-view .home-action-card button[type=submit]:disabled { background: #e8ebef; color: #677080; border-color: #cfd6e2; }
-#documents-view .home-action-card.home-action-secondary button[type=submit] { background: #fff;
+#documents-view .home-action-card.home-action-secondary button[type=submit] { background: var(--ui-surface);
   color: #40536f; border-color: #ccd5e4; }
 #documents-view .home-action-card.home-action-secondary button[type=submit]:hover:not(:disabled) { background: #f4f6fc; }
 #documents-view .home-file-picker { position: relative; display: flex; align-items: center; gap: 9px;
@@ -121,7 +121,7 @@ body:has(#documents-view:not([hidden])) > .brand {
 #documents-view .home-file-trigger { flex: none; padding: 8px 9px; border-radius: 5px;
   background: #e9eefd; color: #405690; font-size: 11px; font-weight: 650; }
 #documents-view .home-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap; color: #7b879a; font-size: 11px; }
+  white-space: nowrap; color: var(--ui-home-muted); font-size: 11px; }
 #documents-view #import-status, #documents-view #import-error { margin: 0; font-size: 12px; }
 #documents-view #import-error { color: #ae263b; }
 #documents-view #import-diagnostics { margin: 0; padding-left: 19px; color: #ae263b; font-size: 11px; }
@@ -129,7 +129,7 @@ body:has(#documents-view:not([hidden])) > .brand {
 
 #documents-view #home-admin-content { max-width: 920px; }
 #documents-view #user-admin { margin: 0; padding: 28px; border: 1px solid var(--ui-border);
-  border-radius: 11px; background: #fff; }
+  border-radius: var(--ui-card-radius); background: var(--ui-surface); }
 #documents-view #user-admin-title { margin: 0 0 24px; font-size: 17px; }
 #documents-view #user-invite { display: flex; align-items: end; flex-wrap: wrap; gap: 11px; margin-bottom: 22px; }
 #documents-view #user-invite label { display: block; flex: 1 1 240px; font-size: 12px; color: #556479; }
@@ -145,7 +145,7 @@ body:has(#documents-view:not([hidden])) > .brand {
 #documents-view .user-row-details { color: #6d798d; font-size: 12px; }
 #documents-view .user-row-binding { color: #8491a3; font-size: 11px; }
 #documents-view #user-admin-list li > label { display: inline-flex; align-items: center; gap: 7px;
-  white-space: nowrap; font-size: 12px; color: #536075; }
+  white-space: nowrap; font-size: 12px; color: var(--ui-home-secondary); }
 #documents-view #user-admin-list input { accent-color: var(--ui-accent); }
 #documents-view #user-admin-status { font-size: 12px; color: #56637b; }
 
@@ -173,7 +173,7 @@ body:has(#documents-view:not([hidden])) .feedback #retry { padding: 7px 11px; fo
   body:has(#documents-view:not([hidden])) .feedback { margin: -24px 0 0; padding-inline: 20px; }
 }
 @media (max-width: 560px) {
-  body:has(#documents-view:not([hidden])) > .brand { height: 56px; gap: 12px; }
+  body:has(#documents-view:not([hidden])) > #figvam-app > .brand { height: 56px; gap: 12px; }
   .brand .brand-section { display: none; }
   #documents-view .home-actions { grid-template-columns: 1fr; }
   #documents-view .home-heading { align-items: flex-start; margin-bottom: 22px; }

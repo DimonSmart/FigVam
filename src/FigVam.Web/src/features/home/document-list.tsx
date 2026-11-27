@@ -1,6 +1,5 @@
 import { useRef, useState } from 'react';
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import type { DocumentListItem } from '../../api/document-list';
 import { Button } from '../../ui/Button';
 
@@ -61,11 +60,11 @@ function DocumentCard({ item, onDelete }: { item: DocumentListItem; onDelete: De
   </li>;
 }
 
-export function createDocumentListView(host: HTMLElement, onDelete: DeleteDocument) {
-  const root = createPanelRoot(host);
-  const render = (items: DocumentListItem[]) => {
-    flushSync(() => root.render(<>{items.map(item =>
-      <DocumentCard key={item.documentId} item={item} onDelete={onDelete} />)}</>));
-  };
+function DocumentList({items,onDelete}:{items:DocumentListItem[];onDelete:DeleteDocument}){
+  return <>{items.map(item=><DocumentCard key={item.documentId} item={item} onDelete={onDelete}/>)}</>;
+}
+export function createDocumentListModel(){return createViewModel(DocumentList);}
+export function createDocumentListView(model: ReturnType<typeof createDocumentListModel>, onDelete: DeleteDocument) {
+  const render = (items: DocumentListItem[]) => model.publish({items,onDelete});
   return { render, clear: () => render([]) };
 }

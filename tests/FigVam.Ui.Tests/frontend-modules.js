@@ -8,8 +8,7 @@ const entries = {
   'token-groups': 'src/core/tokens/token-groups.ts',
   'token-exchange': 'src/core/tokens/token-exchange.ts',
   'token-resolution': 'src/core/tokens/token-resolution.ts',
-  'node-property-controls': 'src/ui/node-property-controls.ts',
-  'padding-editor': 'src/ui/padding-editor.ts',
+  'property-controls': 'tests/property-controls.browser.tsx',
 };
 const cache = new Map();
 function bundle(name) {
@@ -18,6 +17,9 @@ function bundle(name) {
     const { build } = await import(pathToFileURL(require.resolve('vite', { paths: [frontend] })).href);
     const result = await build({
       root: frontend, configFile: false, logLevel: 'error',
+      // Library mode does not replace NODE_ENV automatically. Match the production
+      // frontend config so React's runtime can execute in Chromium without Node globals.
+      define: { 'process.env.NODE_ENV': JSON.stringify('production') },
       build: { write: false, minify: false,
         lib: { entry: resolve(frontend, entries[name]), formats: ['es'], fileName: name },
         rollupOptions: { output: { inlineDynamicImports: true } } }

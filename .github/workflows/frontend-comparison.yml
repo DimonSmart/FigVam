@@ -1,0 +1,71 @@
+name: Frontend comparison
+on:
+  pull_request:
+    paths:
+      - 'src/FigVam.Web/**'
+      - 'src/FigVam.Server/wwwroot/**'
+      - 'tests/FigVam.Ui.Tests/frontend-*'
+      - 'tests/FigVam.Ui.Tests/playwright.performance.config.js'
+      - '.github/workflows/frontend-comparison.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: frontend-comparison-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  compare:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --global npm@11
+      - name: Checkout reference revision
+        run: |
+          git fetch origin f1a67f63de65cdf80b88773b85e849cf05fb53fa
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git worktree add --detach "$env:RUNNER_TEMP/figvam-baseline" f1a67f63de65cdf80b88773b85e849cf05fb53fa
+      - name: Build both versions and install identical benchmark
+        run: |
+          $baseline = "$env:RUNNER_TEMP/figvam-baseline"
+          $candidate = "$env:GITHUB_WORKSPACE"
+          Copy-Item "$candidate/tests/FigVam.Ui.Tests/frontend-performance.bench.js" "$baseline/tests/FigVam.Ui.Tests/"
+          Copy-Item "$candidate/tests/FigVam.Ui.Tests/playwright.performance.config.js" "$baseline/tests/FigVam.Ui.Tests/"
+          foreach ($root in @($baseline, $candidate)) {
+            Push-Location $root
+            dotnet restore FigVam.sln --locked-mode
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            dotnet build FigVam.sln --no-restore
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Set-Location tests/FigVam.Ui.Tests
+            npm ci
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            npx playwright install chromium
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Pop-Location
+          }
+      - name: Run baseline then candidate on the same runner
+        run: |
+          foreach ($version in @("baseline", "candidate")) {
+            $root = if ($version -eq "baseline") { "$env:RUNNER_TEMP/figvam-baseline" } else { "$env:GITHUB_WORKSPACE" }
+            $env:FIGVAM_BENCH_OUTPUT = "$env:RUNNER_TEMP/figvam-comparison/$version"
+            Push-Location "$root/tests/FigVam.Ui.Tests"
+            npx playwright test --config=playwright.performance.config.js
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Pop-Location
+          }
+      - name: Report metric and screenshot differences
+        working-directory: tests/FigVam.Ui.Tests
+        run: node frontend-compare.cjs "$env:RUNNER_TEMP/figvam-comparison/baseline" "$env:RUNNER_TEMP/figvam-comparison/candidate" "$env:RUNNER_TEMP/figvam-baseline" "$env:GITHUB_WORKSPACE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-comparison
+          path: ${{ runner.temp }}/figvam-comparison/
+          if-no-files-found: ignore

@@ -1,6 +1,7 @@
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Ellipsis, ChevronDown, ChevronRight, CornerDownRight } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
@@ -10,7 +11,8 @@ import { token as readToken } from '../../canvas/render-model';
 import type { DesignToken, TokenType, TokenCategory, Theme, TokenValue, TokenExpression, TypographyFieldsValue, TypographyField, ResolvableValue } from '../../core/tokens/token-model';
 import { tokenTypes, tokenCategories } from '../../core/tokens/token-model';
 import type { TokenGroup } from '../../core/tokens/token-groups';
-import type { PropertyControl, ControlInput } from '../../ui/property-control-contract';
+import { createShadowSpec,createReferenceSpec,createValueField,type ValueSpec,type ValueField,type EditKind,type CompositeSpec } from '../../ui/property-value';
+import { FieldValue } from '../../ui/property-value-editor';
 import { rawArray, rawText } from '../../ui/property-control-contract';
 import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
@@ -21,7 +23,7 @@ type CommandData=Omit<Schema['AddTokenRequest'],'commandId'|'values'> & {values:
   | Omit<Schema['RenameTokenRequest'],'commandId'>
   | Omit<Schema['ImportDesignTokensRequest'],'commandId'>;
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number;navigationEpoch:number}
-interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
+interface Options {models:ReturnType<typeof createTokenModels>;selectLayer(id:string):void;showEditor():void;element(id:string):HTMLElement;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 interface Usage {label?:string;kind:string;property?:string|null;theme?:number|string|null;indirect:boolean;ownerId:string;chain:string[]}
 interface UsageSnapshot {selection:string|null;usages:Usage[]}
 interface Snapshot extends UsageSnapshot {items:DesignToken[]}
@@ -36,8 +38,6 @@ function literalValue(value:ResolvableValue|undefined):TokenValue{
   throw new TypeError('Некорректное значение токена.');
 }
 import { splitTokenBundle } from '../../core/tokens/token-exchange';
-import { shadowControl } from '../../ui/node-property-controls';
-import { createTokenValueControl } from '../../ui/token-value-control';
 import { tokenSegments, buildTokenGroups, shortTokenName, tokenNameError, tokenNameDiagnostics, filteredTokens, tokensInGroup, matchesTokenSearch, qualifyTokenName } from '../../core/tokens/token-groups';
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, tokenValueText } from '../../core/tokens/token-resolution';
 
@@ -88,21 +88,127 @@ function directText(expression:TokenExpression|null|undefined) {
   return tokenValueText(expression.value).replace(/ px$/, '');
 }
 
-export function createTokens({ element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
+const typeOf=(token:Pick<DesignToken,'type'>)=>knownType(token.type);
+const categoryOf = (token:DesignToken) => normalizedTokenCategory(token?.category);
+const typographyFields:TypographyPart[] = [
+  { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
+  { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
+  { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
+  { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
+  { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
+];
+
+const groupKey = (segments:readonly string[]) => JSON.stringify(segments);
+function TokenGroups({tree,group,collapsed,toggle,select}:{tree:TokenGroup;group:string[];collapsed:ReadonlySet<string>;toggle(key:string):void;select(segments:string[]):void}){
+    function drawGroup(node:TokenGroup):ReactElement {
+      const key=groupKey(node.segments), expanded=!collapsed.has(key);
+      return <div key={key} className="token-group-branch" style={{display:'contents'}}>
+        <div className="token-group-row">
+          {node.children.size ? <Button aria-label={(expanded?'Свернуть ':'Раскрыть ')+(node.segments.join('.')||'все группы')}
+            aria-expanded={expanded} onClick={()=>toggle(key)}>{expanded?<ChevronDown size={14}/>:<ChevronRight size={14}/>}</Button> : <span aria-hidden="true"/>}
+          <Button className="token-group-select" aria-pressed={key===groupKey(group)} onClick={()=>select(node.segments)}>{node.segments.at(-1)??'Все токены'}</Button>
+        </div>
+        {expanded && <div className="token-group-children">{[...node.children.values()].sort((a,b)=>(a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??'')).map(drawGroup)}</div>}
+      </div>;
+    }
+
+  return drawGroup(tree);
+}
+interface TableProps {
+  tokenItems:DesignToken[]; displayed:DesignToken[];group:string[];search:string;selectedToken:string|null;usagesReady:boolean;usageCount:number;hasTypes:boolean;
+  selectToken(id:string):void;selectAlias(id:string):void;
+}
+function TokenTable({tokenItems,displayed,group,search,selectedToken,usagesReady,usageCount,hasTypes,selectToken,selectAlias}:TableProps){
+  const index=new Map(tokenItems.map(token=>[token.id,token]));
+  const nameDiagnostics=tokenNameDiagnostics(tokenItems);
+  const nameOf=(id:string)=>index.get(id)?.name??'Удалённый токен';
+    const rows=displayed.map(item=>{
+      const type=typeOf(item),category=categoryOf(item);
+      const problems=[nameDiagnostics.get(item.id)].filter((x):x is string=>!!x);
+      const sources:string[]=[];
+      const cells=themes.map(currentTheme=>{
+        const expression=item.values?.[currentTheme];
+        const resolved=resolveTokenValue({type:'token',tokenId:item.id},index,currentTheme,item.type,item.category);
+        const alias=expression?.expression==='alias';
+        const nested=expression?.expression==='literal'&&expression.value.type==='typographyFields'&&typographyFields.some(field=>expression.value.type==='typographyFields'&&expression.value[field.name]?.expression==='alias');
+        sources.push(alias?'alias':nested?'mixed':'literal');
+        if(resolved.error)problems.push(currentTheme+': '+resolved.error);
+        const color=type==='Color'&&!resolved.error&&resolved.value?.type==='color'?resolved.value:undefined;
+        const value=resolved.error??tokenValueText(resolved.value);
+        return <td key={currentTheme}>
+          {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
+          {alias?<><Button className="token-alias-link" aria-label={'↳ '+nameOf(expression.tokenId)} title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
+            selectAlias(expression.tokenId);
+          }}><CornerDownRight size={12} aria-hidden="true"/>{nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
+        </td>;
+      });
+      return <tr key={item.id} data-selected={String(item.id===selectedToken)}>
+        <td><Button title={item.name} aria-pressed={item.id===selectedToken} onClick={()=>selectToken(item.id)}>{shortTokenName(item.name,search.trim()?[]:group)}</Button></td>
+        <td>{category?type+'.'+category:type}</td>{cells}
+        <td>{sources[0]===sources[1]?(sources[0]??''):'mixed'}</td>
+        <td>{item.id===selectedToken&&usagesReady?String(usageCount):'—'}</td>
+        <td className={problems.length?'token-invalid':undefined} title={problems.join('\n')}>{problems.length?'Ошибка':'—'}</td>
+      </tr>;
+    });
+
+  return <>{rows.length?rows:<tr><td colSpan={7}>{hasTypes?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>}</>;
+}
+interface TokenMenuProps {
+  editable:boolean; selectedTypes:ReadonlySet<TokenType>;toggleAll():void;toggleType(type:TokenType,checked:boolean):void;
+  create():void;importTokens():void;exportTokens(theme?:Theme):void;
+}
+function TokenMenu({editable,selectedTypes,toggleAll,toggleType,create,importTokens,exportTokens}:TokenMenuProps){
+  const menu=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null),all=useRef<HTMLInputElement>(null);
+  const allSelected=selectedTypes.size===types.length;
+  useLayoutEffect(()=>{if(all.current)all.current.indeterminate=selectedTypes.size>0&&!allSelected;},[selectedTypes,allSelected]);
+  function position(){
+    const popover=menu.current,button=trigger.current;
+    if(!popover?.matches(':popover-open')||!button)return;
+    const rect=button.getBoundingClientRect(),margin=8;
+    popover.style.left=Math.max(margin,Math.min(rect.right-popover.offsetWidth,window.innerWidth-popover.offsetWidth-margin))+'px';
+    const below=window.innerHeight-rect.bottom-margin,above=rect.top-margin;
+    const openAbove=below<popover.scrollHeight&&above>below;
+    popover.style.maxHeight=Math.max(0,openAbove?above:below)+'px';
+    popover.style.top=(openAbove?rect.top-popover.offsetHeight:rect.bottom)+'px';
+  }
+  useEffect(()=>{window.addEventListener('resize',position);return()=>window.removeEventListener('resize',position);},[]);
+  function run(action:()=>void){if(menu.current?.matches(':popover-open'))menu.current.hidePopover();trigger.current?.focus();action();}
+  return <>
+    <button ref={trigger} id="token-menu-open" type="button" className="token-menu-button" data-filtered={String(!allSelected)}
+      aria-label={allSelected?'Управление токенами':'Управление токенами (активен фильтр)'} popoverTarget="token-menu"><Ellipsis size={16} aria-hidden="true"/></button>
+    <div ref={menu} className="token-menu" id="token-menu" popover="auto" role="group" aria-label="Управление токенами" onToggle={position}>
+      <Button id="new-token-open" hidden={!editable} onClick={()=>run(create)}>+ Новый токен…</Button><hr/>
+      <Button id="token-import-open" hidden={!editable} onClick={()=>run(importTokens)}>Импорт токенов…</Button>
+      <Button id="token-export" disabled={!editable} onClick={()=>run(()=>exportTokens())}>Экспорт токенов…</Button>
+      <Button id="token-export-light" disabled={!editable} onClick={()=>run(()=>exportTokens('Light'))}>Экспорт Light</Button>
+      <Button id="token-export-dark" disabled={!editable} onClick={()=>run(()=>exportTokens('Dark'))}>Экспорт Dark</Button><hr/>
+      <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы">
+        <div className="token-filter-heading" aria-hidden="true">Отображаемые типы</div>
+        <label><input ref={all} type="checkbox" value="" checked={allSelected} onChange={toggleAll}/>Все типы</label>
+        {types.map(type=><label key={type}><input type="checkbox" value={type} checked={selectedTypes.has(type)} onChange={event=>toggleType(type,event.currentTarget.checked)}/>{type}</label>)}
+      </div>
+    </div>
+  </>;
+}
+
+function ThemeFields({fields}:{fields:ValueField[]}){
+  return <>{fields.map((field,index)=><div className="token-theme-row" key={field.id} data-theme={themes[index]} onKeyDown={event=>{if(!event.nativeEvent.isComposing&&event.key==='Enter'&&event.target instanceof HTMLInputElement&&event.target.matches('input:not([type=search]):not([type=color])')){event.preventDefault();event.target.blur();}}}><FieldValue field={field}/></div>)}</>;
+}
+export function createTokenModels(){return {menu:createViewModel(TokenMenu),groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages),createFields:createViewModel(ThemeFields),detailFields:createViewModel(ThemeFields)};}
+
+export function createTokens({ models, selectLayer, showEditor, element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
   let tokenItems:DesignToken[]=[],selectedToken:string|null=null,tokenUsages:Usage[]=[],tokenLoad=0,rendered=false;
   const el=element,editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   const input=(id:string)=>checked(el(id),HTMLInputElement),select=(id:string)=>checked(el(id),HTMLSelectElement),form=(id:string)=>checked(el(id),HTMLFormElement),area=(id:string)=>checked(el(id),HTMLTextAreaElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
   let group:string[]=[],collapsed=new Set<string>(), creating = false, usagesReady = false;
-  const groupRoot=createPanelRoot(el('token-groups')), tableRoot=createPanelRoot(el('tokens-list')), usageRoot=createPanelRoot(el('token-usages'));
   let importEpoch = 0;
   let selectedTypes=new Set<TokenType>(types);
-  let createControls:PropertyControl[]=[],detailControls:PropertyControl[]=[],renaming=false;
+  let createControls:ValueField[]=[],detailControls:ValueField[]=[],renaming=false;
   const pendingThemeValues=new Map<Theme,ThemeSave>();
   let activeThemeSave:ThemeSave|null=null;
   const busy = () => el('token-create').inert;
   function refreshAccess() {
-    el('new-token-open').hidden = el('token-import-open').hidden = !editable();
-    for (const id of ['token-export','token-export-light','token-export-dark']) btn(id).disabled = !editable();
+    syncTypeFilter();
     if (!editable()) { creating = false; pendingThemeValues.clear(); el('token-import-form').hidden = true; }
     el('token-edit').hidden = !editable();
     if (!editable()) endRename();
@@ -111,7 +217,6 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     updateDetailVisibility();
   }
   const selected = () => tokenItems.find(t => t.id === selectedToken);
-  const groupKey = (segments:readonly string[]) => JSON.stringify(segments);
   function updateDetailVisibility() {
     el('token-create').hidden = !creating || !editable();
     el('token-detail').hidden = creating || !selected();
@@ -126,32 +231,11 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     input('new-token-name').value = group.length ? group.join('.') + '.' : '';
     updateDetailVisibility(); el('new-token-name').focus();
   }
-  el('new-token-open').addEventListener('click', beginCreate);
   el('new-token-cancel').addEventListener('click', () => { creating = false; updateDetailVisibility(); });
-  const filter = el('token-type-filter');
-  const checks=new Map<TokenType,HTMLInputElement>();
-  const filterHeading = document.createElement('div');
-  filterHeading.className = 'token-filter-heading'; filterHeading.textContent = 'Отображаемые типы';
-  filterHeading.setAttribute('aria-hidden', 'true'); filter.append(filterHeading);
-  function checkbox(label:string,value:string,change:()=>void) {
-    const wrapper = document.createElement('label'), input = document.createElement('input');
-    input.type = 'checkbox'; input.value = value; input.addEventListener('change', change);
-    wrapper.append(input, label); filter.append(wrapper); return input;
-  }
-  const allTypes = checkbox('Все типы', '', () => {
-    selectedTypes = selectedTypes.size === types.length ? new Set() : new Set(types);
-    syncTypeFilter(); renderTokens(false);
-  });
-  for (const type of types) checks.set(type, checkbox(type, type, () => {
-    if (checks.get(type)?.checked) selectedTypes.add(type); else selectedTypes.delete(type);
-    syncTypeFilter(); renderTokens(false);
-  }));
-  function syncTypeFilter() {
-    allTypes.checked = selectedTypes.size === types.length;
-    allTypes.indeterminate = selectedTypes.size > 0 && !allTypes.checked;
-    for (const [type, input] of checks) input.checked = selectedTypes.has(type);
-    el('token-menu-open').dataset.filtered = String(!allTypes.checked);
-    el('token-menu-open').setAttribute('aria-label', allTypes.checked ? 'Управление токенами' : 'Управление токенами (активен фильтр)');
+  function syncTypeFilter(writable=editable()){
+    models.menu.publish({editable:writable,selectedTypes:new Set(selectedTypes),create:beginCreate,importTokens:toggleImport,exportTokens:theme=>void exportTokens(theme),
+      toggleAll:()=>{selectedTypes=selectedTypes.size===types.length?new Set():new Set(types);syncTypeFilter();renderTokens(false);},
+      toggleType:(type,checked)=>{if(checked)selectedTypes.add(type);else selectedTypes.delete(type);syncTypeFilter();renderTokens(false);}});
   }
   syncTypeFilter();
   el('token-search').addEventListener('input', () => { group = []; renderTokens(false); });
@@ -165,9 +249,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
   }
   el('token-import-mode').addEventListener('change', syncImportMode);
   syncImportMode();
-  el('token-import-open').addEventListener('click', () => {
-    if (editable() && !busy()) el('token-import-form').hidden = !el('token-import-form').hidden;
-  });
+  function toggleImport(){if(editable()&&!busy())el('token-import-form').hidden=!el('token-import-form').hidden;}
   for (const theme of ['combined','light','dark']) {
     const field=area('token-import-'+theme),fileInput=input('token-import-'+theme+'-file');
     let fileLoad = 0;
@@ -230,19 +312,7 @@ export function createTokens({ element, request, getContext, startRequest, stopL
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     } catch (error) { if (active()) el('tokens-error').textContent = errorMessage(error); }
   }
-  el('token-export').addEventListener('click', () => exportTokens());
-  el('token-export-light').addEventListener('click', () => exportTokens('Light'));
-  el('token-export-dark').addEventListener('click', () => exportTokens('Dark'));
-  const typeOf=(token:Pick<DesignToken,'type'>)=>knownType(token.type);
-  const categoryOf = (token:DesignToken) => normalizedTokenCategory(token?.category);
   const nameOf = (id:string) => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
-  const typographyFields:TypographyPart[] = [
-    { name: 'fontFamily', label: 'Шрифт', type: 'FontFamily', category: null, initial: 'Arial' },
-    { name: 'fontSize', label: 'Размер, px', type: 'Dimension', category: 'FontSize', initial: '16' },
-    { name: 'fontWeight', label: 'Толщина', type: 'FontWeight', category: null, initial: '400' },
-    { name: 'lineHeight', label: 'Интерлиньяж', type: 'Number', category: 'LineHeight', initial: '1.25' },
-    { name: 'letterSpacing', label: 'Межбуквенный интервал, px', type: 'Dimension', category: 'LetterSpacing', initial: '0' }
-  ];
   // The shared control owns the literal/reference interaction; this adapter only
   // translates its values to the token command's literal/alias expression.
   const tokenIndex = () => new Map(tokenItems.map(token => [token.id, token]));
@@ -257,94 +327,44 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     }
     return false;
   }
-  function makeTokenControl(prefix:string,label:string,type:TokenType,category:TokenCategory|null,theme:Theme,expression?:TokenExpression|null,ownerId?:string,initialText=''):PropertyControl {
-    const literal = expression?.expression === 'literal' ? expression.value : null;
-    let direct:PropertyControl;
-    if (type === 'Shadow') {
-      direct=shadowControl(literal?.type==='shadow'?literal:null);
-      if(direct.writeResolved)direct.writeResolved=direct.writeResolved.bind(direct);
-    } else if (type === 'Typography') {
-      const holder = document.createElement('div'); holder.className = 'token-composite-direct';
-      holder.id = prefix + '-typography';
-      const children = typographyFields.map(field => {
-        const child = makeTokenControl(prefix + '-' + field.name + '-value', field.label, field.type,
-          field.category, theme, typographyPart(literal, field), ownerId, field.initial);
-        holder.append(...child.content);
-        return child;
-      });
-      direct = {
-        content: [holder], inputs: children.flatMap(child => child.inputs),
-        initial: children.map(child => child.initial),
-        read: () => children.map(child => child.read()),
-        write: raw => children.forEach((child,i)=>child.write(rawArray(raw)[i]??null)),
-        validate() {
-          const value:TypographyFieldsValue={type:'typographyFields'};
-          for (const [i, child] of children.entries()) {
-            const result = child.validate();
-            if (result.error) return result;
-            const field=typographyFields[i];if(!field)throw new Error('Missing typography field');
-            value[field.name]=asExpression(result.value);
+  function makeTokenSpec(prefix:string,label:string,type:TokenType,category:TokenCategory|null,theme:Theme,expression?:TokenExpression|null,ownerId?:string,initialText=''):ValueSpec {
+    const literal=expression?.expression==='literal'?expression.value:null;
+    let direct:ValueSpec;
+    if(type==='Shadow')direct=createShadowSpec(literal?.type==='shadow'?literal:null);
+    else if(type==='Typography'){
+      const children=typographyFields.map(field=>makeTokenSpec(prefix+'-'+field.name+'-value',field.label,field.type,field.category,theme,typographyPart(literal,field),ownerId,field.initial));
+      const composite:CompositeSpec={
+        kind:'composite',label,id:prefix+'-typography',children,count:children.reduce((n,child)=>n+child.count,0),
+        initial:children.map(child=>child.initial),
+        validate(raw){
+          const values=rawArray(raw),value:TypographyFieldsValue={type:'typographyFields'};
+          let offset=0;
+          for(const [i,child] of children.entries()){
+            const result=child.validate(values[i]??null),field=typographyFields[i];
+            if(!field)throw new Error('Missing typography field');
+            if(result.error)return {...result,index:offset+(result.index??0)};
+            value[field.name]=asExpression(result.value);offset+=child.count;
           }
-          return { value };
+          return {value};
         },
-        setDisabled: disabled => children.forEach(child => child.setDisabled?.(disabled)),
-        refresh: () => children.forEach(child => child.refresh?.()),
-        dispose: () => children.forEach(child => child.dispose?.())
+        resolvedRaw(result){
+          return typographyFields.map(field=>[field.type.toLowerCase(),result.error||result.value?.type!=='typography'||'value' in result.value?'':String(result.value[field.name]??0),'']);
+        }
       };
-      direct.writeResolved = result => children.forEach((child, i) => {
-        const field=typographyFields[i];if(!field)return;
-        const resolved=result.value;child.write([field.type.toLowerCase(),result.error||resolved?.type!=='typography'||'value' in resolved?'':String(resolved[field.name]??0),'']);
-      });
-    } else {
-      const holder = document.createElement('div'); holder.className = 'token-scalar-direct';
-      const input = document.createElement('input'); input.id = prefix;
-      input.setAttribute('aria-label', prefix.startsWith('token-') ? label + ' — значение токена' : label); input.autocomplete = 'off';
-      const inputs:ControlInput[]=[input];let picker:HTMLInputElement|undefined,preset:HTMLSelectElement|undefined;
-      if (type === 'Color') {
-        picker = document.createElement('input'); picker.type = 'color';
-        picker.setAttribute('aria-label', 'Выбрать цвет ' + label);
-        picker.addEventListener('input', () => {
-          input.value = (picker?.value??'#000000') + (/^#[0-9a-f]{8}$/i.test(input.value) ? input.value.slice(7) : 'FF');
-        });
-        input.placeholder = '#RRGGBBAA'; inputs.push(picker); holder.append(picker);
-      }
-      if (type === 'FontWeight') {
-        preset = document.createElement('select'); preset.setAttribute('aria-label', 'Пресет толщины ' + label);
-        for (const [v, text] of [['','Custom'],['400','Normal'],['500','Medium'],['600','Semibold'],['700','Bold']])
-          preset.add(new Option(text, v));
-        preset.addEventListener('change', () => { if(preset?.value)input.value=preset.value; });
-        inputs.push(preset); holder.append(preset);
-      }
-      function sync() {
-        if (picker && /^#[0-9a-f]{6}([0-9a-f]{2})?$/i.test(input.value)) picker.value = input.value.slice(0,7);
-        if (preset) preset.value = ['400','500','600','700'].includes(input.value) ? input.value : '';
-      }
-      input.addEventListener('input', sync);
-      holder.append(input);
-      direct = {
-        content: [holder], inputs, initial: literal ? directText(expression) : initialText,
-        read: () => input.value,
-        write: value => { input.value=rawText(value);sync(); },
-        validate() {
-          try { return { value: literalExpression(type, category, input.value.trim()).value }; }
-          catch (error) { return { input, error:errorMessage(error) }; }
-        },
-        writeResolved: result => { direct.write(result.error ? '' : tokenValueText(result.value).replace(/ px$/, '')); }
-      };
+      direct=composite;
+    }else{
+      direct={kind:'token-scalar',label,inputId:prefix,color:type==='Color',weight:type==='FontWeight',count:type==='Color'||type==='FontWeight'?2:1,
+        initial:literal?directText(expression):initialText,
+        validate(raw){try{return{value:literalExpression(type,category,rawText(raw).trim()).value};}catch(error){return{index:0,error:errorMessage(error)};}},
+        resolvedRaw:result=>result.error?'':tokenValueText(result.value).replace(/ px$/,'')};
     }
-    const control = createTokenValueControl(prefix, { type, tokenType: type, tokenCategory: category },
-      { tokens: tokenIndex() }, expression?.expression === 'alias' ? { type: 'token', tokenId: expression.tokenId } : null,
-      direct, label, label, {
-        theme, customDirect: true, validateChoices: true,
-        getToken: id => tokenItems.find(item => item.id === id),
-        getCompatible: () => allowedAliases(type, category, ownerId??null).filter(item => !dependsOn(item.id, ownerId, theme)),
-        resolve: id => dependsOn(id, ownerId, theme)
-          ? { value:null,error: 'Цикл ссылок дизайн-токенов.' }
-          : resolveTokenValue({ type: 'token', tokenId: id }, tokenIndex(), theme, type, category),
-        writeResolved: direct.writeResolved
+    return createReferenceSpec({type,tokenType:type,tokenCategory:category},{tokens:tokenIndex()},
+      expression?.expression==='alias'?{type:'token',tokenId:expression.tokenId}:null,direct,label,label,{
+        theme,customDirect:true,validateChoices:true,getToken:id=>tokenItems.find(item=>item.id===id),
+        getCompatible:()=>allowedAliases(type,category,ownerId??null).filter(item=>!dependsOn(item.id,ownerId,theme)),
+        resolve:id=>dependsOn(id,ownerId,theme)?{value:null,error:'Цикл ссылок дизайн-токенов.'}:
+          resolveTokenValue({type:'token',tokenId:id},tokenIndex(),theme,type,category)
       });
-    control.write(control.initial);
-    return control;
   }
   function typographyPart(value:TokenValue|null,field:TypographyPart):TokenExpression|null|undefined{
     if(value?.type==='typographyFields')return value[field.name];
@@ -352,41 +372,27 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     return null;
   }
   const asExpression=(value:ResolvableValue|undefined):TokenExpression=>value?.type==='token'?{expression:'alias',tokenId:value.tokenId}:{expression:'literal',value:literalValue(value)};
-  function readExpression(control:PropertyControl) {
-    const result = control.validate();
-    if (result.error) { result.input?.setAttribute('aria-invalid', 'true'); throw new Error(result.error); }
+  function readExpression(control:ValueField) {
+    const result=control.validate();
+    if(result.error)throw new Error(result.error);
     return asExpression(result.value);
   }
-  function replaceThemeControls(hostId:string,previous:PropertyControl[],type:TokenType,category:TokenCategory|null,item:DesignToken|null):PropertyControl[] {
-    previous.forEach(control => control.dispose?.());
-    const host = el(hostId); host.replaceChildren();
-    return themes.map((theme,index) => {
-      const prefix = (item ? 'token-' : 'new-token-') + theme.toLowerCase();
-      const control = makeTokenControl(prefix, theme, type, category, theme, item?.values?.[theme], item?.id);
-      const row = document.createElement('div'); row.className = 'token-theme-row'; row.dataset.theme = theme;
-      row.append(...control.content); host.append(row);
-      if (item) {
-        control.setDisabled?.(!editable());
-        row.addEventListener('change', () => {
-          if ((busy() && !activeThemeSave) || !editable() || selectedToken !== item.id) return;
-          try {
-            control.inputs.forEach(input => input.removeAttribute('aria-invalid'));
-            const value = readExpression(control);
-            el('tokens-error').textContent = '';
-            queueThemeSave(item.id, theme, index, value);
-          } catch (error) {
-            pendingThemeValues.delete(theme);
-            el('tokens-error').textContent = errorMessage(error);
-          }
-        });
-        row.addEventListener('keydown', event => {
-          if (!event.isComposing && event.key === 'Enter' && event.target instanceof HTMLInputElement && event.target.matches('input:not([type=search]):not([type=color])')) {
-            event.preventDefault(); event.target.blur();
-          }
-        });
+  function replaceThemeControls(hostId:string,_previous:ValueField[],type:TokenType,category:TokenCategory|null,item:DesignToken|null):ValueField[] {
+    const fields=themes.map((theme,index)=>{
+      const prefix=(item?'token-':'new-token-')+theme.toLowerCase();
+      const spec=makeTokenSpec(prefix,theme,type,category,theme,item?.values?.[theme],item?.id);
+      let field:ValueField;
+      function onEdit(kind:EditKind){
+        if(!item||kind==='input'||kind==='color-preview'||(busy()&&!activeThemeSave)||!editable()||selectedToken!==item.id)return;
+        try{const value=readExpression(field);el('tokens-error').textContent='';queueThemeSave(item.id,theme,index,value);}
+        catch(error){pendingThemeValues.delete(theme);el('tokens-error').textContent=errorMessage(error);}
       }
-      return control;
+      field=createValueField(spec,prefix,{onEdit,disabled:!!item&&!editable()});
+      return field;
     });
+    const view=hostId==='new-token-values'?models.createFields:models.detailFields;
+    view.publish({fields});
+    return fields;
   }
   // Keep the two theme drafts independent. The existing document command pipeline
   // remains serialized, but saving Light must not discard an edit made in Dark.
@@ -429,15 +435,15 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     pendingThemeValues.clear(); activeThemeSave = null;
     group = []; collapsed = new Set(); creating = false; usagesReady = false;
     input('token-search').value = ''; selectedTypes = new Set(types); syncTypeFilter();
-    flushSync(()=>groupRoot.render(null)); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
-    el('new-token-open').hidden = el('token-import-open').hidden = true; for (const id of ['token-export','token-export-light','token-export-dark']) btn(id).disabled = true;
-    el('document-mode-editor').click(); updateDetailVisibility();
+    models.groups.clear(); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
+    syncTypeFilter(false);
+    showEditor(); updateDetailVisibility();
     el('token-create').inert = el('token-detail').inert = false;
-    flushSync(()=>{tableRoot.render(null);usageRoot.render(null);});
+    models.table.clear();models.usage.clear();
     el('token-detail').hidden = true; el('token-create').hidden = true;
     el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
     form('token-create').reset(); endRename();
-    detailControls.forEach(control => control.dispose?.()); detailControls = []; el('token-values').replaceChildren();
+    detailControls=[];models.detailFields.clear();
     updateCategoryOptions();
   }
   async function readAllTokenPages<T>(path:string,revision:number,decode:(v:unknown)=>T,signal?:AbortSignal,isCurrent?:()=>boolean):Promise<T[]>{
@@ -503,54 +509,19 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     const search = input('token-search').value;
     const filtered = filteredTokens(tokenItems, search, selectedTypes, typeOf);
     const tree = buildTokenGroups(filtered);
-    function drawGroup(node:TokenGroup):ReactElement {
-      const key=groupKey(node.segments), expanded=!collapsed.has(key);
-      return <div key={key} className="token-group-branch" style={{display:'contents'}}>
-        <div className="token-group-row">
-          {node.children.size ? <Button aria-label={(expanded?'Свернуть ':'Раскрыть ')+(node.segments.join('.')||'все группы')}
-            aria-expanded={expanded} onClick={()=>{if(expanded)collapsed.add(key);else collapsed.delete(key);renderTokens(false);}}>{expanded?'▾':'▸'}</Button> : <span aria-hidden="true"/>}
-          <Button className="token-group-select" aria-pressed={key===groupKey(group)} onClick={()=>{group=node.segments;renderTokens(false);}}>{node.segments.at(-1)??'Все токены'}</Button>
-        </div>
-        {expanded && <div className="token-group-children">{[...node.children.values()].sort((a,b)=>(a.segments.at(-1)??'').localeCompare(b.segments.at(-1)??'')).map(drawGroup)}</div>}
-      </div>;
-    }
     let active:TokenGroup|undefined=tree;
     for(const segment of group) active=active?.children.get(segment);
     if(!active)group=[];
-    const index=new Map(tokenItems.map(token=>[token.id,token]));
-    const nameDiagnostics=tokenNameDiagnostics(tokenItems);
     const displayed=tokensInGroup(filtered,group);
     if(selectedToken&&!displayed.some(item=>item.id===selectedToken))clearSelection();
-    const rows=displayed.map(item=>{
-      const type=typeOf(item),category=categoryOf(item);
-      const problems=[nameDiagnostics.get(item.id)].filter((x):x is string=>!!x);
-      const sources:string[]=[];
-      const cells=themes.map(currentTheme=>{
-        const expression=item.values?.[currentTheme];
-        const resolved=resolveTokenValue({type:'token',tokenId:item.id},index,currentTheme,item.type,item.category);
-        const alias=expression?.expression==='alias';
-        const nested=expression?.expression==='literal'&&expression.value.type==='typographyFields'&&typographyFields.some(field=>expression.value.type==='typographyFields'&&expression.value[field.name]?.expression==='alias');
-        sources.push(alias?'alias':nested?'mixed':'literal');
-        if(resolved.error)problems.push(currentTheme+': '+resolved.error);
-        const color=type==='Color'&&!resolved.error&&resolved.value?.type==='color'?resolved.value:undefined;
-        const value=resolved.error??tokenValueText(resolved.value);
-        return <td key={currentTheme}>
-          {color&&<span className="token-color-swatch" style={{backgroundColor:'rgba('+[color.red,color.green,color.blue,color.alpha/255].join(',')+')'}}/>}
-          {alias?<><Button className="token-alias-link" title={value} disabled={!index.has(expression.tokenId)} onClick={()=>{
-            if(busy())return;revealToken(index.get(expression.tokenId),true);void selectToken(expression.tokenId);
-          }}>{'↳ '+nameOf(expression.tokenId)}</Button>{' · '+value}</>:value}
-        </td>;
-      });
-      return <tr key={item.id} data-selected={String(item.id===selectedToken)}>
-        <td><Button title={item.name} aria-pressed={item.id===selectedToken} onClick={()=>{if(!busy())void selectToken(item.id);}}>{shortTokenName(item.name,search.trim()?[]:group)}</Button></td>
-        <td>{category?type+'.'+category:type}</td>{cells}
-        <td>{sources[0]===sources[1]?(sources[0]??''):'mixed'}</td>
-        <td>{item.id===selectedToken&&usagesReady?String(tokenUsages.length):'—'}</td>
-        <td className={problems.length?'token-invalid':undefined} title={problems.join('\n')}>{problems.length?'Ошибка':'—'}</td>
-      </tr>;
-    });
-    flushSync(()=>{groupRoot.render(drawGroup(tree));tableRoot.render(rows.length?rows:<tr><td colSpan={7}>{selectedTypes.size?'Нет токенов, соответствующих фильтрам.':'Не выбраны типы токенов'}</td></tr>);});
-    
+    models.groups.publish({tree,group:[...group],collapsed:new Set(collapsed),
+      toggle:key=>{if(collapsed.has(key))collapsed.delete(key);else collapsed.add(key);renderTokens(false);},
+      select:segments=>{group=segments;renderTokens(false);}});
+    models.table.publish({tokenItems,displayed,group:[...group],search,selectedToken,usagesReady,usageCount:tokenUsages.length,
+      hasTypes:selectedTypes.size>0,selectToken:id=>{if(!busy())void selectToken(id);},
+      selectAlias:id=>{if(busy())return;revealToken(tokenItems.find(item=>item.id===id),true);void selectToken(id);}});
+    const index=new Map(tokenItems.map(token=>[token.id,token]));
+    const nameDiagnostics=tokenNameDiagnostics(tokenItems);
     const item = selected();
     updateDetailVisibility();
     if (!item || refreshDetail === false) return;
@@ -571,17 +542,14 @@ export function createTokens({ element, request, getContext, startRequest, stopL
     } else detailControls.forEach(control => control.refresh?.());
     const usageTitle=el('token-usages').previousElementSibling;
     if(usageTitle)usageTitle.textContent='Использования'+(usagesReady?' · '+tokenUsages.length:' · загрузка…');
-    flushSync(()=>usageRoot.render(<ResourceUsages usages={tokenUsages} ready={usagesReady}
-      name={id=>tokenItems.find(t=>t.id===id)?.name??id} selectLayer={id=>{
-        const layer=[...document.querySelectorAll<HTMLElement>('#layers [role="treeitem"]')].find(row=>row.dataset.id===id);
-        if(layer){el('document-mode-editor').click();layer.querySelector<HTMLElement>('.layer-label')?.click();}
-      }}/>));
+    models.usage.publish({usages:tokenUsages,ready:usagesReady,name:id=>tokenItems.find(t=>t.id===id)?.name??id,
+      selectLayer:id=>{showEditor();selectLayer(id);}});
   }
   function clearSelection() {
     selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
     // A presentation filter must not discard theme edits already queued for saving.
     endRename();
-    detailControls.forEach(control => control.dispose?.()); detailControls = []; el('token-values').replaceChildren();
+    detailControls=[];models.detailFields.clear();
   }
   function revealToken(item:DesignToken|undefined,navigate=false){
     if(!item)return;
