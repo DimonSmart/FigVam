@@ -130,6 +130,12 @@ public sealed class DocumentTokenExporter(IDocumentAuthorization authorization, 
             ["blur"] = Dimension(v.BlurRadius), ["spread"] = Dimension(v.SpreadRadius),
             ["color"] = Value(new ColorValue(v.Color.Red, v.Color.Green, v.Color.Blue, v.Color.Alpha), TokenType.Color, byId)
         },
+        (TokenType.Shadow, ShadowFieldsValue v) => new JsonObject
+        {
+            ["offsetX"] = Dimension(v.OffsetX), ["offsetY"] = Dimension(v.OffsetY),
+            ["blur"] = Dimension(v.BlurRadius), ["spread"] = Dimension(v.SpreadRadius),
+            ["color"] = Expression(v.Color, TokenType.Color, byId)
+        },
         (TokenType.Typography, TypographyValue v) => new JsonObject
         {
             ["fontFamily"] = v.FontFamily, ["fontSize"] = Dimension(v.FontSize),

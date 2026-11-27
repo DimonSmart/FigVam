@@ -14852,7 +14852,7 @@ export interface components {
             /** Format: int32 */
             total: number | string;
         };
-        TokenValue: components["schemas"]["TokenValueColorValue"] | components["schemas"]["TokenValueSpacingValue"] | components["schemas"]["TokenValueTypographyValue"] | components["schemas"]["TokenValueTypographyFieldsValue"] | components["schemas"]["TokenValueGeometryValue"] | components["schemas"]["TokenValueDimensionValue"] | components["schemas"]["TokenValueNumberValue"] | components["schemas"]["TokenValueFontFamilyValue"] | components["schemas"]["TokenValueFontWeightValue"] | components["schemas"]["TokenValueShadowValue"];
+        TokenValue: components["schemas"]["TokenValueColorValue"] | components["schemas"]["TokenValueSpacingValue"] | components["schemas"]["TokenValueTypographyValue"] | components["schemas"]["TokenValueTypographyFieldsValue"] | components["schemas"]["TokenValueGeometryValue"] | components["schemas"]["TokenValueDimensionValue"] | components["schemas"]["TokenValueNumberValue"] | components["schemas"]["TokenValueFontFamilyValue"] | components["schemas"]["TokenValueFontWeightValue"] | components["schemas"]["TokenValueShadowValue"] | components["schemas"]["TokenValueShadowFieldsValue"];
         TokenValueColorValue: {
             /**
              * Format: uint8
@@ -14896,6 +14896,19 @@ export interface components {
             type?: "number";
             /** Format: double */
             value: number | string;
+        };
+        TokenValueShadowFieldsValue: {
+            /** Format: double */
+            blurRadius: number | string;
+            color: components["schemas"]["TokenExpression"];
+            /** Format: double */
+            offsetX: number | string;
+            /** Format: double */
+            offsetY: number | string;
+            /** Format: double */
+            spreadRadius: number | string;
+            /** @enum {string} */
+            type?: "shadowFields";
         };
         TokenValueShadowValue: {
             /** Format: double */

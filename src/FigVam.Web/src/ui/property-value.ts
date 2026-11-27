@@ -43,7 +43,7 @@ export interface ScalarSpec extends BaseSpec {
 }
 export interface ColorSpec extends BaseSpec {kind:'color';compact:boolean}
 export interface WeightSpec extends BaseSpec {kind:'weight'}
-export interface ShadowSpec extends BaseSpec {kind:'shadow';color:ColorSpec}
+export interface ShadowSpec extends BaseSpec {kind:'shadow';color:ValueSpec;nestedColor?:boolean}
 export interface TokenScalarSpec extends BaseSpec {kind:'token-scalar';color:boolean;weight:boolean;inputId:string}
 export interface CompositeSpec extends BaseSpec {kind:'composite';children:ValueSpec[];id:string}
 export interface ReferenceSpec extends BaseSpec {
@@ -73,25 +73,27 @@ function colorSpec(label:string,initial:ColorChannels|null|undefined,compact=fal
     resolvedRaw(result){return result.error||result.value?.type!=='color'?['','255']:[tokenColorHex(result.value),String(result.value.alpha)];}
   };
 }
-export function createShadowSpec(initial:ShadowValue|null|undefined):ShadowSpec {
-  const value=initial??shadowPreset,color=colorSpec(propertyLabel('shadow'),value.color,true);
-  return {kind:'shadow',label:propertyLabel('shadow'),color,count:4+color.count,
-    initial:[...shadowDimensions.map(([key])=>String(value[key])),...rawArray(color.initial)],
+export function createShadowSpec(initial:Pick<ShadowValue,'offsetX'|'offsetY'|'blurRadius'|'spreadRadius'> & {color?:ColorChannels}|null|undefined, colorEditor?:ReferenceSpec):ShadowSpec {
+  const value=initial??shadowPreset,color=colorEditor??colorSpec(propertyLabel('shadow'),value.color,true);
+  return {kind:'shadow',label:propertyLabel('shadow'),color,nestedColor:!!colorEditor,count:4+color.count,
+    initial:[...shadowDimensions.map(([key])=>String(value[key])),...(colorEditor?[color.initial]:rawArray(color.initial))],
     validate(raw){
       const values=rawArray(raw);
       const geometry=shadowDimensions.map(([, ,min,max],i)=>finite(values[i],min,max));
       const bad=geometry.findIndex(v=>v===null);
       if(bad>=0)return invalid('Enter a finite value in the indicated range.',bad);
-      const result=color.validate(values.slice(4));
-      if(result.error||result.value?.type!=='color')return {...result,index:4+(result.index??0)};
-      const {type,...channels}=result.value;
+      const result=color.validate(colorEditor?values[4]??null:values.slice(4));
+      if(result.error)return {...result,index:4+(result.index??0)};
       const [offsetX=0,offsetY=0,blurRadius=0,spreadRadius=0]=geometry.map(v=>v??0);
+      if(colorEditor&&result.value?.type==='token')return {value:{type:'shadowFields',offsetX,offsetY,blurRadius,spreadRadius,color:{expression:'alias',tokenId:result.value.tokenId}}};
+      if(result.value?.type!=='color')return invalid('Некорректный цвет.',4);
+      const {type,...channels}=result.value;
       return {value:{type:'shadow',offsetX,offsetY,blurRadius,spreadRadius,color:channels}};
     },
     resolvedRaw(result){
       const v=result.value;
       return result.error||v?.type!=='shadow'?['','','','','','']:
-        [...shadowDimensions.map(([key])=>String(v[key])),rgb(v.color),String(v.color.alpha)];
+        [...shadowDimensions.map(([key])=>String(v[key])),...(colorEditor?[[colorEditor.mode,colorEditor.direct.resolvedRaw?.({value:{type:'color',...v.color},error:null})??'','']]:[rgb(v.color),String(v.color.alpha)])];
     }
   };
 }

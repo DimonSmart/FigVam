@@ -162,10 +162,12 @@ public static class McpPropertyAdapter
         }
     }
 
-    private static ShadowValue ShadowToken(JsonElement value)
+    private static TokenValue ShadowToken(JsonElement value)
     {
-        var shadow = Shadow(value);
-        return new(shadow.OffsetX, shadow.OffsetY, shadow.BlurRadius, shadow.SpreadRadius, shadow.Color);
+        var input = McpPropertyContracts.Read<McpShadowInput>(Untag(value, "shadow"));
+        if (Reference(input.Color, "tokenId", nodeReference: false) is { } id)
+            return new ShadowFieldsValue(input.OffsetX, input.OffsetY, input.BlurRadius, input.SpreadRadius, new TokenAlias(id));
+        return new ShadowValue(input.OffsetX, input.OffsetY, input.BlurRadius, input.SpreadRadius, Color(input.Color));
     }
 
     private static ColorValue ToTokenColor(NodeColorValue color) => new(color.Red, color.Green, color.Blue, color.Alpha);

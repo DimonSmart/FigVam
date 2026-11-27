@@ -25,6 +25,8 @@ public sealed class DesignResourceDependencies
         {
             if (expression is TokenAlias alias)
                 Add("token", alias.TokenId, "tokenAlias", token.Id, null, theme, null, "token", token.Id);
+            if (expression is LiteralTokenValue { Value: ShadowFieldsValue { Color: TokenAlias color } })
+                Add("token", color.TokenId, "tokenShadowField", token.Id, "shadow.color", theme, null, "token", token.Id);
             if (expression is LiteralTokenValue { Value: TypographyFieldsValue fields })
                 Fields(fields, "tokenTypographyField", token.Id, "typography", theme, null, "token", token.Id);
         }

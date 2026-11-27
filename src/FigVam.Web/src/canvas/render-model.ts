@@ -33,6 +33,7 @@ function tokenValue(value:unknown):TokenValue {
   switch(v.type){
     case 'color':return {type:'color',...color(v)};
     case 'shadow':return shadow(v);
+    case 'shadowFields':return {type:'shadowFields',offsetX:number(v.offsetX),offsetY:number(v.offsetY),blurRadius:number(v.blurRadius),spreadRadius:number(v.spreadRadius),color:expression(v.color)};
     case 'spacing':case 'dimension':case 'number':case 'fontWeight':return {type:v.type,value:number(v.value)};
     case 'fontFamily':return {type:'fontFamily',value:text(v.value)};
     case 'geometry':return {type:'geometry',radius:number(v.radius)};

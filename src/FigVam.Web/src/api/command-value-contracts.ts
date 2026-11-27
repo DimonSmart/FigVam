@@ -9,6 +9,7 @@ export function toApiTokenExpression(value: TokenExpression): Schema['TokenExpre
 export function toApiTokenValue(value: TokenValue): Schema['TokenValue'] {
   switch(value.type) {
     case 'typography': return {...value, letterSpacing: value.letterSpacing ?? 0};
+    case 'shadowFields': return {...value,color:toApiTokenExpression(value.color)};
     case 'typographyFields': {
       const {fontFamily,fontSize,fontWeight,lineHeight,letterSpacing}=value;
       if(!fontFamily||!fontSize||!fontWeight||!lineHeight) throw new TypeError('Incomplete typography token');

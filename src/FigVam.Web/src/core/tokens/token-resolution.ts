@@ -93,6 +93,17 @@ export function resolveTokenValue(reference: ResolvableValue | null | undefined,
     if (expression.expression === 'alias') { id = expression.tokenId; continue; }
     if (type === 'Typography' && expression.expression === 'literal' && expression.value?.type === 'typographyFields')
       return { ...resolveInlineTypography(expression.value, tokens, theme), token };
+    if (type === 'Shadow' && expression.expression === 'literal' && expression.value?.type === 'shadowFields') {
+      const {color,...geometry}=expression.value;
+      const result=color?.expression==='alias'
+        ? resolveTokenValue({type:'token',tokenId:color.tokenId},tokens,theme,'Color')
+        : color?.expression==='literal'&&isValidValue(color.value,'Color',null)
+          ? {value:color.value,error:null} : {value:null,error:'Некорректный цвет.'};
+      if(result.error||result.value?.type!=='color')return {value:null,error:'color: '+(result.error??'Некорректный цвет.'),token};
+      const {type:_,...channels}=result.value;
+      const flat={...geometry,type:'shadow' as const,color:channels};
+      return isValidValue(flat,'Shadow',null)?{value:flat,error:null,token}:{value:null,error:'Некорректная геометрия тени.',token};
+    }
     if (expression.expression !== 'literal' || !isValidValue(expression.value, type, category))
       return { value: null, error: 'Некорректное значение дизайн-токена.', token };
     return { value: expression.value, error: null, token };
