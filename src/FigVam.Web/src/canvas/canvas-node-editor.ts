@@ -13,6 +13,8 @@ interface NodeEditorOptions {
   selectLayer(node: CanvasNode, orderedNodes: CanvasNode[]): boolean | void;
   editGeometry(command: GeometryCommand, settle: (confirmed: boolean) => void): boolean;
   isEditPending(): boolean;
+  setHint(hint:string):void;
+  deleteSelected():void;
 }
 interface Target { model: CanvasModel; node: CanvasNode; bounds: Bounds; parentBounds: Bounds; definitions: PropertyDefinitions; inStack: boolean }
 interface Edit extends Target {
@@ -28,7 +30,7 @@ const arrows: Record<string, [number, number] | undefined> = {
 const geometryStyles: Record<Axis, GeometryStyle> = { x: 'left', y: 'top', width: 'width', height: 'height' };
 
 export function createCanvasNodeEditor({
-  element, getContext, getModel, getScale, selectLayer, editGeometry, isEditPending
+  element, getContext, getModel, getScale, selectLayer, editGeometry, isEditPending, setHint, deleteSelected
 }: NodeEditorOptions) {
   const listeners = new AbortController();
   const signal = listeners.signal;
@@ -63,8 +65,7 @@ export function createCanvasNodeEditor({
     selectedWrapper?.removeAttribute('data-canvas-editable');
     selectedWrapper = boundary.querySelector<HTMLElement>('[data-selected=true]');
     const stack = writable() && selected?.inStack;
-    element('canvas-edit-hint').textContent = stack ?
-      'Положение слоя задаёт стек. Изменить размер можно в инспекторе, порядок — в дереве слоёв.' : '';
+    setHint(stack ? 'Положение слоя задаёт стек. Изменить размер можно в инспекторе, порядок — в дереве слоёв.' : '');
     if (!selectedWrapper || !selected || stack || !writable()) {
       resizeHandle.remove();
       return;
@@ -198,7 +199,7 @@ export function createCanvasNodeEditor({
     if (event.altKey || event.ctrlKey || event.metaKey || !selectedWrapper || !writable()) return;
     if (event.key === 'Delete') {
       event.preventDefault();
-      if (!gesture && !isEditPending()) element('node-delete').click();
+      if (!gesture && !isEditPending()) deleteSelected();
       return;
     }
     if (!delta) return;

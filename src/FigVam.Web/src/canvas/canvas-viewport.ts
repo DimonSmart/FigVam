@@ -1,6 +1,8 @@
 interface Point { x: number; y: number }
 interface Screen { id: string; dimensions: { width: number; height: number } }
+import type { CanvasChrome } from '../app/canvas-chrome';
 interface ViewportOptions {
+  chrome:CanvasChrome;
   element: (id: string) => HTMLElement | null;
   getScreen: () => Screen | null | undefined;
   getSelectedScreen: () => string | null;
@@ -8,7 +10,7 @@ interface ViewportOptions {
   setPresenceCursor: (point: Point | null, screenId: string | null) => void;
 }
 
-export function createCanvasViewport({ element: lookup, getScreen, getSelectedScreen, onViewportChange, setPresenceCursor }: ViewportOptions) {
+export function createCanvasViewport({ chrome, element: lookup, getScreen, getSelectedScreen, onViewportChange, setPresenceCursor }: ViewportOptions) {
   const lifetime = new AbortController();
   const element = (id: string): HTMLElement => {
     const result = lookup(id);
@@ -24,7 +26,7 @@ export function createCanvasViewport({ element: lookup, getScreen, getSelectedSc
     const boundary = element('screen-boundary');
     boundary.style.transform = `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})`;
     boundary.style.setProperty('--canvas-scale', String(viewport.scale));
-    element('zoom-level').textContent = `${Math.round(viewport.scale * 100)}%`;
+    chrome.patch({zoomPercent:Math.round(viewport.scale * 100)});
     const grid = element('viewport');
     const spacing = 20 * viewport.scale;
     grid.style.backgroundSize = `${spacing}px ${spacing}px`;
@@ -48,18 +50,14 @@ export function createCanvasViewport({ element: lookup, getScreen, getSelectedSc
     const screen = getScreen();
     const boundary = element('screen-boundary');
     boundary.hidden = !screen;
-    for (const id of ['zoom-out', 'zoom-in', 'fit-screen', 'actual-size']) {
-      const button = element(id);
-      if (!(button instanceof HTMLButtonElement)) throw new Error('Expected canvas button: ' + id);
-      button.disabled = !screen;
-    }
+    chrome.patch({available:!!screen});
     if (!screen) {
       displayedScreen = null;
-      element('canvas-selection').textContent = 'Выберите экран, чтобы показать его на холсте.';
+      chrome.patch({caption:'Выберите экран, чтобы показать его на холсте.'});
       viewport = { scale: 1, x: 0, y: 0 }; paintViewport(); return;
     }
     const { width, height } = screen.dimensions;
-    element('canvas-selection').textContent = `Экран: ${width} × ${height} uiUnit`;
+    chrome.patch({caption:`Экран: ${width} × ${height} uiUnit`});
     boundary.style.width = `${width}px`; boundary.style.height = `${height}px`;
     if (displayedScreen !== screen.id) {
       displayedScreen = screen.id;
@@ -80,10 +78,6 @@ export function createCanvasViewport({ element: lookup, getScreen, getSelectedSc
   function zoomCenter(scale: number) {
     const area = element('viewport'); zoomAt(scale, area.clientWidth / 2, area.clientHeight / 2);
   }
-  element('zoom-in').addEventListener('click', () => zoomCenter(viewport.scale * 1.25), { signal });
-  element('zoom-out').addEventListener('click', () => zoomCenter(viewport.scale / 1.25), { signal });
-  element('actual-size').addEventListener('click', () => zoomCenter(1), { signal });
-  element('fit-screen').addEventListener('click', fitScreen, { signal });
   const canvasArea = element('viewport');
   // Preserve zoom and canvas center when sidebars or the browser change size.
   let previousWidth = 0, previousHeight = 0;
@@ -139,6 +133,7 @@ export function createCanvasViewport({ element: lookup, getScreen, getSelectedSc
   return {
     render: renderCanvas,
     fit: fitScreen,
+    zoomIn:()=>zoomCenter(viewport.scale*1.25),zoomOut:()=>zoomCenter(viewport.scale/1.25),actualSize:()=>zoomCenter(1),
     get scale() { return viewport.scale; },
     toViewportPoint: (point: Point): Point => ({ x: viewport.x + point.x * viewport.scale, y: viewport.y + point.y * viewport.scale }),
     dispose() { lifetime.abort(); observer.disconnect(); cancelAnimationFrame(fitFrame); drag = null; }

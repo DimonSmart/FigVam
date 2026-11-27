@@ -622,7 +622,7 @@ export function createLayers({
   }
 
   return {
-    reset, clearCommands, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    reset, clearCommands, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
     selectById(id:string){const item=findLayer(id);if(!item)return;const select=()=>{selectLayer(item);if(item.childCount)void toggleLayer(item);renderLayers(id);};if(layerSelection?.id===id||beforeSelectionChange(select))select();},
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },

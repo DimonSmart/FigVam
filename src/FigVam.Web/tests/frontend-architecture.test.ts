@@ -72,6 +72,7 @@ describe('frontend architecture', () => {
       'document-rename', 'rename-document-name', 'delete-document', 'delete-result', 'delete-retry', 'delete-message',
       'history-access', 'history-action-status', 'history-action-error', 'history-action-retry',
       'presence-name', 'presence-color', 'presence-status', 'export-access', 'export-json', 'export-container', 'export-status', 'export-error',
+      'editor-design', 'editor-preview', 'preview-theme', 'preview-back', 'preview-reset', 'design-render-status', 'design-render-diagnostics', 'design-render-retry', 'preview-render-status', 'preview-render-diagnostics', 'preview-render-retry', 'zoom-level', 'zoom-in', 'zoom-out', 'actual-size', 'fit-screen', 'canvas-selection', 'canvas-edit-hint', 'node-delete',
     ]);
     const violations: string[] = [];
     for (const {path, ast} of source) {

@@ -6,12 +6,14 @@ import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
 import { RenderFeedback } from './render-feedback';
+import type { CanvasChrome } from '../../app/canvas-chrome';
 import type { PreviewChrome } from '../../app/preview-chrome';
 import type { Theme } from '../../core/tokens/token-model';
 import { TextInput, NumberInput } from '../../ui/Inputs';
 
 interface ShellActions {
   previewChrome:PreviewChrome;
+  canvasChrome:CanvasChrome;zoomIn():void;zoomOut():void;fitCanvas():void;actualSize():void;
   openPreview():void;closePreview():void;changePreviewTheme(theme:Theme):void;resetPreview():void;previewBack():void;retryRender():void;
   beforePrototypeLeave(resume:()=>void):boolean;
   addTool(kind:DrawingToolKind):boolean;
@@ -64,6 +66,11 @@ function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
     </section>
   );
 }
+function CanvasCaption({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <p id="canvas-selection" className="canvas-caption">{state.caption}</p>;}
+function CanvasHint({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <p id="canvas-edit-hint" role="status">{state.hint}</p>;}
+function CanvasToolbar({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <div className="viewport-controls" role="group" aria-label="Управление холстом">
+  <Button id="zoom-out" type="button" title="Уменьшить" disabled={!state.available} onClick={shell.zoomOut}>Уменьшить</Button><output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{state.zoomPercent+'%'}</output>
+  <Button id="zoom-in" type="button" title="Увеличить" disabled={!state.available} onClick={shell.zoomIn}>Увеличить</Button><Button id="fit-screen" type="button" title="Вместить экран в холст" disabled={!state.available} onClick={shell.fitCanvas}>Вместить экран</Button><Button id="actual-size" type="button" disabled={!state.available} onClick={shell.actualSize}>100%</Button></div>;}
 export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
   const preview=useSyncExternalStore(shell.previewChrome.subscribe,shell.previewChrome.getSnapshot);
@@ -293,7 +300,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             </details>
           </div>
           <h2 id="canvas-title" className="visually-hidden">{"Холст"}</h2>
-          <p id="canvas-selection" className="canvas-caption">{"Выберите экран, чтобы показать его на холсте."}</p>
+          <CanvasCaption shell={shell}/>
           <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
           <RenderFeedback model={shell.previewChrome.design} mode="design" retry={shell.retryRender}/>
           <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen}>
@@ -305,15 +312,9 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div id="screen-boundary" hidden/>
             <div id="presence-markers" aria-hidden="true"><views.presence.markers.Component/></div>
           </div>
-          <p id="canvas-edit-hint" role="status"/>
+          <CanvasHint shell={shell}/>
           <views.propertyFields.canvasFeedback.Component/>
-          <div className="viewport-controls" role="group" aria-label="Управление холстом">
-            <Button id="zoom-out" type="button" title="Уменьшить">{"Уменьшить"}</Button>
-            <output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{"100%"}</output>
-            <Button id="zoom-in" type="button" title="Увеличить">{"Увеличить"}</Button>
-            <Button id="fit-screen" type="button" title="Вместить экран в холст">{"Вместить экран"}</Button>
-            <Button id="actual-size" type="button">{"100%"}</Button>
-          </div>
+          <CanvasToolbar shell={shell}/>
         </section>
         <aside className="properties-sidebar" aria-labelledby="inspector-title">
           <TabBar entries={rightTabs} label="Разделы инспектора" selected={rightTab} select={selectRight}/>
