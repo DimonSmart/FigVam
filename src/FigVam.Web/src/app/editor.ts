@@ -473,7 +473,7 @@ function renderRevision() {
 }
 
 const documentSync = createDocumentSync({
-  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, navigationEpoch: sessionState.navigationEpoch, revision: revisions.revision }),
+  context: () => ({ documentId, screen: selectionState.selectedScreen, page: selectionState.selectedPage, navigationEpoch: sessionState.navigationEpoch, revision: revisions.revision, catalogRevision: revisions.catalogRevision }),
   shouldReportFailure: signal => signal === sessionState.pending?.signal,
   queries: documentQueries, layers, tokens, styles,
   applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {

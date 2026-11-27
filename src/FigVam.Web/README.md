@@ -66,3 +66,5 @@ Style drafts are scoped to the document and selected style while the workspace i
 Post-command synchronization for layer metadata/move/delete, history, visual nodes, screen size/variants and scenarios uses the document navigation signal instead of the foreground request lane. Foreground navigation remains latest-wins; independent synchronization still checks document, revision and selection before publication.
 
 Feature-local reads in Components, Datasets, screen variants and token usages have independent cancellation scopes, reset on document change or superseded selection. Dataset and variant confirmations preserve a newer selection. Pending automatic token value changes are keyed by token and theme, not theme alone; selection/filter refresh cannot discard queued writes.
+
+A complete revision published by another concurrent synchronization satisfies a duplicate in-flight read without rebuilding the tree. Explicit refreshes and command-specific reveal/selection intents are still applied; incremental node revisions do not count as a complete catalog snapshot.

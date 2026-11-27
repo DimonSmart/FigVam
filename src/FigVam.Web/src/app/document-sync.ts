@@ -19,6 +19,7 @@ interface Context {
   page: string | null;
   navigationEpoch: number;
   revision: number | null;
+  catalogRevision: number | null;
 }
 interface Dependencies {
   context(): Context;
@@ -78,6 +79,10 @@ export function createDocumentSync(deps: Dependencies) {
     ]);
     const name = await queries.readName(start.documentId, signal, revision, valid);
     if (!valid() || revision < (context().revision ?? -1)) return;
+    // A concurrent live update or command refresh may already have published this complete revision.
+    // Avoid rebuilding the tree (and cancelling a newly started gesture) for that duplicate snapshot.
+    // Explicit refreshes and command-specific reveal/selection intents still apply normally.
+    if (start.catalogRevision !== revision && context().catalogRevision === revision && !reveal.length && !change) return true;
     if (!layers.isExpansionCurrent(snapshot)) return readPages(signal, 0, revision, isCurrent, reveal, change);
     deps.applyStructure(structure, snapshot, tokenSnapshot, styleSnapshot, name, change);
     return true;
