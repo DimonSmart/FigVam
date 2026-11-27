@@ -541,11 +541,12 @@ export function createLayers({
     else if (event.key === 'Home') target = rows[0];
     else if (event.key === 'End') target = rows.at(-1);
     else if (event.key === 'ArrowLeft') {
-      if (row.getAttribute('aria-expanded') === 'true') { layerExpanded.delete(row.dataset.id??''); renderLayers(row.dataset.id); }
+      if (layerExpanded.has(row.dataset.id??'')) { layerExpanded.delete(row.dataset.id??''); renderLayers(row.dataset.id); }
       else target = row.parentElement?.closest<HTMLElement>('[role=treeitem]');
     } else if (event.key === 'ArrowRight') {
-      if (row.getAttribute('aria-expanded') === 'false') toggleLayer(findLayer(row.dataset.id));
-      else if (row.getAttribute('aria-expanded') === 'true') target = row.querySelector<HTMLElement>('[role=treeitem]');
+      const item = findLayer(row.dataset.id);
+      if (item?.childCount && !layerExpanded.has(item.id)) void toggleLayer(item);
+      else if (item?.childCount && layerExpanded.has(item.id)) target = row.querySelector<HTMLElement>('[role=treeitem]');
     } else if (event.key === 'Enter' || event.key === ' ') {
       const item = findLayer(row.dataset.id);
       if (item && (layerSelection?.id === item.id || beforeSelectionChange(() => selectLayer(item)))) selectLayer(item);
