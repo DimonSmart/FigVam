@@ -149,7 +149,7 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 });
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
-  models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),element, request,
+  models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),request,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
@@ -497,7 +497,7 @@ const documentSync = createDocumentSync({
     else renderCanvas();
     layers.applySnapshot(layerSnapshot, selection);
     documentShell.patch({ title: name }); document.title = `${name} — FigVam`;
-    element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
+    tokens.clearBusy();
     components.load(); datasets.load(); screenVariants.load();
     diagnostics.refresh();
     scenarios.refresh(screen);

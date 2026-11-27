@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { PanelLeft, PanelRight, Pencil, Check, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PanelLeft, PanelRight, ChevronLeft, ChevronRight } from 'lucide-react';
 import { createPanelStore } from '../../app/panel-store';
 import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from '../../app/document-shell-state';
 import type { ApplicationViews } from '../../app/application-views';
@@ -52,111 +52,10 @@ function TabBar<K extends string>({entries,label,selected,select}:{entries:reado
 function clampSplit(value:number){return Math.round(Math.min(72,Math.max(22,value)));}
 
 function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
-  const importForm=useRef<HTMLFormElement>(null);
   useEffect(()=>{const menu=document.getElementById('token-menu');if(!active&&menu?.matches(':popover-open'))menu.hidePopover();},[active]);
   return (
     <section id="token-workspace" className="token-workspace" aria-label="Токены" hidden={!active}>
-      <p id="tokens-status" role="status" aria-live="polite"/>
-      <p id="tokens-error" role="alert"/>
-      <form id="token-import-form" className="token-import-form" hidden ref={importForm}>
-        <label>
-          {"Формат импорта"}
-          <select id="token-import-mode">
-            <option value="combined">{"FigVam — обе темы"}</option>
-            <option value="pair">{"Два файла DTCG"}</option>
-          </select>
-        </label>
-        <label id="token-import-combined-label">
-          {"FigVam JSON"}
-          <textarea id="token-import-combined" rows={4}/>
-          <input type="file" accept=".json,application/json" id="token-import-combined-file" aria-label="Файл токенов FigVam"/>
-        </label>
-        <label id="token-import-light-label">
-          {"DTCG JSON · Light"}
-          <textarea id="token-import-light" rows={4}/>
-          <input type="file" accept=".json,application/json" id="token-import-light-file" aria-label="Файл токенов Light"/>
-        </label>
-        <label id="token-import-dark-label">
-          {"DTCG JSON · Dark"}
-          <textarea id="token-import-dark" rows={4}/>
-          <input type="file" accept=".json,application/json" id="token-import-dark-file" aria-label="Файл токенов Dark"/>
-        </label>
-        <label>
-          {"Сопоставление типов/категорий (JSON, необязательно)"}
-          <textarea id="token-import-mapping" rows={3} placeholder={'{"dimensionTypes":{"space":"Spacing"}}'}/>
-        </label>
-        <Button type="submit">{"Импортировать токены"}</Button>
-        <Button type="button" onClick={()=>{if(importForm.current)importForm.current.hidden=true;}}>{"Отмена"}</Button>
-      </form>
-      <div className="token-workspace-grid">
-        <div className="token-sidebar">
-          <div className="token-tree-toolbar">
-            <input id="token-search" type="search" placeholder="Поиск токенов" aria-label="Поиск токенов"/>
-            <views.tokens.menu.Component/>
-          </div>
-          <nav id="token-groups" className="token-groups" aria-label="Группы токенов"><views.tokens.groups.Component/></nav>
-        </div>
-        <div className="token-table-area">
-          <table className="token-table" aria-label="Токены документа">
-            <thead>
-              <tr>
-                <th scope="col">{"Имя"}</th>
-                <th scope="col">{"Тип"}</th>
-                <th scope="col">{"Light"}</th>
-                <th scope="col">{"Dark"}</th>
-                <th scope="col">{"Источник"}</th>
-                <th scope="col">{"Usages"}</th>
-                <th scope="col">{"Статус"}</th>
-              </tr>
-            </thead>
-            <tbody id="tokens-list"><views.tokens.table.Component/></tbody>
-          </table>
-        </div>
-        <aside className="token-details-area">
-          <p id="token-placeholder" className="token-placeholder">{"Выберите токен или создайте новый."}</p>
-          <form id="token-create" hidden>
-            <h3>{"Новый токен"}</h3>
-            <label htmlFor="new-token-name">{"Имя токена"}</label>
-            <input id="new-token-name" required maxLength={256}/>
-            <label htmlFor="new-token-type">{"Тип токена"}</label>
-            <select id="new-token-type">
-              <option value="Color">{"Color"}</option>
-              <option value="Typography">{"Typography"}</option>
-              <option value="Dimension">{"Dimension"}</option>
-              <option value="Number">{"Number"}</option>
-              <option value="FontFamily">{"FontFamily"}</option>
-              <option value="FontWeight">{"FontWeight"}</option>
-              <option value="Shadow">{"Shadow"}</option>
-              <option value="Spacing">{"Spacing (legacy)"}</option>
-              <option value="Geometry">{"Geometry (legacy)"}</option>
-            </select>
-            <label id="new-token-category-label" htmlFor="new-token-category" hidden>{"Назначение"}</label>
-            <select id="new-token-category" hidden/>
-            <div id="new-token-values" className="token-theme-values"><views.tokens.createFields.Component/></div>
-            <Button type="submit">{"Создать токен"}</Button>
-            <Button id="new-token-cancel" type="button">{"Отмена"}</Button>
-          </form>
-          <div id="token-detail" hidden>
-            <div className="token-name-header">
-              <h3 id="token-detail-title"/>
-              <Button id="token-rename-open" className="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен"><Pencil size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
-              <form id="token-rename" hidden>
-                <input id="token-name" aria-label="Новое имя токена" required maxLength={256}/>
-                <Button type="submit" className="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя"><Check size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
-                <Button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена"><X size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
-              </form>
-            </div>
-            <p id="token-detail-type"/>
-            <p className="token-invalid" id="token-detail-diagnostic" role="status"/>
-            <div id="token-values" className="token-theme-values"><views.tokens.detailFields.Component/></div>
-            <div id="token-edit" hidden>
-              <Button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</Button>
-            </div>
-            <h4>{"Использования"}</h4>
-            <ul id="token-usages" aria-label="Прямые и косвенные использования токена"><views.tokens.usage.Component/></ul>
-          </div>
-        </aside>
-      </div>
+      <views.tokens.panel.Component/>
     </section>
   );
 }

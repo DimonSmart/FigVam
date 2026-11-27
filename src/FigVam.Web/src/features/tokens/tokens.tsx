@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
-import { Ellipsis, ChevronDown, ChevronRight, CornerDownRight } from 'lucide-react';
-import type { ReactElement } from 'react';
+import { Ellipsis, ChevronDown, ChevronRight, CornerDownRight, Pencil, Check, X } from 'lucide-react';
+import type { ReactElement, ComponentType } from 'react';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
+import { TextInput } from '../../ui/Inputs';
+import { postDocumentCommand } from '../../api/document-commands';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
@@ -23,13 +25,12 @@ type CommandData=Omit<Schema['AddTokenRequest'],'commandId'|'values'> & {values:
   | Omit<Schema['RenameTokenRequest'],'commandId'>
   | Omit<Schema['ImportDesignTokensRequest'],'commandId'>;
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number;navigationEpoch:number}
-interface Options {models:ReturnType<typeof createTokenModels>;selectLayer(id:string):void;showEditor():void;element(id:string):HTMLElement;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
+interface Options {models:ReturnType<typeof createTokenModels>;selectLayer(id:string):void;showEditor():void;request:ApiClient;getContext():Context;startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 interface Usage {label?:string;kind:string;property?:string|null;theme?:number|string|null;indirect:boolean;ownerId:string;chain:string[]}
 interface UsageSnapshot {selection:string|null;usages:Usage[]}
 interface Snapshot extends UsageSnapshot {items:DesignToken[]}
 interface ThemeSave {tokenId:string;theme:Theme;index:number;value:TokenExpression;documentId:string|null}
 interface TypographyPart {name:TypographyField;label:string;type:TokenType;category:TokenCategory|null;initial:string}
-function checked<T extends HTMLElement>(value:HTMLElement,ctor:{new():T}):T{if(!(value instanceof ctor))throw new Error('Unexpected token control: '+value.id);return value;}
 function usage(value:unknown):Usage{const v=requiredRecord(value);return{kind:text(v.kind),ownerId:text(v.ownerId),label:v.label==null?undefined:text(v.label),property:v.property==null?null:text(v.property),theme:v.theme==null?null:typeof v.theme==='number'?v.theme:text(v.theme),indirect:v.indirect===true,chain:array(v.chain??[],text)};}
 function knownType(value:unknown):TokenType{const type=normalizedTokenType(value);if(!type)throw new TypeError('Неизвестный тип токена');return type;}
 function literalValue(value:ResolvableValue|undefined):TokenValue{
@@ -194,88 +195,197 @@ function TokenMenu({editable,selectedTypes,toggleAll,toggleType,create,importTok
 function ThemeFields({fields}:{fields:ValueField[]}){
   return <>{fields.map((field,index)=><div className="token-theme-row" key={field.id} data-theme={themes[index]} onKeyDown={event=>{if(!event.nativeEvent.isComposing&&event.key==='Enter'&&event.target instanceof HTMLInputElement&&event.target.matches('input:not([type=search]):not([type=color])')){event.preventDefault();event.target.blur();}}}><FieldValue field={field}/></div>)}</>;
 }
-export function createTokenModels(){return {menu:createViewModel(TokenMenu),groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages),createFields:createViewModel(ThemeFields),detailFields:createViewModel(ThemeFields)};}
+type ImportKey='combined'|'light'|'dark';
+type ImportValues=Record<ImportKey|'mapping',string>;
+interface TokenPanelProps {
+  error:string;status:string;editable:boolean;busy:boolean;detailBusy:boolean;importOpen:boolean;importMode:'combined'|'pair';importValues:ImportValues;importReset:number;
+  search:string;creating:boolean;selected:boolean;placeholder:string;newName:string;newType:string;newCategory:string;categoryOptions:readonly string[];
+  title:string;type:string;diagnostic:string;renaming:boolean;renameName:string;usagesReady:boolean;usageCount:number;
+  Menu:ComponentType;Groups:ComponentType;Table:ComponentType;CreateFields:ComponentType;DetailFields:ComponentType;Usage:ComponentType;
+  changeSearch(value:string):void;changeImport(key:keyof ImportValues,value:string):void;setImportMode(mode:'combined'|'pair'):void;loadImportFile(key:ImportKey,file:File|null):void;
+  submitImport():void;closeImport():void;changeNewName(value:string):void;changeType(type:string):void;changeCategory(category:string):void;create():void;cancelCreate():void;
+  beginRename():void;cancelRename():void;changeRenameName(name:string):void;rename():void;remove():void;
+}
+function TokenPanel(p:TokenPanelProps){
+  const createName=useRef<HTMLInputElement>(null),renameName=useRef<HTMLInputElement>(null);
+  useLayoutEffect(()=>{if(p.creating)createName.current?.focus();},[p.creating]);
+  useLayoutEffect(()=>{if(p.renaming){renameName.current?.focus();renameName.current?.select();}},[p.renaming]);
+  return <>
+      <p id="tokens-status" role="status" aria-live="polite">{p.status}</p>
+      <p id="tokens-error" role="alert">{p.error}</p>
+      <form id="token-import-form" className="token-import-form" hidden={!p.importOpen} inert={p.busy} onSubmit={event=>{event.preventDefault();p.submitImport();}}>
+        <label>
+          {"Формат импорта"}
+          <select id="token-import-mode" value={p.importMode} onChange={event=>p.setImportMode(event.currentTarget.value==='pair'?'pair':'combined')}>
+            <option value="combined">{"FigVam — обе темы"}</option>
+            <option value="pair">{"Два файла DTCG"}</option>
+          </select>
+        </label>
+        <label id="token-import-combined-label" hidden={p.importMode!=='combined'}>
+          {"FigVam JSON"}
+          <textarea id="token-import-combined" rows={4} required={p.importMode==='combined'} value={p.importValues.combined} onChange={event=>p.changeImport('combined',event.currentTarget.value)}/>
+          <input type="file" accept=".json,application/json" key={p.importReset} id="token-import-combined-file" onChange={event=>p.loadImportFile('combined',event.currentTarget.files?.[0]??null)} aria-label="Файл токенов FigVam"/>
+        </label>
+        <label id="token-import-light-label" hidden={p.importMode==='combined'}>
+          {"DTCG JSON · Light"}
+          <textarea id="token-import-light" rows={4} required={p.importMode!=='combined'} value={p.importValues.light} onChange={event=>p.changeImport('light',event.currentTarget.value)}/>
+          <input type="file" accept=".json,application/json" key={p.importReset} id="token-import-light-file" onChange={event=>p.loadImportFile('light',event.currentTarget.files?.[0]??null)} aria-label="Файл токенов Light"/>
+        </label>
+        <label id="token-import-dark-label" hidden={p.importMode==='combined'}>
+          {"DTCG JSON · Dark"}
+          <textarea id="token-import-dark" rows={4} required={p.importMode!=='combined'} value={p.importValues.dark} onChange={event=>p.changeImport('dark',event.currentTarget.value)}/>
+          <input type="file" accept=".json,application/json" key={p.importReset} id="token-import-dark-file" onChange={event=>p.loadImportFile('dark',event.currentTarget.files?.[0]??null)} aria-label="Файл токенов Dark"/>
+        </label>
+        <label>
+          {"Сопоставление типов/категорий (JSON, необязательно)"}
+          <textarea id="token-import-mapping" rows={3} value={p.importValues.mapping} onChange={event=>p.changeImport('mapping',event.currentTarget.value)} placeholder={'{"dimensionTypes":{"space":"Spacing"}}'}/>
+        </label>
+        <Button type="submit">{"Импортировать токены"}</Button>
+        <Button type="button" onClick={p.closeImport}>{"Отмена"}</Button>
+      </form>
+      <div className="token-workspace-grid">
+        <div className="token-sidebar">
+          <div className="token-tree-toolbar">
+            <TextInput id="token-search" value={p.search} onChange={event=>p.changeSearch(event.currentTarget.value)} type="search" placeholder="Поиск токенов" aria-label="Поиск токенов"/>
+            <p.Menu/>
+          </div>
+          <nav id="token-groups" className="token-groups" aria-label="Группы токенов"><p.Groups/></nav>
+        </div>
+        <div className="token-table-area">
+          <table className="token-table" aria-label="Токены документа">
+            <thead>
+              <tr>
+                <th scope="col">{"Имя"}</th>
+                <th scope="col">{"Тип"}</th>
+                <th scope="col">{"Light"}</th>
+                <th scope="col">{"Dark"}</th>
+                <th scope="col">{"Источник"}</th>
+                <th scope="col">{"Usages"}</th>
+                <th scope="col">{"Статус"}</th>
+              </tr>
+            </thead>
+            <tbody id="tokens-list"><p.Table/></tbody>
+          </table>
+        </div>
+        <aside className="token-details-area">
+          <p id="token-placeholder" className="token-placeholder" hidden={p.creating||p.selected}>{"Выберите токен или создайте новый."}</p>
+          <form id="token-create" hidden={!p.creating||!p.editable} inert={p.busy} onSubmit={event=>{event.preventDefault();p.create();}}>
+            <h3>{"Новый токен"}</h3>
+            <label htmlFor="new-token-name">{"Имя токена"}</label>
+            <TextInput id="new-token-name" ref={createName} required maxLength={256} placeholder={p.placeholder} value={p.newName} onChange={event=>p.changeNewName(event.currentTarget.value)}/>
+            <label htmlFor="new-token-type">{"Тип токена"}</label>
+            <select id="new-token-type" value={p.newType} onChange={event=>p.changeType(event.currentTarget.value)}>
+              <option value="Color">{"Color"}</option>
+              <option value="Typography">{"Typography"}</option>
+              <option value="Dimension">{"Dimension"}</option>
+              <option value="Number">{"Number"}</option>
+              <option value="FontFamily">{"FontFamily"}</option>
+              <option value="FontWeight">{"FontWeight"}</option>
+              <option value="Shadow">{"Shadow"}</option>
+              <option value="Spacing">{"Spacing (legacy)"}</option>
+              <option value="Geometry">{"Geometry (legacy)"}</option>
+            </select>
+            <label id="new-token-category-label" htmlFor="new-token-category" hidden={!p.categoryOptions.length}>{"Назначение"}</label>
+            <select id="new-token-category" hidden={!p.categoryOptions.length} value={p.newCategory} onChange={event=>p.changeCategory(event.currentTarget.value)}>{p.categoryOptions.map(option=><option key={option}>{option}</option>)}</select>
+            <div id="new-token-values" className="token-theme-values"><p.CreateFields/></div>
+            <Button type="submit">{"Создать токен"}</Button>
+            <Button id="new-token-cancel" type="button" onClick={p.cancelCreate}>{"Отмена"}</Button>
+          </form>
+          <div id="token-detail" hidden={p.creating||!p.selected} inert={p.detailBusy}>
+            <div className="token-name-header">
+              <h3 id="token-detail-title" hidden={p.renaming}>{p.title}</h3>
+              <Button id="token-rename-open" hidden={!p.editable||p.renaming} onClick={p.beginRename} className="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен"><Pencil size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
+              <form id="token-rename" hidden={!p.renaming} onSubmit={event=>{event.preventDefault();p.rename();}}>
+                <TextInput id="token-name" ref={renameName} aria-label="Новое имя токена" required maxLength={256} value={p.renameName} onChange={event=>p.changeRenameName(event.currentTarget.value)} onKeyDown={event=>{if(event.key==='Escape'){event.preventDefault();p.cancelRename();}}}/>
+                <Button type="submit" className="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя"><Check size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
+                <Button type="button" id="token-rename-cancel" onClick={p.cancelRename} aria-label="Отменить переименование" title="Отмена"><X size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
+              </form>
+            </div>
+            <p id="token-detail-type">{p.type}</p>
+            <p className="token-invalid" id="token-detail-diagnostic" role="status">{p.diagnostic}</p>
+            <div id="token-values" className="token-theme-values"><p.DetailFields/></div>
+            <div id="token-edit" hidden={!p.editable}>
+              <Button id="token-delete" type="button" disabled={!p.usagesReady||p.usageCount>0} title={p.usageCount?'У токена есть зависимости: '+p.usageCount:'Удалить токен'} onClick={p.remove}>{"Удалить неиспользуемый токен"}</Button>
+            </div>
+            <h4>{"Использования"+(p.usagesReady?' · '+p.usageCount:' · загрузка…')}</h4>
+            <ul id="token-usages" aria-label="Прямые и косвенные использования токена"><p.Usage/></ul>
+          </div>
+        </aside>
+      </div>
 
-export function createTokens({ models, selectLayer, showEditor, element, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
+  </>;
+}
+export function createTokenModels(){return {panel:createViewModel(TokenPanel),menu:createViewModel(TokenMenu),groups:createViewModel(TokenGroups),table:createViewModel(TokenTable),usage:createViewModel(ResourceUsages),createFields:createViewModel(ThemeFields),detailFields:createViewModel(ThemeFields)};}
+
+export function createTokens({ models, selectLayer, showEditor, request, getContext, startRequest, stopLive, startLive, readPages }:Options) {
   let tokenItems:DesignToken[]=[],selectedToken:string|null=null,tokenUsages:Usage[]=[],tokenLoad=0,rendered=false;
-  const el=element,editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
-  const input=(id:string)=>checked(el(id),HTMLInputElement),select=(id:string)=>checked(el(id),HTMLSelectElement),form=(id:string)=>checked(el(id),HTMLFormElement),area=(id:string)=>checked(el(id),HTMLTextAreaElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
+  const editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   let group:string[]=[],collapsed=new Set<string>(), creating = false, usagesReady = false;
   let importEpoch = 0;
   let selectedTypes=new Set<TokenType>(types);
   let createControls:ValueField[]=[],detailControls:ValueField[]=[],renaming=false;
   const pendingThemeValues=new Map<Theme,ThemeSave>();
   let activeThemeSave:ThemeSave|null=null;
-  const busy = () => el('token-create').inert;
+  let commandBusy=false,detailBusy=false,importOpen=false,importMode:'combined'|'pair'='combined';
+  const emptyImport=():ImportValues=>({combined:'',light:'',dark:'',mapping:''});
+  let importValues=emptyImport(),importReset=0,search='',newName='',newType='Color',newCategory='',renameName='',status='',error='',diagnostic='';
+  const selected = () => tokenItems.find(t => t.id === selectedToken);
+  const busy = () => commandBusy;
+  function publishPanel(){
+    const item=selected();
+    models.panel.publish({error,status,editable:editable(),busy:commandBusy,detailBusy,importOpen,importMode,importValues:{...importValues},importReset,
+      search,creating,selected:!!item,placeholder:group.length?group.join('.')+'.…':'Имя токена',newName,newType,newCategory,categoryOptions:allowedCategories[newType]??[],
+      title:item?.name??'',type:item?[typeOf(item),categoryOf(item)].filter(Boolean).join(' · '):'',diagnostic,renaming,renameName,usagesReady,usageCount:tokenUsages.length,
+      Menu:models.menu.Component,Groups:models.groups.Component,Table:models.table.Component,CreateFields:models.createFields.Component,DetailFields:models.detailFields.Component,Usage:models.usage.Component,
+      changeSearch:value=>{search=value;group=[];renderTokens(false);},changeImport:(key,value)=>{importValues[key]=value;publishPanel();},
+      setImportMode:mode=>{importMode=mode;publishPanel();},loadImportFile:(key,file)=>{void loadImportFile(key,file);},
+      submitImport,closeImport:()=>{importOpen=false;publishPanel();},changeNewName:value=>{newName=value;publishPanel();},
+      changeType:type=>{newType=type;updateCategoryOptions();},changeCategory:category=>{newCategory=category;updateCreateMode();publishPanel();},
+      create:createToken,cancelCreate:()=>{creating=false;publishPanel();},beginRename,cancelRename:endRename,changeRenameName:name=>{renameName=name;publishPanel();},rename:()=>{void renameToken();},remove:deleteToken});
+  }
+  function setError(value:string){error=value;publishPanel();}
+  function resetImport(){importMode='combined';importValues=emptyImport();importReset++;importOpen=false;}
+  function clearBusy(){commandBusy=false;detailBusy=false;publishPanel();}
   function refreshAccess() {
     syncTypeFilter();
-    if (!editable()) { creating = false; pendingThemeValues.clear(); el('token-import-form').hidden = true; }
-    el('token-edit').hidden = !editable();
-    if (!editable()) endRename();
-    el('token-rename-open').hidden = !editable() || renaming;
+    if (!editable()) { creating=false;pendingThemeValues.clear();importOpen=false;endRename(); }
     detailControls.forEach(control => control.setDisabled?.(!editable()));
-    updateDetailVisibility();
+    publishPanel();
   }
-  const selected = () => tokenItems.find(t => t.id === selectedToken);
-  function updateDetailVisibility() {
-    el('token-create').hidden = !creating || !editable();
-    el('token-detail').hidden = creating || !selected();
-    el('token-placeholder').hidden = creating || !!selected();
-  }
+  function updateDetailVisibility(){publishPanel();}
   function beginCreate() {
     if (!editable() || busy()) return;
-    creating = true; form('token-create').reset();
-    endRename();
-    updateCategoryOptions();
-    input('new-token-name').placeholder = group.length ? group.join('.') + '.…' : 'Имя токена';
-    input('new-token-name').value = group.length ? group.join('.') + '.' : '';
-    updateDetailVisibility(); el('new-token-name').focus();
+    creating = true;newType='Color';newCategory='';newName=group.length?group.join('.')+'.':'';
+    endRename();updateCategoryOptions();publishPanel();
   }
-  el('new-token-cancel').addEventListener('click', () => { creating = false; updateDetailVisibility(); });
   function syncTypeFilter(writable=editable()){
     models.menu.publish({editable:writable,selectedTypes:new Set(selectedTypes),create:beginCreate,importTokens:toggleImport,exportTokens:theme=>void exportTokens(theme),
       toggleAll:()=>{selectedTypes=selectedTypes.size===types.length?new Set():new Set(types);syncTypeFilter();renderTokens(false);},
       toggleType:(type,checked)=>{if(checked)selectedTypes.add(type);else selectedTypes.delete(type);syncTypeFilter();renderTokens(false);}});
   }
   syncTypeFilter();
-  el('token-search').addEventListener('input', () => { group = []; renderTokens(false); });
-  function syncImportMode() {
-    const combined = select('token-import-mode').value === 'combined';
-    for (const key of ['combined','light','dark']) {
-      const visible = (key === 'combined') === combined;
-      el('token-import-' + key + '-label').hidden = !visible;
-      area('token-import-'+key).required = visible;
-    }
+  function toggleImport(){if(editable()&&!busy()){importOpen=!importOpen;publishPanel();}}
+  const fileLoads:Record<ImportKey,number>={combined:0,light:0,dark:0};
+  async function loadImportFile(theme:ImportKey,file:File|null){
+    const documentId=getContext().documentId,epoch=importEpoch,load=++fileLoads[theme];
+    if(!file)return;
+    const current=()=>epoch===importEpoch&&load===fileLoads[theme]&&documentId===getContext().documentId;
+    try{
+      if(file.size>(theme==='combined'?2*1024*1024+4096:1024*1024))throw new Error('Файл токенов слишком большой.');
+      const value=await file.text();
+      if(current()){importValues[theme]=value;publishPanel();}
+    }catch(failure){if(current())setError(errorMessage(failure));}
   }
-  el('token-import-mode').addEventListener('change', syncImportMode);
-  syncImportMode();
-  function toggleImport(){if(editable()&&!busy())el('token-import-form').hidden=!el('token-import-form').hidden;}
-  for (const theme of ['combined','light','dark']) {
-    const field=area('token-import-'+theme),fileInput=input('token-import-'+theme+'-file');
-    let fileLoad = 0;
-    fileInput.addEventListener('change',async()=>{
-      const file=fileInput.files?.[0], documentId = getContext().documentId, epoch = importEpoch, load = ++fileLoad;
-      if (!file) return;
-      try {
-        if (file.size > (theme === 'combined' ? 2 * 1024 * 1024 + 4096 : 1024 * 1024)) throw new Error('Файл токенов слишком большой.');
-        const value = await file.text();
-        if (epoch === importEpoch && load === fileLoad && documentId === getContext().documentId && fileInput.files?.[0] === file) field.value = value;
-      } catch (error) {
-        if (epoch === importEpoch && load === fileLoad && documentId === getContext().documentId) el('tokens-error').textContent = errorMessage(error);
-      }
-    });
-  }
-  el('token-import-form').addEventListener('submit', event => {
-    event.preventDefault();
+  function submitImport(){
     try {
       let lightJson:string,darkJson:string;
-      if (select('token-import-mode').value === 'combined') {
-        ({ lightJson, darkJson } = splitTokenBundle(area('token-import-combined').value));
+      if (importMode === 'combined') {
+        ({ lightJson, darkJson } = splitTokenBundle(importValues.combined));
       } else {
-        lightJson = area('token-import-light').value; darkJson = area('token-import-dark').value;
+        lightJson = importValues.light; darkJson = importValues.dark;
         JSON.parse(lightJson); JSON.parse(darkJson);
       }
-      const mapping=requiredRecord(JSON.parse(area('token-import-mapping').value||'{}'));
+      const mapping=requiredRecord(JSON.parse(importValues.mapping||'{}'));
       const convert=(values:unknown,names:readonly string[])=>Object.fromEntries(Object.entries(values==null?{}:requiredRecord(values)).map(([key,value])=>{
         const index=typeof value==='number'?value:typeof value==='string'?names.indexOf(value):-1;
         if (!Number.isInteger(index) || index < 0 || index >= names.length) throw new Error('Неизвестный тип или категория: ' + value);
@@ -286,13 +396,13 @@ export function createTokens({ models, selectLayer, showEditor, element, request
         dimensionTypes: convert(mapping.dimensionTypes, types),
         dimensionCategories: convert(mapping.dimensionCategories, categories),
         numberCategories: convert(mapping.numberCategories, categories) });
-    } catch (error) { el('tokens-error').textContent = errorMessage(error); }
-  });
+    } catch (error) { setError(errorMessage(error)); }
+  }
   async function exportTokens(theme?:Theme) {
     const { documentId, revision, navigationEpoch } = getContext();
     const active = () => documentId === getContext().documentId && navigationEpoch === getContext().navigationEpoch;
     if (!editable() || !documentId || !Number.isSafeInteger(revision)) return;
-    el('tokens-error').textContent = '';
+    setError('');
     try {
       async function readTheme(name:Theme){
         const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(documentId??'')+'/token-export?theme='+name+'&revision='+revision));
@@ -310,7 +420,7 @@ export function createTokens({ models, selectLayer, showEditor, element, request
       const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
       const link = document.createElement('a'); link.href = url; link.download = theme ? 'tokens-' + theme.toLowerCase() + '.json' : 'figvam-tokens.json';
       document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (error) { if (active()) el('tokens-error').textContent = errorMessage(error); }
+    } catch (error) { if (active()) setError(errorMessage(error)); }
   }
   const nameOf = (id:string) => tokenItems.find(t => t.id === id)?.name ?? 'Удалённый токен';
   // The shared control owns the literal/reference interaction; this adapter only
@@ -384,8 +494,8 @@ export function createTokens({ models, selectLayer, showEditor, element, request
       let field:ValueField;
       function onEdit(kind:EditKind){
         if(!item||kind==='input'||kind==='color-preview'||(busy()&&!activeThemeSave)||!editable()||selectedToken!==item.id)return;
-        try{const value=readExpression(field);el('tokens-error').textContent='';queueThemeSave(item.id,theme,index,value);}
-        catch(error){pendingThemeValues.delete(theme);el('tokens-error').textContent=errorMessage(error);}
+        try{const value=readExpression(field);setError('');queueThemeSave(item.id,theme,index,value);}
+        catch(error){pendingThemeValues.delete(theme);setError(errorMessage(error));}
       }
       field=createValueField(spec,prefix,{onEdit,disabled:!!item&&!editable()});
       return field;
@@ -419,31 +529,14 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     if (!saved) { pendingThemeValues.clear(); return; }
     void flushThemeSaves();
   }
-  function endRename() {
-    renaming = false; el('token-rename').hidden = true; el('token-detail-title').hidden = false;
-    el('token-rename-open').hidden = !editable();
-  }
-  function beginRename() {
-    const item=selected();if(!item||!editable()||busy())return;
-    renaming=true; el('token-rename').hidden = false; el('token-detail-title').hidden = true;
-    el('token-rename-open').hidden = true;
-    const field=input('token-name');field.value=item.name;field.focus();field.select();
-  }
-
+  function endRename(){renaming=false;publishPanel();}
+  function beginRename(){const item=selected();if(!item||!editable()||busy())return;renaming=true;renameName=item.name;publishPanel();}
   function resetTokens() {
-    tokenLoad++; importEpoch++; tokenItems = []; tokenUsages = []; selectedToken = null; rendered = false;
-    pendingThemeValues.clear(); activeThemeSave = null;
-    group = []; collapsed = new Set(); creating = false; usagesReady = false;
-    input('token-search').value = ''; selectedTypes = new Set(types); syncTypeFilter();
-    models.groups.clear(); form('token-import-form').reset(); syncImportMode(); el('token-import-form').hidden = true; el('token-import-form').inert = false;
-    syncTypeFilter(false);
-    showEditor(); updateDetailVisibility();
-    el('token-create').inert = el('token-detail').inert = false;
-    models.table.clear();models.usage.clear();
-    el('token-detail').hidden = true; el('token-create').hidden = true;
-    el('tokens-error').textContent = ''; el('tokens-status').textContent = '';
-    form('token-create').reset(); endRename();
-    detailControls=[];models.detailFields.clear();
+    tokenLoad++;importEpoch++;tokenItems=[];tokenUsages=[];selectedToken=null;rendered=false;
+    pendingThemeValues.clear();activeThemeSave=null;group=[];collapsed=new Set();creating=false;usagesReady=false;
+    search='';selectedTypes=new Set(types);models.groups.clear();resetImport();syncTypeFilter(false);
+    showEditor();commandBusy=false;detailBusy=false;models.table.clear();models.usage.clear();error='';status='';diagnostic='';
+    newType='Color';newCategory='';newName='';renaming=false;renameName='';detailControls=[];models.detailFields.clear();
     updateCategoryOptions();
   }
   async function readAllTokenPages<T>(path:string,revision:number,decode:(v:unknown)=>T,signal?:AbortSignal,isCurrent?:()=>boolean):Promise<T[]>{
@@ -492,21 +585,15 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     const t = normalizedTokenType(type), c = normalizedTokenCategory(category);
     return tokenItems.filter(item => item.id !== excludeId && typeOf(item) === t && categoryOf(item) === c);
   }
-  function updateCategoryOptions() {
-    const type = select('new-token-type').value, choices = allowedCategories[type] ?? [];
-    const category = select('new-token-category'), current = category.value;
-    category.replaceChildren();
-    for (const option of choices) category.add(new Option(option, option));
-    if (choices.includes(current)) category.value = current;
-    category.hidden = el('new-token-category-label').hidden = !choices.length;
-    updateCreateMode();
+  function updateCategoryOptions(){
+    const choices=allowedCategories[newType]??[];
+    if(!choices.includes(newCategory))newCategory=choices[0]??'';
+    updateCreateMode();publishPanel();
   }
-  function updateCreateMode() {
-    createControls = replaceThemeControls('new-token-values', createControls,
-      knownType(select('new-token-type').value),normalizedTokenCategory(select('new-token-category').value),null);
+  function updateCreateMode(){
+    createControls=replaceThemeControls('new-token-values',createControls,knownType(newType),normalizedTokenCategory(newCategory),null);
   }
   function renderTokens(refreshDetail = true, refreshEditor = true) {
-    const search = input('token-search').value;
     const filtered = filteredTokens(tokenItems, search, selectedTypes, typeOf);
     const tree = buildTokenGroups(filtered);
     let active:TokenGroup|undefined=tree;
@@ -525,23 +612,15 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     const item = selected();
     updateDetailVisibility();
     if (!item || refreshDetail === false) return;
-    el('token-detail-type').textContent = [typeOf(item), categoryOf(item)].filter(Boolean).join(' · ');
-    el('token-detail-title').textContent = item.name;
     const diagnostics=[nameDiagnostics.get(item.id)].filter((x):x is string=>!!x);
     for(const selectedTheme of themes) {
       const resolved = resolveTokenValue({ type: 'token', tokenId: item.id }, index, selectedTheme, item.type, item.category);
       if (resolved.error) diagnostics.push(selectedTheme + ': ' + resolved.error);
     }
-    el('token-detail-diagnostic').textContent = diagnostics.join(' · ');
-    el('token-edit').hidden = !editable();
-    el('token-rename-open').hidden = !editable() || renaming;
-    btn('token-delete').disabled = !usagesReady || tokenUsages.length > 0;
-    el('token-delete').title = tokenUsages.length ? 'У токена есть зависимости: ' + tokenUsages.length : 'Удалить токен';
+    diagnostic=diagnostics.join(' · ');publishPanel();
     if (refreshEditor) {
       detailControls = replaceThemeControls('token-values', detailControls, typeOf(item), categoryOf(item), item);
     } else detailControls.forEach(control => control.refresh?.());
-    const usageTitle=el('token-usages').previousElementSibling;
-    if(usageTitle)usageTitle.textContent='Использования'+(usagesReady?' · '+tokenUsages.length:' · загрузка…');
     models.usage.publish({usages:tokenUsages,ready:usagesReady,name:id=>tokenItems.find(t=>t.id===id)?.name??id,
       selectLayer:id=>{showEditor();selectLayer(id);}});
   }
@@ -553,10 +632,10 @@ export function createTokens({ models, selectLayer, showEditor, element, request
   }
   function revealToken(item:DesignToken|undefined,navigate=false){
     if(!item)return;
-    const hidden = !selectedTypes.has(typeOf(item)) || !matchesTokenSearch(item, input('token-search').value) ||
+    const hidden = !selectedTypes.has(typeOf(item)) || !matchesTokenSearch(item, search) ||
       !tokensInGroup([item], group).length;
     selectedTypes.add(typeOf(item)); syncTypeFilter();
-    if (!matchesTokenSearch(item, input('token-search').value)) input('token-search').value = '';
+    if (!matchesTokenSearch(item, search)) search = '';
     if (navigate || hidden) group = tokenSegments(item.name).slice(0,-1);
     const path = tokenSegments(item.name).slice(0,-1);
     for (let i = 0; i <= path.length; i++) collapsed.delete(groupKey(path.slice(0,i)));
@@ -571,70 +650,58 @@ export function createTokens({ models, selectLayer, showEditor, element, request
     try {
       const items = await readAllTokenPages(`/api/v1/documents/${encodeURIComponent(doc)}/tokens/${encodeURIComponent(id)}/usages`,revision,usage);
       if (current !== tokenLoad || doc !== getContext().documentId || revision !== getContext().revision) return;
-      tokenUsages = items; usagesReady = true; el('tokens-error').textContent = ''; renderTokens(true, false);
+      tokenUsages = items; usagesReady = true; setError(''); renderTokens(true, false);
     } catch (error) {
-      if (current === tokenLoad && doc === getContext().documentId) el('tokens-error').textContent = errorMessage(error);
+      if (current === tokenLoad && doc === getContext().documentId) setError(errorMessage(error));
     }
   }
   async function tokenCommand(command:Command,data:CommandData,selection?:string):Promise<boolean|undefined> {
     const doc=getContext().documentId;if(!doc||!editable()||busy())return;
     stopLive(); const { signal, current } = startRequest();
-    el('token-create').inert = el('token-import-form').inert = true;
-    el('token-detail').inert = command !== 'set-token-value';
-    el('tokens-error').textContent = ''; el('tokens-status').textContent = 'Сохранение…';
+    commandBusy=true;detailBusy=command!=='set-token-value';error='';status='Сохранение…';publishPanel();
     try {
-      await request(`/api/v1/documents/${encodeURIComponent(doc)}/commands/${command}`,
-        { method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), ...data }) }, signal);
+      await postDocumentCommand(request,doc,command,{commandId:crypto.randomUUID(),...data},signal);
       if (signal.aborted || current !== getContext().generation) return;
       if(selection&&'name' in data&&'type' in data){revealToken({id:selection,name:data.name,type:data.type});selectedToken=selection;creating=false;}
-      if (command === 'import-design-tokens') { importEpoch++; el('token-import-form').hidden = true; form('token-import-form').reset(); syncImportMode(); }
+      if(command==='import-design-tokens'){importEpoch++;resetImport();publishPanel();}
       await readPages(signal);
-      if (current === getContext().generation) { el('tokens-status').textContent = ''; return true; }
+      if (current === getContext().generation) { status='';publishPanel();return true; }
     } catch (error) {
       if(!aborted(error)&&current===getContext().generation){
         const diagnostics=error instanceof ApiError&&Array.isArray(error.diagnostics)?error.diagnostics.filter(record).map(d=>String(d.path??'')+': '+String(d.message??'')).join('; '):'';
-        el('tokens-error').textContent=error instanceof TypeError||(error instanceof ApiError&&error.status>=500)?'Результат неизвестен. Обновите документ перед повтором.':diagnostics||(error instanceof ApiError&&error.code==='INVALID_TOKEN'&&error.detail?error.message+' '+error.detail:errorMessage(error));
+        setError(error instanceof TypeError||(error instanceof ApiError&&error.status>=500)?'Результат неизвестен. Обновите документ перед повтором.':diagnostics||(error instanceof ApiError&&error.code==='INVALID_TOKEN'&&error.detail?error.message+' '+error.detail:errorMessage(error)));
       }
     } finally {
       if (current === getContext().generation) {
-        el('token-create').inert = el('token-detail').inert = el('token-import-form').inert = false; el('tokens-status').textContent = ''; startLive();
+        status='';clearBusy();startLive();
       }
     }
   }
 
-  el('new-token-type').addEventListener('change', updateCategoryOptions);
-  el('new-token-category').addEventListener('change', updateCreateMode);
-  el('token-create').addEventListener('submit', event => {
-    event.preventDefault();
+  function createToken(){
     try {
-      const type = select('new-token-type').value, category = allowedCategories[type] ? select('new-token-category').value : null;
-      const name = qualifyTokenName(input('new-token-name').value.trim(), group);
+      const type=newType,category=allowedCategories[type]?newCategory:null;
+      const name = qualifyTokenName(newName.trim(), group);
       const error = tokenNameError(name, tokenItems); if (error) throw new Error(error);
       const id=crypto.randomUUID();const [light,dark]=createControls;if(!light||!dark)throw new Error('Отсутствуют значения тем.');
       const values:Record<Theme,TokenExpression>={Light:readExpression(light),Dark:readExpression(dark)};
       tokenCommand('add-token', { tokenId: id, name, type: typeIndex(type),
         category: categoryIndex(category), values }, id);
-    } catch (error) { el('tokens-error').textContent = errorMessage(error); }
-  });
-  el('token-delete').addEventListener('click', () => {
+    } catch (error) { setError(errorMessage(error)); }
+  }
+  function deleteToken(){
     const revision=getContext().revision;if(!selectedToken||!usagesReady||tokenUsages.length||revision===null)return;
     tokenCommand('delete-token',{tokenId:selectedToken,expectedRevision:revision});
-  });
-  el('token-rename-open').addEventListener('click', beginRename);
-  el('token-rename-cancel').addEventListener('click', endRename);
-  el('token-name').addEventListener('keydown', event => {
-    if (event.key === 'Escape') { event.preventDefault(); endRename(); }
-  });
-  el('token-rename').addEventListener('submit', async event => {
-    event.preventDefault();
+  }
+  async function renameToken(){
     const item=selected();if(!item||!editable()||busy())return;
-    const name=input('token-name').value.trim();
+    const name=renameName.trim();
     if (name === item.name) { endRename(); return; }
     const error = tokenNameError(name, tokenItems, item.id);
-    if (error) { el('tokens-error').textContent = error; return; }
+    if (error) { setError(error); return; }
     if (await tokenCommand('rename-token', { tokenId: item.id, name }) && selectedToken === item.id) endRename();
-  });
+  }
   updateCategoryOptions();
   return { reset: resetTokens, read: readTokens, apply: applyTokens,
-    readSelectedUsages, applySelectedUsages, refreshAccess, get items() { return tokenItems; } };
+    readSelectedUsages, applySelectedUsages, refreshAccess, clearBusy, get items() { return tokenItems; } };
 }
