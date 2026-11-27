@@ -75,12 +75,14 @@ public sealed record CommandResult(Guid DocumentId, Guid CommandId, string Code,
     public string? Actual { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? PropertyPath { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? BatchResponse { get; init; }
     public bool Accepted => Code == "ACCEPTED";
     public bool Equals(CommandResult? other) => other is not null &&
         DocumentId == other.DocumentId && CommandId == other.CommandId && Code == other.Code && Revision == other.Revision &&
         ActorId == other.ActorId && Source == other.Source && PageId == other.PageId && Timestamp == other.Timestamp && ScreenId == other.ScreenId &&
         NodeId == other.NodeId && VersionId == other.VersionId && Explanation == other.Explanation && Property == other.Property &&
-        Expected == other.Expected && Actual == other.Actual && PropertyPath == other.PropertyPath &&
+        Expected == other.Expected && Actual == other.Actual && PropertyPath == other.PropertyPath && BatchResponse == other.BatchResponse &&
         (AffectedIds is null ? other.AffectedIds is null : other.AffectedIds is not null && AffectedIds.SequenceEqual(other.AffectedIds)) &&
         (Diagnostics is null ? other.Diagnostics is null : other.Diagnostics is not null && Diagnostics.SequenceEqual(other.Diagnostics));
     public override int GetHashCode() => HashCode.Combine(DocumentId, CommandId, Code, Revision, ActorId, Timestamp);
@@ -144,6 +146,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionSaved), "VERSION_SAVED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(VersionRestored), "VERSION_RESTORED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(HistoryCompensated), "HISTORY_COMPENSATED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(BatchApplied), "BATCH_APPLIED")]
 public abstract record DocumentEvent;
 public sealed record ComponentSlotAdded(Guid DefinitionId, ComponentSlot Slot) : DocumentEvent;
 public sealed record ComponentSlotContentSet(Guid NodeId, Guid SlotId, IReadOnlyList<Guid> ContentNodeIds) : DocumentEvent;

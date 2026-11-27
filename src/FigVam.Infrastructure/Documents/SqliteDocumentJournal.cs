@@ -11,7 +11,7 @@ namespace FigVam.Infrastructure.Documents;
 // All server instances must use this same local durable directory. SQLite's file locks,
 // rather than process-local locks or caches, establish the authoritative document stream.
 public sealed partial class SqliteDocumentJournal
-    : IDocumentCommandResultReader, IDocumentCommandJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
+    : IDocumentCommandResultReader, IDocumentCommandJournal, IDocumentBatchJournal, IDocumentEventJournal, IDocumentVersionStore, IDocumentCommandHistoryStore, IDocumentStateReader, IDocumentAssetStore
 {
     private const string EventProjection = """
         SELECT e.revision,e.type,e.subject_id,s.screen_id,n.node_id,n.kind,m.parent_id,m.position,
@@ -179,6 +179,9 @@ public sealed partial class SqliteDocumentJournal
         var subjectId = Guid.Parse(reader.GetString(2));
         return reader.GetString(1) switch
         {
+            "EXECUTE_BATCH" when !reader.IsDBNull(14)
+                => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is BatchApplied batch
+                    ? batch : throw new InvalidDataException("Invalid batch payload."),
             "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "DUPLICATE_SCREEN" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "SET_SCREEN_VARIANT_PROPERTIES" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "DELETE_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "UPSERT_STYLE" or "DELETE_STYLE" or "REMOVE_NODE_PROPERTIES" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
             "SET_NODE_PROPERTIES" when !reader.IsDBNull(14)
@@ -242,6 +245,16 @@ public sealed partial class SqliteDocumentJournal
     public Task<CommandResult> ExecuteAsync(Guid documentId, Guid commandId,
         Func<DocumentState?, Func<Guid, DocumentVersionResult>, Func<string, IReadOnlyList<DocumentCommandHistoryEntry>>, DocumentChange> apply, CancellationToken cancellationToken = default,
         Func<ValueTask<CommandResult?>>? authorize = null)
+        => ExecuteCoreAsync(documentId, commandId, (state, version, history) => Task.FromResult(apply(state, version, history)), cancellationToken, authorize);
+
+    public Task<CommandResult> ExecuteBatchAsync(Guid documentId, Guid commandId,
+        Func<DocumentState?, Task<DocumentChange>> apply, CancellationToken cancellationToken,
+        Func<ValueTask<CommandResult?>> authorize)
+        => ExecuteCoreAsync(documentId, commandId, (state, _, _) => apply(state), cancellationToken, authorize);
+
+    private Task<CommandResult> ExecuteCoreAsync(Guid documentId, Guid commandId,
+        Func<DocumentState?, Func<Guid, DocumentVersionResult>, Func<string, IReadOnlyList<DocumentCommandHistoryEntry>>, Task<DocumentChange>> apply,
+        CancellationToken cancellationToken, Func<ValueTask<CommandResult?>>? authorize)
         => Task.Run(async () =>
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -257,7 +270,7 @@ public sealed partial class SqliteDocumentJournal
                 return JsonSerializer.Deserialize<CommandResult>(original)!;
 
             var previous = Recover(connection, transaction, documentId);
-            var change = apply(previous, versionId =>
+            var change = await apply(previous, versionId =>
             {
                 try { return ReadVersion(connection, transaction, documentId, versionId); }
                 catch (InvalidDataException) { return new("INVALID_VERSION"); }
@@ -272,6 +285,8 @@ public sealed partial class SqliteDocumentJournal
                 Validate(next.Document);
                 var (eventType, subjectId, screenId, nodeId, kind) = change.Event switch
                 {
+                    BatchApplied batch when JsonSerializer.Serialize(batch.Patch.Apply(previous.Document)) == JsonSerializer.Serialize(next.Document)
+                        => ("EXECUTE_BATCH", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     DocumentDeleted => ("DELETE_DOCUMENT", documentId, (Guid?)null, (Guid?)null, (string?)null),
                     HistoryCompensated compensation when change.Version is null
                         => (compensation.IsRedo ? "REDO" : "UNDO", compensation.TargetCommandId, (Guid?)null, (Guid?)null, (string?)null),
@@ -392,7 +407,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is NodeAdded { Properties: not null } or NodeAdded { Name: not null } or PageAdded { Name: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is BatchApplied or NodeAdded { Properties: not null } or NodeAdded { Name: not null } or PageAdded { Name: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded { Name: null } added
@@ -529,6 +544,8 @@ public sealed partial class SqliteDocumentJournal
             command.CommandText = "INSERT INTO results(command_id,result) VALUES($id,$result)";
             command.Parameters.AddWithValue("$result", JsonSerializer.Serialize(change.Result));
             command.ExecuteNonQuery();
+            cancellationToken.ThrowIfCancellationRequested();
+            if (change.Event is BatchApplied && authorize is not null && await authorize() is { } finalDenial) return finalDenial;
             cancellationToken.ThrowIfCancellationRequested();
             transaction.Commit();
             return change.Result;
@@ -676,6 +693,10 @@ public sealed partial class SqliteDocumentJournal
                 {
                     case AssetAdded asset:
                         document = document with { Assets = [.. document.Assets, asset.Asset] };
+                        break;
+                    case BatchApplied batch:
+                        document = batch.Patch.Apply(document)
+                            ?? throw new InvalidDataException("Batch preconditions failed during recovery.");
                         break;
                     case HistoryCompensated compensation:
                         document = compensation.Patch.Apply(document)

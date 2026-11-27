@@ -60,7 +60,8 @@ public static class McpServiceRegistration
             .WithTools<McpReadTools>()
             .WithTools<McpRenderTools>()
             .WithTools<McpPreviewTools>()
-            .WithTools<McpWriteTools>();
+            .WithTools<McpWriteTools>()
+            .WithTools<McpBatchTools>();
     }
 
     public static void MapDocumentMcp(this WebApplication app)
