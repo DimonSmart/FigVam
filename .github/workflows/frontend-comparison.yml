@@ -27,10 +27,12 @@ jobs:
           node-version: 22
       - run: npm install --global npm@11
       - name: Checkout reference revision
+        env:
+          BASELINE_SHA: ${{ github.event.pull_request.base.sha || '3175ca59599861f290bfffdac70af44cd905ba5b' }}
         run: |
-          git fetch origin f1a67f63de65cdf80b88773b85e849cf05fb53fa
+          git fetch origin $env:BASELINE_SHA
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          git worktree add --detach "$env:RUNNER_TEMP/figvam-baseline" f1a67f63de65cdf80b88773b85e849cf05fb53fa
+          git worktree add --detach "$env:RUNNER_TEMP/figvam-baseline" $env:BASELINE_SHA
       - name: Build both versions and install identical benchmark
         run: |
           $baseline = "$env:RUNNER_TEMP/figvam-baseline"
