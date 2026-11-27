@@ -1,12 +1,5 @@
 name: Frontend comparison
 on:
-  pull_request:
-    paths:
-      - 'src/FigVam.Web/**'
-      - 'src/FigVam.Server/wwwroot/**'
-      - 'tests/FigVam.Ui.Tests/frontend-*'
-      - 'tests/FigVam.Ui.Tests/playwright.performance.config.js'
-      - '.github/workflows/frontend-comparison.yml'
   workflow_dispatch:
 permissions:
   contents: read
