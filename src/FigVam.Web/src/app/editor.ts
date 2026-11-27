@@ -100,7 +100,7 @@ const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
   element, request, refreshPages: () => refreshPages(),
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectionState.selectedScreen; }, get selectionState.screens() { return selectionState.screens; },
+    get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
     get generation() { return generation; }, get token() { return token; }
   }
 });

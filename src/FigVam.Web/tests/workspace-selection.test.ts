@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createWorkspaceSelection } from '../src/app/workspace-selection';
 import type { DocumentStructure } from '../src/app/document-workspace';
 
-const structure: DocumentStructure = { revision: 1, pages: { items: [{ id: 'p', type: 'page', name: 'Page' }], total: 1 },
+const structure: DocumentStructure = { revision: 1, pages: { items: [{ id: 'p', type: 'page', name: 'Page', childCount: 1 }], total: 1 },
   screens: { items: [{ id: 's', type: 'screen', dimensions: { width: 100, height: 100 } }], total: 1 },
   selection: { page: 'p', screen: 's' } };
 describe('workspace selection', () => {
