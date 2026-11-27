@@ -1,15 +1,16 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createRequestRunner } from '../src/app/request-runner';
 import { documentIdFromPath } from '../src/app/navigation';
 import { isValidBearerToken } from '../src/features/home/session-authentication';
-import { cancelRequest, setToken } from '../src/core/session';
+import { createSessionLifecycle } from '../src/core/session';
 
 function setup() {
   const view = { stopLive: vi.fn(), startLive: vi.fn(), message: vi.fn(), setBusy: vi.fn(), setControlsDisabled: vi.fn() };
-  return { view, runner: createRequestRunner(view) };
+  const session = createSessionLifecycle();
+  session.setToken('session');
+  return { view, session, runner: createRequestRunner(session, view) };
 }
 describe('foreground request lifecycle', () => {
-  beforeEach(() => { cancelRequest(); setToken('session'); });
   it('retains the original retry action after a failure and clears it explicitly', async () => {
     const { view, runner } = setup();
     const retry = vi.fn(async () => {});
