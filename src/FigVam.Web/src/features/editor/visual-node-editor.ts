@@ -1,5 +1,5 @@
-import { prepareDocumentCommand, prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperation, type AssetUploadOperation } from '../../api/document-commands';
-import { toApiNodeProperties } from '../../api/command-value-contracts';
+import { prepareNodeOperation, type Command, type Body } from './node-command';
+import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperation, type AssetUploadOperation } from '../../api/document-commands';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
@@ -17,31 +17,7 @@ interface Palette extends Draft {kind:string;parent:string|null|undefined;select
 interface Field extends ValueField {baseline:RawValue;signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
 interface EditValue {raw:RawValue;value:NodePropertyValue}
 interface Automatic {target:Target;fields:Map<string,EditValue>;due:number;rejected:boolean}
-type Command='add-node'|'set-node-properties'|'set-screen-variant-properties'|'remove-screen-variant-override'|'remove-node-properties';
-interface Body {nodeId:string;parentId?:string;kind?:string;properties?:NodeProperties|string[];expectedParentId?:string;expectedRevision?:number|null;screenId?:string|null;variantId?:string|null;property?:string}
 interface Operation {key:string;command:Command;state:'ready'|'pending'|'uncertain'|'sync';mutation?:DocumentCommandOperation;draft:Draft;documentId:string;screen:string;selectionId?:string;body:Body & {commandId:string};auto?:boolean;sent:Map<string,EditValue>;canvas?:boolean;settlePreview?:((confirmed:boolean)=>void)|null}
-function prepareNodeOperation(op:Operation):DocumentCommandOperation {
-  const {documentId,command,body}=op;
-  const {commandId,nodeId,properties,expectedRevision,expectedParentId,screenId,variantId,property,parentId,kind}=body;
-  const base={commandId,nodeId};
-  switch(command){
-    case 'remove-node-properties':
-      if(!Array.isArray(properties)||expectedRevision==null)throw new TypeError('Invalid property removal');
-      return prepareDocumentCommand(documentId,command,{...base,properties,expectedRevision});
-    case 'remove-screen-variant-override':
-      if(!screenId||!variantId||!property)throw new TypeError('Invalid variant override');
-      return prepareDocumentCommand(documentId,command,{...base,screenId,variantId,property,expectedRevision});
-    case 'add-node':
-      if(!parentId||!kind||Array.isArray(properties))throw new TypeError('Invalid node creation');
-      return prepareDocumentCommand(documentId,command,{...base,parentId,kind,properties:toApiNodeProperties(properties??{})});
-    case 'set-node-properties':
-      if(!properties||Array.isArray(properties))throw new TypeError('Invalid properties');
-      return prepareDocumentCommand(documentId,command,{...base,properties:toApiNodeProperties(properties),expectedRevision,expectedParentId});
-    case 'set-screen-variant-properties':
-      if(!properties||Array.isArray(properties)||!screenId||!variantId||expectedRevision==null)throw new TypeError('Invalid variant properties');
-      return prepareDocumentCommand(documentId,command,{...base,screenId,variantId,expectedRevision,properties:toApiNodeProperties(properties)});
-  }
-}
 const retryable=(op:Operation|undefined)=>op?.state==='uncertain'||op?.state==='sync';
 interface Upload {documentId:string;assetId:string;mutation:AssetUploadOperation;draft:Palette;state:'ready'|'pending'|'uncertain'|'sync'}
 interface GeometryCommand {nodeId:string;expectedParentId:string;expectedRevision:number;properties:NodeProperties}

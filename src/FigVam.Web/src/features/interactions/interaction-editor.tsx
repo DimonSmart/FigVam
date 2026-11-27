@@ -1,3 +1,5 @@
+import { actionLabels, eventLabels, noValue, id, clone, isActionKind, actionComplete, emptyAction, parameter, type ActionKind, type ActionDraft, type ScenarioDraft } from './interaction-model';
+export { actionLabels, eventLabels, type ActionKind, type ActionDraft, type ScenarioDraft } from './interaction-model';
 import type { ComponentType } from 'react';
 import { flushSync } from 'react-dom';
 import { createViewModel } from '../../app/view-model';
@@ -8,9 +10,6 @@ import type { ApiClient } from '../../api/api-client';
 import { requiredRecord, array, text } from '../../api/decode';
 import type { Catalog } from './interaction-catalog';
 
-export type ActionKind='navigate'|'openOverlay'|'closeOverlay'|'showVariant'|'setDemoValue'|'selectDataset'|'resetPreview';
-export interface ActionDraft {type:ActionKind|'';screenId?:string;variantId?:string|null;datasetId?:string|null;nodeId?:string;value?:string|null}
-export interface ScenarioDraft {id:string;screenId:string;nodeId:string;event:number|null;actions:ActionDraft[]}
 export interface EditorContext {doc:string|null;screen:string|null;node:string|null;revision:number|null;token:string|null;epoch:number;editable:boolean}
 interface Capability {events:number[];actions:string[];potentialActions:string[];demoTargetIds:string[];navigationScreenId:string|null;demoScreenId:string|null}
 export interface Draft extends EditorContext {scenario:ScenarioDraft;creating:boolean;opener:HTMLElement|null;original:string;conflict:boolean;valid:boolean;capabilityCache:Map<string,Capability>}
@@ -19,16 +18,6 @@ interface Choice {id:string;label:string;group?:string}
 interface Values {targetId?:string;screenId?:string|null;variantId?:string|null;datasetId?:string|null;demoNodeId?:string;demoValue?:string|null}
 function number(value:unknown):number{if(typeof value!=='number'||!Number.isInteger(value))throw new TypeError('Invalid event');return value;}
 function capability(value:unknown):Capability{const c=requiredRecord(value);return{events:array(c.events,number),actions:array(c.actions,text),potentialActions:array(c.potentialActions,text),demoTargetIds:array(c.demoTargetIds,text),navigationScreenId:c.navigationScreenId==null?null:text(c.navigationScreenId),demoScreenId:c.demoScreenId==null?null:text(c.demoScreenId)};}
-export const eventLabels = ['По нажатию', 'При изменении', 'При наведении', 'При уходе указателя', 'При отправке'];
-export const actionLabels:Record<ActionKind,string> = {
-  navigate: 'Перейти на экран', openOverlay: 'Открыть оверлей', closeOverlay: 'Закрыть оверлей',
-  showVariant: 'Переключить вариант', setDemoValue: 'Установить значение',
-  selectDataset: 'Выбрать датасет', resetPreview: 'Сбросить Preview'
-};
-const noValue = '__null__';
-const id = (value:unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
-const clone = <T,>(value:T):T => structuredClone(value);
-const isActionKind=(value:string):value is ActionKind=>Object.hasOwn(actionLabels,value);
 function ChoiceOptions({items,value,placeholder='Выберите значение'}:{items:Choice[];value:string|null|undefined;placeholder?:string}){
   const options:Choice[]=[{id:'',label:placeholder},...items];
   if(value&&!options.some(o=>o.id===value))options.push({id:value,label:'Недоступное значение'});
@@ -46,29 +35,6 @@ function pickerLabel(type:ActionKind|''){
   switch(type){case 'navigate':case 'openOverlay':return 'Целевой экран';case 'showVariant':return 'Вариант';case 'selectDataset':return 'Датасет';case 'setDemoValue':return 'Целевой элемент';default:return null;}
 }
 interface RowState {types:Choice[];options:Choice[];error:string;search:string;valueDraft:string}
-function actionComplete(a:ActionDraft) {
-  switch (a.type) {
-    case 'navigate': case 'openOverlay': return id(a.screenId);
-    case 'showVariant': return a.variantId === null || id(a.variantId);
-    case 'selectDataset': return a.datasetId === null || id(a.datasetId);
-    case 'setDemoValue': return id(a.nodeId) && (a.value === null || typeof a.value === 'string' && a.value.length <= 4096);
-    case 'closeOverlay': case 'resetPreview': return true;
-    default: return false;
-  }
-}
-function emptyAction(type:string):ActionDraft {
-  if (type === 'setDemoValue') return { type, value: null };
-  return { type:isActionKind(type)?type:'' };
-}
-
-function parameter(action:ActionDraft):string|null|undefined {
-  if (action.type === 'navigate' || action.type === 'openOverlay') return action.screenId;
-  if (action.type === 'showVariant') return action.variantId === null ? noValue : action.variantId;
-  if (action.type === 'selectDataset') return action.datasetId === null ? noValue : action.datasetId;
-  if (action.type === 'setDemoValue') return action.nodeId;
-  return '';
-}
-
 interface InteractionRowsProps {
   actions:ActionDraft[];rows:RowState[];catalog:Catalog|null;
   moveAction(index:number,direction:number):void;removeAction(index:number):void;changeType(index:number,type:string):void;
