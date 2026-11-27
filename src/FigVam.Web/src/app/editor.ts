@@ -26,6 +26,7 @@ import { postPageCommand, type PageCommandData } from './page-commands';
 
 import { createRequestRunner } from './request-runner';
 import { createNavigation } from './navigation';
+import { createDocumentRevisionState, readDocumentStructure } from './document-workspace';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
 type SelectionChange = { nodeId: string; previousId?: string };
@@ -59,8 +60,8 @@ let cursors: (string | null | undefined)[] = [null];
 let pageIndex = 0;
 let nextCursor: string | null | undefined = null;
 const pageSize = 20;
-let documentId: string | null = null, documentRole: string | null = null, revision: number | null = null, selectedPage: string | null = null, pagesOffset = 0, pagesTotal = 0;
-let catalogRevision: number | null = null;
+let documentId: string | null = null, documentRole: string | null = null, selectedPage: string | null = null, pagesOffset = 0, pagesTotal = 0;
+const revisions = createDocumentRevisionState();
 let pagesItems: PageItem[] = [];
 let importOperation: ImportOperation | null = null;
 let deletion: Deletion | null = null;
@@ -91,7 +92,7 @@ const request: ApiClient = createApiClient({
 
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({
   element, request, pageSize,
-  getContext: () => ({ documentId, screen: selectedScreen, revision, token, navigationEpoch })
+  getContext: () => ({ documentId, screen: selectedScreen, revision: revisions.revision, token, navigationEpoch })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
   element, request, refreshPages: () => refreshPages(),
@@ -112,7 +113,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   request,
   workspace: {
     get documentId() { return documentId; },
-    get revision() { return revision; },
+    get revision() { return revisions.revision; },
     get token() { return token; }
   },
   isEditorVisible: () => !element('editor-view').hidden,
@@ -128,7 +129,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
-  element, getContext: () => ({ token, documentId, documentRole, revision, navigationEpoch }),
+  element, getContext: () => ({ token, documentId, documentRole, revision: revisions.revision, navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -137,31 +138,31 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
   element, request,
-  getContext: () => ({ documentId, documentRole, revision, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
   element, request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole, revision, generation }),
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
   element, request, pageSize,
-  getContext: () => ({ documentId, revision, catalogRevision })
+  getContext: () => ({ documentId, revision: revisions.revision, catalogRevision: revisions.catalogRevision })
 });
 const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVariants({
   element, request, refreshPages: () => refreshPages(),
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
     get documentId() { return documentId; }, get documentRole() { return documentRole; },
-    get selectedScreen() { return selectedScreen; }, get revision() { return revision; },
-    get catalogRevision() { return catalogRevision; },
+    get selectedScreen() { return selectedScreen; }, get revision() { return revisions.revision; },
+    get catalogRevision() { return revisions.catalogRevision; },
     get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
   }
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
   element, request, pageSize,
-  getContext: () => ({ documentId, documentRole, revision, catalogRevision, token, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
@@ -169,7 +170,7 @@ function closeInaccessibleDocument(status: number) {
   if (documentId) scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revision = null; pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingPageName = editingScreenName = null; pageExpanded = true;
+  members.reset(); documentExport.reset(); documentRole = null; revisions.reset(); pagesItems = []; screensItems = []; selectedPage = selectedScreen = null; editingPageName = editingScreenName = null; pageExpanded = true;
   element('page-edit').inert = element('screen-create').inert = false;
   element('revision').textContent = ''; element('document-title').textContent = '';
   document.title = 'FigVam — доступ потерян';
@@ -214,7 +215,7 @@ function clearSession() {
   authenticationView.clearToken();
   element('document-name').value = '';
   documentListView.clear();
-  documentId = documentRole = revision = selectedPage = null; pagesOffset = pagesTotal = 0; pagesItems = [];
+  documentId = documentRole = selectedPage = null; revisions.reset(); pagesOffset = pagesTotal = 0; pagesItems = [];
   selectedScreen = null; screensOffset = screensTotal = 0; screensItems = []; editingPageName = editingScreenName = null;
   renderPages();
   layers.reset();
@@ -265,7 +266,7 @@ const layers: ReturnType<typeof createLayers> = createLayers({
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
     get selectedScreen() { return selectedScreen; },
-    get revision() { return revision; },
+    get revision() { return revisions.revision; },
     get navigationEpoch() { return navigationEpoch; },
     get token() { return token; }
   },
@@ -281,7 +282,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   workspace: {
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
-    get revision() { return revision; },
+    get revision() { return revisions.revision; },
     get selectedScreen() { return selectedScreen; },
     get layerSelection() { return layers.selection; }
   },
@@ -302,7 +303,7 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = documentRole = null;
+  documentHistory.reset(); documentId = documentRole = null; revisions.reset();
   selectedScreen = null; screensItems = []; renderCanvas();
   element('documents-view').hidden = false;
   element('editor-view').hidden = true;
@@ -444,19 +445,19 @@ const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasView
 });
 const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreens({
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
-  getContext: () => ({ documentId, revision, screen: screensItems.find(item => item.id === selectedScreen),
+  getContext: () => ({ documentId, revision: revisions.revision, screen: screensItems.find(item => item.id === selectedScreen),
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
   element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
-  getContext: () => ({ documentId, documentRole, revision, screen: selectedScreen,
+  getContext: () => ({ documentId, documentRole, revision: revisions.revision, screen: selectedScreen,
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await run(() => refreshPages(), async (signal, current) => {
-      synced = (revision !== null && newRevision === revision + 1
+      synced = (revisions.revision !== null && newRevision === revisions.revision + 1
         ? await readNodeEditRevision(signal, newRevision, isCurrent, reveal, selection, resourcesChanged)
         : await readPages(signal, pagesOffset, null, isCurrent, reveal, selection)) === true;
       if (current() && !synced) message();
@@ -465,7 +466,7 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   }
 });
 const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeEditor({
-  element, getContext: () => ({ documentRole, revision, selection: layers.selection }),
+  element, getContext: () => ({ documentRole, revision: revisions.revision, selection: layers.selection }),
   getModel: () => visualScreens.designModel, getScale: () => canvasViewport.scale,
   selectLayer: layers.selectFromCanvas, editGeometry: visualNodeEditor.editGeometry,
   isEditPending: () => visualNodeEditor.editPending
@@ -493,14 +494,14 @@ function selectionAfterCommand(change?: SelectionChange) {
 }
 
 function renderRevision() {
-  element('revision').textContent = `Общий черновик · ревизия ${revision}`;
+  element('revision').textContent = `Общий черновик · ревизия ${revisions.revision}`;
   documentExport.render();
 }
 
 async function readNodeEditRevision(signal: AbortSignal, newRevision: number, isCurrent: () => boolean, reveal: string[], selectionChange?: SelectionChange, resourcesChanged = false): Promise<true | undefined> {
-  const doc = documentId, screen = selectedScreen, current = generation, previousRevision = revision;
+  const doc = documentId, screen = selectedScreen, current = generation, previousRevision = revisions.revision;
   if (!doc) return;
-  const valid = () => !signal.aborted && current === generation && previousRevision === revision &&
+  const valid = () => !signal.aborted && current === generation && previousRevision === revisions.revision &&
     doc === documentId && screen === selectedScreen && isCurrent();
   const base = `/api/v1/documents/${encodeURIComponent(doc)}`;
   // One confirmed node command cannot change the document header, page and screen lists, or token definitions.
@@ -512,7 +513,7 @@ async function readNodeEditRevision(signal: AbortSignal, newRevision: number, is
   if (!valid()) return;
   if (!layers.isExpansionCurrent(layerSnapshot)) return readNodeEditRevision(signal, newRevision, isCurrent, reveal, selectionChange, resourcesChanged);
   const selection = selectionAfterCommand(selectionChange);
-  revision = newRevision;
+  revisions.confirmNodeEdit(newRevision);
   tokens.applySelectedUsages(usages);
   layers.applySnapshot(layerSnapshot, selection);
   renderCanvas(!resourcesChanged);
@@ -527,19 +528,11 @@ async function readPages(signal: AbortSignal, _offset = 0, targetRevision: numbe
   if (!id) return;
   const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
   const base = `/api/v1/documents/${encodeURIComponent(id)}`;
-  const result = await documentQueries.readPages(id, signal, valid, targetRevision);
-  if (!valid() || !result) return;
-  const nextRevision = result.revision;
-  const page = result.items.some(item => item.id === selectedPage) ? selectedPage : result.items[0]?.id ?? null;
+  const structure = await readDocumentStructure(documentQueries, id, signal, valid, targetRevision,
+    { page: selectedPage, screen: selectedScreen });
+  if (!structure || !valid()) return;
+  const { revision: nextRevision, pages: result, screens, selection: { page, screen } } = structure;
   if (page !== selectedPage) pageExpanded = true;
-  let screen = page === selectedPage ? selectedScreen : null;
-  let screens: {items: ScreenItem[]; total: number} = { items: [], total: 0 };
-  if (page) {
-    const result = await documentQueries.readScreens(id, page, signal, valid, nextRevision);
-    if (!valid() || !result) return;
-    screens = result;
-  }
-  if (!screens.items.some(item => item.id === screen)) screen = null;
   const layerSnapshot = await layers.readSnapshot({
     base, screen, revision: nextRevision, signal, isCurrent: valid, reveal,
     shouldReportFailure: () => signal === pending?.signal
@@ -559,7 +552,7 @@ async function readPages(signal: AbortSignal, _offset = 0, targetRevision: numbe
   if (page !== selectedPage || screen !== selectedScreen) layers.reset();
   pagesOffset = 0; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
   screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
-  revision = catalogRevision = nextRevision;
+  revisions.confirmStructure(nextRevision);
   tokens.apply(tokenSnapshot);
   styles.apply(styleSnapshot);
   if (pagesChanged) renderPages();
@@ -596,7 +589,7 @@ async function openDocument(id: string): Promise<void> {
   element('documents-view').hidden = true;
   element('editor-view').hidden = true;
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; revisions.reset(); selectedPage = null; selectedScreen = null; editingPageName = editingScreenName = null; screensItems = []; pagesOffset = 0; pageExpanded = true; layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
@@ -625,10 +618,10 @@ async function openDocument(id: string): Promise<void> {
 }
 
 element('delete-document').addEventListener('click', () => {
-  if (deletion || !documentId || documentRole !== 'Owner' || revision === null || !Number.isSafeInteger(revision) || element('editor-view').hidden) return;
+  if (deletion || !documentId || documentRole !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || element('editor-view').hidden) return;
   if (!confirm(`Удалить документ «${element('document-title').textContent}»? Это действие нельзя отменить.`)) return;
   const commandId = crypto.randomUUID();
-  const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revision };
+  const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revisions.revision };
   deletion = { id: documentId, name: element('document-title').textContent ?? '', body: JSON.stringify(body), commandId, state: 'ready' };
   submitDeletion(deletion);
 });
@@ -871,13 +864,13 @@ const navigatorView = createDocumentNavigator(element('pages'), element('screens
     else void pageCommand('rename-screen', {screenId:id, name});
   },
   deletePage(item) {
-    if (revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
-      void pageCommand('delete-page', {pageId:item.id, expectedRevision:revision}, selectedPage === item.id ? null : undefined);
+    if (revisions.revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
+      void pageCommand('delete-page', {pageId:item.id, expectedRevision: revisions.revision}, selectedPage === item.id ? null : undefined);
   },
   duplicateScreen(item) {
-    if (revision === null) return;
+    if (revisions.revision === null) return;
     const newScreenId = crypto.randomUUID();
-    void pageCommand('duplicate-screen', {screenId:item.id, newScreenId, expectedRevision:revision}, undefined, newScreenId);
+    void pageCommand('duplicate-screen', {screenId:item.id, newScreenId, expectedRevision: revisions.revision}, undefined, newScreenId);
   },
 });
 renderPages();

@@ -80,15 +80,17 @@ export function createApiClient({ getToken, onUnauthorized }: ApiClientOptions):
     isCurrent: () => boolean = () => true,
   ): Promise<{ response: Response; assertCurrent: () => void }> {
     const requestToken = getToken();
+    const requestSignal = signal === undefined ? options?.signal : signal;
     const assertCurrent = () => {
-      if (signal?.aborted || requestToken !== getToken() || !isCurrent())
+      if (requestSignal?.aborted || requestToken !== getToken() || !isCurrent())
         throw new DOMException('Cancelled', 'AbortError');
     };
+    assertCurrent();
     const headers = new Headers(authHeaders(requestToken, options?.method));
     if (options?.body) headers.set('Content-Type', 'application/json');
     new Headers(options?.headers).forEach((value, key) => headers.set(key, value));
     const response = await fetch(path, {
-      ...options, signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers,
+      ...options, signal: requestSignal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers,
     });
     assertCurrent();
     if (response.status === 401) {

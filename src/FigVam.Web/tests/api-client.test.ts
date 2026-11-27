@@ -43,6 +43,28 @@ describe('API transport', () => {
     expect(unauthorized).not.toHaveBeenCalled();
   });
 
+  it('honors RequestInit.signal and rejects cancellation before transport', async () => {
+    const controller = new AbortController();
+    const fetch = vi.fn().mockResolvedValue(Response.json({}));
+    vi.stubGlobal('fetch', fetch);
+    const client = createApiClient({ getToken: () => 'token', onUnauthorized: vi.fn() });
+    await client('/api/v1/documents', { signal: controller.signal });
+    expect(fetch.mock.calls[0]?.[1].signal).toBe(controller.signal);
+    controller.abort();
+    await expect(client('/api/v1/documents', { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it('does not send an obsolete request or let a late response update state', async () => {
+    let current = true;
+    const fetch = vi.fn(async () => { current = false; return Response.json({}); });
+    vi.stubGlobal('fetch', fetch);
+    const client = createApiClient({ getToken: () => 'token', onUnauthorized: vi.fn() });
+    await expect(client('/api/v1/documents', {}, undefined, () => current)).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(client('/api/v1/documents', {}, undefined, () => current)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it('reports an expired current session', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
     const unauthorized = vi.fn();
