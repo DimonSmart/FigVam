@@ -64,7 +64,7 @@ export function createDocumentSync(deps: Dependencies) {
     if (!start.documentId) return;
     const valid = () => {
       const now = context();
-      return !signal.aborted && start.documentId === now.documentId && start.generation === now.generation && isCurrent();
+      return !signal.aborted && start.documentId === now.documentId && start.generation === now.generation && start.page===now.page && start.screen===now.screen && isCurrent();
     };
     const base = `/api/v1/documents/${encodeURIComponent(start.documentId)}`;
     const structure = await readDocumentStructure(queries, start.documentId, signal, valid, targetRevision,

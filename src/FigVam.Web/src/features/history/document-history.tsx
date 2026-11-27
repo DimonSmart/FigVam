@@ -130,6 +130,7 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
     }finally{operation.sending=false;if(historyActions.get(id)===operation&&workspace.documentId===id&&workspace.token&&workspace.isEditorVisible())renderAction();}
   }
   function retryAction(){const op=get(historyActions);if(workspace.documentId&&op&&retryable(op)&&canEdit())void sendAction(workspace.documentId,op);}
+  const lifetime=new AbortController();
   document.addEventListener('keydown',event=>{
     if(event.defaultPrevented||event.isComposing||event.altKey||!(event.ctrlKey||event.metaKey))return;
     const target=event.target;
@@ -137,7 +138,7 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
     const key=event.key.toLowerCase(),action=key==='z'?(event.shiftKey?'redo':'undo'):key==='y'&&!event.shiftKey?'redo':null;
     if(!action||!workspace.documentId||!workspace.isEditorVisible()||!canEdit())return;
     event.preventDefault();beginAction(action);
-  });
+  },{signal:lifetime.signal});
   function reset(){
     controller?.abort();controller=null;generation++;visible=false;cursors=[null];state=initial();draft='';renderForm();renderList();renderAction();
   }
@@ -176,5 +177,5 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
   function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();renderAction();}
   function load(){renderList();renderAction();return loadVersions();}
-  renderForm();renderList();return {reset,clearCommands,prepare,load};
+  renderForm();renderList();return {reset,clearCommands,prepare,load,dispose(){lifetime.abort();controller?.abort();clearCommands();}};
 }

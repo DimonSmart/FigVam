@@ -25,6 +25,17 @@
   --ui-home-secondary: #536075;
   --ui-home-muted: #7b879a;
   --ui-card-radius: 11px;
+  --ui-catalog-muted: #8892a3;
+  --ui-catalog-highlight: #f8faff;
+  --ui-catalog-title: #273449;
+  --ui-catalog-outline: #ccd5e4;
+  --ui-import-error: #ae263b;
+  --ui-preview-action: #212c3e;
+  --ui-muted-surface: #f6f7fb;
+  --ui-nested-border: #e3e7f0;
+  --ui-panel-surface: #f9fafc;
+  --ui-destructive-text: #a12c3a;
+  --ui-interaction-error: #a32638;
 }
 body:has(#editor-view:not([hidden])) { height: 100dvh; overflow: hidden; background: var(--ui-bg); }
 body:has(#editor-view:not([hidden])) > #figvam-app > .brand { display: none; }
@@ -88,7 +99,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   display: grid; place-items: center; border-color: transparent; background: transparent; }
 .design-mode { font-weight: 650; padding: 6px 9px; color: var(--ui-accent);
   background: var(--ui-selected); border-radius: 5px; }
-.app-toolbar #open-preview { background: #212c3e; color: var(--ui-on-accent); border-color: #212c3e; font-weight: 650; }
+.app-toolbar #open-preview { background: var(--ui-preview-action); color: var(--ui-on-accent); border-color: var(--ui-preview-action); font-weight: 650; }
 .app-toolbar #open-preview:hover:not(:disabled) { background: #37465d; }
 .app-toolbar #connection-status { font-size: 11px; color: var(--ui-muted);
   max-width: 96px; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; margin: 0; }
@@ -141,7 +152,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
   border-radius: 0; padding: 8px 2px; min-width: 0; font-size: 11px;
   color: var(--ui-muted); cursor: pointer;
 }
-.app-shell .editor-tab:hover { background: #f6f7fb; }
+.app-shell .editor-tab:hover { background: var(--ui-muted-surface); }
 .app-shell .editor-tab[aria-selected=true] { color: var(--ui-selected-text); border-bottom-color: var(--ui-accent); font-weight: 700; }
 .panel-stage { flex: 1; min-height: 0; min-width: 0; }
 .panel-page { height: 100%; overflow-y: auto; overflow-x: hidden;
@@ -321,7 +332,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #layers [aria-selected=true] > .layer-label {
   color: var(--ui-selected-text); background: var(--ui-selected); border-color: transparent; font-weight: 650;
 }
-.app-shell #layers [role=group] { margin-left: 12px; border-left: 1px solid #e3e7f0; }
+.app-shell #layers [role=group] { margin-left: 12px; border-left: 1px solid var(--ui-nested-border); }
 .app-shell .properties-sidebar #inspector-selection { font-size: 12px; color: var(--ui-muted); }
 .app-shell #visual-inspector { border-top: 1px solid var(--ui-border); padding-top: 10px; }
 .app-shell #visual-inspector h3 { margin: 0 0 10px; }
@@ -342,7 +353,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #node-metadata form { margin: 7px 0 11px; }
 .app-shell #node-metadata :is(input, textarea) { display: block; width: 100%; }
 .app-shell #node-metadata button { margin-top: 5px; }
-.app-shell #node-delete { color: #a12c3a; border-color: #efdee1; margin: 8px 0; }
+.app-shell #node-delete { color: var(--ui-destructive-text); border-color: #efdee1; margin: 8px 0; }
 .app-shell .inspector-page > section { border-top: 1px solid var(--ui-border); padding-top: 9px; margin-top: 12px; }
 /* Screen properties are contextual to the absence of node selection. */
 .app-shell .inspector-page:has(#visual-inspector:not([hidden])) > section:has(#screen-size-title) { display: none; }
@@ -354,7 +365,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 }
 .drawing-toolbar { display: flex; flex: 0 0 47px; min-height: 47px; gap: 4px;
   justify-content: center; align-items: center; padding: 5px 12px;
-  border-bottom: 1px solid var(--ui-border); background: #f9fafc; z-index: 8; }
+  border-bottom: 1px solid var(--ui-border); background: var(--ui-panel-surface); z-index: 8; }
 .drawing-label { margin-right: 5px; color: var(--ui-muted); font-size: 11px; }
 .app-shell .drawing-tool {
   width: 34px; height: 34px; min-height: 34px; display: grid; place-items: center;
@@ -386,7 +397,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .drawing-toolbar #visual-palette-form .token-value-editor button { width: auto; }
 .drawing-toolbar #visual-palette-form .token-value-direct input { width: 100%; }
 .app-shell .canvas-caption { flex: 0 0 auto; margin: 0; height: 22px; line-height: 22px;
-  padding: 0 12px; font-size: 11px; color: var(--ui-muted); background: #f9fafc; }
+  padding: 0 12px; font-size: 11px; color: var(--ui-muted); background: var(--ui-panel-surface); }
 .app-shell #canvas-help { display: none; }
 .app-shell #viewport {
   flex: 1 1 0; min-height: 0; margin: 0; height: auto; width: 100%;
@@ -544,7 +555,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell .token-value-link {
   flex: 0 0 31px; width: 31px; min-width: 31px; min-height: 30px;
   border-radius: 0 6px 6px 0; border-left: 0; padding: 3px;
-  background: #f6f7fb; filter: grayscale(1); font-size: 13px;
+  background: var(--ui-muted-surface); filter: grayscale(1); font-size: 13px;
 }
 .app-shell .token-value-layout.is-linked .token-value-link {
   filter: none; background: var(--ui-selected); color: var(--ui-accent);
@@ -662,12 +673,12 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .app-shell #scenario-edit-fields { min-width: 0; border: 0; padding: 0; }
 .app-shell #scenario-edit-fields > legend { font-size: 11px; color: var(--ui-muted); }
 .app-shell #scenario-edit-actions { padding: 0; list-style: none; }
-.app-shell .interaction-action { border: 1px solid #e3e7f0; border-radius: 6px; padding: 8px; margin: 8px 0; }
+.app-shell .interaction-action { border: 1px solid var(--ui-nested-border); border-radius: 6px; padding: 8px; margin: 8px 0; }
 .app-shell .interaction-action label { display: grid; gap: 3px; margin-block: 5px; }
 .app-shell .interaction-action select, .app-shell .interaction-action input:not([type=checkbox]), .app-shell .interaction-action textarea { width: 100%; min-width: 0; }
 .app-shell .interaction-action-tools { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
-.app-shell .interaction-action-error { color: #a32638; font-size: 12px; }
-.app-shell #scenario-edit-conflict:not(:empty) { color: #a32638; }
+.app-shell .interaction-action-error { color: var(--ui-interaction-error); font-size: 12px; }
+.app-shell #scenario-edit-conflict:not(:empty) { color: var(--ui-interaction-error); }
 
 .app-shell .interaction-action label[hidden] { display: none !important; }
 
@@ -828,7 +839,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 .token-table td button { border:0; background:transparent; text-align:left; padding:0; font-weight:600; overflow-wrap:anywhere; }
 .token-table td .token-alias-link { color:var(--ui-accent); font-weight:400; }
 .token-color-swatch { display:inline-block; width:13px; height:13px; border:1px solid #9aa6b8; border-radius:3px; vertical-align:middle; margin-right:5px; }
-.token-invalid, #tokens-error { color:#a12c3a; }
+.token-invalid, #tokens-error { color:var(--ui-destructive-text); }
 .token-details-area form, .token-details-area fieldset { display:grid; gap:7px; margin:8px 0; min-width:0; }
 .token-details-area fieldset { border:1px solid var(--ui-border); border-radius:5px; }
 .token-details-area input, .token-details-area select { max-width:100%; }

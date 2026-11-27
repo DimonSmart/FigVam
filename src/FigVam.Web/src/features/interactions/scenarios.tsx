@@ -263,7 +263,7 @@ export function createScenarios({
       if (valid()) catalogLoading = false;
     }
   }
-  subscribePrototype(()=>{void ensureCatalog();});
+  const unsubscribePrototype = subscribePrototype(()=>{void ensureCatalog();});
   async function load() {
     controller?.abort(); controller = new AbortController();
     const c = context(), version = ++generation, signal = controller.signal;
@@ -380,7 +380,7 @@ export function createScenarios({
     const op = currentOperation(); if (op&&retryable(op)) send(op);
   }
   return {
-    reset, refresh, retainAfterNodeEdit: refresh, clearLayerSelection: onSelectionChanged, onLayerSelected: onSelectionChanged,
+    reset, dispose(){unsubscribePrototype();controller?.abort();operations.clear();}, refresh, retainAfterNodeEdit: refresh, clearLayerSelection: onSelectionChanged, onLayerSelected: onSelectionChanged,
     requestLeave, hasDirtyDraft: editor.dirty,
     clearDocumentCommands(doc:string) { for (const [key, op] of operations) if (op.doc === doc) operations.delete(key); },
     clearCommands() { operations.clear(); editor.close(); }

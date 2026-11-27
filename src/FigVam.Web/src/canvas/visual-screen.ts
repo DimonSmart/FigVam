@@ -109,6 +109,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
 
   function cancelView(view:View) {
     view.controller?.abort();
+    view.controller = null;
     view.key = null;
   }
 
@@ -116,7 +117,9 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
     cancelView(view);
     view.host.replaceChildren();
     view.feedback.patch({status:'',diagnostics:[],canRetry:false});
-    if (view === design) design.model = null;
+    view.model = null;
+    view.selected = null;
+    if(view === preview) activeScenarios = [];
   }
 
   function showMode(next:boolean) {
@@ -503,11 +506,19 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
   function goBack() {
     if (triggers.length) replay(triggers.slice(0, -1), null);
   }
-  new ResizeObserver(() => {
+  const observer = new ResizeObserver(() => {
     clearTimeout(resizeTimer);
     if (isPreview) resizeTimer = setTimeout(() => {
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
-  }).observe(viewport);
-  return { openPreview, closePreview, changeTheme, resetPreview, goBack, retry:renderActive, get currentTheme() { return isPreview ? previewTheme : "Light"; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
+  });
+  observer.observe(viewport);
+  function dispose() {
+    observer.disconnect(); clearTimeout(resizeTimer); cancelAnimationFrame(previewFrame);
+    controller?.abort(); controller=null; playbackRequest?.abort(); playbackRequest=null;
+    resetView(design); resetView(preview); context=null;contextKey=null;playback=null;triggers=[];
+    for(const url of assetUrls.values())url.then(URL.revokeObjectURL,()=>{});
+    assetUrls.clear();screenNodes.clear();screenScenarios.clear();propertyPreviews.clear();inputValues.clear();resources=null;loadedResources=null;
+  }
+  return { dispose, openPreview, closePreview, changeTheme, resetPreview, goBack, retry:renderActive, get currentTheme() { return isPreview ? previewTheme : "Light"; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }

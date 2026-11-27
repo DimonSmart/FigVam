@@ -176,8 +176,10 @@ const datasets: ReturnType<typeof createDatasets> = createDatasets({
 });
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
-  if (documentId) { scenarios.clearDocumentCommands(documentId); pageCommands.discard(documentId); }
+  if (documentId) { scenarios.clearDocumentCommands(documentId); pageCommands.discard(documentId); visualNodeEditor.clearDocument(documentId); }
+  visualScreens.clearPropertyPreviews(); requestRunner.clearRetry();
   cancelRequest(); advanceNavigation();
+  documentShell.patch({role:null}); shellState.patch({view:'none',busy:false,controlsDisabled:false});
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
   members.reset(); documentExport.reset(); documentShell.patch({ role: null }); revisions.reset(); selectionState.reset();
   documentShell.patch({ pageBusy: false, revisionLabel: '', title: '' });
@@ -307,7 +309,7 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
+  documentHistory.reset(); styles.reset(); components.reset(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
   selectionState.reset(); renderCanvas();
   shellState.patch({ view: 'documents' });
   selectHomeView('documents');
@@ -507,7 +509,7 @@ async function openDocument(id: string): Promise<void> {
   resetDocumentRename();
   shellState.patch({ view: 'none' });
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
@@ -629,10 +631,16 @@ function createPage() {
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
 }
-navigation.attach();
+const detachNavigation=navigation.attach();
 window.addEventListener('pagehide', event => {
-  try { clearSession(); } finally { if (!event.persisted) { mcpAccess.dispose(); disposeApplicationRoot(); } }
+  try { clearSession(); } finally {
+    if (!event.persisted) {
+      detachNavigation();mcpAccess.dispose();scenarios.dispose();documentHistory.dispose();layers.dispose();
+      screenResize.dispose();canvasNodes.dispose();canvasViewport.dispose();visualScreens.dispose();navigatorView.dispose();disposeApplicationRoot();
+    }
+  }
 });
+window.addEventListener('pageshow',event=>{if(event.persisted)void initializeAuthentication();});
 async function initializeAuthentication() {
   const epoch = sessionState.sessionEpoch;
   try {

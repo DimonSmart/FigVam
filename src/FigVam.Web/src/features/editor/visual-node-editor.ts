@@ -572,6 +572,7 @@ export function createVisualNodeEditor({
           const activeSync=()=>current()&&getContext().documentId===op.documentId&&getContext().navigationEpoch===view.navigationEpoch;
           return !op.auto||activeDocument?refreshDocument(ack.revision,op.auto?activeSync:current,reveal,selection):true;
         }});
+      if(operations.get(op.key)!==op)return;
       if(outcome.kind==='rejected'||outcome.kind==='conflict')throw outcome.error;
       if(outcome.kind!=='confirmed'){op.state='uncertain';return;}
       confirmed=true;
@@ -605,7 +606,7 @@ export function createVisualNodeEditor({
       else {
         operations.delete(op.key);
         if (error.code === 'DOCUMENT_NOT_FOUND') {
-          closeInaccessibleDocument(error.status);
+          if(getContext().documentId===op.documentId && getContext().token===token && getContext().navigationEpoch===navigationEpoch)closeInaccessibleDocument(error.status);
           return;
         }
         const property = error.property ? `${propertyLabel(error.property)} · ` : '';
@@ -617,7 +618,7 @@ export function createVisualNodeEditor({
     } finally {
       op.settlePreview?.(confirmed);
       op.settlePreview = null;
-      startLive();
+      if(getContext().token===token && getContext().documentId===op.documentId)startLive();
       refresh();
       planApply();
     }
@@ -639,6 +640,11 @@ export function createVisualNodeEditor({
   return {
     refresh, editGeometry, addFromToolbar,
     get editPending() { return operations.has(scopeKey(getContext())??''); },
+    clearDocument(id:string) {
+      for(const [state,entry] of automatic)if(entry.target.documentId===id)automatic.delete(state);
+      for(const map of [operations,paletteDrafts,inspectorDrafts,canvasDrafts])for(const key of map.keys())if(key.startsWith(id+':'))map.delete(key);
+      uploads.delete(id);planApply();
+    },
     clear() { clearTimeout(applyTimer); automatic.clear(); operations.clear(); uploads.clear(); paletteDrafts.clear(); inspectorDrafts.clear(); canvasDrafts.clear(); }
   };
 }

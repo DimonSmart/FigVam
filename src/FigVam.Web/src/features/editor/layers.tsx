@@ -123,9 +123,10 @@ export function createLayers({
   let layerRoots:LayerItem[]=[],layerExpanded=new Set<string>(),layerChildren=new Map<string,LayerItem[]>();
   let interactiveNodes=new Set<string>();
   const tree = element('layers');
+  const lifetime = new AbortController();
 
   function reset() {
-    drag.cancel();
+    drag.cancel(); clearTimeout(metadataTimer);
     layerController?.abort(); layerController = null; layerGeneration++;
     layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
@@ -551,7 +552,7 @@ export function createLayers({
     } else return;
     event.preventDefault();
     if (target) { row.tabIndex = -1; target.tabIndex = 0; target.focus(); }
-  });
+  }, {signal:lifetime.signal});
 
   async function readSnapshot({base,screen,revision,signal,isCurrent,reveal,shouldReportFailure}:SnapshotOptions):Promise<Snapshot> {
     const children=new Map<string,LayerItem[]>(), initialExpansion = new Set(layerExpanded);
@@ -621,7 +622,7 @@ export function createLayers({
   }
 
   return {
-    reset, clearCommands, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    reset, clearCommands, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
     selectById(id:string){const item=findLayer(id);if(!item)return;const select=()=>{selectLayer(item);if(item.childCount)void toggleLayer(item);renderLayers(id);};if(layerSelection?.id===id||beforeSelectionChange(select))select();},
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },

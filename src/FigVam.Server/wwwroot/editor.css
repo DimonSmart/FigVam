@@ -4,7 +4,7 @@ body { margin: 0; }
 [hidden] { display: none !important; }
 a { color: #184fb8; text-underline-offset: 3px; }
 button, input { font: inherit; padding: .65rem .9rem; border: 1px solid var(--ui-base-control-border); border-radius: 6px; }
-button { background: #fff; color: #193d78; cursor: pointer; }
+button { background: var(--ui-surface, #fff); color: #193d78; cursor: pointer; }
 button[type=submit] { background: var(--ui-base-accent); color: white; border-color: var(--ui-base-accent); }
 button:disabled { color: #677080; background: #e8ebef; cursor: default; }
 input { min-width: 0; background: white; color: var(--ui-base-text); }
@@ -12,7 +12,7 @@ input { min-width: 0; background: white; color: var(--ui-base-text); }
 h1 { font-size: 1.7rem; margin: .25rem 0 1rem; }
 h2 { font-size: 1rem; }
 p { line-height: 1.6; }
-.brand { padding: 1rem 2rem; background: #fff; border-bottom: 1px solid var(--ui-base-border); display: flex; gap: 2rem; align-items: center; flex-wrap: wrap; }
+.brand { padding: 1rem 2rem; background: var(--ui-surface, #fff); border-bottom: 1px solid var(--ui-base-border); display: flex; gap: 2rem; align-items: center; flex-wrap: wrap; }
 .brand > a { font-size: 1.4rem; font-weight: 750; text-decoration: none; }
 .brand > span { flex: 1; }
 #authentication, #documents-view { max-width: 1000px; margin: 3rem auto; padding: 0 2rem; }
@@ -27,7 +27,7 @@ p { line-height: 1.6; }
 #document-list li { padding: 1.2rem; margin: .6rem 0; border: 1px solid var(--ui-base-border); border-radius: 8px; background: white; display: flex; justify-content: space-between; gap: 1rem; }
 #document-list a { overflow-wrap: anywhere; font-weight: 600; }
 .pagination { display: flex; gap: 1rem; align-items: center; justify-content: center; }
-.document-panel { background: #fff; padding: 1rem 2rem; border-bottom: 1px solid var(--ui-base-border); }
+.document-panel { background: var(--ui-surface, #fff); padding: 1rem 2rem; border-bottom: 1px solid var(--ui-base-border); }
 .document-panel h1 { margin: 0; overflow-wrap: anywhere; }
 .notice { padding: .8rem 2rem; background: #fff2ce; margin: 0; }
 .workspace { display: grid; grid-template-columns: 240px minmax(200px, 1fr) 260px; min-height: 60vh; }
