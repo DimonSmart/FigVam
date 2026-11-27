@@ -277,6 +277,7 @@ const layers: ReturnType<typeof createLayers> = createLayers({
 
 const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   models:views.scenarios,element, request, pageSize,
+  prototypeVisible:()=>editorShell.rightTab.getSnapshot()==='prototype',subscribePrototype:editorShell.rightTab.subscribe,
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },

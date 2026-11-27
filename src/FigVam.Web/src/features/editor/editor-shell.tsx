@@ -23,8 +23,8 @@ interface ShellActions {
 export function createEditorShell(actions:ShellActions) {
   const drawingTools=createPanelStore<readonly string[]>([]);
   const signoutLabel=createPanelStore('Выйти');
-  const mode=createPanelStore(false);
-  return {...actions, drawingTools, signoutLabel, mode, showEditor:()=>mode.publish(false),
+  const mode=createPanelStore(false),rightTab=createPanelStore<RightTab>('design');
+  return {...actions, drawingTools, signoutLabel, mode,rightTab, showEditor:()=>mode.publish(false),
     setSignoutLabel(label:string){signoutLabel.publish(label);},
     setDrawingTools(available:readonly string[]){
       const current=drawingTools.getSnapshot();
@@ -65,7 +65,8 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
   const canEdit=canEditDocument(state.role);
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
-  const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
+  const [leftTab,setLeftTab]=useState<LeftTab>('layers');
+  const rightTab=useSyncExternalStore(shell.rightTab.subscribe,shell.rightTab.getSnapshot),setRightTab=shell.rightTab.publish;
   const tokensMode=useSyncExternalStore(shell.mode.subscribe,shell.mode.getSnapshot);
   const setTokensMode=shell.mode.publish;
   const [leftCollapsed,setLeftCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
@@ -322,52 +323,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
             <div className="prototype-page panel-page" id="shell-prototype" role="tabpanel" aria-labelledby="tab-prototype" hidden={rightTab!=="prototype"}>
-              <section aria-labelledby="scenarios-title">
-                <div className="scenarios-heading">
-                  <h2 id="scenarios-title">{"Взаимодействия"}</h2>
-                  <span id="scenarios-count" role="status" hidden/>
-                </div>
-                <p id="scenarios-context"/>
-                <p id="scenarios-status" role="status" aria-live="polite">{"Выберите экран."}</p>
-                <p id="scenarios-error" role="alert"/>
-                <Button id="scenarios-retry" type="button" hidden>{"Повторить загрузку сценариев"}</Button>
-                <Button id="scenario-create" type="button" hidden>{"Добавить взаимодействие"}</Button>
-                <p id="scenario-command-status" role="status" aria-live="polite"/>
-                <p id="scenario-command-error" role="alert"/>
-                <Button id="scenario-command-retry" type="button" hidden>{"Повторить команду"}</Button>
-                <ul id="scenarios-list" aria-label="Взаимодействия"><views.scenarios.list.Component/></ul>
-                <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
-                  <h3 id="scenario-edit-title" tabIndex={-1}>{"Настройка взаимодействия"}</h3>
-                  <p id="scenario-edit-source"/>
-                  <p id="scenario-edit-conflict" role="alert"/>
-                  <Button id="scenario-edit-reload" type="button" hidden>{"Загрузить актуальное взаимодействие"}</Button>
-                  <fieldset id="scenario-edit-fields">
-                    <legend>{"Настройка события и действий"}</legend>
-                    <label>
-                      {"Событие "}
-                      <select id="scenario-edit-event" aria-label="Событие"/>
-                    </label>
-                    <ol id="scenario-edit-actions" aria-label="Порядок действий"><views.scenarios.actions.Component/></ol>
-                    <Button id="scenario-edit-add" type="button">{"Добавить действие"}</Button>
-                  </fieldset>
-                  <p id="scenario-edit-validation" role="status" aria-live="polite"/>
-                  <Button id="scenario-edit-recheck" type="button" hidden>{"Повторить проверку"}</Button>
-                  <Button id="scenario-edit-submit" type="submit">{"Сохранить взаимодействие"}</Button>
-                  <Button id="scenario-edit-cancel" type="button">{"Отмена"}</Button>
-                </form>
-                <div id="scenarios-pagination" role="group" aria-label="Страницы взаимодействий" hidden>
-                  <Button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled><ChevronLeft size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
-                  <span id="scenarios-number" aria-live="polite"/>
-                  <Button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled><ChevronRight size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
-                </div>
-                <dialog id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
-                  <h3 id="scenario-leave-title">{"Несохранённое взаимодействие"}</h3>
-                  <p>{"Сохранить изменения перед сменой контекста?"}</p>
-                  <Button type="button" id="scenario-leave-save">{"Сохранить"}</Button>
-                  <Button type="button" id="scenario-leave-discard">{"Отбросить изменения"}</Button>
-                  <Button type="button" id="scenario-leave-stay">{"Продолжить редактирование"}</Button>
-                </dialog>
-              </section>
+              <views.scenarios.panel.Component/>
             </div>
             <div className="diagnostics-page panel-page" id="shell-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden={rightTab!=="diagnostics"}>
               <section aria-labelledby="diagnostics-title"><views.diagnostics.Component/></section>

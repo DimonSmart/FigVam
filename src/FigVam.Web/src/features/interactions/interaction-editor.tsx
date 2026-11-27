@@ -1,3 +1,4 @@
+import type { ComponentType } from 'react';
 import { flushSync } from 'react-dom';
 import { createViewModel } from '../../app/view-model';
 import { ArrowUp, ArrowDown } from 'lucide-react';
@@ -13,10 +14,9 @@ export interface ScenarioDraft {id:string;screenId:string;nodeId:string;event:nu
 export interface EditorContext {doc:string|null;screen:string|null;node:string|null;revision:number|null;token:string|null;epoch:number;editable:boolean}
 interface Capability {events:number[];actions:string[];potentialActions:string[];demoTargetIds:string[];navigationScreenId:string|null;demoScreenId:string|null}
 export interface Draft extends EditorContext {scenario:ScenarioDraft;creating:boolean;opener:HTMLElement|null;original:string;conflict:boolean;valid:boolean;capabilityCache:Map<string,Capability>}
-interface EditorOptions {model:ReturnType<typeof createInteractionModel>;element(id:string):HTMLElement;request:ApiClient;current():EditorContext;catalog():Catalog|null;sourceName(id:string):string;submit(draft:Draft,scenario:ScenarioDraft):void;pending():boolean;onClose():void}
+interface EditorOptions {model:ReturnType<typeof createInteractionModel>;element(id:string):HTMLElement;request:ApiClient;current():EditorContext;catalog():Catalog|null;sourceName(id:string):string;submit(draft:Draft,scenario:ScenarioDraft):void;pending():boolean;onClose():void;reload():void;canReload():boolean}
 interface Choice {id:string;label:string;group?:string}
 interface Values {targetId?:string;screenId?:string|null;variantId?:string|null;datasetId?:string|null;demoNodeId?:string;demoValue?:string|null}
-function asElement<T extends HTMLElement>(node:HTMLElement, ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected interaction editor element: '+node.id);return node;}
 function number(value:unknown):number{if(typeof value!=='number'||!Number.isInteger(value))throw new TypeError('Invalid event');return value;}
 function capability(value:unknown):Capability{const c=requiredRecord(value);return{events:array(c.events,number),actions:array(c.actions,text),potentialActions:array(c.potentialActions,text),demoTargetIds:array(c.demoTargetIds,text),navigationScreenId:c.navigationScreenId==null?null:text(c.navigationScreenId),demoScreenId:c.demoScreenId==null?null:text(c.demoScreenId)};}
 export const eventLabels = ['По нажатию', 'При изменении', 'При наведении', 'При уходе указателя', 'При отправке'];
@@ -29,28 +29,6 @@ const noValue = '__null__';
 const id = (value:unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const clone = <T,>(value:T):T => structuredClone(value);
 const isActionKind=(value:string):value is ActionKind=>Object.hasOwn(actionLabels,value);
-function setChoices(select:HTMLSelectElement, items:Choice[], value:string|null|undefined, placeholder = 'Выберите значение') {
-  const options:Choice[] = [{ id: '', label: placeholder }, ...items];
-  if (value && !options.some(o => o.id === value)) options.push({ id: value, label: 'Недоступное значение' });
-  const key = JSON.stringify(options.map(o => [o.id, o.label, o.group ?? '']));
-  if (select.dataset.options !== key) {
-    select.replaceChildren();
-    const groups = new Map<string,HTMLOptGroupElement>();
-    for (const item of options) {
-      const option = new Option(item.label, item.id);
-      if (!item.group) select.append(option);
-      else {
-        if (!groups.has(item.group)) {
-          const group = document.createElement('optgroup'); group.label = item.group;
-          select.append(group); groups.set(item.group, group);
-        }
-        groups.get(item.group)?.append(option);
-      }
-    }
-    select.dataset.options = key;
-  }
-  select.value = value ?? '';
-}
 function ChoiceOptions({items,value,placeholder='Выберите значение'}:{items:Choice[];value:string|null|undefined;placeholder?:string}){
   const options:Choice[]=[{id:'',label:placeholder},...items];
   if(value&&!options.some(o=>o.id===value))options.push({id:value,label:'Недоступное значение'});
@@ -147,35 +125,49 @@ function InteractionRows({actions,rows,catalog,moveAction,removeAction,changeTyp
     })}</>;
 
 }
-export function createInteractionModel(){return createViewModel(InteractionRows);}
+interface FormProps {visible:boolean;title:string;source:string;conflict:string;canReload:boolean;disabled:boolean;event:string;events:Choice[];Rows:ComponentType;addDisabled:boolean;status:string;recheckHidden:boolean;canSave:boolean;cancelDisabled:boolean;reload():void;changeEvent(value:string):void;add():void;recheck():void;save():void;cancel():void}
+function InteractionForm(p:FormProps){return (                <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden={!p.visible} onSubmit={event=>{event.preventDefault();p.save();}}>
+                  <h3 id="scenario-edit-title" tabIndex={-1}>{p.title}</h3>
+                  <p id="scenario-edit-source">{p.source}</p>
+                  <p id="scenario-edit-conflict" role="alert">{p.conflict}</p>
+                  <Button id="scenario-edit-reload" type="button" hidden={!p.conflict} disabled={!p.canReload} onClick={p.reload}>{"Загрузить актуальное взаимодействие"}</Button>
+                  <fieldset id="scenario-edit-fields" disabled={p.disabled}>
+                    <legend>{"Настройка события и действий"}</legend>
+                    <label>
+                      {"Событие "}
+                      <select id="scenario-edit-event" aria-label="Событие" value={p.event} onChange={event=>p.changeEvent(event.currentTarget.value)}><ChoiceOptions items={p.events} value={p.event} placeholder="Выберите событие"/></select>
+                    </label>
+                    <ol id="scenario-edit-actions" aria-label="Порядок действий"><p.Rows/></ol>
+                    <Button id="scenario-edit-add" type="button" disabled={p.addDisabled} onClick={p.add}>{"Добавить действие"}</Button>
+                  </fieldset>
+                  <p id="scenario-edit-validation" role="status" aria-live="polite">{p.status}</p>
+                  <Button id="scenario-edit-recheck" type="button" hidden={p.recheckHidden} onClick={p.recheck}>{"Повторить проверку"}</Button>
+                  <Button id="scenario-edit-submit" type="submit" disabled={!p.canSave}>{"Сохранить взаимодействие"}</Button>
+                  <Button id="scenario-edit-cancel" type="button" disabled={p.cancelDisabled} onClick={p.cancel}>{"Отмена"}</Button>
+                </form>);}
+export function createInteractionModel(){return {...createViewModel(InteractionRows),form:createViewModel(InteractionForm)};}
 
-export function createInteractionEditor({ model, element, request, current, catalog, sourceName, submit, pending, onClose }:EditorOptions) {
+export function createInteractionEditor({ model, element, request, current, catalog, sourceName, submit, pending, onClose, reload, canReload }:EditorOptions) {
   let draft:Draft|null=null, rows:RowState[]=[], controller:AbortController|null=null, generation=0, validationTimer:ReturnType<typeof setTimeout>|undefined;
-  const btn=(id:string)=>asElement(element(id),HTMLButtonElement);
-  const form=asElement(element('scenario-edit'),HTMLFormElement),fields=asElement(element('scenario-edit-fields'),HTMLFieldSetElement);
-  const event = asElement(element('scenario-edit-event'),HTMLSelectElement), status = element('scenario-edit-validation');
+  let status='',recheckHidden=true,events:Choice[]=[];
   const sameContext = (d:Draft) => draft === d && current().doc === d.doc && current().screen === d.screen && current().token === d.token;
   const active = (d:Draft) => sameContext(d) && current().revision === d.revision && current().editable && !d.conflict;
   const dirty = () => !!draft && JSON.stringify(draft.scenario) !== draft.original;
   const canSave = () => !!draft && active(draft) && draft.valid && !pending();
   const contextError = 'Документ изменился. Загрузите актуальное состояние или откажитесь от черновика.';
 
-  function refreshControls() {
-    if (!draft) return;
-    const unavailable = !active(draft) || pending();
-    fields.disabled = unavailable;
-    btn('scenario-edit-add').disabled = draft.scenario.actions.length >= 32;
-    btn('scenario-edit-submit').disabled = !canSave();
-    element('scenario-edit-reload').hidden = !draft.conflict;
-    element('scenario-edit-conflict').textContent = draft.conflict ? contextError : '';
-    btn('scenario-edit-cancel').disabled = pending();
+  function refreshControls(){
+    model.form.publish({visible:!!draft,title:draft?.creating?'Новое взаимодействие':'Редактирование взаимодействия',source:draft?'Элемент: '+sourceName(draft.scenario.nodeId):'',
+      conflict:draft?.conflict?contextError:'',canReload:canReload(),disabled:!!draft&&(!active(draft)||pending()),event:draft?.scenario.event==null?'':String(draft.scenario.event),events,
+      Rows:model.Component,addDisabled:!!draft&&draft.scenario.actions.length>=32,status,recheckHidden,canSave:canSave(),cancelDisabled:pending(),
+      reload,changeEvent,add:addAction,recheck:()=>{void validate();},save,cancel:()=>close(true)});
   }
 
   function close(restoreFocus = false) {
     const old = draft;
     controller?.abort(); clearTimeout(validationTimer); generation++;
     draft = null; rows = [];
-    form.hidden = true; fields.disabled = false;
+    status='';events=[];recheckHidden=true;refreshControls();
     model.clear();
     onClose();
     if (restoreFocus && old) {
@@ -191,21 +183,16 @@ export function createInteractionEditor({ model, element, request, current, cata
     const model = clone(scenario);
     if (creating && !model.actions.length) model.actions.push(emptyAction(''));
     draft = { ...ctx, scenario: model, creating, opener, original: JSON.stringify(model), conflict: false, valid: false, capabilityCache: new Map() };
-    form.hidden = false;
-    element('scenario-edit-title').textContent = creating ? 'Новое взаимодействие' : 'Редактирование взаимодействия';
-    element('scenario-edit-source').textContent = 'Элемент: ' + sourceName(model.nodeId);
-    event.replaceChildren();
-    delete event.dataset.options;
+    events=[];status='';recheckHidden=true;
     renderRows();
-    element('scenario-edit-title').focus();
+    requestAnimationFrame(()=>document.getElementById('scenario-edit-title')?.focus());
     validate();
   }
 
   function changed(immediate = false) {
     if (!draft) return;
     draft.valid = false; generation++; controller?.abort();
-    clearTimeout(validationTimer); refreshControls();
-    status.textContent = 'Проверка взаимодействия…';
+    clearTimeout(validationTimer); status='Проверка взаимодействия…';refreshControls();
     if (immediate) validate();
     else validationTimer = setTimeout(validate, 180);
   }
@@ -283,7 +270,7 @@ export function createInteractionEditor({ model, element, request, current, cata
     controller?.abort(); controller = new AbortController();
     const version = ++generation;
     const live = () => active(d) && version === generation;
-    d.valid = false; refreshControls(); status.textContent = 'Проверка взаимодействия…'; element('scenario-edit-recheck').hidden = true;
+    d.valid=false;status='Проверка взаимодействия…';recheckHidden=true;refreshControls();
     try {
       let ctx = await capabilities(d, []);
       if (!live()) return;
@@ -293,7 +280,7 @@ export function createInteractionEditor({ model, element, request, current, cata
           const initial = JSON.parse(d.original); initial.event = d.scenario.event; d.original = JSON.stringify(initial);
         }
       }
-      setChoices(event, ctx.events.map(v => ({ id: String(v), label: eventLabels[v]??'Неизвестное событие' })), d.scenario.event == null ? '' : String(d.scenario.event), 'Выберите событие');
+      events=ctx.events.map(v=>({id:String(v),label:eventLabels[v]??'Неизвестное событие'}));refreshControls();
       let valid = d.scenario.event!==null && ctx.events.includes(d.scenario.event) && d.scenario.actions.length > 0;
       let prefixValid = true;
       for (let i = 0; i < d.scenario.actions.length; i++) {
@@ -325,26 +312,15 @@ export function createInteractionEditor({ model, element, request, current, cata
       }
       if (!live()) return;
       d.valid = valid && d.scenario.actions.length <= 32;
-      status.textContent = d.valid ? '' : 'Заполните событие и исправьте отмеченные действия.';
+      status=d.valid?'':'Заполните событие и исправьте отмеченные действия.';
     } catch (error) {
       if (!live()) return;
-      status.textContent = 'Не удалось проверить взаимодействие.';
-      element('scenario-edit-recheck').hidden = false;
+      status='Не удалось проверить взаимодействие.';recheckHidden=false;
     } finally { if (live()) refreshControls(); }
   }
 
-  event.addEventListener('change', () => {
-    if (!draft) return;
-    draft.scenario.event = event.value === '' ? null : Number(event.value);
-    changed(true);
-  });
-  element('scenario-edit-add').addEventListener('click', () => {
-    if (!draft || draft.scenario.actions.length >= 32) return;
-    draft.scenario.actions.push(emptyAction('')); renderRows(draft.scenario.actions.length - 1); changed(true);
-  });
-  element('scenario-edit-recheck').addEventListener('click', validate);
-  element('scenario-edit-cancel').addEventListener('click', () => close(true));
-  form.addEventListener('submit', e => { e.preventDefault(); save(); });
+  function changeEvent(value:string){if(!draft)return;draft.scenario.event=value===''?null:Number(value);changed(true);}
+  function addAction(){if(!draft||draft.scenario.actions.length>=32)return;draft.scenario.actions.push(emptyAction(''));renderRows(draft.scenario.actions.length-1);changed(true);}
   function save() {
     if (!draft||!canSave()) return false;
     submit(draft, clone(draft.scenario));
