@@ -136,5 +136,5 @@ async function renameDocument() {
   }
 }
 
-return {deleteCatalogDocument,deleteDocument,retryDeletion,renameDocument,leaveDeletion,get deletingId(){return deletion?.id??null;},clear(){catalogDeletions.clear();renames.clear();resetDeletion();}};
+return {deleteCatalogDocument,deleteDocument,retryDeletion,renameDocument,leaveDeletion,get deletingId(){return deletion?.id??null;},discardDocument(id:string){catalogDeletions.delete(id);renames.delete(id);if(deletion?.id===id)resetDeletion();},clear(){catalogDeletions.clear();renames.clear();resetDeletion();}};
 }

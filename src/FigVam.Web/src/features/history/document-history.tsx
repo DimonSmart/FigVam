@@ -201,5 +201,5 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
     if(active(id,token,epoch)){renderForm();renderList();}
     return loaded;
   }
-  renderForm();renderList();return {reset,clearCommands,prepare,load,dispose(){lifetime.abort();controller?.abort();clearCommands();}};
+  renderForm();renderList();return {reset,clearCommands,discardDocument(doc:string){versionOperations.delete(doc);restoreOperations.delete(doc);historyActions.delete(doc);},prepare,load,dispose(){lifetime.abort();controller?.abort();clearCommands();}};
 }

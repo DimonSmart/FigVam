@@ -140,5 +140,5 @@ export function createDatasets({model,request,getContext,pageSize,startRequest,s
     const revision=getContext().revision,datasetId=state.selection;if(revision===null||!datasetId||!confirm('Удалить датасет «'+(state.detail?.name??'')+'»?'))return;
     submit({command:'delete-dataset',body:{commandId:crypto.randomUUID(),datasetId,expectedRevision:revision}},null);
   }
-  render();return{reset,load,clearCommands:()=>operations.clear(),refreshAccess:()=>render()};
+  render();return{reset,load,clearCommands:()=>operations.clear(),discardDocument:(doc:string)=>operations.delete(doc),refreshAccess:()=>render()};
 }

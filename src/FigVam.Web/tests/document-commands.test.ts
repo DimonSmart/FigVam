@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/api-client';
-import { classifyCommandFailure, createCommandBody, createDocumentCommand, prepareDocumentCommand } from '../src/api/document-commands';
+import { classifyCommandFailure, createCommandBody, createDocumentCommand, prepareDocumentCommand, prepareAssetUpload } from '../src/api/document-commands';
 
 function ack(documentId: string, commandId: string) {
   return {status:'ACCEPTED', documentId, commandId, revision:2, pageId:null, screenId:null, nodeId:null, versionId:null, affectedIds:[]};
@@ -86,5 +86,31 @@ describe('prepared document command lifecycle', () => {
     const sync=vi.fn(async()=>true);
     expect((await op.execute(execution(request,sync))).kind).toBe('uncertain');
     expect(sync).not.toHaveBeenCalled();
+  });
+});
+
+describe('prepared asset upload',()=>{
+  const file=new Blob([new Uint8Array([1,2,3])],{type:'image/png'});
+  const make=()=>prepareAssetUpload('doc','asset',file,'same');
+  const response={...ack('doc','same'),affectedIds:['asset']};
+  it('retries the original binary payload and identity after losing the acknowledgement',async()=>{
+    const op=make(),request=vi.fn().mockRejectedValueOnce(new TypeError('network')).mockResolvedValue(response);
+    const execution={request,isCurrent:()=>true,synchronize:async()=>true};
+    expect((await op.execute(execution)).kind).toBe('uncertain');
+    expect(await op.execute(execution)).toMatchObject({kind:'confirmed',synchronization:'synced'});
+    expect(request.mock.calls[0]).toEqual(request.mock.calls[1]);
+    expect(request).toHaveBeenCalledWith('/api/v1/documents/doc/assets/asset?commandId=same',{method:'PUT',headers:{'Content-Type':'image/png'},body:file},undefined);
+  });
+  it('refreshes without uploading again after confirmation in a former document context',async()=>{
+    const op=make();let current=true;
+    const request=vi.fn(async()=>{current=false;return response;});
+    const synchronize=vi.fn(async()=>true);
+    const execution={request,isCurrent:()=>current,synchronize};
+    expect(await op.execute(execution)).toMatchObject({kind:'confirmed',synchronization:'stale'});
+    expect(synchronize).not.toHaveBeenCalled();
+    current=true;
+    expect(await op.execute(execution)).toMatchObject({kind:'confirmed',synchronization:'synced'});
+    expect(request).toHaveBeenCalledOnce();
+    expect(synchronize).toHaveBeenCalledOnce();
   });
 });

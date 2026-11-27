@@ -1,8 +1,8 @@
-import { prepareDocumentCommand, classifyCommandFailure, type DocumentCommandOperation } from '../../api/document-commands';
+import { prepareDocumentCommand, prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperation, type AssetUploadOperation } from '../../api/document-commands';
 import { toApiNodeProperties } from '../../api/command-value-contracts';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
-import { requiredRecord, text, aborted, errorMessage } from '../../api/decode';
+import { aborted, errorMessage } from '../../api/decode';
 import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
@@ -43,7 +43,7 @@ function prepareNodeOperation(op:Operation):DocumentCommandOperation {
   }
 }
 const retryable=(op:Operation|undefined)=>op?.state==='uncertain'||op?.state==='sync';
-interface Upload {documentId:string;token:string|null;epoch:number;assetId:string;commandId:string;file:File;draft:Palette;state?:'pending'|'uncertain'}
+interface Upload {documentId:string;assetId:string;mutation:AssetUploadOperation;draft:Palette;state:'ready'|'pending'|'uncertain'|'sync'}
 interface GeometryCommand {nodeId:string;expectedParentId:string;expectedRevision:number;properties:NodeProperties}
 function propertyValue(value:ResolvableValue|undefined):NodePropertyValue|undefined{
   if(!value)return undefined;
@@ -379,8 +379,8 @@ export function createVisualNodeEditor({
     const blocked = !editable || Boolean(op) || Boolean(modelKey && resolvedModelKey !== modelKey);
     const upload = uploads.get(context.documentId??'');
     const uploading = upload?.state === 'pending';
-    models.asset.publish({disabled:!editable||!!upload,fileReset,choose:file=>{assetFile=file;if(palette)palette.uploadError=palette.uploadStatus='';updateControls();},submit:submitAsset,retry:retryAsset,retryHidden:!editable||upload?.state!=='uncertain',
-      status:uploading?'Загрузка изображения…':upload?.state==='uncertain'?'Подтверждение не получено. Повторите загрузку.':palette?.uploadStatus||'',error:palette?.uploadError||''});
+    models.asset.publish({disabled:!editable||!!upload,fileReset,choose:file=>{assetFile=file;if(palette)palette.uploadError=palette.uploadStatus='';updateControls();},submit:submitAsset,retry:retryAsset,retryHidden:!editable||(upload?.state!=='uncertain'&&upload?.state!=='sync'),
+      status:uploading?'Загрузка изображения…':upload?.state==='uncertain'?'Подтверждение не получено. Повторите загрузку.':upload?.state==='sync'?'Загрузка подтверждена. Повторите обновление документа.':palette?.uploadStatus||'',error:palette?.uploadError||''});
     paletteBlocked=blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
@@ -440,44 +440,47 @@ export function createVisualNodeEditor({
     if (!paletteDrafts.has(scope))
       paletteDrafts.set(scope, paletteDraft());
     const currentDraft=paletteDrafts.get(scope);if(!currentDraft)return;
-    const op:Upload={documentId:current.documentId,token:current.token,epoch:current.navigationEpoch,assetId:crypto.randomUUID(),commandId:crypto.randomUUID(),file,draft:currentDraft};
+    const assetId=crypto.randomUUID();
+    const op:Upload={documentId:current.documentId,assetId,mutation:prepareAssetUpload(current.documentId,assetId,file),draft:currentDraft,state:'ready'};
     uploads.set(op.documentId, op);
     sendUpload(op);
   }
   function retryAsset(){
     const op = uploads.get(getContext().documentId??'');
-    if (op?.state === 'uncertain' && canEdit(getContext().documentRole)) sendUpload(op);
+    if ((op?.state === 'uncertain'||op?.state==='sync') && canEdit(getContext().documentRole)) sendUpload(op);
   }
 
   async function sendUpload(op:Upload) {
-    const view = getContext();
-    op.token = view.token; op.epoch = view.navigationEpoch;
-    const current = () => uploads.get(op.documentId) === op && getContext().documentId === op.documentId &&
-      getContext().token === op.token && getContext().navigationEpoch === op.epoch;
-    op.state = 'pending'; op.draft.uploadError = op.draft.uploadStatus = '';
-    updateControls();
-    stopLive();
+    if(op.state==='pending'||uploads.get(op.documentId)!==op)return;
+    const view=getContext();
+    const visible=()=>getContext().documentId===op.documentId&&getContext().token===view.token&&getContext().navigationEpoch===view.navigationEpoch;
+    const current=()=>uploads.get(op.documentId)===op&&visible()&&canEdit(getContext().documentRole);
+    op.state='pending';op.draft.uploadError=op.draft.uploadStatus='';
+    updateControls();stopLive();
     try {
-      const result=requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(op.documentId)}/assets/${op.assetId}?commandId=${op.commandId}`,{method:'PUT',headers:{'Content-Type':'image/png'},body:op.file},undefined,current));
-      if (!current() || result.status !== 'ACCEPTED' || result.commandId !== op.commandId ||
-        text(result.documentId).toLowerCase() !== op.documentId.toLowerCase() || typeof result.revision!=='number'||!Number.isSafeInteger(result.revision) ||
-        !await refreshDocument(result.revision, current, [], undefined, true)) {
-        op.state = 'uncertain';
-        return;
-      }
-      uploads.delete(op.documentId);
-      resetAssetFile();
-      op.draft.uploadStatus = 'Изображение загружено. Выберите его в поле «Ассет».';
-    } catch (error) {
-      if (!(error instanceof ApiError) || classifyCommandFailure(error,current())==='uncertain') op.state = 'uncertain';
-      else {
+      const result=await op.mutation.execute({request,isCurrent:current,
+        validate:ack=>{if(!ack.affectedIds.includes(op.assetId))throw new TypeError('Некорректное подтверждение загрузки');},
+        synchronize:ack=>refreshDocument(ack.revision,current,[],undefined,true)});
+      if(uploads.get(op.documentId)!==op)return;
+      if(result.kind==='confirmed'&&result.synchronization==='synced'){
         uploads.delete(op.documentId);
-        if (error.code === 'DOCUMENT_NOT_FOUND') { closeInaccessibleDocument(error.status); return; }
-        op.draft.uploadError = error.code === 'ASSET_LIMIT_EXCEEDED' ? 'Достигнут лимит ассетов документа.' :
-          error.status === 413 ? 'Файл превышает 5 МиБ.' :
-          error.status === 400 || error.status === 415 ? 'Сервер отклонил изображение. Выберите допустимый PNG.' : error.message;
+        if(visible())resetAssetFile();
+        op.draft.uploadStatus='Изображение загружено. Выберите его в поле «Ассет».';
+      }else if(result.kind==='confirmed')op.state='sync';
+      else if(result.kind==='uncertain')op.state='uncertain';
+      else if(result.kind==='rejected'||result.kind==='conflict'){
+        uploads.delete(op.documentId);
+        const error=result.error;
+        if(error instanceof ApiError){
+          if(error.code==='DOCUMENT_NOT_FOUND'){if(visible())closeInaccessibleDocument(error.status);return;}
+          op.draft.uploadError=error.code==='ASSET_LIMIT_EXCEEDED'?'Достигнут лимит ассетов документа.':
+            error.status===413?'Файл превышает 5 МиБ.':
+            error.status===400||error.status===415?'Сервер отклонил изображение. Выберите допустимый PNG.':error.message;
+        }else op.draft.uploadError=errorMessage(error);
       }
-    } finally { startLive(); refresh(); }
+    }finally{
+      if(visible()){startLive();refresh();}
+    }
   }
 
   function changeKind(kind:string) {

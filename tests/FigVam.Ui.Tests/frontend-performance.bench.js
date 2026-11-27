@@ -18,6 +18,7 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   async function post(url,data) {
     const response = await request.post(url,{headers,data});
     expect(response.ok(),await response.text()).toBeTruthy();
+    return response.json();
   }
   const command = (name,data) => post(base+'/commands/'+name,{commandId:randomUUID(),...data});
   await post('/api/v1/documents',{documentId,name:'Frontend benchmark'});
@@ -26,6 +27,13 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   await command('add-node',{nodeId:target,parentId:screen,kind:'Button',properties:{...geometry(40,40,160,48),text:{type:'string',value:'Edit me'}}});
   for(let i=0;i<size;i++) await command('add-node',{nodeId:id(10+i),parentId:screen,kind:'Text',
     properties:{...geometry(20+(i%10)*76,130+Math.floor(i/10)*38,70,28),text:{type:'string',value:'Item '+i}}});
+
+  // Seed real resources and interactions, without changing the performance scene.
+  const typographyId=id(200),styleId=id(201);
+  const typography={expression:'literal',value:{type:'typography',fontFamily:'Arial',fontSize:16,fontWeight:400,lineHeight:1.25,letterSpacing:2}};
+  const tokenAck=await command('add-token',{tokenId:typographyId,name:'Benchmark typography',type:2,values:{Light:typography,Dark:typography}});
+  await command('upsert-style',{expectedRevision:tokenAck.revision,style:{id:styleId,name:'Benchmark text style',type:0,fields:{typography:{type:'token',tokenId:typographyId}}}});
+  await command('create-scenario',{scenario:{id:id(202),screenId:screen,nodeId:target,event:0,actions:[{type:'resetPreview'}]}});
 
   await page.setViewportSize({width:1800,height:1100});
   const times={};
@@ -113,10 +121,21 @@ test('compare browser editor on a deterministic document', async ({ page, reques
   }
   await page.locator('#document-mode-tokens').click();
   await expect(page.locator('#token-workspace')).toBeVisible();
+  await expect(page.locator('#tokens-list')).toContainText('Benchmark typography');
+  await page.getByRole('button',{name:'Benchmark typography',exact:true}).click();
+  await expect(page.locator('#token-detail-title')).toHaveText('Benchmark typography');
   await capture('tokens');
   await page.locator('#document-mode-editor').click();
+  await page.locator('#tab-assets').click();
+  await expect(page.locator('#styles-total')).toHaveText('Стили: 1');
+  await page.locator('#styles-list').selectOption(styleId);
+  await expect(page.locator('#styles-name')).toHaveValue('Benchmark text style');
+  await capture('styles');
+  await page.locator('#tab-layers').click();
   await page.locator('#tab-prototype').click();
   await expect(page.locator('#shell-prototype')).toBeVisible();
+  await expect(page.locator('#scenarios-count')).toBeVisible();
+  await expect(page.locator('#scenarios-list .scenario-entry')).toHaveCount(1);
   await capture('interactions');
   await page.locator('#tab-design').click();
   // Reuse the same browser and session to detect retained workspaces/render resources.

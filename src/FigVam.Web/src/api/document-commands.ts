@@ -52,7 +52,7 @@ interface Execution {
 
 /** Owns one intent and its serialized wire payload. A confirmed write is never resent,
  * including when subsequent read/synchronization fails. No automatic network retries. */
-function preparedOperation(documentId: string, command: DocumentCommandName, commandId: string, payload: string) {
+function preparedOperation<C extends DocumentCommandName | 'upload-asset'>(documentId: string, command: C, commandId: string, path: string, options: () => RequestInit) {
   let state: CommandState = {kind:'ready'};
   let running = false;
   async function execute(execution: Execution): Promise<CommandState> {
@@ -66,8 +66,7 @@ function preparedOperation(documentId: string, command: DocumentCommandName, com
       else {
         state = {kind:'pending'};
         try {
-          const value = await execution.request(commandPath(documentId, command),
-            {method:'POST',body:payload}, execution.signal);
+          const value = await execution.request(path, options(), execution.signal);
           confirmation = decodeCommandConfirmation(value, documentId, commandId);
           execution.validate?.(confirmation);
         } catch (error) {
@@ -92,14 +91,26 @@ function preparedOperation(documentId: string, command: DocumentCommandName, com
   }
   return {documentId,command,commandId,getSnapshot:()=>state,execute};
 }
-export type DocumentCommandOperation = ReturnType<typeof preparedOperation>;
+export type DocumentCommandOperation = ReturnType<typeof preparedOperation<DocumentCommandName>>;
 
 export function prepareDocumentCommand<K extends DocumentCommandName>(documentId: string, command: K,
   body: DocumentCommandRequest<NoInfer<K>>): DocumentCommandOperation {
-  return preparedOperation(documentId, command, body.commandId, JSON.stringify(body));
+  const payload = JSON.stringify(body);
+  return preparedOperation(documentId, command, body.commandId, commandPath(documentId, command), () => ({method:'POST',body:payload}));
 }
 
 export function createDocumentCommand<K extends DocumentCommandName>(documentId: string, command: K,
   data: Omit<DocumentCommandRequest<NoInfer<K>>, 'commandId'>, commandId: string = crypto.randomUUID()): DocumentCommandOperation {
-  return preparedOperation(documentId, command, commandId, JSON.stringify({...data,commandId}));
+  const payload = JSON.stringify({...data,commandId});
+  return preparedOperation(documentId, command, commandId, commandPath(documentId, command), () => ({method:'POST',body:payload}));
 }
+
+/** Asset upload is a command-stream mutation with an immutable binary payload. */
+export function prepareAssetUpload(documentId: string, assetId: string, file: Blob, commandId: string = crypto.randomUUID()) {
+  const path = '/api/v1/documents/' + encodeURIComponent(documentId) + '/assets/' + encodeURIComponent(assetId) +
+    '?' + new URLSearchParams({commandId});
+  return preparedOperation(documentId, 'upload-asset', commandId, path, () => ({
+    method:'PUT', headers:{'Content-Type':'image/png'}, body:file
+  }));
+}
+export type AssetUploadOperation = ReturnType<typeof prepareAssetUpload>;

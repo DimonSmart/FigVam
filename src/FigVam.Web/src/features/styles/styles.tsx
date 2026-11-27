@@ -314,11 +314,16 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
   async function executeStyleCommand(entry:{operation:DocumentCommandOperation;selection:string|null;running:boolean}){
     const doc=entry.operation.documentId,epoch=getContext().navigationEpoch;
     if(entry.running||!editable()||getContext().documentId!==doc||pendingCommands.get(doc)!==entry)return;
-    entry.running=true;busy=true;const {signal,current}=startRequest();stopLive();error='';status='Сохранение…';publishPanel();
+    entry.running=true;busy=true;let generation=getContext().generation;const originSelection=selectedId;stopLive();error='';status='Сохранение…';publishPanel();
     const active=()=>getContext().documentId===doc&&getContext().navigationEpoch===epoch&&pendingCommands.get(doc)===entry;
     try{
-      const result=await entry.operation.execute({request,signal,isCurrent:()=>active()&&editable()&&!signal.aborted&&current===getContext().generation,
-        synchronize:async()=>{selectedId=entry.selection;return await readPages(signal)===true;}});
+      const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
+        synchronize:async confirmation=>{
+          const {signal,current}=startRequest();generation=current;
+          if(selectedId===originSelection)selectedId=entry.selection;
+          const refreshed=await readPages(signal);
+          return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
+        }});
       if(result.kind==='confirmed'&&result.synchronization==='synced'){
         if(active())status='Стиль сохранён.';
         if(pendingCommands.get(doc)===entry)pendingCommands.delete(doc);
@@ -328,7 +333,7 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
       }else if(active()){status='';error=result.kind==='confirmed'?'Команда подтверждена. Повторите обновление.':'Результат неизвестен. Повторите ту же операцию.';}
     }finally{
       entry.running=false;
-      if(getContext().documentId===doc&&getContext().navigationEpoch===epoch){busy=false;render();if(current===getContext().generation)startLive();}
+      if(getContext().documentId===doc&&getContext().navigationEpoch===epoch){busy=false;render();if(generation===getContext().generation)startLive();}
     }
   }
 
@@ -379,5 +384,5 @@ export function createStyles({ models, selectLayer, request, getContext, getToke
     if (selectedId) void write('delete-style', { styleId: selectedId }, null);
   }
   render();
-  return { reset, clearCommands:()=>pendingCommands.clear(), read, apply, get items() { return items; } };
+  return { reset, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read, apply, get items() { return items; } };
 }

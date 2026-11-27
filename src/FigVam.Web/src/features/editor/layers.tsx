@@ -270,8 +270,7 @@ export function createLayers({
           if (workspace.documentId === doc && workspace.selectedScreen === screen && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible() && !layerSelection) setLayerStatus('Слой больше не существует.');
           return;
         }
-        if (nodeMetadata) nodeMetadata.error = error.message;
-        renderNodeMetadata();
+        if (nodeMetadata?.id === node && layerSelection?.id === node) { nodeMetadata.error = error.message; renderNodeMetadata(); }
         return;
       }
     } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible()) renderNodeMetadata(); }
@@ -623,7 +622,7 @@ export function createLayers({
   }
 
   return {
-    reset, clearCommands, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    reset, clearCommands, discardDocument(doc:string){clearTimeout(metadataTimer);for(const map of [metadataDrafts,nodeOperations,nodeDeletions,nodeMoves,nodeMoveNotices])for(const key of map.keys())if(key.startsWith(doc+':'))map.delete(key);}, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
     selectById(id:string){const item=findLayer(id);if(!item)return;const select=()=>{selectLayer(item);if(item.childCount)void toggleLayer(item);renderLayers(id);};if(layerSelection?.id===id||beforeSelectionChange(select))select();},
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },

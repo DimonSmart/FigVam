@@ -176,7 +176,13 @@ const datasets: ReturnType<typeof createDatasets> = createDatasets({
 });
 function closeInaccessibleDocument(status: number) {
   mcpAccess.reset();
-  if (documentId) { scenarios.clearDocumentCommands(documentId); pageCommands.discard(documentId); visualNodeEditor.clearDocument(documentId); }
+  if (documentId) {
+    const id=documentId;
+    scenarios.clearDocumentCommands(id);pageCommands.discard(id);visualNodeEditor.clearDocument(id);
+    layers.discardDocument(id);documentHistory.discardDocument(id);screenResize.discardDocument(id);
+    screenVariants.discardDocument(id);datasets.discardDocument(id);tokens.discardDocument(id);
+    styles.discardDocument(id);documentMutations.discardDocument(id);
+  }
   visualScreens.clearPropertyPreviews(); requestRunner.clearRetry();
   cancelRequest(); advanceNavigation();
   documentShell.patch({role:null}); shellState.patch({view:'none',busy:false,controlsDisabled:false});

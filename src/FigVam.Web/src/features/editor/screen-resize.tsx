@@ -140,6 +140,7 @@ export function createScreenResize({ model, element, request, refreshPages, work
     render: renderScreenSize,
     dispose() { clearTimeout(resizeTimer); model.clear(); resizeOperations.clear(); },
     resetDraft() { clearTimeout(resizeTimer); dirtyAxes.clear(); resizeError = null; resizeDraftScreen = null; },
+    discardDocument(doc:string) { clearTimeout(resizeTimer);for(const id of resizeOperations.keys())if(id.startsWith(doc+':'))resizeOperations.delete(id);dirtyAxes.clear();resizeError=null;resizeDraftScreen=null; },
     clear() { clearTimeout(resizeTimer); resizeOperations.clear(); resizeDraftScreen = null; dirtyAxes.clear(); resizeError = null; }
   };
 }

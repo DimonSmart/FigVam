@@ -683,14 +683,16 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
     const doc=entry.operation.documentId,epoch=getContext().navigationEpoch;
     if(entry.running||!editable()||getContext().documentId!==doc||pendingCommands.get(doc)!==entry)return false;
     const [command,data,selection]=entry.input;
-    stopLive();const {signal,current}=startRequest();
+    stopLive();let generation=getContext().generation;const originSelection=selectedToken;
     const active=()=>getContext().documentId===doc&&getContext().navigationEpoch===epoch&&pendingCommands.get(doc)===entry;
     entry.running=true;commandBusy=true;detailBusy=command!=='set-token-value';error='';status='Сохранение…';publishPanel();
     try{
-      const result=await entry.operation.execute({request,signal,isCurrent:()=>active()&&editable()&&!signal.aborted&&current===getContext().generation,
-        synchronize:async()=>{
-          if(selection&&'name' in data&&'type' in data){revealToken({id:selection,name:data.name,type:data.type});selectedToken=selection;creating=false;}
-          return await readPages(signal)===true;
+      const result=await entry.operation.execute({request,isCurrent:()=>active()&&editable(),
+        synchronize:async confirmation=>{
+          const {signal,current}=startRequest();generation=current;
+          if(selectedToken===originSelection&&selection&&'name' in data&&'type' in data){revealToken({id:selection,name:data.name,type:data.type});selectedToken=selection;creating=false;}
+          const refreshed=await readPages(signal);
+          return active()&&!signal.aborted&&current===getContext().generation&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
         }});
       if(result.kind==='confirmed'&&result.synchronization==='synced'){
         if(active()){
@@ -712,7 +714,7 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
       return false;
     }finally{
       entry.running=false;
-      if(getContext().documentId===doc&&getContext().navigationEpoch===epoch){status='';commandBusy=false;detailBusy=false;publishPanel();if(current===getContext().generation)startLive();}
+      if(getContext().documentId===doc&&getContext().navigationEpoch===epoch){status='';commandBusy=false;detailBusy=false;publishPanel();if(generation===getContext().generation)startLive();}
     }
   }
 
@@ -740,6 +742,6 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
     if (await tokenCommand('rename-token', { tokenId: item.id, name }) && selectedToken === item.id) endRename();
   }
   updateCategoryOptions();
-  return { reset: resetTokens, clearCommands:()=>pendingCommands.clear(), read: readTokens, apply: applyTokens,
+  return { reset: resetTokens, clearCommands:()=>pendingCommands.clear(),discardDocument:(doc:string)=>pendingCommands.delete(doc), read: readTokens, apply: applyTokens,
     readSelectedUsages, applySelectedUsages, refreshAccess, clearBusy, get items() { return tokenItems; } };
 }
