@@ -46,7 +46,7 @@ AppHost сам подставляет актуальный HTTP loopback endpoin
 В ChatGPT один раз создайте приватный custom MCP plugin: Connection = Tunnel, выберите
 FigVam, Authentication = No authentication, затем установите его. Служебный ключ добавляет сам
 tunnel-client, а не ChatGPT; в плагине не надо вводить ни API key, ни ключ документа.
-Статические схемы 34 инструментов доступны для регистрации ещё до разрешения документа.
+Статические схемы 41 инструмента доступны для регистрации ещё до разрешения документа.
 Без разрешения каждый tools/call отклоняется с MCP_TUNNEL_ACCESS_REQUIRED.
 
 В редакторе откройте нужный документ → **MCP-доступ → ChatGPT Tunnel → Разрешить доступ через ChatGPT**.
@@ -71,7 +71,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 1. Убедитесь, что без TunnelId AppHost запускается как раньше.
 2. Настройте TunnelId и Runtime API key, запустите Aspire, проверьте, что tunnel-client не запущен автоматически.
-3. Запустите ресурс вручную, проверьте логи подключения и наличие 34 tools при добавлении плагина.
+3. Запустите ресурс вручную, проверьте логи подключения и наличие 41 tools при добавлении плагина.
 4. До разрешения вызов get_document должен вернуть MCP_TUNNEL_ACCESS_REQUIRED.
 5. Разрешите документ A, создайте экран через ChatGPT и проверьте изменения в редакторе.
 6. Попробуйте разрешить B, пока A активен: переключение не должно произойти. Отзовите A, убедитесь,
@@ -81,6 +81,14 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 8. Stop и Restart у mcp-tunnel работают независимо от прямого MCP и основного сервера.
 
 ## Инструменты
+
+Ресурсы документа: `list_assets`, `get_asset_info`, `upload_asset`.
+
+- `list_assets` возвращает метаданные ресурсов и `supportedContentTypes`, `maxAssetBytes`. Можно указать `revision` или `versionId`.
+- `get_asset_info` принимает `assetId` и необязательный селектор ревизии/версии.
+- `upload_asset` принимает `contentType`, `contentBase64` (обычный Base64 с padding, без data URI), необязательные `assetId`, `commandId`. Для повторной доставки сохраняйте тот же commandId и payload. Результат содержит assetId, метаданные и ревизию. После загрузки PNG создайте Image с `properties: {"asset": {"assetId": "UUID"}}`.
+
+REST и MCP используют одну команду, проверку формата, SHA-256, хранилище, журнал и правила доступа. Сейчас зарегистрирован только безопасный PNG; шрифты не принимаются до регистрации их серверной проверки и доменной модели. Лимит ресурса — 5 МиБ после декодирования, лимит авторизованного MCP POST — 8 МиБ вместе с JSON. Большие файлы передавайте компактным Base64, без внешних URL или путей. Операция загрузки самостоятельная, не входит в execute_batch. Отзыв доступа блокирует новые операции.
 
 Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `get_token_usages`, `list_scenarios`, `get_screen_layout`.
 
@@ -120,7 +128,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 | set_node_properties | {"nodeId":"UUID","properties":{"paddingRight":{"tokenId":"UUID"},"shadow":{"offsetX":0,"offsetY":12,"blurRadius":32,"spreadRadius":0,"color":"#0F172A29"}}} |
 | create_scenario | {"screenId":"UUID","nodeId":"UUID","event":"Click","actions":[{"type":"navigate","screenId":"UUID"}]} |
 
-Для отзыва откройте меню MCP-доступ и нажмите кнопку с корзиной «Отозвать MCP-доступ». Подтверждённый отзыв делает прежний токен недействительным. MVP не предоставляет управление документами, произвольные команды, импорт изображений и OAuth discovery.
+Для отзыва откройте меню MCP-доступ и нажмите кнопку с корзиной «Отозвать MCP-доступ». Подтверждённый отзыв делает прежний токен недействительным. MVP не предоставляет управление документами, произвольные команды, импорт целых документов и OAuth discovery.
 
 ## Проверка
 

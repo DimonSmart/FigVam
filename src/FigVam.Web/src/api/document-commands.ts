@@ -107,11 +107,11 @@ export function createDocumentCommand<K extends DocumentCommandName>(documentId:
 }
 
 /** Asset upload is a command-stream mutation with an immutable binary payload. */
-export function prepareAssetUpload(documentId: string, assetId: string, file: Blob, commandId: string = crypto.randomUUID()) {
+export function prepareAssetUpload(documentId: string, assetId: string, file: Blob, commandId: string = crypto.randomUUID(), contentType: string = file.type || 'image/png') {
   const path = '/api/v1/documents/' + encodeURIComponent(documentId) + '/assets/' + encodeURIComponent(assetId) +
     '?' + new URLSearchParams({commandId});
   return preparedOperation(documentId, 'upload-asset', commandId, path, () => ({
-    method:'PUT', headers:{'Content-Type':'image/png'}, body:file
+    method:'PUT', headers:{'Content-Type':contentType}, body:file
   }));
 }
 export type AssetUploadOperation = ReturnType<typeof prepareAssetUpload>;
