@@ -388,7 +388,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section aria-labelledby="layers-title" className="layer-tree-group">
                   <h2 id="layers-title">{"Слои выбранного экрана"}</h2>
                   <p id="layers-status" role="status" aria-live="polite">{"Выберите экран."}</p>
-                  <div id="layers" role="tree" aria-label="Слои экрана"/>
+                  <div id="layers" role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
                   <p id="node-order-status" role="status" tabIndex={-1}/>
                   <button id="node-order-retry" type="button" hidden>{"Повторить перемещение слоя"}</button>
                 </section>

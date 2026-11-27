@@ -265,7 +265,7 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 });
 
 const layers: ReturnType<typeof createLayers> = createLayers({
-  element, request, refreshPages, closeInaccessibleDocument, message,
+  model: views.layers, element, request, refreshPages, closeInaccessibleDocument, message,
   workspace: {
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
