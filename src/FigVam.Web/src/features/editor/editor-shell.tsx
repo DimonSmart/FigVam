@@ -101,9 +101,9 @@ function TokenWorkspace({active}:{active:boolean}){
               <button id="new-token-open" type="button" hidden onClick={closeMenu}>{"+ Новый токен…"}</button>
               <hr/>
               <button id="token-import-open" type="button" hidden onClick={closeMenu}>{"Импорт токенов…"}</button>
-              <button id="token-export" type="button" disabled onClick={closeMenu}>{"Экспорт токенов…"}</button>
-              <button id="token-export-light" type="button" disabled onClick={closeMenu}>{"Экспорт Light"}</button>
-              <button id="token-export-dark" type="button" disabled onClick={closeMenu}>{"Экспорт Dark"}</button>
+              <button id="token-export" type="button" onClick={closeMenu}>{"Экспорт токенов…"}</button>
+              <button id="token-export-light" type="button" onClick={closeMenu}>{"Экспорт Light"}</button>
+              <button id="token-export-dark" type="button" onClick={closeMenu}>{"Экспорт Dark"}</button>
               <hr/>
               <div id="token-type-filter" className="token-type-filter" role="group" aria-label="Отображаемые типы"/>
             </div>
