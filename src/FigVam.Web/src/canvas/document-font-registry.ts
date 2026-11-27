@@ -65,7 +65,7 @@ function identity(documentId: string, family: DocumentFontFamily): { key: string
   const faces = [...family.faces].sort((a, b) => a.id.localeCompare(b.id));
   const composition = faces.map(face => {
     validate(face);
-    return [id(face.id), id(face.assetId), face.sha256, face.weightFrom, face.weightTo, face.style].join('-');
+    return [id(face.id), id(face.assetId), face.sha256, face.contentType.slice(5), face.byteLength, face.weightFrom, face.weightTo, face.style].join('-');
   }).join('--');
   const key = id(documentId) + '-' + id(family.id) + '--' + composition;
   return { key, cssName: 'figvam-font-' + key };
@@ -98,17 +98,20 @@ export class DocumentFontRegistry {
     if (families.length > 64) throw new TypeError('Too many font families');
     let count = 0, bytes = 0;
     const seen = new Set<string>();
+    const hashes = new Set<string>();
     const next = new Map<string, Entry>();
     for (const family of families) {
       const familyId = id(family.id);
-      if (!family.faces.length || next.has(familyId)) throw new TypeError('Invalid font family');
+      if (!family.faces.length || seen.has(familyId)) throw new TypeError('Invalid font family');
+      seen.add(familyId);
       const snapshot = { id: familyId, faces: family.faces.map(face => ({ ...face })) };
       const { key, cssName } = identity(documentId, snapshot);
       for (const face of snapshot.faces) {
         bytes += face.byteLength;
-        if (++count > 128 || bytes > 32 * 1024 * 1024 || seen.has(id(face.id)) || seen.has(id(face.assetId)))
+        if (++count > 128 || bytes > 32 * 1024 * 1024 || seen.has(id(face.id)) || seen.has(id(face.assetId)) ||
+            id(face.id) === id(face.assetId) || hashes.has(face.sha256))
           throw new TypeError('Invalid font manifest');
-        seen.add(id(face.id)); seen.add(id(face.assetId));
+        seen.add(id(face.id)); seen.add(id(face.assetId)); hashes.add(face.sha256);
       }
       const previous = this.entries.get(familyId);
       next.set(familyId, previous?.key === key ? previous :
