@@ -5,7 +5,7 @@ import type { components } from '../../api/schema.generated';
 import type { ApiClient } from '../../api/api-client';
 
 type Item = Pick<components['schemas']['StructureDiagnostic'], 'code' | 'path' | 'message'> & Partial<Pick<components['schemas']['StructureDiagnostic'], 'property' | 'referenceId'>>;
-interface Context { documentId: string | null; screen: string | null; revision: number | null; token: string | null; navigationEpoch: number }
+interface Context { isEditorVisible: boolean; documentId: string | null; screen: string | null; revision: number | null; token: string | null; navigationEpoch: number }
 interface State { status: string; error: string; items: Item[]; offset: number; total: number; retry: boolean }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 function item(value: unknown): value is Item {
@@ -29,8 +29,8 @@ function Diagnostics({state, previous, next, reload}: {state: State; previous():
   </>;
 }
 export function createScreenDiagnosticsModel(){return createViewModel(Diagnostics);}
-export function createScreenDiagnostics({model, element, request, getContext, pageSize}: {
-  model:ReturnType<typeof createScreenDiagnosticsModel>; element(id: string): HTMLElement; request: ApiClient; getContext(): Context; pageSize: number;
+export function createScreenDiagnostics({model, request, getContext, pageSize}: {
+  model:ReturnType<typeof createScreenDiagnosticsModel>; request: ApiClient; getContext(): Context; pageSize: number;
 }) {
   let controller: AbortController | null = null, generation = 0, offset = 0, total = 0, key: string | null = null;
   const initial = (): State => ({ status: 'Выберите экран.', error: '', items: [], offset: 0, total: 0, retry: false });
@@ -53,7 +53,7 @@ export function createScreenDiagnostics({model, element, request, getContext, pa
     const valid = () => {
       const context = getContext();
       return !operation.signal.aborted && current === generation && doc === context.documentId &&
-        screen === context.screen && revision === context.revision && token === context.token && navigationEpoch === context.navigationEpoch && !element('editor-view').hidden;
+        screen === context.screen && revision === context.revision && token === context.token && navigationEpoch === context.navigationEpoch && context.isEditorVisible;
     };
     render({...initial(), status: 'Загрузка диагностики…'});
     try {

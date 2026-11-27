@@ -7,7 +7,7 @@ import type { ApiClient } from '../../api/api-client';
 
 interface Tunnel { configured: boolean; enabled: boolean; occupied: boolean }
 type Access = { enabled: false; tunnel: Tunnel } | { enabled: true; endpoint: string; token: string; tunnel: Tunnel };
-interface Context { documentId: string | null; token: string | null; navigationEpoch: number; role: string | null; theme: string }
+interface Context { title: string; documentId: string | null; token: string | null; navigationEpoch: number; role: string | null; theme: string }
 interface Operation extends Context { signal: AbortSignal }
 interface Capture { stop(): void; onEvent(event: unknown, signal: AbortSignal): void; onDisconnect(signal: AbortSignal): void }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
@@ -104,7 +104,7 @@ export function createMcpAccess({model,request,getContext,capture}:{model:Return
       const response = await request(path, {method: tunnel ? 'GET' : method}, operation.signal, () => valid(operation));
       if (!valid(operation)) return;
       const status = decodeMcpAccess(response);
-      model.publish({state:{kind:'ready',props:{status,load,title:document.getElementById('document-title')?.textContent??'',valid:()=>valid(operation)}}});
+      model.publish({state:{kind:'ready',props:{status,load,title:getContext().title,valid:()=>valid(operation)}}});
     } catch (error) {
       if (!valid(operation) || (error instanceof Error && error.name === 'AbortError')) return;
       const message = (error instanceof ApiError && error.code ? errors[error.code] : undefined) ?? (error instanceof Error ? error.message : String(error));

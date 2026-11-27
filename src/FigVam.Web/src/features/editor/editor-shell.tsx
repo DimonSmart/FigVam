@@ -295,14 +295,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Экспорт"}</h3>
-                <section aria-labelledby="export-title">
-                  <h2 id="export-title">{"Экспорт документа"}</h2>
-                  <p id="export-access"/>
-                  <button id="export-json" type="button">{"Скачать document.json"}</button>
-                  <button id="export-container" type="button">{"Скачать container.figvam"}</button>
-                  <p id="export-status" role="status" aria-live="polite"/>
-                  <p id="export-error" role="alert"/>
-                </section>
+                <views.documentExport.Component/>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Версии"}</h3>

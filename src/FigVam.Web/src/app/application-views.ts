@@ -18,8 +18,11 @@ import { createHomeNavigationModel } from '../features/home/navigation';
 import { createDocumentListModel } from '../features/home/document-list';
 import { createPresenceModels } from '../features/collaboration/presence';
 
+import { createExportModel } from '../features/documents/document-export-view';
+
 export function createApplicationViews() {
   return {
+    documentExport: createExportModel(),
     propertyFields: createPropertyFieldModels(),
     scenarios: createScenarioModels(),
     tokens: createTokenModels(),

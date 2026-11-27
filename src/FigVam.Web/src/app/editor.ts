@@ -98,8 +98,8 @@ const request: ApiClient = createApiClient({
 });
 
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
-  element, request, pageSize,
-  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch })
+  request, pageSize,
+  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch, isEditorVisible: isEditorVisible() })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
@@ -114,7 +114,7 @@ const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
 const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
-const mcpContext = () => ({ documentId, token, navigationEpoch, role: getDocumentRole(), theme: visualScreens.currentTheme });
+const mcpContext = () => ({ documentId, token, navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
 const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
@@ -137,7 +137,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
-  element, getContext: () => ({ token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch }),
+  model: views.documentExport, isEditorVisible, getContext: () => ({ token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -235,6 +235,7 @@ function clearSession() {
 const members: ReturnType<typeof createMembers> = createMembers({ model: views.members,
   element, request, findRole, openDocument, loadList, message, stopLive, startLive,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
     get documentRole() { return getDocumentRole(); },
     get navigationEpoch() { return navigationEpoch; },
