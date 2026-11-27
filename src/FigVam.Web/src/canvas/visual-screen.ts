@@ -5,6 +5,7 @@ import { requiredRecord, text, array, errorMessage, aborted } from '../api/decod
 import { ApiError, type ApiClient } from '../api/api-client';
 import type { components } from '../api/schema.generated';
 import type { DesignToken, NodePropertyValue, ResolvableValue, Theme } from '../core/tokens/token-model';
+import type { PreviewChrome, RenderFeedback } from '../app/preview-chrome';
 import type { CanvasNode, CanvasKind, LayoutBox, NodeProperties } from './canvas-model';
 type Schema=components['schemas'];
 type PreviewTrigger=Schema['PreviewTrigger'];
@@ -18,11 +19,11 @@ interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens
   screen:string;revision:number;scenarios:Scenario[];diagnostics:Diagnostic[];orderedNodes:CanvasNode[];
 }
 interface Diagnostic {objectId:string;property:string;message:string;code:string}
-interface View {host:HTMLElement;status:HTMLElement;diagnostics:HTMLElement;retry:HTMLElement;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null;captureStamp?:string|null}
+interface View {host:HTMLElement;feedback:RenderFeedback;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null;captureStamp?:string|null}
 interface Screen {id:string;dimensions:{width:number;height:number}}
 interface InputContext {documentId:string|null;revision:number|null;screen?:Screen;selection?:{id:string}|null;tokens:unknown[];styles?:unknown[];variantId:string|null}
 type Context=Omit<InputContext,'documentId'|'revision'|'screen'>&{documentId:string;revision:number;screen:Screen};
-interface Options {element(id:string):HTMLElement;request:ApiClient;getContext():InputContext;closeInaccessibleDocument(status:number):void;onDesignChange():void}
+interface Options {chrome:PreviewChrome;publishMode(next:boolean):void;element(id:string):HTMLElement;request:ApiClient;getContext():InputContext;closeInaccessibleDocument(status:number):void;onDesignChange():void}
 type Query=Record<string,string|number>;
 interface Page<T>{items:T[];diagnostics:Diagnostic[];overrides:{nodeId:string;properties:NodeProperties}[]}
 function diagnostic(value:unknown):Diagnostic{const d=requiredRecord(value);return{objectId:text(d.objectId),property:text(d.property),message:text(d.message),code:text(d.code)};}
@@ -31,25 +32,20 @@ function playbackValue(value:unknown):Playback{const p=requiredRecord(value),sel
 function asset(value:unknown):Asset{const a=requiredRecord(value);return{id:text(a.id),width:number(a.width),height:number(a.height)};}
 function style(value:unknown):Style{const a=requiredRecord(value);return{id:text(a.id),name:text(a.name),type:typeof a.type==='number'?a.type:text(a.type)};}
 function scalar(value:ResolvableValue|null|undefined):unknown{return value&&'value' in value?value.value:undefined;}
-function button(value:HTMLElement):HTMLButtonElement{if(!(value instanceof HTMLButtonElement))throw new Error('Expected button');return value;}
-function newView(host:HTMLElement,status:HTMLElement,diagnostics:HTMLElement,retry:HTMLElement):View{return{host,status,diagnostics,retry,controller:null,key:null,model:null,selected:null};}
+function newView(host:HTMLElement,feedback:RenderFeedback):View{return{host,feedback,controller:null,key:null,model:null,selected:null};}
 function inputControl(el:Element|null):el is HTMLInputElement|HTMLTextAreaElement{return el instanceof HTMLInputElement||el instanceof HTMLTextAreaElement;}
 
 
-export function createVisualScreens({ element, request, getContext, closeInaccessibleDocument, onDesignChange }:Options) {
+export function createVisualScreens({ chrome, publishMode, element, request, getContext, closeInaccessibleDocument, onDesignChange }:Options) {
   const boundary = element('screen-boundary');
   const viewport = element('preview-viewport');
-  const openButton = button(element('open-preview'));
-  const closeButton = button(element('close-preview'));
-  const themeButtons = [...element('preview-theme').querySelectorAll<HTMLButtonElement>('button[data-theme]')];
   let previewTheme:Theme = 'Light';
   function selectTheme(theme:Theme) {
     previewTheme = theme;
-    for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === theme));
+    chrome.patch({theme});
   }
-  const backButton = button(element('preview-back'));
-  const design=newView(boundary,element('design-render-status'),element('design-render-diagnostics'),element('design-render-retry'));
-  const preview=newView(viewport,element('preview-render-status'),element('preview-render-diagnostics'),element('preview-render-retry'));
+  const design=newView(boundary,chrome.design);
+  const preview=newView(viewport,chrome.preview);
   let context:Context|null=null,contextKey:string|null=null,controller:AbortController|null=null;
   let isPreview=false,triggers:PreviewTrigger[]=[],playback:Playback|null=null,playbackRequest:AbortController|null=null,resizeTimer:ReturnType<typeof setTimeout>|undefined;
   let activeScenarios:Scenario[]=[];
@@ -119,16 +115,13 @@ export function createVisualScreens({ element, request, getContext, closeInacces
   function resetView(view:View) {
     cancelView(view);
     view.host.replaceChildren();
-    view.status.textContent = '';
-    view.diagnostics.replaceChildren();
-    view.retry.hidden = true;
+    view.feedback.patch({status:'',diagnostics:[],canRetry:false});
     if (view === design) design.model = null;
   }
 
   function showMode(next:boolean) {
     isPreview = next;
-    element('editor-design').hidden = next;
-    element('editor-preview').hidden = !next;
+    publishMode(next);
     onDesignChange();
     if (!next) {
       playbackRequest?.abort();
@@ -153,7 +146,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     const nextContext:Context|null=next.screen&&next.documentId&&typeof next.revision==='number'&&Number.isSafeInteger(next.revision)?{...next,screen:next.screen,documentId:next.documentId,revision:next.revision}:null;
     const key = nextContext ?
       `${nextContext.documentId}:${nextContext.screen.id}:${nextContext.revision}:${nextContext.variantId ?? "base"}` : null;
-    openButton.disabled = !key;
+    chrome.patch({available:!!key});
     if (contextKey === key) return;
     const sameScreen = next.documentId === context?.documentId && next.screen?.id === context?.screen.id;
     contextKey = key;
@@ -301,13 +294,6 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     });
   }
 
-  function addDiagnostic(list:HTMLElement|DocumentFragment, description:string) {
-    if ([...list.children].some(item => item.textContent === description)) return;
-    const item = document.createElement('li');
-    item.textContent = description;
-    list.append(item);
-  }
-
   function displayInput(id:string, initial:string) {
     const entered=inputValues.get(id);if(entered!==undefined)return entered;
     return playback && Object.hasOwn(playback.values, id) ? playback.values[id] ?? '' : initial;
@@ -344,8 +330,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     const drawingContext = context;
     const acceptsInteraction = () => context === drawingContext && isPreview === previewMode &&
       (!previewMode || screens.at(-1) === (playback?.overlays.at(-1) ?? playback?.selection.screenId ?? context?.screen.id));
-    if (!view.host.hasChildNodes()) view.status.textContent = 'Загрузка экрана…';
-    view.retry.hidden = true;
+    view.feedback.patch({ ...(!view.host.hasChildNodes() ? {status:'Загрузка экрана…'} : {}),canRetry:false });
     try {
       const reads = new Map<string,Promise<DrawingModel>>();
       const models = await Promise.all(screens.map((screen, index) => {
@@ -355,20 +340,20 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         const read=reads.get(key);if(!read)throw new Error('Missing screen read');return read;
       }));
       if (!current()) return;
-      const diagnostics = document.createDocumentFragment(), content = document.createDocumentFragment();
+      const diagnostics = new Set<string>(), content = document.createDocumentFragment();
       let shown = false;
       for (const [index, model] of models.entries()) {
         const { screen, boxes } = model;
         for (const item of model.diagnostics) {
           const name = model.nodes.get(item.objectId)?.name || item.objectId;
-          addDiagnostic(diagnostics, `${name} · ${item.property}: ${item.message} (${item.code})`);
+          diagnostics.add(`${name} · ${item.property}: ${item.message} (${item.code})`);
         }
         if (!boxes.has(screen)) continue;
         const drawing = renderScreen({ ...(previewMode ? model : projected(model)), theme }, {
           preview: previewMode, trigger: (id, event) => acceptsInteraction() && trigger(id, event),
           getInput: previewMode ? displayInput : undefined,
           setInput: (id, value) => { if (acceptsInteraction()) inputValues.set(id, value); },
-          report: (node, property, message) => addDiagnostic(diagnostics, `${node.name || node.id} · ${property}: ${message}`)
+          report: (node, property, message) => diagnostics.add(`${node.name || node.id} · ${property}: ${message}`)
         });
         if (previewMode) {
           const surface = document.createElement('div');
@@ -389,8 +374,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       const selection = inputControl(focus) ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] as const : null;
       if (!previewMode && view.host.hasChildNodes()) reconcileScreen(view.host, content);
       else view.host.replaceChildren(content);
-      view.diagnostics.replaceChildren(diagnostics);
-      view.status.textContent = shown ? '' : 'Геометрию экрана не удалось рассчитать.';
+      view.feedback.patch({diagnostics:[...diagnostics],status:shown ? '' : 'Геометрию экрана не удалось рассчитать.'});
       if (previewMode) {
         activeScenarios = models.at(-1)?.scenarios??[];
         onDesignChange();
@@ -405,7 +389,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         if (control && !control.inert && !(('disabled' in control)&&control.disabled)) {
           control.focus({ preventScroll: true });
           if (selection && inputControl(control)) control.setSelectionRange(selection[0],selection[1],selection[2]??undefined);
-        } else if (previewMode) closeButton.focus({ preventScroll: true });
+        } else if (previewMode) document.getElementById('close-preview')?.focus({ preventScroll: true });
       }
       // Existing image nodes retain their loaded asset and do not fetch it again.
       for (const surface of view.host.querySelectorAll<HTMLImageElement>('img[data-asset-id]')) {
@@ -413,7 +397,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
         if(!assetId)continue;
         if (surface.dataset.loadedAsset === assetId) continue;
         const report = () => {
-          if (current()) addDiagnostic(view.diagnostics, `${surface.alt || assetId} · asset: Не удалось загрузить изображение.`);
+          if (current()) view.feedback.addDiagnostic(`${surface.alt || assetId} · asset: Не удалось загрузить изображение.`);
         };
         surface.onerror = report;
         readAsset(assetId).then(url => {
@@ -430,9 +414,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
       view.key = null;
       view.captureStamp = null;
-      if (!view.host.hasChildNodes()) view.diagnostics.replaceChildren();
-      view.status.textContent = `Не удалось показать экран. ${errorMessage(error)}`;
-      view.retry.hidden = false;
+      view.feedback.patch({ ...(!view.host.hasChildNodes() ? {diagnostics:[]} : {}),status:`Не удалось показать экран. ${errorMessage(error)}`,canRetry:true });
       if (previewMode) onDesignChange();
     }
   }
@@ -462,7 +444,7 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       }
       triggers = next;
       playback = playbackValue(result.session);
-      backButton.disabled = !playback.canGoBack;
+      chrome.patch({canGoBack:playback.canGoBack});
       renderActive();
     } catch (error) {
       if (playbackRequest !== active || active.signal.aborted) return;
@@ -470,9 +452,9 @@ export function createVisualScreens({ element, request, getContext, closeInacces
       if (afterRefresh) {
         triggers = [];
         playback = null;
-        backButton.disabled = true;
+        chrome.patch({canGoBack:false});
         renderActive();
-      } else preview.status.textContent = `Не удалось выполнить сценарий. ${errorMessage(error)}`;
+      } else preview.feedback.patch({status:`Не удалось выполнить сценарий. ${errorMessage(error)}`});
     } finally {
       if (playbackRequest === active) playbackRequest = null;
     }
@@ -482,52 +464,50 @@ export function createVisualScreens({ element, request, getContext, closeInacces
     const scenarios = activeScenarios.filter(item => item.nodeId === nodeId && item.event === event);
     if (!scenarios.length) return;
     if (triggers.length >= 128) {
-      preview.status.textContent = 'Достигнут предел истории сценария. Сбросьте Preview, чтобы продолжить.';
+      preview.feedback.patch({status:'Достигнут предел истории сценария. Сбросьте Preview, чтобы продолжить.'});
       return;
     }
     replay([...triggers, { nodeId, event }], scenarios);
   }
 
-  openButton.addEventListener('click', () => {
+  function openPreview() {
     if (!context) return;
-    if (design.status.textContent === 'Загрузка экрана…') cancelView(design);
+    if (design.feedback.getSnapshot().status === 'Загрузка экрана…') cancelView(design);
     selectTheme('Light');
-    backButton.disabled = true;
+    chrome.patch({canGoBack:false});
     showMode(true);
     if (context.variantId) replay([], null);
     else renderActive();
-    closeButton.focus();
-  });
-  closeButton.addEventListener('click', () => {
+    document.getElementById('close-preview')?.focus();
+  }
+  function closePreview() {
     showMode(false);
     renderActive();
-    openButton.focus();
-  });
-  for (const button of themeButtons) button.addEventListener('click', () => {
-    if (previewTheme === button.dataset.theme) return;
-    if(button.dataset.theme==='Light'||button.dataset.theme==='Dark')selectTheme(button.dataset.theme);
+    document.getElementById('open-preview')?.focus();
+  }
+  function changeTheme(theme:Theme) {
+    if (previewTheme === theme) return;
+    selectTheme(theme);
     renderActive();
-  });
-  design.retry.addEventListener('click', renderActive);
-  preview.retry.addEventListener('click', renderActive);
-  element('preview-reset').addEventListener('click', () => {
+  }
+  function resetPreview() {
     playbackRequest?.abort();
     playbackRequest = null;
     triggers = [];
     playback = null;
     inputValues.clear();
-    backButton.disabled = true;
+    chrome.patch({canGoBack:false});
     cancelView(preview);
     renderActive();
-  });
-  backButton.addEventListener('click', () => {
+  }
+  function goBack() {
     if (triggers.length) replay(triggers.slice(0, -1), null);
-  });
+  }
   new ResizeObserver(() => {
     clearTimeout(resizeTimer);
     if (isPreview) resizeTimer = setTimeout(() => {
       if (isPreview && !playbackRequest) renderActive();
     }, 120);
   }).observe(viewport);
-  return { get currentTheme() { return isPreview ? previewTheme : "Light"; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
+  return { openPreview, closePreview, changeTheme, resetPreview, goBack, retry:renderActive, get currentTheme() { return isPreview ? previewTheme : "Light"; }, refresh, syncSelection, readDesignModel, setPropertyPreview, clearPropertyPreviews() { propertyPreviews.clear(); }, get designModel() { return !isPreview && design.model?.revision === context?.revision ? design.model : null; } };
 }

@@ -3,6 +3,7 @@ import { Button } from './Button';
 import { FieldValue } from './property-value-editor';
 import { isGeometryField, propertyLabel, type ValueField } from './property-value';
 import { createViewModel } from '../app/view-model';
+import { createVisualEditorViews } from '../features/editor/visual-editor-views';
 
 const sides=[['top','paddingTop','Сверху','Отступ сверху'],['right','paddingRight','Справа','Отступ справа'],['bottom','paddingBottom','Снизу','Отступ снизу'],['left','paddingLeft','Слева','Отступ слева']] as const;
 export const paddingProperties=sides.map(([,name])=>name);
@@ -65,4 +66,4 @@ export function PropertyFields({entries,inspector}:{entries:FieldPresentation[];
   }
   return <>{layout}</>;
 }
-export function createPropertyFieldModels(){return {required:createViewModel(PropertyFields),optional:createViewModel(PropertyFields),inspector:createViewModel(PropertyFields)};}
+export function createPropertyFieldModels(){return {...createVisualEditorViews(),required:createViewModel(PropertyFields),optional:createViewModel(PropertyFields),inspector:createViewModel(PropertyFields)};}

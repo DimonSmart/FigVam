@@ -65,6 +65,32 @@ describe('frontend architecture', () => {
     const body=html.match(/<body[^>]*>([\s\S]*?)<\/body>/i)?.[1]?.trim();
     expect(body).toBe('<div id="figvam-app"></div>');
   });
+  it('prevents controllers from reading or mutating the migrated shell via element IDs', () => {
+    const owned = new Set([
+      'editor-view', 'documents-view', 'document-name', 'import-form', 'import-file', 'import-file-name',
+      'import-status', 'import-error', 'import-diagnostics', 'document-title', 'revision',
+      'document-rename', 'rename-document-name', 'delete-document', 'delete-result', 'delete-retry', 'delete-message',
+      'history-access', 'history-action-status', 'history-action-error', 'history-action-retry',
+      'presence-name', 'presence-color', 'presence-status', 'export-access', 'export-json', 'export-container', 'export-status', 'export-error',
+      'editor-design', 'editor-preview', 'preview-theme', 'preview-back', 'preview-reset', 'design-render-status', 'design-render-diagnostics', 'design-render-retry', 'preview-render-status', 'preview-render-diagnostics', 'preview-render-retry', 'zoom-level', 'zoom-in', 'zoom-out', 'actual-size', 'fit-screen', 'canvas-selection', 'canvas-edit-hint', 'node-delete',
+    ]);
+    const violations: string[] = [];
+    for (const {path, ast} of source) {
+      function visit(node: ts.Node) {
+        if (ts.isCallExpression(node)) {
+          const fn = node.expression, arg = node.arguments[0];
+          const name = ts.isIdentifier(fn) ? fn.text : ts.isPropertyAccessExpression(fn) ? fn.name.text : '';
+          if (['element', 'getElementById'].includes(name) && arg && ts.isStringLiteral(arg) && owned.has(arg.text))
+            violations.push(path + ': ' + arg.text);
+          if (path === 'src/app/editor.ts' && name === 'addEventListener' && arg && ts.isStringLiteral(arg) &&
+              ['click', 'submit', 'change', 'input'].includes(arg.text)) violations.push(path + ': ' + arg.text);
+        }
+        ts.forEachChild(node, visit);
+      }
+      visit(ast);
+    }
+    expect(violations).toEqual([]);
+  });
   it('keeps Canvas independent of React', () => {
     expect(source.filter(({path, ast}) => path.startsWith('src/canvas/') &&
       importedModules(ast).some(name => /^react(?:-dom)?(?:\/|$)/.test(name) || name.includes('react-panels')))

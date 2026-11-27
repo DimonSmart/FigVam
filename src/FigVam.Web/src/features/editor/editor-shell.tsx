@@ -1,21 +1,38 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { PanelLeft, PanelRight, Redo2, Undo2 } from 'lucide-react';
+import { PanelLeft, PanelRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { createEditorMenu, type MenuId } from '../../app/editor-menu';
 import { createPanelStore } from '../../app/panel-store';
+import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from '../../app/document-shell-state';
 import type { ApplicationViews } from '../../app/application-views';
 import { DrawingTools, type DrawingToolKind } from './drawing-tools';
 import { Button } from '../../ui/Button';
+import { RenderFeedback } from './render-feedback';
+import type { CanvasChrome } from '../../app/canvas-chrome';
+import type { PreviewChrome } from '../../app/preview-chrome';
+import type { Theme } from '../../core/tokens/token-model';
+import { TextInput, NumberInput } from '../../ui/Inputs';
 
 interface ShellActions {
+  previewChrome:PreviewChrome;
+  canvasChrome:CanvasChrome;zoomIn():void;zoomOut():void;fitCanvas():void;actualSize():void;
+  openPreview():void;closePreview():void;changePreviewTheme(theme:Theme):void;resetPreview():void;previewBack():void;retryRender():void;
   beforePrototypeLeave(resume:()=>void):boolean;
   addTool(kind:DrawingToolKind):boolean;
   signOut():void;
   createPage():void;
+  document:DocumentShellModel;
+  deletion:DeletionViewModel;
+  renameDocument():void;
+  deleteDocument():void;
+  retryDeletion():void;
+  createScreen():void;
+  refreshPages():void;
 }
 export function createEditorShell(actions:ShellActions) {
   const drawingTools=createPanelStore<readonly string[]>([]);
   const signoutLabel=createPanelStore('Выйти');
-  const mode=createPanelStore(false);
-  return {...actions, drawingTools, signoutLabel, mode, showEditor:()=>mode.publish(false),
+  const mode=createPanelStore(false),rightTab=createPanelStore<RightTab>('design'),menu=createEditorMenu();
+  return {...actions, drawingTools, signoutLabel, mode,rightTab,menu, showEditor:()=>mode.publish(false),
     setSignoutLabel(label:string){signoutLabel.publish(label);},
     setDrawingTools(available:readonly string[]){
       const current=drawingTools.getSnapshot();
@@ -43,125 +60,36 @@ function TabBar<K extends string>({entries,label,selected,select}:{entries:reado
 function clampSplit(value:number){return Math.round(Math.min(72,Math.max(22,value)));}
 
 function TokenWorkspace({active,views}:{active:boolean;views:ApplicationViews}){
-  const importForm=useRef<HTMLFormElement>(null);
   useEffect(()=>{const menu=document.getElementById('token-menu');if(!active&&menu?.matches(':popover-open'))menu.hidePopover();},[active]);
   return (
     <section id="token-workspace" className="token-workspace" aria-label="Токены" hidden={!active}>
-      <p id="tokens-status" role="status" aria-live="polite"/>
-      <p id="tokens-error" role="alert"/>
-      <form id="token-import-form" className="token-import-form" hidden ref={importForm}>
-        <label>
-          {"Формат импорта"}
-          <select id="token-import-mode">
-            <option value="combined">{"FigVam — обе темы"}</option>
-            <option value="pair">{"Два файла DTCG"}</option>
-          </select>
-        </label>
-        <label id="token-import-combined-label">
-          {"FigVam JSON"}
-          <textarea id="token-import-combined" rows={4}/>
-          <input type="file" accept=".json,application/json" id="token-import-combined-file" aria-label="Файл токенов FigVam"/>
-        </label>
-        <label id="token-import-light-label">
-          {"DTCG JSON · Light"}
-          <textarea id="token-import-light" rows={4}/>
-          <input type="file" accept=".json,application/json" id="token-import-light-file" aria-label="Файл токенов Light"/>
-        </label>
-        <label id="token-import-dark-label">
-          {"DTCG JSON · Dark"}
-          <textarea id="token-import-dark" rows={4}/>
-          <input type="file" accept=".json,application/json" id="token-import-dark-file" aria-label="Файл токенов Dark"/>
-        </label>
-        <label>
-          {"Сопоставление типов/категорий (JSON, необязательно)"}
-          <textarea id="token-import-mapping" rows={3} placeholder={'{"dimensionTypes":{"space":"Spacing"}}'}/>
-        </label>
-        <Button type="submit">{"Импортировать токены"}</Button>
-        <Button type="button" onClick={()=>{if(importForm.current)importForm.current.hidden=true;}}>{"Отмена"}</Button>
-      </form>
-      <div className="token-workspace-grid">
-        <div className="token-sidebar">
-          <div className="token-tree-toolbar">
-            <input id="token-search" type="search" placeholder="Поиск токенов" aria-label="Поиск токенов"/>
-            <views.tokens.menu.Component/>
-          </div>
-          <nav id="token-groups" className="token-groups" aria-label="Группы токенов"><views.tokens.groups.Component/></nav>
-        </div>
-        <div className="token-table-area">
-          <table className="token-table" aria-label="Токены документа">
-            <thead>
-              <tr>
-                <th scope="col">{"Имя"}</th>
-                <th scope="col">{"Тип"}</th>
-                <th scope="col">{"Light"}</th>
-                <th scope="col">{"Dark"}</th>
-                <th scope="col">{"Источник"}</th>
-                <th scope="col">{"Usages"}</th>
-                <th scope="col">{"Статус"}</th>
-              </tr>
-            </thead>
-            <tbody id="tokens-list"><views.tokens.table.Component/></tbody>
-          </table>
-        </div>
-        <aside className="token-details-area">
-          <p id="token-placeholder" className="token-placeholder">{"Выберите токен или создайте новый."}</p>
-          <form id="token-create" hidden>
-            <h3>{"Новый токен"}</h3>
-            <label htmlFor="new-token-name">{"Имя токена"}</label>
-            <input id="new-token-name" required maxLength={256}/>
-            <label htmlFor="new-token-type">{"Тип токена"}</label>
-            <select id="new-token-type">
-              <option value="Color">{"Color"}</option>
-              <option value="Typography">{"Typography"}</option>
-              <option value="Dimension">{"Dimension"}</option>
-              <option value="Number">{"Number"}</option>
-              <option value="FontFamily">{"FontFamily"}</option>
-              <option value="FontWeight">{"FontWeight"}</option>
-              <option value="Shadow">{"Shadow"}</option>
-              <option value="Spacing">{"Spacing (legacy)"}</option>
-              <option value="Geometry">{"Geometry (legacy)"}</option>
-            </select>
-            <label id="new-token-category-label" htmlFor="new-token-category" hidden>{"Назначение"}</label>
-            <select id="new-token-category" hidden/>
-            <div id="new-token-values" className="token-theme-values"><views.tokens.createFields.Component/></div>
-            <button type="submit">{"Создать токен"}</button>
-            <Button id="new-token-cancel" type="button">{"Отмена"}</Button>
-          </form>
-          <div id="token-detail" hidden>
-            <div className="token-name-header">
-              <h3 id="token-detail-title"/>
-              <button id="token-rename-open" className="token-rename-action" type="button" aria-label="Переименовать токен" title="Переименовать токен">{"✎"}</button>
-              <form id="token-rename" hidden>
-                <input id="token-name" aria-label="Новое имя токена" required maxLength={256}/>
-                <button type="submit" className="token-rename-confirm" aria-label="Сохранить имя токена" title="Сохранить имя">{"✓"}</button>
-                <button type="button" id="token-rename-cancel" aria-label="Отменить переименование" title="Отмена">{"×"}</button>
-              </form>
-            </div>
-            <p id="token-detail-type"/>
-            <p className="token-invalid" id="token-detail-diagnostic" role="status"/>
-            <div id="token-values" className="token-theme-values"><views.tokens.detailFields.Component/></div>
-            <div id="token-edit" hidden>
-              <button id="token-delete" type="button">{"Удалить неиспользуемый токен"}</button>
-            </div>
-            <h4>{"Использования"}</h4>
-            <ul id="token-usages" aria-label="Прямые и косвенные использования токена"><views.tokens.usage.Component/></ul>
-          </div>
-        </aside>
-      </div>
+      <views.tokens.panel.Component/>
     </section>
   );
 }
+function CanvasCaption({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <p id="canvas-selection" className="canvas-caption">{state.caption}</p>;}
+function CanvasHint({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <p id="canvas-edit-hint" role="status">{state.hint}</p>;}
+function CanvasToolbar({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <div className="viewport-controls" role="group" aria-label="Управление холстом">
+  <Button id="zoom-out" type="button" title="Уменьшить" disabled={!state.available} onClick={shell.zoomOut}>Уменьшить</Button><output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{state.zoomPercent+'%'}</output>
+  <Button id="zoom-in" type="button" title="Увеличить" disabled={!state.available} onClick={shell.zoomIn}>Увеличить</Button><Button id="fit-screen" type="button" title="Вместить экран в холст" disabled={!state.available} onClick={shell.fitCanvas}>Вместить экран</Button><Button id="actual-size" type="button" disabled={!state.available} onClick={shell.actualSize}>100%</Button></div>;}
 export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
+  const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
+  const activeMenu=useSyncExternalStore(shell.menu.subscribe,shell.menu.getSnapshot);
+  function menuClick(id:MenuId){return (event:React.MouseEvent)=>{event.preventDefault();shell.menu.toggle(id);};}
+  const preview=useSyncExternalStore(shell.previewChrome.subscribe,shell.previewChrome.getSnapshot);
+  const deletion=useSyncExternalStore(shell.deletion.subscribe,shell.deletion.getSnapshot);
+  const canEdit=canEditDocument(state.role);
   const availableTools=useSyncExternalStore(shell.drawingTools.subscribe,shell.drawingTools.getSnapshot);
   const signoutLabel=useSyncExternalStore(shell.signoutLabel.subscribe,shell.signoutLabel.getSnapshot);
-  const [leftTab,setLeftTab]=useState<LeftTab>('layers'),[rightTab,setRightTab]=useState<RightTab>('design');
+  const [leftTab,setLeftTab]=useState<LeftTab>('layers');
+  const rightTab=useSyncExternalStore(shell.rightTab.subscribe,shell.rightTab.getSnapshot),setRightTab=shell.rightTab.publish;
   const tokensMode=useSyncExternalStore(shell.mode.subscribe,shell.mode.getSnapshot);
   const setTokensMode=shell.mode.publish;
   const [leftCollapsed,setLeftCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
   const [rightCollapsed,setRightCollapsed]=useState(()=>matchMedia('(max-width: 1050px)').matches);
   const [split,setSplit]=useState(42);
   const dragging=useRef(false),layersPage=useRef<HTMLDivElement>(null);
-  const preset=useRef<HTMLSelectElement>(null),screenWidth=useRef<HTMLInputElement>(null),screenHeight=useRef<HTMLInputElement>(null);
+  const screenWidth=useRef<HTMLInputElement>(null);
   const screenMenu=useRef<HTMLDetailsElement>(null),screenMenuBody=useRef<HTMLDivElement>(null),navigatorToolbar=useRef<HTMLDivElement>(null),paletteMenu=useRef<HTMLDetailsElement>(null);
   function focusTab(key:string){requestAnimationFrame(()=>document.getElementById('tab-'+key)?.focus());}
   function selectLeft(key:LeftTab,focus=false){setLeftTab(key);if(focus)focusTab(key);}
@@ -175,8 +103,6 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     setTokensMode(tokens);
   }
   function resizeAt(y:number){const bounds=layersPage.current?.getBoundingClientRect();if(bounds?.height)setSplit(clampSplit((y-bounds.top)/bounds.height*100));}
-  function applyPreset(){const value=preset.current?.value;if(!value||value==='custom'||!screenWidth.current||!screenHeight.current)return;const [width='',height='']=value.split('x');screenWidth.current.value=width;screenHeight.current.value=height;}
-  function syncPreset(){if(!preset.current||!screenWidth.current||!screenHeight.current)return;const dimensions=screenWidth.current.value+'x'+screenHeight.current.value;preset.current.value=[...preset.current.options].some(option=>option.value===dimensions)?dimensions:'custom';}
   function positionNavigatorMenu(){
     const menu=screenMenu.current,body=screenMenuBody.current,trigger=menu?.querySelector('summary');
     if(!menu||!body||!trigger)return;
@@ -193,18 +119,15 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     body.style.left=`${Math.max(margin,Math.min(anchor.left,window.innerWidth-body.offsetWidth-margin))}px`;
     body.style.top=`${openAbove?anchor.top-gap-body.offsetHeight:lowerEdge+gap}px`;
   }
-  function onScreenMenuToggle(){
-    if(screenMenu.current?.open)for(const rowMenu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]'))rowMenu.open=false;
-    positionNavigatorMenu();
-  }
+  function onScreenMenuToggle(){positionNavigatorMenu();}
   function openCreateScreen(){
-    if(!document.getElementById('page-edit')?.hidden&&!document.querySelector('#pages [aria-pressed=true]')){shell.createPage();return;}
-    if(!screenMenu.current||document.getElementById('screen-create')?.hidden)return;
-    setLeftTab('layers');setLeftCollapsed(false);screenMenu.current.open=true;
+    if(canEdit&&!state.hasPage){shell.createPage();return;}
+    if(!screenMenu.current||!canEdit)return;
+    setLeftTab('layers');setLeftCollapsed(false);shell.menu.publish('screen-create');
     requestAnimationFrame(()=>{positionNavigatorMenu();screenWidth.current?.focus();});
   }
   function addFromToolbar(kind:DrawingToolKind){
-    if(!shell.addTool(kind)&&paletteMenu.current){paletteMenu.current.open=true;paletteMenu.current.querySelector<HTMLElement>('#visual-required-properties input, #visual-required-properties select, #visual-required-properties textarea')?.focus();}
+    if(!shell.addTool(kind)&&paletteMenu.current){shell.menu.publish('palette');requestAnimationFrame(()=>paletteMenu.current?.querySelector<HTMLElement>('#visual-required-properties input, #visual-required-properties select, #visual-required-properties textarea')?.focus());}
   }
   useEffect(()=>{
     const compact=matchMedia('(max-width: 1050px)');
@@ -212,41 +135,37 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
     compact.addEventListener('change',onChange);
     const observer=new ResizeObserver(positionNavigatorMenu);
     if(navigatorToolbar.current)observer.observe(navigatorToolbar.current);
-    window.addEventListener('resize',positionNavigatorMenu);window.addEventListener('scroll',positionNavigatorMenu,true);
+    const resize=()=>{shell.menu.closeRows();positionNavigatorMenu();};
+    window.addEventListener('resize',resize);window.addEventListener('scroll',positionNavigatorMenu,true);
     const pointer=(event:PointerEvent)=>{
       if(!(event.target instanceof Element))return;
-      const clicked=event.target.closest('details.editor-menu, .navigator-toolbar details, .navigator-context-menu');
-      for(const details of document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]'))if(details!==clicked&&!details.contains(event.target))details.open=false;
+      const clicked=event.target.closest('[data-editor-menu]');
+      if(clicked?.getAttribute('data-editor-menu')!==shell.menu.getSnapshot())shell.menu.publish(null);
     };
     const key=(event:KeyboardEvent)=>{
       if(event.key!=='Escape')return;
-      const last=[...document.querySelectorAll<HTMLDetailsElement>('details.editor-menu[open], .navigator-toolbar details[open], .navigator-context-menu[open]')].at(-1);
-      if(!last)return;last.open=false;last.querySelector<HTMLElement>('summary')?.focus();event.preventDefault();
+      const id=shell.menu.getSnapshot();if(!id)return;
+      shell.menu.publish(null);document.querySelector<HTMLElement>('[data-editor-menu="'+CSS.escape(id)+'"] > summary')?.focus();event.preventDefault();
     };
     document.addEventListener('pointerdown',pointer);document.addEventListener('keydown',key);
-    return()=>{compact.removeEventListener('change',onChange);observer.disconnect();window.removeEventListener('resize',positionNavigatorMenu);window.removeEventListener('scroll',positionNavigatorMenu,true);document.removeEventListener('pointerdown',pointer);document.removeEventListener('keydown',key);};
+    return()=>{compact.removeEventListener('change',onChange);observer.disconnect();window.removeEventListener('resize',resize);window.removeEventListener('scroll',positionNavigatorMenu,true);document.removeEventListener('pointerdown',pointer);document.removeEventListener('keydown',key);};
   },[]);
   return (
-    <div id="editor-design" className="app-shell">
+    <div id="editor-design" className="app-shell" hidden={preview.active}>
       <header className="document-panel app-toolbar" aria-label="Панель документа">
         <span className="editor-brand">{"FigVam"}</span>
         <a href="/" data-navigation="">{"← Документы"}</a>
-        <h1 id="document-title"/>
-        <span id="revision"/>
+        <h1 id="document-title">{state.title}</h1>
+        <span id="revision">{state.revisionLabel}</span>
         <div className="app-header-actions">
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть слои" aria-label="Показать или скрыть слои" aria-expanded={!leftCollapsed} hidden={tokensMode} onClick={()=>setLeftCollapsed(value=>!value)}><PanelLeft size={18} aria-hidden="true"/></Button>
           <Button className="icon-action sidebar-toggle" title="Показать или скрыть инспектор" aria-label="Показать или скрыть инспектор" aria-expanded={!rightCollapsed} hidden={tokensMode} onClick={()=>setRightCollapsed(value=>!value)}><PanelRight size={18} aria-hidden="true"/></Button>
-          <button id="undo" type="button" className="icon-action" title="Отменить действие" aria-label="Отменить действие">
-            <Undo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
-          </button>
-          <button id="redo" type="button" className="icon-action" title="Повторить действие" aria-label="Повторить действие">
-            <Redo2 size={18} strokeWidth={1.8} aria-hidden="true"/>
-          </button>
-          <button id="open-preview" type="button" disabled>{"Preview"}</button>
+          <views.history.toolbar.Component/>
+          <Button id="open-preview" type="button" disabled={!preview.available} onClick={shell.openPreview}>{"Preview"}</Button>
           <ul id="presence-list" aria-label="Присутствующие участники" className="presence-chips"><views.presence.list.Component/></ul>
-          <p id="connection-status" aria-live="polite"/>
-          <details className="editor-menu share-menu">
-            <summary className="menu-trigger">{"Поделиться"}</summary>
+          <p id="connection-status" aria-live="polite">{state.connectionStatus}</p>
+          <details className="editor-menu share-menu" data-editor-menu="share" open={activeMenu==='share'}>
+            <summary className="menu-trigger" onClick={menuClick('share')}>{"Поделиться"}</summary>
             <div className="menu-body">
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Совместная работа"}</h3>
@@ -254,43 +173,32 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section aria-labelledby="presence-title">
                   <p className="visually-hidden">{"Настройки присутствия"}</p>
                   <h2 id="presence-title">{"Участники в документе"}</h2>
-                  <label htmlFor="presence-name">{"Ваше имя для участников"}</label>
-                  <input id="presence-name" maxLength={128} defaultValue="Участник" autoComplete="off"/>
-                  <label htmlFor="presence-color">{"Ваш цвет"}</label>
-                  <input id="presence-color" type="color" defaultValue="#2455a4"/>
-                  <p id="presence-status" role="status" aria-live="polite"/>
+                  <views.presence.settings.Component/>
                 </section>
               </section>
             </div>
           </details>
-          <details className="editor-menu mcp-menu" id="mcp-access-menu">
-            <summary className="menu-trigger">{"MCP-доступ"}</summary>
+          <details className="editor-menu mcp-menu" id="mcp-access-menu" data-editor-menu="mcp" open={activeMenu==='mcp'}>
+            <summary className="menu-trigger" onClick={menuClick('mcp')}>{"MCP-доступ"}</summary>
             <div className="menu-body" id="mcp-access-body"><views.mcp.Component/></div>
           </details>
-          <details className="editor-menu document-menu">
-            <summary className="menu-trigger">{"Файл"}</summary>
+          <details className="editor-menu document-menu" data-editor-menu="file" open={activeMenu==='file'}>
+            <summary className="menu-trigger" onClick={menuClick('file')}>{"Файл"}</summary>
             <div className="menu-body">
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Документ"}</h3>
-                <form id="document-rename" hidden>
+                <form id="document-rename" hidden={!canEdit} onSubmit={event=>{event.preventDefault();shell.renameDocument();}}>
                   <label htmlFor="rename-document-name">{"Имя документа"}</label>
-                  <input id="rename-document-name" required maxLength={256} autoComplete="off"/>
-                  <button type="submit">{"Переименовать документ"}</button>
-                  <p id="document-rename-status" role="status" aria-live="polite"/>
-                  <p id="document-rename-error" role="alert"/>
+                  <TextInput id="rename-document-name" value={state.renameName} onChange={event=>shell.document.patch({renameName:event.currentTarget.value})} required maxLength={256} autoComplete="off"/>
+                  <Button type="submit" disabled={state.renameBusy}>{"Переименовать документ"}</Button>
+                  <p id="document-rename-status" role="status" aria-live="polite">{state.renameStatus}</p>
+                  <p id="document-rename-error" role="alert">{state.renameError}</p>
                 </form>
-                <button id="delete-document" type="button" hidden>{"Удалить документ"}</button>
+                <Button id="delete-document" type="button" hidden={state.role!=='Owner'} disabled={deletion.status!=='idle'} onClick={shell.deleteDocument}>{"Удалить документ"}</Button>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Экспорт"}</h3>
-                <section aria-labelledby="export-title">
-                  <h2 id="export-title">{"Экспорт документа"}</h2>
-                  <p id="export-access"/>
-                  <button id="export-json" type="button">{"Скачать document.json"}</button>
-                  <button id="export-container" type="button">{"Скачать container.figvam"}</button>
-                  <p id="export-status" role="status" aria-live="polite"/>
-                  <p id="export-error" role="alert"/>
-                </section>
+                <views.documentExport.Component/>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Версии"}</h3>
@@ -299,10 +207,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"История команд"}</h3>
-                <span id="history-access"/>
-                <p id="history-action-status" role="status" aria-live="polite"/>
-                <p id="history-action-error" role="alert"/>
-                <button id="history-action-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
+                <views.history.feedback.Component/>
               </section>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Аккаунт"}</h3>
@@ -331,31 +236,31 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section className="editor-group">
                   <h3 className="editor-group-title">{"Страницы и экраны"}</h3>
                   <div className="navigator-toolbar" ref={navigatorToolbar}>
-                    <div id="page-edit" hidden>
-                      <button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</button>
+                    <div id="page-edit" hidden={!canEdit} inert={state.pageBusy}>
+                      <Button id="page-create" type="button" className="add-page-action" aria-label="Создать страницу" title="Создать страницу" onClick={shell.createPage}>{"Создать страницу"}</Button>
                     </div>
-                    <details className="editor-menu inline-menu screen-options" ref={screenMenu} onToggle={onScreenMenuToggle}>
-                      <summary className="menu-trigger">{"+ Экран"}</summary>
+                    <details className="editor-menu inline-menu screen-options" hidden={!canEdit} ref={screenMenu} onToggle={onScreenMenuToggle} data-editor-menu="screen-create" open={activeMenu==='screen-create'}>
+                      <summary className="menu-trigger" onClick={menuClick('screen-create')}>{"+ Экран"}</summary>
                       <div className="screen-options-body" popover="manual" ref={screenMenuBody}>
-                        <select id="screen-preset" ref={preset} aria-label="Типовой размер экрана" onChange={applyPreset} defaultValue="1440x900">
+                        <select id="screen-preset" aria-label="Типовой размер экрана" onChange={event=>shell.document.setScreenPreset(event.currentTarget.value)} value={state.screenPreset}>
                           <option value="1440x900">{"Desktop · 1440 × 900"}</option>
                           <option value="390x844">{"Mobile · 390 × 844"}</option>
                           <option value="768x1024">{"Tablet · 768 × 1024"}</option>
                           <option value="custom">{"Другой размер"}</option>
                         </select>
-                        <form id="screen-create" hidden onReset={()=>{if(preset.current)preset.current.value='1440x900';}}>
+                        <form id="screen-create" hidden={!canEdit} inert={state.pageBusy} onReset={event=>{event.preventDefault();shell.document.resetScreenForm();}} onSubmit={event=>{event.preventDefault();shell.createScreen();}}>
                           <label htmlFor="screen-width">{"Ширина экрана"}</label>
-                          <input id="screen-width" type="number" min="0" step="any" required defaultValue="1440" ref={screenWidth} onInput={syncPreset}/>
+                          <NumberInput id="screen-width" min="0" step="any" required value={state.screenWidth} ref={screenWidth} disabled={!state.hasPage} onChange={event=>shell.document.setScreenDimension('screenWidth',event.currentTarget.value)}/>
                           <label htmlFor="screen-height">{"Высота экрана"}</label>
-                          <input id="screen-height" type="number" min="0" step="any" required defaultValue="900" ref={screenHeight} onInput={syncPreset}/>
-                          <button type="submit">{"Создать экран"}</button>
+                          <NumberInput id="screen-height" min="0" step="any" required value={state.screenHeight} disabled={!state.hasPage} onChange={event=>shell.document.setScreenDimension('screenHeight',event.currentTarget.value)}/>
+                          <Button type="submit" disabled={!state.hasPage}>{"Создать экран"}</Button>
                         </form>
                       </div>
                     </details>
-                    <button id="page-refresh" type="button" title="Обновить страницы">{"Обновить страницы"}</button>
+                    <Button id="page-refresh" type="button" title="Обновить страницы" onClick={shell.refreshPages}>{"Обновить страницы"}</Button>
                   </div>
                   <div className="navigator-tree-host"><views.navigator.Component/></div>
-                  <p id="page-access"/>
+                  <p id="page-access">{state.role==='Viewer'?'Только просмотр страниц.':state.role?'':'Права на редактирование не определены. Обновите страницу.'}</p>
                 </section>
               </div>
               <div className="layers-splitter" role="separator" tabIndex={0} aria-label="Изменить высоту навигации и дерева слоёв" aria-orientation="horizontal" aria-valuemin={22} aria-valuemax={72} aria-valuenow={split}
@@ -364,11 +269,10 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           onKeyDown={event=>{if(event.key!=='ArrowUp'&&event.key!=='ArrowDown')return;event.preventDefault();setSplit(value=>clampSplit(value+(event.key==='ArrowDown'?5:-5)));}}/>
               <div className="layers-detail">
                 <section aria-labelledby="layers-title" className="layer-tree-group">
-                  <h2 id="layers-title">{"Слои выбранного экрана"}</h2>
-                  <p id="layers-status" role="status" aria-live="polite">{"Выберите экран."}</p>
+                  <h2 id="layers-title">{state.layersTitle}</h2>
+                  <views.layers.status.Component/>
                   <div id="layers" role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
-                  <p id="node-order-status" role="status" tabIndex={-1}/>
-                  <button id="node-order-retry" type="button" hidden>{"Повторить перемещение слоя"}</button>
+                  <views.layers.order.Component/>
                 </section>
               </div>
             </div>
@@ -378,45 +282,11 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="assets-page panel-page" id="shell-assets" role="tabpanel" aria-labelledby="tab-assets" hidden={leftTab!=="assets"}>
               <section className="editor-group">
                 <h3 className="editor-group-title">{"Изображения"}</h3>
-                <form id="asset-upload-form">
-                  <label>
-                    {"Изображение PNG "}
-                    <input id="asset-upload-file" type="file" accept="image/png" required/>
-                  </label>
-                  <button id="asset-upload" type="submit">{"Загрузить изображение"}</button>
-                </form>
-                <p>{"PNG до 5 МиБ; сервер проверяет формат и размеры изображения."}</p>
-                <p id="asset-upload-status" role="status"/>
-                <p id="asset-upload-error" role="alert"/>
-                <button id="asset-upload-retry" type="button" hidden>{"Повторить загрузку изображения"}</button>
+                <views.propertyFields.asset.Component/>
               </section>
               <section aria-labelledby="datasets-title"><views.datasets.Component/></section>
               <section className="editor-group">
-                <div id="styles-panel">
-                  <h3>{"Стили оформления"}</h3>
-                  <p id="styles-total" role="status"/>
-                  <p id="styles-error" role="alert"/>
-                  <p id="styles-status" role="status" aria-live="polite"/>
-                  <label htmlFor="styles-list">{"TextStyle и BorderStyle"}</label>
-                  <select id="styles-list" aria-label="Выбрать стиль или создать новый"/>
-                  <form id="styles-form" hidden>
-                    <label htmlFor="styles-name">{"Имя стиля"}</label>
-                    <input id="styles-name" maxLength={256} required/>
-                    <label htmlFor="styles-type">{"Тип"}</label>
-                    <select id="styles-type">
-                      <option value="TextStyle">{"TextStyle"}</option>
-                      <option value="BorderStyle">{"BorderStyle"}</option>
-                    </select>
-                    <label htmlFor="styles-based-on">{"Основан на (BasedOn)"}</label>
-                    <select id="styles-based-on"/>
-                    <div id="styles-fields"><views.styles.fields.Component/></div>
-                    <button id="styles-save" type="submit">{"Сохранить стиль"}</button>
-                  </form>
-                  <button id="styles-delete" type="button" hidden>{"Удалить неиспользуемый стиль"}</button>
-                  <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"/>
-                  <h4>{"Использования стиля"}</h4>
-                  <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"><views.styles.usage.Component/></ul>
-                </div>
+                <views.styles.panel.Component/>
               </section>
               <section aria-labelledby="screen-variants-title"><views.screenVariants.Component/></section>
             </div>
@@ -425,147 +295,41 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
         <section className="canvas design-canvas" aria-labelledby="canvas-title">
           <div className="drawing-toolbar">
             <DrawingTools available={availableTools} onSelect={()=>document.getElementById('viewport')?.focus()} onAdd={addFromToolbar}/>
-            <details className="editor-menu palette-options" ref={paletteMenu}>
-              <summary className="menu-trigger">{"Параметры добавления"}</summary>
-              <section id="visual-palette" aria-labelledby="visual-palette-title" hidden>
-                <h2 id="visual-palette-title">{"Добавить элемент"}</h2>
-                <form id="visual-palette-form" noValidate hidden>
-                  <label>
-                    {"Вид элемента "}
-                    <select id="visual-kind"/>
-                  </label>
-                  <label>
-                    {"Куда добавить "}
-                    <select id="visual-parent"/>
-                  </label>
-                  <div id="visual-required-properties"><views.propertyFields.required.Component/></div>
-                  <details id="visual-optional-details" hidden>
-                    <summary>{"Токены и оформление"}</summary>
-                    <div id="visual-optional-properties"><views.propertyFields.optional.Component/></div>
-                  </details>
-                  <button id="visual-add" type="submit">{"Добавить элемент"}</button>
-                </form>
-                <p id="visual-palette-status" role="status"/>
-                <p id="visual-palette-error" role="alert"/>
-                <button id="visual-palette-retry" type="button" hidden>{"Повторить загрузку палитры"}</button>
-                <button id="visual-add-retry" type="button" hidden>{"Повторить добавление"}</button>
-              </section>
+            <details className="editor-menu palette-options" ref={paletteMenu} data-editor-menu="palette" open={activeMenu==='palette'}>
+              <summary className="menu-trigger" onClick={menuClick('palette')}>{"Параметры добавления"}</summary>
+              <views.propertyFields.palette.Component/>
             </details>
           </div>
           <h2 id="canvas-title" className="visually-hidden">{"Холст"}</h2>
-          <p id="canvas-selection" className="canvas-caption">{"Выберите экран, чтобы показать его на холсте."}</p>
+          <CanvasCaption shell={shell}/>
           <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
-          <p id="design-render-status" role="status"/>
-          <button id="design-render-retry" type="button" hidden>{"Повторить загрузку экрана"}</button>
-          <ul id="design-render-diagnostics" aria-label="Диагностика отображения"/>
-          <div className="canvas-blank" id="canvas-empty">
+          <RenderFeedback model={shell.previewChrome.design} mode="design" retry={shell.retryRender}/>
+          <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen}>
             <h2>{"Нет выбранного экрана"}</h2>
-            <p>{"Выберите экран слева или создайте новый, чтобы начать работу."}</p>
-            <Button type="button" className="primary-action" aria-label="Открыть создание экрана" onClick={openCreateScreen}>{"Создать экран"}</Button>
+            <p>{state.hasPage?"Выберите экран слева или создайте новый, чтобы начать работу.":"Создайте первую страницу, затем добавьте экран."}</p>
+            <Button type="button" className="primary-action" aria-label="Открыть создание экрана" hidden={!canEdit} onClick={openCreateScreen}>{state.hasPage?"Создать экран":"Создать страницу"}</Button>
           </div>
           <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">
             <div id="screen-boundary" hidden/>
             <div id="presence-markers" aria-hidden="true"><views.presence.markers.Component/></div>
           </div>
-          <p id="canvas-edit-hint" role="status"/>
-          <p id="canvas-edit-status" role="status"/>
-          <p id="canvas-edit-error" role="alert"/>
-          <button id="canvas-edit-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
-          <div className="viewport-controls" role="group" aria-label="Управление холстом">
-            <button id="zoom-out" type="button" title="Уменьшить">{"Уменьшить"}</button>
-            <output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{"100%"}</output>
-            <button id="zoom-in" type="button" title="Увеличить">{"Увеличить"}</button>
-            <button id="fit-screen" type="button" title="Вместить экран в холст">{"Вместить экран"}</button>
-            <button id="actual-size" type="button">{"100%"}</button>
-          </div>
+          <CanvasHint shell={shell}/>
+          <views.propertyFields.canvasFeedback.Component/>
+          <CanvasToolbar shell={shell}/>
         </section>
         <aside className="properties-sidebar" aria-labelledby="inspector-title">
           <TabBar entries={rightTabs} label="Разделы инспектора" selected={rightTab} select={selectRight}/>
           <div className="panel-stage">
             <div className="inspector-page panel-page" id="shell-design" role="tabpanel" aria-labelledby="tab-design" hidden={rightTab!=="design"}>
               <h2 id="inspector-title">{"Инспектор"}</h2>
-              <p id="inspector-selection">{"Выберите слой."}</p>
-              <button id="node-delete" type="button" hidden>{"Удалить слой"}</button>
-              <p id="node-delete-status" role="alert"/>
-              <button id="node-delete-retry" type="button" hidden>{"Повторить удаление слоя"}</button>
-              <section id="visual-inspector" aria-labelledby="visual-inspector-title" hidden>
-                <h3 id="visual-inspector-title">{"Свойства элемента"}</h3>
-                <form id="visual-properties-form" noValidate hidden>
-                  <div id="visual-properties"><views.propertyFields.inspector.Component/></div>
-                  <button id="visual-properties-reset" type="button" hidden>{"Сбросить изменения свойств"}</button>
-                </form>
-                <p id="visual-inspector-status" role="status"/>
-                <p id="visual-inspector-error" role="alert"/>
-                <button id="visual-save-retry" type="button" hidden>{"Повторить сохранение свойств"}</button>
-                <button id="visual-data-retry" type="button" hidden>{"Повторить загрузку свойств"}</button>
-              </section>
-              <div id="node-metadata" hidden>
-                <p id="node-metadata-status" role="status"/>
-                <p id="node-metadata-error" role="alert"/>
-                <form id="node-name-form">
-                  <label>
-                    {"Имя слоя "}
-                    <input id="node-name" maxLength={256}/>
-                  </label>
-                </form>
-                <form id="node-key-form">
-                  <label>
-                    {"Semantic key "}
-                    <input id="node-key" maxLength={256} aria-describedby="node-key-help"/>
-                  </label>
-                  <p id="node-key-help">{"Пустое значение удаляет semantic key."}</p>
-                </form>
-                <button id="node-metadata-retry" type="button" hidden>{"Повторить неподтверждённую команду"}</button>
-              </div>
+              <views.layers.caption.Component/>
+              <views.layers.deletion.Component/>
+              <views.propertyFields.inspectorPanel.Component/>
+              <views.layers.metadata.Component/>
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
             <div className="prototype-page panel-page" id="shell-prototype" role="tabpanel" aria-labelledby="tab-prototype" hidden={rightTab!=="prototype"}>
-              <section aria-labelledby="scenarios-title">
-                <div className="scenarios-heading">
-                  <h2 id="scenarios-title">{"Взаимодействия"}</h2>
-                  <span id="scenarios-count" role="status" hidden/>
-                </div>
-                <p id="scenarios-context"/>
-                <p id="scenarios-status" role="status" aria-live="polite">{"Выберите экран."}</p>
-                <p id="scenarios-error" role="alert"/>
-                <button id="scenarios-retry" type="button" hidden>{"Повторить загрузку сценариев"}</button>
-                <button id="scenario-create" type="button" hidden>{"Добавить взаимодействие"}</button>
-                <p id="scenario-command-status" role="status" aria-live="polite"/>
-                <p id="scenario-command-error" role="alert"/>
-                <button id="scenario-command-retry" type="button" hidden>{"Повторить команду"}</button>
-                <ul id="scenarios-list" aria-label="Взаимодействия"><views.scenarios.list.Component/></ul>
-                <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
-                  <h3 id="scenario-edit-title" tabIndex={-1}>{"Настройка взаимодействия"}</h3>
-                  <p id="scenario-edit-source"/>
-                  <p id="scenario-edit-conflict" role="alert"/>
-                  <button id="scenario-edit-reload" type="button" hidden>{"Загрузить актуальное взаимодействие"}</button>
-                  <fieldset id="scenario-edit-fields">
-                    <legend>{"Настройка события и действий"}</legend>
-                    <label>
-                      {"Событие "}
-                      <select id="scenario-edit-event" aria-label="Событие"/>
-                    </label>
-                    <ol id="scenario-edit-actions" aria-label="Порядок действий"><views.scenarios.actions.Component/></ol>
-                    <button id="scenario-edit-add" type="button">{"Добавить действие"}</button>
-                  </fieldset>
-                  <p id="scenario-edit-validation" role="status" aria-live="polite"/>
-                  <button id="scenario-edit-recheck" type="button" hidden>{"Повторить проверку"}</button>
-                  <button id="scenario-edit-submit" type="submit">{"Сохранить взаимодействие"}</button>
-                  <button id="scenario-edit-cancel" type="button">{"Отмена"}</button>
-                </form>
-                <div id="scenarios-pagination" role="group" aria-label="Страницы взаимодействий" hidden>
-                  <button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled>{"‹"}</button>
-                  <span id="scenarios-number" aria-live="polite"/>
-                  <button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled>{"›"}</button>
-                </div>
-                <dialog id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
-                  <h3 id="scenario-leave-title">{"Несохранённое взаимодействие"}</h3>
-                  <p>{"Сохранить изменения перед сменой контекста?"}</p>
-                  <button type="button" id="scenario-leave-save">{"Сохранить"}</button>
-                  <button type="button" id="scenario-leave-discard">{"Отбросить изменения"}</button>
-                  <button type="button" id="scenario-leave-stay">{"Продолжить редактирование"}</button>
-                </dialog>
-              </section>
+              <views.scenarios.panel.Component/>
             </div>
             <div className="diagnostics-page panel-page" id="shell-diagnostics" role="tabpanel" aria-labelledby="tab-diagnostics" hidden={rightTab!=="diagnostics"}>
               <section aria-labelledby="diagnostics-title"><views.diagnostics.Component/></section>

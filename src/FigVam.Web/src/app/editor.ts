@@ -1,4 +1,5 @@
-import { authHeaders, credentialsMode, isGoogleMode, setCsrf } from '../api/auth-client';
+import { isGoogleMode, setCsrf } from '../api/auth-client';
+import { createDocumentCreation } from '../features/home/document-creation';
 import { createScreenCapture } from '../canvas/screen-capture';
 import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
 import { createDocumentQueries } from '../api/document-queries';
@@ -16,12 +17,17 @@ import { createTokens } from '../features/tokens/tokens';
 import { createStyles } from '../features/styles/styles';
 import { token, generation, pending, navigationEpoch, setToken, advanceNavigation, cancelRequest, startRequest, replacePendingRequest } from '../core/session';
 
-import { element, required } from './dom';
+import { element } from './dom';
 import { createElement } from 'react';
+import { flushSync } from 'react-dom';
+import { createCanvasChrome } from './canvas-chrome';
+import { createPreviewChrome } from './preview-chrome';
 import { disposeApplicationRoot, mountApplicationRoot } from './application-root';
 import { ApplicationShell } from './application-shell';
+import { createDocumentShellModel, createDeletionViewModel, canEditDocument } from './document-shell-state';
+import { createApplicationShellState } from './application-shell-state';
 import { createApplicationViews } from './application-views';
-import { aborted, errorMessage, record, requiredRecord, text } from '../api/decode';
+import { aborted, errorMessage, requiredRecord, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
 import type { components } from '../api/schema.generated';
@@ -35,53 +41,55 @@ import { createWorkspaceSelection } from './workspace-selection';
 import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
-type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const uncertain = (error: unknown) => !(error instanceof ApiError) || error.status >= 500;
 const catalog = createDocumentCatalog();
+const shellState = createApplicationShellState();
+const documentShell = createDocumentShellModel();
+const deletionView = createDeletionViewModel();
+const getDocumentRole = () => documentShell.getSnapshot().role;
+const isEditorVisible = () => shellState.getSnapshot().view === 'editor';
 const requestRunner = createRequestRunner({
   stopLive: () => stopLive(), startLive: () => startLive(), message,
-  setBusy: busy => element('content').setAttribute('aria-busy', String(busy)),
-  setControlsDisabled(disabled) {
-    required(element('create-form').querySelector('button')).disabled = disabled;
-    element('previous').disabled = disabled || !catalog.canGoBack;
-    element('next').disabled = disabled || !catalog.canGoForward;
-  },
+  setBusy: busy => shellState.patch({ busy }),
+  setControlsDisabled: controlsDisabled => shellState.patch({ controlsDisabled }),
 });
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
 
-const editorShell = createEditorShell({ beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage });
+const previewChrome=createPreviewChrome(),canvasChrome=createCanvasChrome();
+const editorShell = createEditorShell({ canvasChrome, zoomIn:()=>canvasViewport.zoomIn(),zoomOut:()=>canvasViewport.zoomOut(),fitCanvas:()=>canvasViewport.fit(),actualSize:()=>canvasViewport.actualSize(), previewChrome, openPreview:()=>visualScreens.openPreview(), closePreview:()=>visualScreens.closePreview(), changePreviewTheme:theme=>visualScreens.changeTheme(theme), resetPreview:()=>visualScreens.resetPreview(), previewBack:()=>visualScreens.goBack(), retryRender:()=>visualScreens.retry(), beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage, document: documentShell, deletion: deletionView, renameDocument, deleteDocument, retryDeletion, createScreen, refreshPages: () => { void refreshPages(); } });
 const views = createApplicationViews();
-mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views }));
+mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views, model: shellState, actions: {
+  createDocument: () => { void documentCreation.createDocument(); }, changeDocumentName: documentName => shellState.patch({ documentName }),
+  chooseImportFile: importFile => shellState.patch({ importFile }), importDocument: () => { void documentCreation.importDocument(); },
+  refresh: () => { void loadList(); },
+  previous: () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); },
+  next: () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); },
+  retry: () => { void requestRunner.retry(); },
+} }));
 const authenticationView = createAuthenticationView(views.authentication, submitBearerToken);
 const documentListView = createDocumentListView(views.documentList, deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(views.homeNavigation, selectHomeView);
 const userAdmin = createUserAdmin(views.userAdmin);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
-  element('home-documents-content').hidden = users;
-  element('home-admin-content').hidden = !users;
+  shellState.patch({ homeView: users ? 'users' : 'documents' });
   homeNavigation.select(users ? 'users' : 'documents');
 }
 const pageSize = 20;
-let documentId: string | null = null, documentRole: string | null = null;
+let documentId: string | null = null;
 const selectionState = createWorkspaceSelection();
 const revisions = createDocumentRevisionState();
-let importOperation: ImportOperation | null = null;
 let deletion: Deletion | null = null;
 function resetDeletion() {
   deletion = null;
-  element('delete-result').hidden = true;
-  element('delete-retry').hidden = true;
-  element('delete-document').disabled = false;
+  deletionView.publish({ status: 'idle', message: '' });
 }
 function leaveDeletion() {
   if (!deletion) return;
   deletion.state = 'uncertain';
-  element('delete-result').hidden = false;
-  element('delete-retry').hidden = false;
-  element('delete-message').textContent = `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.`;
+  deletionView.publish({ status: 'uncertain', message: `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.` });
 }
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
@@ -92,14 +100,20 @@ const request: ApiClient = createApiClient({
   }
 });
 
+const documentCreation = createDocumentCreation({
+  shellState, request, run, message, navigate, loadList,
+  onUnauthorized: () => { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); }
+});
+
 const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiagnostics({ model: views.diagnostics,
-  element, request, pageSize,
-  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch })
+  request, pageSize,
+  getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token, navigationEpoch, isEditorVisible: isEditorVisible() })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
   element, request, refreshPages: () => refreshPages(),
   workspace: {
-    get documentId() { return documentId; }, get documentRole() { return documentRole; },
+    isEditorVisible,
+    get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get screensItems() { return selectionState.screens; },
     get generation() { return generation; }, get token() { return token; }
   }
@@ -108,7 +122,7 @@ const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({
 const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
-const mcpContext = () => ({ documentId, token, navigationEpoch, role: documentRole, theme: visualScreens.currentTheme });
+const mcpContext = () => ({ documentId, token, navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
 const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
@@ -118,9 +132,9 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
     get revision() { return revisions.revision; },
     get token() { return token; }
   },
-  isEditorVisible: () => !element('editor-view').hidden,
+  isEditorVisible,
   readRevision: (signal, targetRevision) => readPages(signal, 0, targetRevision),
-  onConnectionStatus: status => { element('connection-status').textContent = status; },
+  onConnectionStatus: connectionStatus => documentShell.patch({ connectionStatus }),
   onAccessLost: closeInaccessibleDocument,
   onCaptureEvent: mcpAccess.onCaptureEvent,
   onCaptureDisconnect: mcpAccess.onCaptureDisconnect,
@@ -131,7 +145,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
-  element, getContext: () => ({ token, documentId, documentRole, revision: revisions.revision, navigationEpoch }),
+  model: views.documentExport, isEditorVisible, getContext: () => ({ token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');
@@ -139,13 +153,13 @@ const documentExport: ReturnType<typeof createDocumentExport> = createDocumentEx
 });
 
 const tokens: ReturnType<typeof createTokens> = createTokens({
-  models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),element, request,
-  getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation, navigationEpoch }),
+  models:views.tokens,showEditor:editorShell.showEditor,selectLayer:id=>layers.selectById(id),request,
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
-  models:views.styles,selectLayer:id=>layers.selectById(id),element, request, getTokens: () => tokens.items,
-  getContext: () => ({ documentId, documentRole, revision: revisions.revision, generation }),
+  models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation }),
   startRequest, stopLive, startLive, readPages
 });
 const components: ReturnType<typeof createComponents> = createComponents({
@@ -156,7 +170,8 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
   element, request, refreshPages: () => refreshPages(),
   onSelectionChanged: () => renderCanvas(), pageSize,
   workspace: {
-    get documentId() { return documentId; }, get documentRole() { return documentRole; },
+    isEditorVisible,
+    get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; }, get revision() { return revisions.revision; },
     get catalogRevision() { return revisions.catalogRevision; },
     get token() { return token; }, get navigationEpoch() { return navigationEpoch; }
@@ -164,7 +179,7 @@ const screenVariants: ReturnType<typeof createScreenVariants> = createScreenVari
 });
 const datasets: ReturnType<typeof createDatasets> = createDatasets({
   model: views.datasets, request, pageSize,
-  getContext: () => ({ documentId, documentRole, revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, catalogRevision: revisions.catalogRevision, token, generation, navigationEpoch }),
   startRequest, stopLive, startLive, readPages, run
 });
 function closeInaccessibleDocument(status: number) {
@@ -172,37 +187,30 @@ function closeInaccessibleDocument(status: number) {
   if (documentId) scenarios.clearDocumentCommands(documentId);
   cancelRequest(); advanceNavigation();
   diagnostics.reset(); scenarios.reset(); layers.reset(); documentHistory.reset();
-  members.reset(); documentExport.reset(); documentRole = null; revisions.reset(); selectionState.reset();
-  element('page-edit').inert = element('screen-create').inert = false;
-  element('revision').textContent = ''; element('document-title').textContent = '';
+  members.reset(); documentExport.reset(); documentShell.patch({ role: null }); revisions.reset(); selectionState.reset();
+  documentShell.patch({ pageBusy: false, revisionLabel: '', title: '' });
   document.title = 'FigVam — доступ потерян';
-  renderPages(); renderScreens(); element('editor-view').hidden = true;
+  renderPages(); renderScreens(); shellState.patch({ view: 'none' });
   presence.stop(); stopLive(); message('', status === 404 ? 'Документ удалён или больше недоступен.' : 'Доступ к документу потерян. Запросите права у владельца и откройте документ снова.');
 }
 
 function message(status = '', error = '') {
   clearTimeout(statusDismissTimer);
   statusDismissTimer = undefined;
-  element('status').textContent = status;
-  element('error').textContent = error;
-  element('retry').hidden = !error || !requestRunner.canRetry;
+  shellState.patch({ status, error, canRetry: requestRunner.canRetry });
   // Progress and errors are persistent; successful editor notifications expire.
-  if (status && !error && !status.endsWith('…') && !element('editor-view').hidden) {
+  if (status && !error && !status.endsWith('…') && shellState.getSnapshot().view === 'editor') {
     statusDismissTimer = setTimeout(() => {
-      if (element('status').textContent === status) element('status').textContent = '';
+      if (shellState.getSnapshot().status === status) shellState.patch({ status: '' });
       statusDismissTimer = undefined;
     }, 4000);
   }
 }
 
 function clearSession() {
+  editorShell.menu.publish(null);
   mcpAccess.reset();
-  importOperation = null;
-  element('import-form').reset();
-  element('import-file-name').textContent = 'Файл не выбран';
-  required(element('import-form').querySelector('button')).disabled = false;
-  element('import-status').textContent = element('import-error').textContent = '';
-  element('import-diagnostics').replaceChildren();
+  documentCreation.reset();
   resetDeletion();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
@@ -215,27 +223,18 @@ function clearSession() {
   visualNodeEditor.clear(); visualScreens.clearPropertyPreviews();
   cancelRequest();
   authenticationView.clearToken();
-  element('document-name').value = '';
+  shellState.patch({ documentName: '' });
   documentListView.clear();
-  documentId = documentRole = null; revisions.reset(); selectionState.reset();
+  documentId = null; documentShell.patch({ role: null }); revisions.reset(); selectionState.reset();
   renderPages();
   layers.reset();
   tokens.reset(); styles.reset(); components.reset(); datasets.reset(); screenVariants.reset();
   renderCanvas();
-  element('screen-create').reset();
-  element('page-edit').inert = false;
-  element('screen-create').inert = false;
-  element('document-title').textContent = '';
+  documentShell.patch({ screenPreset: '1440x900', screenWidth: '1440', screenHeight: '900', pageBusy: false, title: '', revisionLabel: '' });
   resetDocumentRename();
-  element('revision').textContent = '';
   document.title = 'FigVam — документы';
-  element('content').setAttribute('aria-busy', 'false');
-  required(element('create-form').querySelector('button')).disabled = false;
-  element('content').hidden = true;
-  element('documents-view').hidden = true;
-  element('editor-view').hidden = true;
+  shellState.patch({ authenticated: false, view: 'none', busy: false, controlsDisabled: false, catalog: null });
   authenticationView.setVisible(true);
-  element('disconnect').hidden = true;
   catalog.reset();
   requestRunner.clearRetry();
   message();
@@ -244,18 +243,20 @@ function clearSession() {
 const members: ReturnType<typeof createMembers> = createMembers({ model: views.members,
   element, request, findRole, openDocument, loadList, message, stopLive, startLive,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
-    get documentRole() { return documentRole; },
+    get documentRole() { return getDocumentRole(); },
     get navigationEpoch() { return navigationEpoch; },
     get token() { return token; }
   }
 });
 
 const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
-  element, request, pageSize, refreshPages,
+  request, pageSize, refreshPages,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
-    get documentRole() { return documentRole; },
+    get documentRole() { return getDocumentRole(); },
     get navigationEpoch() { return navigationEpoch; },
     get token() { return token; }
   }
@@ -264,8 +265,9 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 const layers: ReturnType<typeof createLayers> = createLayers({
   model: views.layers, element, request, refreshPages, closeInaccessibleDocument, message,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
-    get documentRole() { return documentRole; },
+    get documentRole() { return getDocumentRole(); },
     get selectedScreen() { return selectionState.selectedScreen; },
     get revision() { return revisions.revision; },
     get navigationEpoch() { return navigationEpoch; },
@@ -280,9 +282,11 @@ const layers: ReturnType<typeof createLayers> = createLayers({
 
 const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   models:views.scenarios,element, request, pageSize,
+  prototypeVisible:()=>editorShell.rightTab.getSnapshot()==='prototype',subscribePrototype:editorShell.rightTab.subscribe,
   workspace: {
+    isEditorVisible,
     get documentId() { return documentId; },
-    get documentRole() { return documentRole; },
+    get documentRole() { return getDocumentRole(); },
     get revision() { return revisions.revision; },
     get selectedScreen() { return selectionState.selectedScreen; },
     get layerSelection() { return layers.selection; }
@@ -293,7 +297,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   reloadPages: (targetRevision, isCurrent) =>
     run(() => refreshPages(), signal => readPages(signal, 0, targetRevision, isCurrent)),
   findRole,
-  setDocumentRole: role => { documentRole = role; datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
+  setDocumentRole: role => { documentShell.patch({ role }); datasets.refreshAccess(); tokens.refreshAccess(); layers.refreshMoveAvailability(); visualNodeEditor.refresh(); },
   closeInaccessibleDocument
 });
 
@@ -304,26 +308,19 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   layers.reset();
-  documentHistory.reset(); documentId = documentRole = null; revisions.reset();
+  documentHistory.reset(); documentId = null; documentShell.patch({ role: null }); revisions.reset();
   selectionState.reset(); renderCanvas();
-  element('documents-view').hidden = false;
-  element('editor-view').hidden = true;
+  shellState.patch({ view: 'documents' });
   selectHomeView('documents');
   documentListView.clear();
-  element('home-empty').hidden = true;
-  element('home-count').textContent = '';
-  element('home-pagination').hidden = true;
-  element('page-number').textContent = '';
+  shellState.patch({ catalog: null });
   document.title = 'FigVam — документы';
   catalog.beginLoad();
   await run(() => loadList(index, cursor), async (signal, current) => {
     const result = await catalog.read(request, index, cursor, pageSize, signal, current);
     if (!result) return;
     documentListView.render(result.items);
-    element('home-count').textContent = `${result.items.length} на странице`;
-    element('home-empty').hidden = result.items.length > 0 || index > 0;
-    element('home-pagination').hidden = index === 0 && !catalog.canGoForward;
-    element('page-number').textContent = `Страница ${index + 1}`;
+    shellState.patch({ catalog: { count: result.items.length, index, canGoBack: catalog.canGoBack, canGoForward: catalog.canGoForward } });
     message(result.items.length ? `Документов на странице: ${result.items.length}` : 'Доступных документов нет. Создайте документ или запросите права у владельца.');
   });
 }
@@ -353,7 +350,7 @@ async function deleteCatalogDocument(item: DocumentListItem, command: DeleteCata
 }
 
 function navigatorCanEdit() {
-  return ['Owner', 'Editor'].includes(documentRole ?? '');
+  return canEditDocument(getDocumentRole());
 }
 function navigatorEditState(kind: NavigatorKind) {
   return selectionState.renameDraft(kind);
@@ -366,7 +363,7 @@ function renderNavigatorKind(kind: NavigatorKind) {
   else renderScreens();
 }
 function startNavigatorNameEdit(kind: NavigatorKind, id: string, name: string) {
-  if (!navigatorCanEdit() || element('page-edit').inert) return;
+  if (!navigatorCanEdit() || documentShell.getSnapshot().pageBusy) return;
   setNavigatorEditState(kind === 'page' ? 'screen' : 'page', null);
   setNavigatorEditState(kind, {id, value:name});
   renderNavigatorKind(kind);
@@ -404,48 +401,47 @@ function renderScreens() {
   renderPages();
   renderCanvas(); screenResize.render();
   const activeScreen = selectionState.activeScreen;
-  element('layers-title').textContent = activeScreen
+  documentShell.patch({ layersTitle: activeScreen
     ? `Слои · ${activeScreen.name ?? 'Экран ' + (selectionState.screens.indexOf(activeScreen) + 1)}`
-    : 'Слои выбранного экрана';
-  element('screen-create').querySelectorAll<HTMLInputElement | HTMLButtonElement>('input, button').forEach(control => { control.disabled = !selectionState.selectedPage; });
-  const screenMenu = required(element('screen-preset').closest('details'));
-  screenMenu.hidden = documentRole !== 'Owner' && documentRole !== 'Editor';
+    : 'Слои выбранного экрана' });
   // Only suggest creation on the first empty page. Opening the popover on every
   // navigation obscures the page tree, and closing a user-opened menu mid-command
   // makes the form unusable while the page creation is still being committed.
-  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) screenMenu.open = false;
+  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) editorShell.menu.close('screen-create');
   else if (selectionState.selectedPage && selectionState.pages.length === 1 &&
-      (documentRole === 'Owner' || documentRole === 'Editor') &&
-      !document.querySelector('.navigator-context-menu[open]') && !selectionState.renameDraft('page')) screenMenu.open = true;
+      (getDocumentRole() === 'Owner' || getDocumentRole() === 'Editor') &&
+      !editorShell.menu.getSnapshot()?.startsWith('page:') && !editorShell.menu.getSnapshot()?.startsWith('screen:') && !selectionState.renameDraft('page')) editorShell.menu.publish('screen-create');
 }
 
 
 
 
 const presence: ReturnType<typeof createPresence> = createPresence({
+  isEditorVisible,
   models: views.presence,
   element,
   getContext: () => ({ token, documentId, navigationEpoch, selectedScreen: selectionState.selectedScreen, selectedLayer: layers.selection }),
   toViewportPoint: point => canvasViewport.toViewportPoint(point)
 });
 const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasViewport({
-  element,
+  chrome:canvasChrome,element,
   getScreen: () => selectionState.activeScreen,
   getSelectedScreen: () => selectionState.selectedScreen,
   onViewportChange: presence.render,
   setPresenceCursor: presence.setCursor
 });
 const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreens({
+  chrome:previewChrome,publishMode:active=>{if(previewChrome.getSnapshot().active!==active)flushSync(()=>previewChrome.patch({active}));},
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
   getContext: () => ({ documentId, revision: revisions.revision, screen: selectionState.activeScreen,
     selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
   models: views.propertyFields,
-  element, request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
+  request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
-  getContext: () => ({ documentId, documentRole, revision: revisions.revision, screen: selectionState.selectedScreen,
+  getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, screen: selectionState.selectedScreen,
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch, token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
@@ -459,24 +455,15 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   }
 });
 const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeEditor({
-  element, getContext: () => ({ documentRole, revision: revisions.revision, selection: layers.selection }),
+  element, getContext: () => ({ documentRole: getDocumentRole(), revision: revisions.revision, selection: layers.selection }),
   getModel: () => visualScreens.designModel, getScale: () => canvasViewport.scale,
   selectLayer: layers.selectFromCanvas, editGeometry: visualNodeEditor.editGeometry,
-  isEditPending: () => visualNodeEditor.editPending
+  isEditPending: () => visualNodeEditor.editPending,
+  setHint:hint=>canvasChrome.patch({hint}),deleteSelected:layers.deleteNode
 });
 function renderCanvas(nodeEdit = false) {
   canvasViewport.render();
-  const empty = element('canvas-empty');
-  empty.hidden = Boolean(selectionState.selectedScreen);
-  if (!selectionState.selectedScreen) {
-    const allowed = documentRole === 'Owner' || documentRole === 'Editor';
-    const action = required(empty.querySelector('button'));
-    action.hidden = !allowed;
-    action.textContent = selectionState.selectedPage ? 'Создать экран' : 'Создать страницу';
-    required(empty.querySelector('p')).textContent = selectionState.selectedPage
-      ? 'Выберите экран слева или создайте новый, чтобы начать работу.'
-      : 'Создайте первую страницу, затем добавьте экран.';
-  }
+  documentShell.patch({ hasPage: Boolean(selectionState.selectedPage), hasScreen: Boolean(selectionState.selectedScreen) });
   visualScreens.refresh(nodeEdit);
   visualNodeEditor.refresh();
 }
@@ -487,7 +474,7 @@ function selectionAfterCommand(change?: SelectionChange) {
 }
 
 function renderRevision() {
-  element('revision').textContent = `Общий черновик · ревизия ${revisions.revision}`;
+  documentShell.patch({ revisionLabel: `Общий черновик · ревизия ${revisions.revision}` });
   documentExport.render();
 }
 
@@ -516,8 +503,8 @@ const documentSync = createDocumentSync({
     if (screensChanged || pagesChanged) renderScreens();
     else renderCanvas();
     layers.applySnapshot(layerSnapshot, selection);
-    element('document-title').textContent = name; document.title = `${name} — FigVam`;
-    element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
+    documentShell.patch({ title: name }); document.title = `${name} — FigVam`;
+    tokens.clearBusy();
     components.load(); datasets.load(); screenVariants.load();
     diagnostics.refresh();
     scenarios.refresh(screen);
@@ -528,10 +515,7 @@ function readPages(...args: Parameters<typeof documentSync.readPages>) { return 
 function readNodeEditRevision(...args: Parameters<typeof documentSync.readNodeEditRevision>) { return documentSync.readNodeEditRevision(...args); }
 
 function resetDocumentRename() {
-  const form = element('document-rename');
-  form.hidden = true; form.reset(); required(form.querySelector('button')).disabled = false;
-  element('document-rename-status').textContent = '';
-  element('document-rename-error').textContent = '';
+  documentShell.patch({ renameName: '', renameBusy: false, renameStatus: '', renameError: '' });
 }
 
 async function openDocument(id: string): Promise<void> {
@@ -544,56 +528,46 @@ async function openDocument(id: string): Promise<void> {
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
   resetDocumentRename();
-  element('documents-view').hidden = true;
-  element('editor-view').hidden = true;
+  shellState.patch({ view: 'none' });
   document.title = 'FigVam — открытие документа';
-  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentRole = null; revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
+  documentHistory.reset(); tokens.reset(); components.reset(); datasets.reset(); screenVariants.reset(); screenResize.resetDraft(); documentId = id; documentShell.patch({ role: null, pageBusy: false }); revisions.reset(); selectionState.reset(); layers.reset(); renderCanvas();
   await run(() => openDocument(id), async (signal, current) => {
     const name = await documentQueries.readName(id, signal);
     const role = await findRole(id, signal);
     if (!current()) return;
-    documentRole = role;
-    element('document-title').textContent = name;
-    element('rename-document-name').value = name;
-    element('document-rename').hidden = !['Owner', 'Editor'].includes(role ?? '');
-    element('delete-document').hidden = role !== 'Owner';
+    documentShell.patch({ role, title: name, renameName: name });
     members.prepare(role);
     document.title = `${name} — FigVam`;
-    element('page-access').textContent = role === 'Viewer' ? 'Только просмотр страниц.' : role ? '' : 'Права на редактирование не определены. Обновите страницу.';
-    element('page-edit').hidden = !['Owner', 'Editor'].includes(role ?? '');
-    element('screen-create').hidden = !['Owner', 'Editor'].includes(role ?? '');
     tokens.refreshAccess();
     datasets.refreshAccess();
     documentHistory.prepare();
     await readPages(signal, 0);
     if (!current()) return;
-    element('editor-view').hidden = false;
+    shellState.patch({ view: 'editor' });
     presence.start();
+    layers.refreshMoveAvailability();
     documentHistory.load();
     if (selectionState.selectedScreen) requestAnimationFrame(fitScreen);
     message();
   });
 }
 
-element('delete-document').addEventListener('click', () => {
-  if (deletion || !documentId || documentRole !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || element('editor-view').hidden) return;
-  if (!confirm(`Удалить документ «${element('document-title').textContent}»? Это действие нельзя отменить.`)) return;
+function deleteDocument() {
+  if (deletion || !documentId || getDocumentRole() !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || shellState.getSnapshot().view !== 'editor') return;
+  if (!confirm(`Удалить документ «${documentShell.getSnapshot().title}»? Это действие нельзя отменить.`)) return;
   const commandId = crypto.randomUUID();
   const body: components['schemas']['DeleteDocumentRequest'] = { commandId, expectedRevision: revisions.revision };
-  deletion = { id: documentId, name: element('document-title').textContent ?? '', body: JSON.stringify(body), commandId, state: 'ready' };
-  submitDeletion(deletion);
-});
-element('delete-retry').addEventListener('click', () => { if (deletion?.state === 'uncertain') submitDeletion(deletion); });
+  deletion = { id: documentId, name: documentShell.getSnapshot().title ?? '', body: JSON.stringify(body), commandId, state: 'ready' };
+  void submitDeletion(deletion);
+}
+function retryDeletion() { if (deletion?.state === 'uncertain') void submitDeletion(deletion); }
 async function submitDeletion(operation: Deletion): Promise<void> {
   if (deletion !== operation || operation.state === 'pending') return;
   operation.state = 'pending';
   const epoch = navigationEpoch, id = operation.id, requestToken = token;
   stopLive(); const signal = replacePendingRequest();
   const active = () => !signal.aborted && deletion === operation && epoch === navigationEpoch && token === requestToken;
-  element('delete-document').disabled = true;
-  element('delete-result').hidden = false;
-  element('delete-retry').hidden = true;
-  element('delete-message').textContent = 'Удаление документа…';
+  deletionView.publish({ status: 'pending', message: 'Удаление документа…' });
   try {
     const result = requiredRecord(await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/delete-document`, { method: 'POST', body: operation.body }, signal));
     if (!active()) return;
@@ -607,9 +581,8 @@ async function submitDeletion(operation: Deletion): Promise<void> {
     if (!active() || aborted(error)) return;
     if (uncertain(error)) {
       operation.state = 'uncertain';
-      if (documentId === id) element('editor-view').hidden = true;
-      element('delete-message').textContent = 'Результат удаления неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.';
-      element('delete-retry').hidden = false;
+      if (documentId === id) shellState.patch({ view: 'none' });
+      deletionView.publish({ status: 'uncertain', message: 'Результат удаления неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.' });
       return;
     }
     if (statusOf(error) === 403 || statusOf(error) === 404) {
@@ -625,26 +598,19 @@ async function submitDeletion(operation: Deletion): Promise<void> {
     if (statusOf(error) === 409) {
       const reopening = openDocument(id), refreshEpoch = navigationEpoch;
       await reopening;
-      if (refreshEpoch === navigationEpoch && documentId === id && !element('editor-view').hidden) message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
+      if (refreshEpoch === navigationEpoch && documentId === id && shellState.getSnapshot().view === 'editor') message('', 'Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
     } else { message('', errorMessage(error)); startLive(); }
   }
 }
 
-element('document-rename').addEventListener('submit', async event => {
-  event.preventDefault();
-  const form = element('document-rename'), button = required(form.querySelector('button'));
-  if (button.disabled || !documentId || !['Owner', 'Editor'].includes(documentRole ?? '')) return;
-  const name = element('rename-document-name').value;
+async function renameDocument() {
+  if (documentShell.getSnapshot().renameBusy || !documentId || !canEditDocument(getDocumentRole())) return;
+  const name = documentShell.getSnapshot().renameName;
   stopLive(); const { signal, current } = startRequest(), id = documentId;
-  button.disabled = true;
+  documentShell.patch({ renameBusy: true, renameStatus: 'Сохранение имени…', renameError: '' });
   signal.addEventListener('abort', () => {
-    if (current === generation && id === documentId) {
-      button.disabled = false;
-      element('document-rename-status').textContent = '';
-    }
+    if (current === generation && id === documentId) documentShell.patch({ renameBusy: false, renameStatus: '' });
   }, { once: true });
-  element('document-rename-status').textContent = 'Сохранение имени…';
-  element('document-rename-error').textContent = '';
   try {
     await request(`/api/v1/documents/${encodeURIComponent(id)}/commands/rename-document`, {
       method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), name })
@@ -652,17 +618,15 @@ element('document-rename').addEventListener('submit', async event => {
     if (signal.aborted || current !== generation || id !== documentId) return;
     await readPages(signal);
     if (signal.aborted || current !== generation || id !== documentId) return;
-    element('rename-document-name').value = element('document-title').textContent ?? '';
-    element('document-rename-status').textContent = 'Имя документа изменено.';
+    documentShell.patch({ renameName: documentShell.getSnapshot().title, renameStatus: 'Имя документа изменено.' });
   } catch (error) {
     if (aborted(error) || current !== generation || id !== documentId) return;
-    element('document-rename-status').textContent = '';
-    element('document-rename-error').textContent = uncertain(error)
-      ? 'Не удалось подтвердить результат. Обновите документ перед повторной попыткой: команда могла выполниться.' : errorMessage(error);
+    documentShell.patch({ renameStatus: '', renameError: uncertain(error)
+      ? 'Не удалось подтвердить результат. Обновите документ перед повторной попыткой: команда могла выполниться.' : errorMessage(error) });
   } finally {
-    if (current === generation && id === documentId) { button.disabled = false; startLive(); }
+    if (current === generation && id === documentId) { documentShell.patch({ renameBusy: false }); startLive(); }
   }
-});
+}
 
 async function refreshPages(offset = 0): Promise<void> {
   await run(() => refreshPages(offset), async (signal, current) => {
@@ -672,12 +636,11 @@ async function refreshPages(offset = 0): Promise<void> {
 }
 
 async function pageCommand<K extends keyof PageCommandData>(command: K, data: PageCommandData[K], selection?: string | null, screenSelection?: string): Promise<void> {
-  if (!documentId || !['Owner', 'Editor'].includes(documentRole ?? '')) return;
+  if (!documentId || !canEditDocument(getDocumentRole())) return;
   stopLive();
   const { signal, current } = startRequest();
   requestRunner.clearRetry(); message('Отправка изменений в общий черновик…');
-  element('page-edit').inert = true;
-  element('screen-create').inert = true;
+  documentShell.patch({ pageBusy: true });
   try {
     await postPageCommand(request, documentId, command, data, signal);
     if (signal.aborted || current !== generation) return;
@@ -691,7 +654,7 @@ async function pageCommand<K extends keyof PageCommandData>(command: K, data: Pa
     const unknownResult = uncertain(error);
     message('', unknownResult ? 'Не удалось подтвердить результат команды. Обновите страницы перед повторным действием: команда могла выполниться.' : errorMessage(error));
   } finally {
-    if (current === generation) { element('page-edit').inert = false; element('screen-create').inert = false; startLive(); }
+    if (current === generation) { documentShell.patch({ pageBusy: false }); startLive(); }
   }
 }
 
@@ -714,10 +677,9 @@ function submitBearerToken(supplied: string) {
   setToken(supplied);
   authenticationView.clearToken();
   authenticationView.setVisible(false);
-  element('disconnect').hidden = false;
-  element('content').hidden = false;
+  shellState.patch({ authenticated: true });
   route();
-  element('content').focus();
+  requestAnimationFrame(() => element('content').focus());
 }
 async function signOut() {
   if (isGoogleMode()) {
@@ -728,88 +690,17 @@ async function signOut() {
   clearSession();
   if (!isGoogleMode()) authenticationView.focusToken();
 }
-element('create-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  const name = element('document-name').value.trim();
-  if (!name || /[\u0000-\u001f\u007f-\u009f]/.test(name)) {
-    message('', 'Укажите непустое имя без управляющих символов.');
-    return;
-  }
-  const documentId = crypto.randomUUID();
-  await run(null, async (signal, current) => {
-    await request('/api/v1/documents', { method: 'POST', body: JSON.stringify({ documentId, name }) }, signal);
-    if (!current()) return;
-    element('document-name').value = '';
-    navigate(`/documents/${documentId}`);
-  }, { create: true });
-});
-element('import-file').addEventListener('change', () => {
-  element('import-file-name').textContent = element('import-file').files?.[0]?.name || 'Файл не выбран';
-});
-element('import-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  if (importOperation || !token) return;
-  const file = element('import-file').files?.[0];
-  if (!file) return;
-  const name = file.name.toLowerCase();
-  const format = name.endsWith('.figvam') ? 'container.figvam' : name.endsWith('.json') ? 'document.json' : null;
-  const errorView = element('import-error'), statusView = element('import-status');
-  errorView.textContent = statusView.textContent = '';
-  element('import-diagnostics').replaceChildren();
-  if (!format) { errorView.textContent = 'Выберите файл document.json или .figvam.'; return; }
-  const operation = { token, epoch: navigationEpoch };
-  importOperation = operation;
-  const active = () => importOperation === operation && token === operation.token && navigationEpoch === operation.epoch;
-  required(element('import-form').querySelector('button')).disabled = true;
-  statusView.textContent = 'Импорт документа…';
-  try {
-    const response = await fetch(`/api/v1/documents/import/${format}`, {
-      method: 'POST', body: file, cache: 'no-store', credentials: credentialsMode(), redirect: 'error',
-      headers: { ...authHeaders(operation.token, 'POST'), 'Content-Type': format === 'document.json' ? 'application/json' : 'application/zip' }
-    });
-    if (!active()) return;
-    if (response.status === 401) { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); return; }
-    const raw: unknown = await response.json().catch(() => ({}));
-    const body = record(raw) ? raw : {};
-    if (!active()) return;
-    if (!response.ok) {
-      if (response.status >= 500) throw new Error('uncertain');
-      const explanations: Partial<Record<number, string>> = { 400: 'Файл не прошёл проверку.', 403: 'Нет прав на импорт документа.', 409: 'Документ с таким идентификатором уже существует. Проверьте список.', 413: 'Файл превышает допустимый размер.', 415: 'Формат файла не поддерживается.', 429: 'Слишком много запросов. Повторите позже.' };
-      errorView.textContent = (explanations[response.status] ?? 'Сервер отклонил импорт.') + (typeof body.code === 'string' && body.code ? ` Код: ${body.code}.` : '');
-      for (const diagnostic of Array.isArray(body.diagnostics) ? body.diagnostics : []) {
-        const item = document.createElement('li');
-        if (!record(diagnostic)) continue;
-        item.textContent = [diagnostic.code, diagnostic.path, diagnostic.message].filter(value => typeof value === 'string' && value).join(' — ');
-        element('import-diagnostics').append(item);
-      }
-      statusView.textContent = '';
-      return;
-    }
-    if (body.code !== 'ACCEPTED' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(typeof body.documentId === 'string' ? body.documentId : '')) throw new Error('uncertain');
-    element('import-form').reset();
-    element('import-file-name').textContent = 'Файл не выбран';
-    await loadList();
-    if (importOperation === operation && token === operation.token && navigationEpoch === operation.epoch + 1) navigate(`/documents/${body.documentId}`);
-  } catch {
-    if (active()) { statusView.textContent = ''; errorView.textContent = 'Результат импорта неизвестен: документ мог быть создан. Проверьте список перед повторной попыткой.'; }
-  } finally {
-    if (importOperation === operation) {
-      importOperation = null;
-      required(element('import-form').querySelector('button')).disabled = false;
-      if (!active() && navigationEpoch !== operation.epoch) statusView.textContent = '';
-    }
-  }
-});
-element('screen-create').addEventListener('submit', event => {
-  event.preventDefault();
-  const width = element('screen-width').valueAsNumber, height = element('screen-height').valueAsNumber;
+function createScreen() {
+  if (documentShell.getSnapshot().pageBusy) return;
+  const width = Number.parseFloat(documentShell.getSnapshot().screenWidth), height = Number.parseFloat(documentShell.getSnapshot().screenHeight);
   if (!Number.isFinite(width) || width < 0 || !Number.isFinite(height) || height < 0) { message('', 'Укажите конечные неотрицательные ширину и высоту.'); return; }
   if (!selectionState.selectedPage) return;
   const screenId = crypto.randomUUID();
   pageCommand('add-screen', { pageId: selectionState.selectedPage, screenId, dimensions: { width, height } }, undefined, screenId);
-});
+}
 const navigatorView = createDocumentNavigator(views.navigator, {
-  isBusy: () => element('page-edit').inert || !navigatorCanEdit(),
+  menu:editorShell.menu,
+  isBusy: () => documentShell.getSnapshot().pageBusy || !navigatorCanEdit(),
   selectPage, selectScreen,
   startRename: startNavigatorNameEdit,
   changeDraft(kind, value) { const draft = navigatorEditState(kind); if (draft) draft.value = value; },
@@ -831,20 +722,11 @@ const navigatorView = createDocumentNavigator(views.navigator, {
   },
 });
 renderPages();
-function closeNavigatorContextMenus() {
-  for (const menu of document.querySelectorAll<HTMLDetailsElement>('.navigator-context-menu[open]')) menu.open = false;
-}
-element('pages').addEventListener('scroll', closeNavigatorContextMenus);
-window.addEventListener('resize', closeNavigatorContextMenus);
-element('page-refresh').addEventListener('click', () => refreshPages());
 function createPage() {
+  if (documentShell.getSnapshot().pageBusy) return;
   const pageId = crypto.randomUUID();
   pageCommand('add-page', { pageId }, pageId);
 }
-element('refresh').addEventListener('click', () => loadList());
-element('previous').addEventListener('click', () => { const page = catalog.previous(); if (page) void loadList(page.index, page.cursor); });
-element('next').addEventListener('click', () => { const page = catalog.next(); if (page) void loadList(page.index, page.cursor); });
-element('retry').addEventListener('click', () => requestRunner.retry());
 navigation.attach();
 window.addEventListener('pagehide', event => {
   try { clearSession(); } finally { if (!event.persisted) disposeApplicationRoot(); }
@@ -865,8 +747,7 @@ async function initializeAuthentication() {
     setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
-    element('disconnect').hidden = false;
-    element('content').hidden = false;
+    shellState.patch({ authenticated: true });
     route();
     homeNavigation.setAdmin(session.admin === true);
     await userAdmin.show(session.admin === true);

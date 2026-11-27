@@ -1,3 +1,6 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
+import { useLayoutEffect,useRef,type ComponentType } from 'react';
+import { ChevronLeft,ChevronRight } from 'lucide-react';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import type { ApiClient } from '../../api/api-client';
@@ -7,11 +10,10 @@ import type { Catalog } from './interaction-catalog';
 import type { ActionDraft, ScenarioDraft, EditorContext } from './interaction-editor';
 import type { LayerCaptionSource } from '../../core/layer-caption';
 type Node=LayerCaptionSource & {id:string;screenId?:string;label?:string};
-interface Workspace {documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
-interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
+interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void;prototypeVisible():boolean;subscribePrototype(listener:()=>void):()=>void}
 type CommandKind='create'|'update'|'delete';
 type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain';token:string|null;doc:string;screen:string};
-function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected scenario element: '+node.id);return node;}
 function readScenario(value:unknown):ScenarioDraft{const s=requiredRecord(value);if(typeof s.event!=='number'||!Number.isInteger(s.event))throw new TypeError('Некорректное взаимодействие');return{id:text(s.id),screenId:text(s.screenId),nodeId:text(s.nodeId),event:s.event,actions:array(s.actions,a=>{const v=requiredRecord(a),type=text(v.type);if(!Object.hasOwn(actionLabels,type))throw new TypeError('Неизвестное действие');switch(type){case 'navigate':case 'openOverlay':return{type,screenId:text(v.screenId)};case 'showVariant':return{type,variantId:v.variantId==null?null:text(v.variantId)};case 'selectDataset':return{type,datasetId:v.datasetId==null?null:text(v.datasetId)};case 'setDemoValue':return{type,nodeId:text(v.nodeId),value:v.value==null?null:text(v.value)};case 'closeOverlay':case 'resetPreview':return{type};default:throw new TypeError('Неизвестное действие');}})};}
 import { token, navigationEpoch } from '../../core/session';
 import { layerDisplayName } from '../../core/layer-caption';
@@ -76,27 +78,57 @@ function ScenarioList({items,c,catalog,collapsedGroups,blocked,name,sourceName,d
 
   return <>{items.map(item=>Array.isArray(item)?renderGroup(item[0],item[1],c):renderScenario(item,c))}</>;
 }
-export function createScenarioModels(){return {list:createViewModel(ScenarioList),actions:createInteractionModel()};}
+interface PanelProps {title:string;context:string;count:number|null;status:string;error:string;createHidden:boolean;blocked:boolean;commandStatus:string;commandError:string;retryHidden:boolean;retryTitle:string;pagination:boolean;pageNumber:string;previousDisabled:boolean;nextDisabled:boolean;List:ComponentType;Form:ComponentType;Dialog:ComponentType;load():void;create(opener:HTMLElement):void;retry():void;previous():void;next():void}
+function ScenarioPanel(p:PanelProps){return (              <section aria-labelledby="scenarios-title">
+                <div className="scenarios-heading">
+                  <h2 id="scenarios-title">{p.title}</h2>
+                  <span id="scenarios-count" role="status" hidden={p.count===null} aria-label={p.count===null?undefined:"Взаимодействий: "+p.count}>{p.count}</span>
+                </div>
+                <p id="scenarios-context">{p.context}</p>
+                <p id="scenarios-status" role="status" aria-live="polite">{p.status}</p>
+                <p id="scenarios-error" role="alert">{p.error}</p>
+                <Button id="scenarios-retry" type="button" hidden={!p.error} onClick={p.load}>{"Повторить загрузку сценариев"}</Button>
+                <Button id="scenario-create" type="button" hidden={p.createHidden} disabled={p.blocked} onClick={event=>p.create(event.currentTarget)}>{"Добавить взаимодействие"}</Button>
+                <p id="scenario-command-status" role="status" aria-live="polite">{p.commandStatus}</p>
+                <p id="scenario-command-error" role="alert">{p.commandError}</p>
+                <Button id="scenario-command-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>{p.retryTitle}</Button>
+                <ul id="scenarios-list" aria-label="Взаимодействия"><p.List/></ul>
+                <p.Form/>
+                <div id="scenarios-pagination" role="group" aria-label="Страницы взаимодействий" hidden={!p.pagination}>
+                  <Button id="scenarios-previous" type="button" aria-label="Предыдущие сценарии" title="Предыдущая страница" disabled={p.previousDisabled} onClick={p.previous}><ChevronLeft size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
+                  <span id="scenarios-number" aria-live="polite">{p.pageNumber}</span>
+                  <Button id="scenarios-next" type="button" aria-label="Следующие сценарии" title="Следующая страница" disabled={p.nextDisabled} onClick={p.next}><ChevronRight size={14} strokeWidth={1.8} aria-hidden="true"/></Button>
+                </div>
+                <p.Dialog/>
+              </section>);}
+interface LeaveProps {open:boolean;canSave:boolean;save():void;discard():void;stay():void}
+function LeaveDialog(p:LeaveProps){const ref=useRef<HTMLDialogElement>(null);useLayoutEffect(()=>{const node=ref.current;if(!node)return;if(p.open&&!node.open)node.showModal();else if(!p.open&&node.open)node.close();},[p.open]);return (                <dialog ref={ref} onCancel={event=>{event.preventDefault();p.stay();}} id="scenario-leave-dialog" aria-labelledby="scenario-leave-title">
+                  <h3 id="scenario-leave-title">{"Несохранённое взаимодействие"}</h3>
+                  <p>{"Сохранить изменения перед сменой контекста?"}</p>
+                  <Button type="button" id="scenario-leave-save" disabled={!p.canSave} onClick={p.save}>{"Сохранить"}</Button>
+                  <Button type="button" id="scenario-leave-discard" onClick={p.discard}>{"Отбросить изменения"}</Button>
+                  <Button type="button" id="scenario-leave-stay" onClick={p.stay}>{"Продолжить редактирование"}</Button>
+                </dialog>);}
+export function createScenarioModels(){return {list:createViewModel(ScenarioList),actions:createInteractionModel(),panel:createViewModel(ScenarioPanel),dialog:createViewModel(LeaveDialog)};}
 
 export function createScenarios({
   models, element, request, pageSize, workspace, findLayer, setInteractiveNodes, selectSource,
-  reloadPages, findRole, setDocumentRole, closeInaccessibleDocument
+  reloadPages, findRole, setDocumentRole, closeInaccessibleDocument, prototypeVisible, subscribePrototype
 }:Options) {
   let controller:AbortController|null=null,generation=0,offset=0,catalog:Catalog|null=null,scenarios:ScenarioDraft[]|null=null,key:string|null=null;
   let loadState:'empty'|'loading'|'ready'|'error'='empty',notice='',errorNotice='',leave:(()=>void)|null=null,catalogLoading=false;
   const operations = new Map<string,Operation>();
-  const btn=(id:string)=>typed(element(id),HTMLButtonElement);
   const collapsedGroups = new Set<string>();
   const context = ():EditorContext => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
     revision: workspace.revision, token, epoch: navigationEpoch,
-    editable: !!token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && !element('editor-view').hidden
+    editable: !!token && ['Owner', 'Editor'].includes(workspace.documentRole??'') && workspace.isEditorVisible()
   });
   const operationKey = (c:{doc:string|null;screen:string|null}) => c.doc + '/' + c.screen;
   const currentOperation = () => operations.get(operationKey(context()));
   const opPending = () => ['pending', 'uncertain'].includes(currentOperation()?.state??'');
   const sameScreen = (c:EditorContext) => c.doc === workspace.documentId && c.screen === workspace.selectedScreen && c.token === token &&
-    c.epoch === navigationEpoch && !element('editor-view').hidden;
+    c.epoch === navigationEpoch && workspace.isEditorVisible();
   const name = (kind:keyof Catalog,id:string|null|undefined)=>interactionObjectName(catalog,kind,id??'');
   function sourceName(id:string) {
     const node = catalog?.nodes.find(n => n.id === id) ?? findLayer(id);
@@ -120,10 +152,11 @@ export function createScenarios({
   const editor = createInteractionEditor({
     model:models.actions,element, request, current: context, catalog: () => catalog, sourceName,
     submit: (draft, scenario) => begin(draft.creating ? 'create' : 'update', scenario, draft.revision),
-    pending: opPending, onClose: () => render()
+    pending: opPending, onClose: () => render(),reload:reloadDraft,canReload:()=>loadState==='ready'
   });
-  const dialog = typed(element('scenario-leave-dialog'),HTMLDialogElement);
-  function closeDialog() { if (dialog.open) dialog.close(); }
+  let dialogOpen=false;
+  function publishDialog(){models.dialog.publish({open:dialogOpen,canSave:editor.canSave(),save:()=>{if(editor.save())closeDialog();},discard:()=>{const next=leave;leave=null;closeDialog();editor.close();next?.();},stay:()=>{leave=null;closeDialog();}});}
+  function closeDialog(){dialogOpen=false;publishDialog();}
   function requestLeave(next:()=>void) {
     if (!editor.draft) return true;
     if (opPending()) {
@@ -132,44 +165,20 @@ export function createScenarios({
     }
     if (!editor.dirty()) { editor.close(); return true; }
     leave = next;
-    btn('scenario-leave-save').disabled = !editor.canSave();
-    if (!dialog.open) dialog.showModal();
-    return false;
+    dialogOpen=true;publishDialog();return false;
   }
-  element('scenario-leave-stay').addEventListener('click', () => { leave = null; closeDialog(); });
-  dialog.addEventListener('cancel', () => { leave = null; });
-  element('scenario-leave-discard').addEventListener('click', () => {
-    const next = leave; leave = null; closeDialog(); editor.close(); next?.();
-  });
-  element('scenario-leave-save').addEventListener('click', () => {
-    if (editor.save()) closeDialog();
-  });
 
   function render() {
     const c = context(), op = currentOperation(), selected = workspace.layerSelection;
-    element('scenarios-title').textContent = selected ? sourceName(selected.id) : 'Взаимодействия';
-    element('scenarios-context').textContent = selected ? selected.kind :
-      c.screen ? 'Экран ' + (catalog?.screens.find(s => s.id === c.screen)?.name || '') : '';
-    element('scenarios-count').textContent = '';
-    element('scenarios-count').hidden = true;
-    element('scenarios-pagination').hidden = true;
-    element('scenario-create').hidden = !c.editable || !c.node || loadState !== 'ready' || !!editor.draft;
-    btn('scenario-create').disabled = opPending();
-    btn('scenario-edit-reload').disabled = loadState !== 'ready';
-    element('scenario-command-status').textContent = op?.state === 'pending' ? 'Сохранение изменений…' : notice;
-    element('scenario-command-error').textContent = op?.state === 'uncertain' ? 'Результат команды неизвестен. Повторите ту же команду.' : errorNotice;
-    element('scenario-command-retry').hidden = !c.editable || op?.state !== 'uncertain';
-    element('scenario-command-retry').textContent = op?.kind === 'delete' ? 'Повторить удаление сценария' : 'Повторить сохранение взаимодействия';
-    element('scenarios-retry').hidden = loadState !== 'error';
-    element('scenarios-error').textContent = loadState === 'error' ? 'Не удалось загрузить взаимодействия. Повторите запрос.' : '';
-    element('scenarios-number').textContent = '';
-    btn('scenarios-previous').disabled = btn('scenarios-next').disabled = true;
-    if (loadState !== 'ready') {
-      models.list.clear();
-      element('scenarios-status').textContent = loadState === 'loading' ? 'Загрузка сценариев…' :
-        loadState === 'error' ? 'Не удалось загрузить сценарии.' : 'Выберите экран.';
-      editor.refreshControls(); return;
-    }
+    const base:PanelProps={title:selected?sourceName(selected.id):'Взаимодействия',context:selected?selected.kind:c.screen?'Экран '+(catalog?.screens.find(s=>s.id===c.screen)?.name||''):'',
+      count:null,status:loadState==='loading'?'Загрузка сценариев…':loadState==='error'?'Не удалось загрузить сценарии.':'Выберите экран.',
+      error:loadState==='error'?'Не удалось загрузить взаимодействия. Повторите запрос.':'',createHidden:!c.editable||!c.node||loadState!=='ready'||!!editor.draft,blocked:opPending(),
+      commandStatus:op?.state==='pending'?'Сохранение изменений…':notice,commandError:op?.state==='uncertain'?'Результат команды неизвестен. Повторите ту же команду.':errorNotice,
+      retryHidden:!c.editable||op?.state!=='uncertain',retryTitle:op?.kind==='delete'?'Повторить удаление сценария':'Повторить сохранение взаимодействия',
+      pagination:false,pageNumber:'',previousDisabled:true,nextDisabled:true,List:models.list.Component,Form:models.actions.form.Component,Dialog:models.dialog.Component,
+      load:()=>{void load();},create:createDraft,retry:retryCommand,previous:()=>{offset=Math.max(0,offset-pageSize);render();},next:()=>{offset+=pageSize;render();}};
+    publishDialog();
+    if(loadState!=='ready'){models.list.clear();models.panel.publish(base);editor.refreshControls();return;}
     const visible = c.node ? (scenarios??[]).filter(s=>s.nodeId===c.node) : scenarios??[];
     const groups = new Map<string,ScenarioDraft[]>();
     if (!c.node) for (const scenario of visible) {
@@ -180,17 +189,8 @@ export function createScenarios({
     const rows = c.node ? visible : [...groups.entries()];
     if (offset >= rows.length) offset = Math.max(0, Math.floor((rows.length - 1) / pageSize) * pageSize);
     const items = rows.slice(offset, offset + pageSize);
-    const count = element('scenarios-count');
-    count.textContent = String(visible.length); count.hidden = false;
-    count.setAttribute('aria-label', 'Взаимодействий: ' + visible.length);
-    element('scenarios-status').textContent = visible.length ? '' :
-      c.node ? (c.editable ? 'Нет взаимодействий. Добавьте взаимодействие, чтобы определить поведение элемента.' : 'Нет взаимодействий.') :
-        'Сценариев для выбранного экрана нет.';
-    element('scenarios-pagination').hidden = rows.length <= pageSize;
-    element('scenarios-number').textContent = rows.length > pageSize ?
-      (offset + 1) + '–' + (offset + items.length) + ' из ' + rows.length : '';
-    btn('scenarios-previous').disabled = offset === 0;
-    btn('scenarios-next').disabled = offset + items.length >= rows.length;
+    models.panel.publish({...base,count:visible.length,status:visible.length?'':c.node?(c.editable?'Нет взаимодействий. Добавьте взаимодействие, чтобы определить поведение элемента.':'Нет взаимодействий.'):'Сценариев для выбранного экрана нет.',
+      pagination:rows.length>pageSize,pageNumber:rows.length>pageSize?(offset+1)+'–'+(offset+items.length)+' из '+rows.length:'',previousDisabled:offset===0,nextDisabled:offset+items.length>=rows.length});
     models.list.publish({items,c,catalog,collapsedGroups:new Set(collapsedGroups),blocked:opPending()||!!editor.draft,name,sourceName,description,actionText,selectSource,
       edit:(scenario,opener)=>{editor.open(scenario,opener);render();},
       remove:scenario=>{if(confirm('Удалить взаимодействие «'+description(scenario)+'»?'))begin('delete',scenario,c.revision);},
@@ -220,7 +220,6 @@ export function createScenarios({
     return items;
   }
 
-  const prototypeVisible = () => element('tab-prototype').getAttribute('aria-selected') === 'true';
   async function loadFailed(error:unknown,c:EditorContext,valid:()=>boolean,signal:AbortSignal) {
     if (!valid()) return;
     if (error instanceof ApiError && c.doc && (error.status===403||error.code==='DOCUMENT_NOT_FOUND')) {
@@ -246,9 +245,7 @@ export function createScenarios({
       if (valid()) catalogLoading = false;
     }
   }
-  new MutationObserver(() => ensureCatalog()).observe(element('tab-prototype'), {
-    attributes: true, attributeFilter: ['aria-selected']
-  });
+  subscribePrototype(()=>{void ensureCatalog();});
   async function load() {
     controller?.abort(); controller = new AbortController();
     const c = context(), version = ++generation, signal = controller.signal;
@@ -287,13 +284,13 @@ export function createScenarios({
     if (editor.draft && editor.draft.scenario.nodeId !== context().node) editor.revisionChanged();
     render();
   }
-  element('scenario-create').addEventListener('click', () => {
+  function createDraft(opener:HTMLElement){
     const c = context();
     if (!c.editable || !c.node || !c.screen || loadState !== 'ready' || opPending()) return;
-    editor.open({ id: crypto.randomUUID(), screenId: c.screen, nodeId: c.node, event: null, actions: [] }, element('scenario-create'), true);
+    editor.open({ id: crypto.randomUUID(), screenId: c.screen, nodeId: c.node, event: null, actions: [] }, opener, true);
     render();
-  });
-  element('scenario-edit-reload').addEventListener('click', () => {
+  }
+  function reloadDraft(){
     const old = editor.draft;
     if (!old || loadState !== 'ready') return;
     const latest = scenarios?.find(s => s.id === old.scenario.id);
@@ -301,10 +298,7 @@ export function createScenarios({
     if (latest && context().node === latest.nodeId && context().editable) editor.open(latest, null);
     else if (!old.creating) errorNotice = 'Взаимодействие больше недоступно.';
     render();
-  });
-  element('scenarios-retry').addEventListener('click', load);
-  element('scenarios-previous').addEventListener('click', () => { offset = Math.max(0, offset - pageSize); render(); });
-  element('scenarios-next').addEventListener('click', () => { offset += pageSize; render(); });
+  }
 
   function begin(kind:CommandKind,scenario:ScenarioDraft,revision:number|null) {
     const c = context(), k = operationKey(c);
@@ -322,7 +316,7 @@ export function createScenarios({
     const active = () => sameScreen(c) && operations.get(k) === op;
     op.state = 'pending'; render();
     try {
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(op.doc)+'/commands/'+op.kind+'-scenario',{method:'POST',body:JSON.stringify(op.body)}));
+      const result=requiredRecord(await postDocumentCommand(request,op.doc,`${op.kind}-scenario`,op.body));
       if (result.status !== 'ACCEPTED' || result.documentId !== op.doc || result.commandId !== op.body.commandId ||
           typeof result.revision!=='number'||!Number.isSafeInteger(result.revision) || result.revision <= op.body.expectedRevision)
         throw new TypeError('Некорректное подтверждение');
@@ -336,7 +330,7 @@ export function createScenarios({
       render(); next?.();
     } catch (error) {
       if (operations.get(k) !== op) return;
-      if (!active() || !(error instanceof ApiError) || !error.status || error.status === 408 || error.status >= 500) { op.state = 'uncertain'; return; }
+      if (!(error instanceof ApiError) || classifyCommandFailure(error, active()) === 'uncertain' || (error instanceof ApiError && !error.status)) { op.state = 'uncertain'; return; }
       operations.delete(k); leave = null; closeDialog();
       if (error.code === 'REVISION_CONFLICT') {
         await reloadPages(null, () => sameScreen(c));
@@ -359,9 +353,9 @@ export function createScenarios({
       if (sameScreen(c)) render();
     }
   }
-  element('scenario-command-retry').addEventListener('click', () => {
+  function retryCommand(){
     const op = currentOperation(); if (op?.state === 'uncertain') send(op);
-  });
+  }
   return {
     reset, refresh, retainAfterNodeEdit: refresh, clearLayerSelection: onSelectionChanged, onLayerSelected: onSelectionChanged,
     requestLeave, hasDirtyDraft: editor.dirty,

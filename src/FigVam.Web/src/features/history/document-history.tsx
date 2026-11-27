@@ -1,3 +1,6 @@
+import { postDocumentCommand, classifyCommandFailure } from '../../api/document-commands';
+import { Undo2, Redo2 } from 'lucide-react';
+import { IconButton } from '../../ui/IconButton';
 import { InlineError, StatusMessage } from '../../ui/Feedback';
 import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
@@ -12,13 +15,13 @@ interface Operation {state:Status;error?:string}
 interface SaveOperation extends Operation {body:Schema['SaveDocumentRequest'];versionId?:string}
 interface RestoreOperation extends Operation {body:Schema['RestoreDocumentRequest']}
 interface HistoryOperation extends Operation {action:Action;commandId:string;sending?:boolean}
-interface Workspace {documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
-interface Options {models:ReturnType<typeof createDocumentHistoryModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
+interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;navigationEpoch:number;token:string|null}
+interface Options {models:ReturnType<typeof createDocumentHistoryModels>;request:ApiClient;pageSize:number;refreshPages():Promise<unknown>;workspace:Workspace}
 interface Version {id:string;name:string|null;authorId:string;timestamp:string;revision:number}
 interface ListState {versions:Version[];status:string;error:string;index:number;next:number|null;loading:boolean;loaded:boolean}
 const initial=():ListState=>({versions:[],status:'',error:'',index:0,next:null,loading:false,loaded:false});
 const blocked=(op:Operation|undefined)=>op?.state==='pending'||op?.state==='uncertain';
-const unknownResult=(error:unknown)=>!(error instanceof ApiError)||error.status>=500;
+const unknownResult=(error:unknown)=>classifyCommandFailure(error, true, false)==='uncertain';
 function number(value:unknown):number{if(typeof value!=='number'||!Number.isSafeInteger(value))throw new TypeError('Некорректная ревизия');return value;}
 function decodeVersion(value:unknown):Version{const v=requiredRecord(value);return{id:text(v.id),name:v.name==null?null:text(v.name),authorId:text(v.authorId),timestamp:text(v.timestamp),revision:number(v.revision)};}
 function VersionForm({operation,draft,setDraft}:{operation:SaveOperation|undefined;draft:string;setDraft(value:string):void}){
@@ -52,8 +55,15 @@ function VersionList({state,operation,canEdit,restore,refresh,previous,next,retr
 function VersionSaveView({visible,save,...props}:{visible:boolean;save():void}&Parameters<typeof VersionForm>[0]){
   return <form id="version-save" hidden={!visible} onSubmit={event=>{event.preventDefault();save();}}><VersionForm {...props}/></form>;
 }
-export function createDocumentHistoryModels(){return {form:createViewModel(VersionSaveView),list:createViewModel(VersionList)};}
-export function createDocumentHistory({models,element,request,pageSize,refreshPages,workspace}:Options){
+interface HistoryActionsViewProps {disabled:boolean;access:string;status:string;error:string;retryVisible:boolean;begin(action:Action):void;retry():void}
+function HistoryToolbar({disabled,begin}:Pick<HistoryActionsViewProps,'disabled'|'begin'>){
+  return <><IconButton id="undo" className="icon-action" icon={Undo2} iconSize={18} label="Отменить действие" disabled={disabled} onClick={()=>begin('undo')}/><IconButton id="redo" className="icon-action" icon={Redo2} iconSize={18} label="Повторить действие" disabled={disabled} onClick={()=>begin('redo')}/></>;
+}
+function HistoryFeedback({access,status,error,retryVisible,retry}:Omit<HistoryActionsViewProps,'disabled'|'begin'>){
+  return <><span id="history-access">{access}</span><StatusMessage id="history-action-status">{status}</StatusMessage><InlineError id="history-action-error">{error}</InlineError><Button id="history-action-retry" hidden={!retryVisible} onClick={retry}>Повторить неподтверждённую команду</Button></>;
+}
+export function createDocumentHistoryModels(){return {form:createViewModel(VersionSaveView),list:createViewModel(VersionList),toolbar:createViewModel(HistoryToolbar),feedback:createViewModel(HistoryFeedback)};}
+export function createDocumentHistory({models,request,pageSize,refreshPages,workspace}:Options){
   const versionOperations=new Map<string,SaveOperation>(),restoreOperations=new Map<string,RestoreOperation>(),historyActions=new Map<string,HistoryOperation>();
   let visible=false;
   let state=initial(),draft='',generation=0,controller:AbortController|null=null,cursors:(number|null)[]=[null];
@@ -80,31 +90,29 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
     if(operation?.state!=='uncertain'){operation={body:{commandId:crypto.randomUUID(),name:draft||null},state:'pending'};versionOperations.set(id,operation);}
     operation.state='pending';operation.error='';renderForm();
     try{
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/save',{method:'POST',body:JSON.stringify(operation.body)}));
+      const result=requiredRecord(await postDocumentCommand(request,id,'save',operation.body));
       operation.versionId=text(result.versionId);if(!operation.versionId)throw new TypeError('Отсутствует идентификатор версии');operation.state='success';
     }catch(error){const uncertain=unknownResult(error);operation.state=uncertain?'uncertain':'failed';operation.error=uncertain?'Не удалось подтвердить создание версии. Повторите эту операцию: она могла выполниться.':errorMessage(error);}
     if(versionOperations.get(id)===operation&&active(id,token,epoch)&&token){renderForm();if(operation.state==='success')void loadVersions();}
   }
-  function button(id:string):HTMLButtonElement{const b=element(id);if(!(b instanceof HTMLButtonElement))throw new Error('Missing history button '+id);return b;}
   function renderAction(){
     const op=get(historyActions),writable=canEdit();
-    button('undo').disabled=button('redo').disabled=!writable||blocked(op);
-    element('history-access').textContent=writable?'Сочетания: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z или Ctrl+Y.':'Только просмотр: отмена и повтор недоступны.';
-    element('history-action-status').textContent=op?.state==='pending'?'Ожидание подтверждения…':op?.state==='success'?'Действие подтверждено.':'';
-    element('history-action-error').textContent=op?.error??'';
-    element('history-action-retry').hidden=!writable||op?.state!=='uncertain';
+    models.toolbar.publish({disabled:!writable||blocked(op),begin:beginAction});
+    models.feedback.publish({access:writable?'Сочетания: Ctrl/⌘+Z, Ctrl/⌘+Shift+Z или Ctrl+Y.':'Только просмотр: отмена и повтор недоступны.',
+      status:op?.state==='pending'?'Ожидание подтверждения…':op?.state==='success'?'Действие подтверждено.':'',error:op?.error??'',
+      retryVisible:writable&&op?.state==='uncertain',retry:retryAction});
   }
   function beginAction(action:Action){
-    const id=workspace.documentId;if(!id||element('editor-view').hidden||!canEdit()||blocked(historyActions.get(id)))return;
+    const id=workspace.documentId;if(!id||!workspace.isEditorVisible()||!canEdit()||blocked(historyActions.get(id)))return;
     const operation:HistoryOperation={action,commandId:crypto.randomUUID(),state:'pending'};
     historyActions.set(id,operation);void sendAction(id,operation);
   }
   async function sendAction(id:string,operation:HistoryOperation){
     if(operation.state==='pending'&&operation.sending)return;
-    const token=workspace.token,epoch=workspace.navigationEpoch,current=()=>active(id,token,epoch)&&!element('editor-view').hidden;
+    const token=workspace.token,epoch=workspace.navigationEpoch,current=()=>active(id,token,epoch)&&workspace.isEditorVisible();
     operation.sending=true;operation.state='pending';operation.error='';renderAction();
     try{
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/'+operation.action,{method:'POST',body:JSON.stringify({commandId:operation.commandId})}));
+      const result=requiredRecord(await postDocumentCommand(request,id,operation.action,{commandId:operation.commandId}));
       if(!Number.isSafeInteger(result.revision)||text(result.commandId).toLowerCase()!==operation.commandId.toLowerCase()||text(result.documentId).toLowerCase()!==id.toLowerCase())throw new TypeError('Некорректное подтверждение');
       if(historyActions.get(id)!==operation)return;
       if(!current()){operation.state='uncertain';operation.error='Результат изменился после перехода. Повторите ту же команду для подтверждения.';return;}
@@ -114,20 +122,19 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
       if(historyActions.get(id)!==operation)return;
       if(!current()||unknownResult(error)){operation.state='uncertain';operation.error='Результат неизвестен. Повторите ту же команду: она могла выполниться.';}
       else{operation.state='failed';const code=error instanceof ApiError?error.code:undefined;operation.error=code==='UNDO_NOT_APPLICABLE'?'Отмена неприменима к текущему состоянию: возможно, изменения несовместимы с последующими правками.':code==='REDO_NOT_APPLICABLE'?'Повтор неприменим к текущему состоянию: необходимые условия больше не выполняются.':errorMessage(error);}
-    }finally{operation.sending=false;if(historyActions.get(id)===operation&&workspace.documentId===id&&workspace.token&&!element('editor-view').hidden)renderAction();}
+    }finally{operation.sending=false;if(historyActions.get(id)===operation&&workspace.documentId===id&&workspace.token&&workspace.isEditorVisible())renderAction();}
   }
-  button('undo').addEventListener('click',()=>beginAction('undo'));button('redo').addEventListener('click',()=>beginAction('redo'));
-  button('history-action-retry').addEventListener('click',()=>{const op=get(historyActions);if(workspace.documentId&&op?.state==='uncertain'&&canEdit())void sendAction(workspace.documentId,op);});
+  function retryAction(){const op=get(historyActions);if(workspace.documentId&&op?.state==='uncertain'&&canEdit())void sendAction(workspace.documentId,op);}
   document.addEventListener('keydown',event=>{
     if(event.defaultPrevented||event.isComposing||event.altKey||!(event.ctrlKey||event.metaKey))return;
     const target=event.target;
     if(target instanceof Element&&(target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')||(target instanceof HTMLElement&&target.isContentEditable)))return;
     const key=event.key.toLowerCase(),action=key==='z'?(event.shiftKey?'redo':'undo'):key==='y'&&!event.shiftKey?'redo':null;
-    if(!action||!workspace.documentId||element('editor-view').hidden||!canEdit())return;
+    if(!action||!workspace.documentId||!workspace.isEditorVisible()||!canEdit())return;
     event.preventDefault();beginAction(action);
   });
   function reset(){
-    controller?.abort();controller=null;generation++;visible=false;cursors=[null];state=initial();draft='';renderForm();renderList();
+    controller?.abort();controller=null;generation++;visible=false;cursors=[null];state=initial();draft='';renderForm();renderList();renderAction();
   }
   async function loadVersions(index=0,cursor:number|null=null){
     const id=workspace.documentId,token=workspace.token,epoch=workspace.navigationEpoch;if(!id||!token)return;
@@ -152,17 +159,17 @@ export function createDocumentHistory({models,element,request,pageSize,refreshPa
   async function submitRestore(id:string,op:RestoreOperation){
     const token=workspace.token,epoch=workspace.navigationEpoch;op.state='pending';op.error='';if(workspace.documentId===id)renderList();
     try{
-      const result=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(id)+'/commands/restore',{method:'POST',body:JSON.stringify(op.body)}));
+      const result=requiredRecord(await postDocumentCommand(request,id,'restore',op.body));
       number(result.revision);op.state='success';
     }catch(error){
       const uncertain=unknownResult(error);op.state=uncertain?'uncertain':'failed';
       op.error=uncertain?'Не удалось подтвердить восстановление. Повторите эту операцию: она могла выполниться.':error instanceof ApiError&&(error.code==='REVISION_CONFLICT'||error.status===409)?'Документ изменился или восстановление конфликтует с текущим состоянием. Обновите страницы и историю перед повтором.':errorMessage(error);
     }
     if(restoreOperations.get(id)!==op||!active(id,token,epoch)||!token)return;
-    renderList();if(op.state==='success'&&!element('editor-view').hidden){await refreshPages();if(active(id,token,epoch)&&!element('editor-view').hidden)void loadVersions();}
+    renderList();if(op.state==='success'&&workspace.isEditorVisible()){await refreshPages();if(active(id,token,epoch)&&workspace.isEditorVisible())void loadVersions();}
   }
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
-  function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();}
+  function prepare(){visible=canEdit();draft=get(versionOperations)?.body.name??'';renderForm();renderAction();}
   function load(){renderList();renderAction();return loadVersions();}
   renderForm();renderList();return {reset,clearCommands,prepare,load};
 }
