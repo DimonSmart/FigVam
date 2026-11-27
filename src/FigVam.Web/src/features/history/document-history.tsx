@@ -102,7 +102,7 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
     if(result.kind==='confirmed')op.versionId=result.confirmation.versionId??undefined;
     updateOperation(op,result);
     if(get(versionOperations)===op&&workspace.isEditorVisible()){
-      renderForm();if(!current()&&op.state==='sync')void load();
+      renderForm();if(!current()&&result.kind==='confirmed'&&result.synchronization!=='synced')void load();
     }
   }
   function renderAction(){
@@ -177,7 +177,7 @@ export function createDocumentHistory({models,request,pageSize,refreshPages,work
     updateOperation(op,result);
     if(result.kind==='conflict')op.error='Восстановление конфликтует с текущим состоянием документа. Обновите документ перед повтором.';
     if(get(restoreOperations)===op&&workspace.isEditorVisible()){
-      renderList();if(!current()&&op.state==='sync')void load();
+      renderList();if(!current()&&result.kind==='confirmed'&&result.synchronization!=='synced')void load();
     }
   }
   function clearCommands(){versionOperations.clear();restoreOperations.clear();historyActions.clear();}
