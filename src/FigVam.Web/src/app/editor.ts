@@ -107,7 +107,7 @@ const diagnostics: ReturnType<typeof createScreenDiagnostics> = createScreenDiag
   getContext: () => ({ documentId, screen: selectionState.selectedScreen, revision: revisions.revision, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, isEditorVisible: isEditorVisible() })
 });
 const screenResize: ReturnType<typeof createScreenResize> = createScreenResize({ model: views.screenResize,
-  element, request, refreshPages: () => refreshPages(),
+  element, request, refreshPages: synchronizeWorkspace,
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; }, get documentRole() { return getDocumentRole(); },
@@ -285,11 +285,7 @@ const members: ReturnType<typeof createMembers> = createMembers({ model: views.m
 });
 
 const documentHistory: ReturnType<typeof createDocumentHistory> = createDocumentHistory({ models: views.history,
-  request, pageSize, refreshPages: async () => {
-    let synced=false;
-    await run(() => refreshPages(), async (signal,current) => { synced=await readPages(signal,0,null,current)===true; });
-    return synced;
-  },
+  request, pageSize, refreshPages: synchronizeWorkspace,
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },
@@ -301,7 +297,7 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 });
 
 const layers: ReturnType<typeof createLayers> = createLayers({
-  model: views.layers, setMoveEnabled:layerMoveEnabled=>documentShell.patch({layerMoveEnabled}), element, request, refreshPages, closeInaccessibleDocument, message,
+  model: views.layers, setMoveEnabled:layerMoveEnabled=>documentShell.patch({layerMoveEnabled}), element, request, refreshPages:synchronizeWorkspace, closeInaccessibleDocument, message,
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },
@@ -311,7 +307,7 @@ const layers: ReturnType<typeof createLayers> = createLayers({
     get navigationEpoch() { return sessionState.navigationEpoch; },
     get token() { return sessionState.token; }
   },
-  runPageRefresh: work => run(() => refreshPages(), work),
+  runPageRefresh: runSynchronization,
   readCurrentPages: (signal, isCurrent, reveal) => readPages(signal, 0, null, isCurrent, reveal),
   beforeSelectionChange: next => scenarios.requestLeave(next),
   onSelectionCleared: () => { scenarios.clearLayerSelection(); visualScreens.syncSelection(); visualNodeEditor.refresh(); },
@@ -335,7 +331,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
   setInteractiveNodes: layers.setInteractiveNodes,
   selectSource: layers.selectFromCanvas,
   reloadPages: (targetRevision, isCurrent) =>
-    run(() => refreshPages(), signal => readPages(signal, 0, targetRevision, isCurrent)),
+    runSynchronization((signal,current)=>readPages(signal,0,targetRevision,()=>current()&&isCurrent())),
   findRole,
   setDocumentRole,
   closeInaccessibleDocument
@@ -443,12 +439,12 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
     variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch: sessionState.navigationEpoch, token: sessionState.token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
-    await run(() => refreshPages(), async (signal, current) => {
+    await runSynchronization(async (signal,current)=>{
+      const active=()=>current()&&isCurrent();
       synced = (revisions.revision !== null && newRevision === revisions.revision + 1
-        ? await readNodeEditRevision(signal, newRevision, isCurrent, reveal, selection, resourcesChanged)
-        : await readPages(signal, 0, null, isCurrent, reveal, selection)) === true;
-      if (current() && !synced) message();
-    }, { quiet: true });
+        ? await readNodeEditRevision(signal,newRevision,active,reveal,selection,resourcesChanged)
+        : await readPages(signal,0,null,active,reveal,selection))===true;
+    });
     return synced;
   }
 });
@@ -527,6 +523,18 @@ function deleteDocument(){documentMutations.deleteDocument();}
 function retryDeletion(){documentMutations.retryDeletion();}
 function renameDocument(){return documentMutations.renameDocument();}
 
+// A confirmed mutation must not seize or cancel the foreground navigation lane.
+async function runSynchronization(work:Parameters<typeof requestRunner.run>[1]):Promise<void>{
+  const signal=sessionState.navigationSignal,epoch=sessionState.navigationEpoch,id=documentId;
+  const current=()=>!signal.aborted&&epoch===sessionState.navigationEpoch&&id===documentId;
+  try{await work(signal,current);}
+  catch(error){if(current()&&!aborted(error))message('',errorMessage(error));}
+}
+async function synchronizeWorkspace():Promise<boolean>{
+  let synced=false;
+  await runSynchronization(async(signal,current)=>{synced=await readPages(signal,0,null,current)===true;});
+  return synced;
+}
 async function refreshPages(offset = 0): Promise<void> {
   await run(() => refreshPages(offset), async (signal, current) => {
     await readPages(signal, offset);
@@ -546,7 +554,7 @@ const pageCommands = createPageCommands({
 const pageCommand=pageCommands.start;
 
 const workspaceNavigation = createWorkspaceNavigation({
-  request,queries:documentQueries,catalog,run,pageSize,
+  request,queries:documentQueries,catalog,run,pageSize,message,
   authenticated:()=>Boolean(sessionState.token),
   leaveDeletion:()=>{mcpAccess.reset();documentMutations.leaveDeletion();},
   deletingId:()=>documentMutations.deletingId,

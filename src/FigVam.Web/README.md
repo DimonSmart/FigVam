@@ -62,3 +62,5 @@ Token and layer views are separate from their controllers. Token/style validatio
 The catalog/open-document read workflow is owned by `app/workspace-navigation.ts`; the composition root binds lifecycle resets and state publication. The selected page's empty status is derived from the workspace model; DOM queries in popup positioning are geometry-only.
 
 Style drafts are scoped to the document and selected style while the workspace is open. Refreshes rebase untouched fields on current server values; changing selection preserves local edits. The comparison waits for transient status notifications to expire, because PR #37's 0.38% Styles difference was the four-second `Страницы обновлены.` toast, not style rendering.
+
+Post-command synchronization for layer metadata/move/delete, history, visual nodes, screen size/variants and scenarios uses the document navigation signal instead of the foreground request lane. Foreground navigation remains latest-wins; independent synchronization still checks document, revision and selection before publication.
