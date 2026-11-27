@@ -20,6 +20,14 @@ const bundle=root=>{const dir=path.join(root,'src/FigVam.Web/dist');return fs.re
     add(key,median(a.map(x=>x[key])),median(b.map(x=>x[key])),memory?1048576:frames?3:percent?5:100,memory?.15:percent?0:.20);
   }
   add('productionJsBytes',bundle(baselineRoot),bundle(candidateRoot),20480,.10);
+  const readMemory=dir=>fs.readdirSync(dir).filter(x=>/^memory-\d+\.json$/.test(x)).map(x=>JSON.parse(fs.readFileSync(path.join(dir,x),'utf8')));
+  const ma=readMemory(before),mb=readMemory(after);
+  if(ma.length!==3||mb.length!==3||[...ma,...mb].some(x=>x.samples.length!==5||x.samples[4].cycle!==20))throw new Error('Missing 20-cycle memory audit');
+  result.memory={baseline:ma,candidate:mb};
+  notes.push('','## Retained heap after 20 navigation cycles (GC before samples)','', '| Cycle | Baseline median bytes | Candidate median bytes |','|---|---:|---:|');
+  for(let i=0;i<5;i++)notes.push('| '+ma[0].samples[i].cycle+' | '+median(ma.map(x=>x.samples[i].usedSize))+' | '+median(mb.map(x=>x.samples[i].usedSize))+' |');
+  const memoryReview=mb.some(x=>x.sustained);
+  notes.push('',memoryReview?'Sustained candidate heap growth detected; inspect heap snapshots.':'No sustained candidate growth detected by the checkpoint heuristic.');
   const browser=await chromium.launch();
   try{
     const page=await browser.newPage();
@@ -47,5 +55,5 @@ const bundle=root=>{const dir=path.join(root,'src/FigVam.Web/dist');return fs.re
   fs.writeFileSync(path.join(after,'comparison.md'),report);
   if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,report+'\n');
   console.log(report);
-  if(Object.values(result.metrics).some(m=>m.review))process.exitCode=1;
+  if(memoryReview||Object.values(result.metrics).some(m=>m.review))process.exitCode=1;
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -298,7 +298,7 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 });
 
 const layers: ReturnType<typeof createLayers> = createLayers({
-  model: views.layers, element, request, refreshPages, closeInaccessibleDocument, message,
+  model: views.layers, setMoveEnabled:layerMoveEnabled=>documentShell.patch({layerMoveEnabled}), element, request, refreshPages, closeInaccessibleDocument, message,
   workspace: {
     isEditorVisible,
     get documentId() { return documentId; },

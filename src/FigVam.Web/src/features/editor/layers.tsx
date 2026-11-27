@@ -11,7 +11,7 @@ import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
 interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;navigationEpoch:number;token:string|null}
 type Work=(signal:AbortSignal,current:()=>boolean)=>Promise<unknown>;
-interface Options {model:ReturnType<typeof createLayersModel>;element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
+interface Options {setMoveEnabled(enabled:boolean):void;model:ReturnType<typeof createLayersModel>;element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
 type State='ready'|'pending'|'uncertain'|'sync'|'rejected';
 interface Metadata {id?:string;name?:string|null;semanticKey?:string|null;error?:string}
 type MetadataOperation=({kind:'name';body:{commandId:string;nodeId:string;name:string};state:State}|{kind:'key';body:{commandId:string;nodeId:string;semanticKey:string|null};state:State}) & {mutation?:DocumentCommandOperation};
@@ -32,7 +32,7 @@ import { createLayerDrag, resolveLayerDrop } from '../../canvas/layer-drag';
 import { layerDisplayName } from '../../core/layer-caption';
 export { layerDisplayName };
 export function createLayers({
-  model, element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
+  setMoveEnabled, model, element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
   closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected, beforeSelectionChange = () => true
 }:Options) {
   let layerController:AbortController|null=null,layerGeneration=0,layerSelection:LayerItem|null=null;
@@ -261,7 +261,7 @@ export function createLayers({
   function renderNodeOrder() {
     const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
-    element('layers').classList.toggle('layer-move-enabled', editable && !op);
+    setMoveEnabled(editable && !op);
     model.order.publish({retryHidden:!editable||!retryable(op),retry:retryNodeOrder,status:!editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'sync' ? 'Перемещение подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || ''});
   }
 
