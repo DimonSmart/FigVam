@@ -1,7 +1,7 @@
 import { isGoogleMode, setCsrf } from '../api/auth-client';
 import { createDocumentCreation } from '../features/home/document-creation';
 import { createScreenCapture } from '../canvas/screen-capture';
-import { ApiError, createApiClient, type ApiClient } from '../api/api-client';
+import { createApiClient, type ApiClient } from '../api/api-client';
 import { createDocumentQueries } from '../api/document-queries';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from '../features/home/index';
 import { createDocumentCollaboration } from '../features/collaboration/document-collaboration';
@@ -30,7 +30,7 @@ import { createApplicationViews } from './application-views';
 import { aborted, errorMessage, text } from '../api/decode';
 import type { DocumentListItem } from '../api/document-list';
 import type { DeleteCatalogCommand } from '../features/home/document-list';
-import { createDocumentCommand, prepareDocumentCommand, type DocumentCommandOperation } from '../api/document-commands';
+import { createDocumentMutations } from './document-mutations';
 import { createPageCommands } from './page-commands';
 
 import { createRequestRunner } from './request-runner';
@@ -41,8 +41,6 @@ import { createWorkspaceSelection } from './workspace-selection';
 import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
-type Deletion = { id: string; name: string; expectedRevision: number; operation: DocumentCommandOperation };
-const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
 const sessionState = createSessionLifecycle();
 const { setToken, advanceNavigation, cancelRequest, startRequest } = sessionState;
 const catalog = createDocumentCatalog();
@@ -82,20 +80,6 @@ const pageSize = 20;
 let documentId: string | null = null;
 const selectionState = createWorkspaceSelection();
 const revisions = createDocumentRevisionState();
-let deletion: Deletion | null = null;
-const catalogDeletions = new Map<string, {operation: DocumentCommandOperation; expectedRevision: number}>();
-const renames = new Map<string, DocumentCommandOperation>();
-function resetDeletion() {
-  deletion = null;
-  deletionView.publish({ status: 'idle', message: '' });
-}
-function leaveDeletion() {
-  if (!deletion) return;
-  const state = deletion.operation.getSnapshot();
-  deletionView.publish({ status: 'uncertain', message: state.kind === 'confirmed'
-    ? 'Удаление подтверждено. Обновите список документов.'
-    : `Результат удаления документа «${deletion.name}» неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.` });
-}
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
   getToken: () => sessionState.token,
@@ -220,8 +204,7 @@ function clearSession() {
   mcpAccess.reset();
   documentCreation.reset();
   pageCommands.clear();
-  catalogDeletions.clear(); renames.clear(); datasets.clearCommands(); screenVariants.clearCommands(); tokens.clearCommands(); styles.clearCommands();
-  resetDeletion();
+  documentMutations.clear(); datasets.clearCommands(); screenVariants.clearCommands(); tokens.clearCommands(); styles.clearCommands();
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
   setToken('');
@@ -319,7 +302,7 @@ const scenarios: ReturnType<typeof createScenarios> = createScenarios({
 
 async function loadList(index = 0, cursor: string | null | undefined = null): Promise<void> {
   mcpAccess.reset();
-  leaveDeletion();
+  documentMutations.leaveDeletion();
   if (!sessionState.token) return;
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset();
   stopLive();
@@ -341,30 +324,7 @@ async function loadList(index = 0, cursor: string | null | undefined = null): Pr
   });
 }
 
-async function deleteCatalogDocument(item: DocumentListItem, command: DeleteCatalogCommand): Promise<void> {
-  const id = item.documentId, sessionEpoch = sessionState.sessionEpoch;
-  let epoch = sessionState.navigationEpoch;
-  const entry = catalogDeletions.get(id) ?? {operation:prepareDocumentCommand(id,'delete-document',command),expectedRevision:command.expectedRevision};
-  catalogDeletions.set(id,entry);
-  const active = () => sessionState.sessionEpoch === sessionEpoch && sessionState.navigationEpoch === epoch && catalogDeletions.get(id) === entry;
-  const refresh = async () => {
-    const loading = loadList(); epoch = sessionState.navigationEpoch; await loading;
-    return active() && shellState.getSnapshot().catalog !== null;
-  };
-  const result = await entry.operation.execute({request,isCurrent:active,
-    validate:confirmation=>{if(confirmation.revision!==entry.expectedRevision+1)throw new TypeError('Некорректная ревизия удаления');},
-    synchronize:refresh});
-  if (!active()) return;
-  if (result.kind === 'confirmed' && result.synchronization === 'synced') {
-    catalogDeletions.delete(id); message('Документ удалён.');
-  } else if (result.kind === 'conflict' || result.kind === 'rejected') {
-    await refresh();
-    if(active()){catalogDeletions.delete(id);message('',errorMessage(result.error));}
-  } else if (result.kind === 'uncertain' || result.kind === 'confirmed') {
-    requestRunner.setRetry(()=>deleteCatalogDocument(item,command));
-    message('',result.kind==='confirmed'?'Удаление подтверждено. Повторите обновление списка.':'Результат удаления неизвестен. Повторите запрос: документ мог быть удалён.');
-  }
-}
+function deleteCatalogDocument(item:DocumentListItem,command:DeleteCatalogCommand){return documentMutations.deleteCatalogDocument(item,command);}
 
 function navigatorCanEdit() {
   return canEditDocument(getDocumentRole());
@@ -537,8 +497,8 @@ function resetDocumentRename() {
 
 async function openDocument(id: string): Promise<void> {
   mcpAccess.reset();
-  leaveDeletion();
-  if (deletion?.id === id) {
+  documentMutations.leaveDeletion();
+  if (documentMutations.deletingId === id) {
     history.replaceState(null, '', '/');
     return loadList();
   }
@@ -570,84 +530,14 @@ async function openDocument(id: string): Promise<void> {
   });
 }
 
-function deleteDocument() {
-  if (deletion || !documentId || getDocumentRole() !== 'Owner' || revisions.revision === null || !Number.isSafeInteger(revisions.revision) || shellState.getSnapshot().view !== 'editor') return;
-  if (!confirm(`Удалить документ «${documentShell.getSnapshot().title}»? Это действие нельзя отменить.`)) return;
-  const expectedRevision = revisions.revision;
-  deletion = { id: documentId, name: documentShell.getSnapshot().title ?? '', expectedRevision,
-    operation: createDocumentCommand(documentId,'delete-document',{expectedRevision}) };
-  void submitDeletion(deletion);
-}
-function retryDeletion() {
-  if(!deletion)return;
-  const state=deletion.operation.getSnapshot();
-  if(state.kind==='uncertain'||state.kind==='confirmed')void submitDeletion(deletion);
-}
-async function submitDeletion(entry: Deletion): Promise<void> {
-  if (deletion !== entry || entry.operation.getSnapshot().kind === 'pending') return;
-  const id=entry.id,sessionEpoch=sessionState.sessionEpoch;
-  let epoch=sessionState.navigationEpoch;
-  const active=()=>deletion===entry&&sessionState.sessionEpoch===sessionEpoch&&epoch===sessionState.navigationEpoch;
-  stopLive();
-  deletionView.publish({status:'pending',message:'Удаление документа…'});
-  const refresh=async()=>{
-    history.pushState(null,'','/');
-    const loading=loadList();epoch=sessionState.navigationEpoch;await loading;
-    return active()&&shellState.getSnapshot().catalog!==null;
-  };
-  const result=await entry.operation.execute({request,isCurrent:active,
-    validate:confirmation=>{if(confirmation.revision!==entry.expectedRevision+1)throw new TypeError('Некорректная ревизия удаления');},
-    synchronize:refresh});
-  if(!active())return;
-  if(result.kind==='confirmed'&&result.synchronization==='synced'){
-    resetDeletion();message('Документ удалён.');return;
-  }
-  if(result.kind==='confirmed'||result.kind==='uncertain'){
-    if(documentId===id)shellState.patch({view:'none'});
-    deletionView.publish({status:'uncertain',message:result.kind==='confirmed'?'Удаление подтверждено. Повторите обновление списка.':'Результат удаления неизвестен. Повторите запрос, чтобы получить подтверждение; документ мог быть удалён.'});
-    return;
-  }
-  if(result.kind==='conflict'||result.kind==='rejected'){
-    const error=result.error,status=statusOf(error);
-    resetDeletion();
-    if(status===403||status===404){
-      const explanation=status===403?'Нет прав на удаление документа или доступ к нему потерян.':'Документ уже удалён или больше недоступен.';
-      history.pushState(null,'','/');const loading=loadList(),nextEpoch=sessionState.navigationEpoch;await loading;
-      if(sessionState.sessionEpoch===sessionEpoch&&nextEpoch===sessionState.navigationEpoch)message('',explanation);
-    }else if(result.kind==='conflict'){
-      const reopening=openDocument(id),nextEpoch=sessionState.navigationEpoch;await reopening;
-      if(sessionState.sessionEpoch===sessionEpoch&&nextEpoch===sessionState.navigationEpoch&&documentId===id)message('','Документ изменился. Проверьте обновлённую ревизию и повторите удаление.');
-    }else{message('',errorMessage(error));startLive();}
-  }
-}
-
-async function renameDocument() {
-  if (documentShell.getSnapshot().renameBusy || !documentId || !canEditDocument(getDocumentRole())) return;
-  const id=documentId, epoch=sessionState.navigationEpoch, sessionEpoch=sessionState.sessionEpoch;
-  const operation=renames.get(id)??createDocumentCommand(id,'rename-document',{name:documentShell.getSnapshot().renameName});
-  renames.set(id,operation);
-  const active=()=>renames.get(id)===operation&&sessionState.sessionEpoch===sessionEpoch&&sessionState.navigationEpoch===epoch&&documentId===id&&canEditDocument(getDocumentRole());
-  stopLive();
-  documentShell.patch({renameBusy:true,renameStatus:'Сохранение имени…',renameError:''});
-  try{
-    const result=await operation.execute({request,isCurrent:active,synchronize:async confirmation=>{
-      const synchronized=await readPages(sessionState.signal,0,null,active);
-      return synchronized===true&&(revisions.revision??-1)>=confirmation.revision;
-    }});
-    if(!active())return;
-    if(result.kind==='confirmed'&&result.synchronization==='synced'){
-      renames.delete(id);documentShell.patch({renameName:documentShell.getSnapshot().title,renameStatus:'Имя документа изменено.'});
-    }else if(result.kind==='conflict'||result.kind==='rejected'){
-      renames.delete(id);documentShell.patch({renameStatus:'',renameError:errorMessage(result.error)});
-    }else if(result.kind==='uncertain'||result.kind==='confirmed'){
-      documentShell.patch({renameStatus:'',renameError:result.kind==='confirmed'?'Команда подтверждена. Повторите обновление документа.':'Результат неизвестен. Повторите сохранение с исходным именем.'});
-    }
-  }finally{
-    if(sessionState.sessionEpoch===sessionEpoch&&sessionState.navigationEpoch===epoch&&documentId===id){
-      documentShell.patch({renameBusy:false});startLive();
-    }
-  }
-}
+const documentMutations=createDocumentMutations({
+  sessionState,shellState,documentShell,deletionView,request,getDocumentId:()=>documentId,getRevision:()=>revisions.revision,
+  loadList,openDocument,refresh:(signal,current)=>readPages(signal,0,null,current),stopLive,startLive,message,setRetry:requestRunner.setRetry,
+  navigateHome:()=>history.pushState(null,'','/'),confirmDeletion:message=>confirm(message),
+});
+function deleteDocument(){documentMutations.deleteDocument();}
+function retryDeletion(){documentMutations.retryDeletion();}
+function renameDocument(){return documentMutations.renameDocument();}
 
 async function refreshPages(offset = 0): Promise<void> {
   await run(() => refreshPages(offset), async (signal, current) => {
