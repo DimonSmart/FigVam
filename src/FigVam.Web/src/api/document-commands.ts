@@ -32,8 +32,8 @@ export function decodeCommandConfirmation(raw: unknown, documentId: string, comm
 }
 
 export type CommandFailure = 'rejected' | 'conflict' | 'uncertain';
-export function classifyCommandFailure(error: unknown, current = true, timeoutIsUncertain = true): CommandFailure {
-  if (!current || !(error instanceof ApiError) || error.status >= 500 || (timeoutIsUncertain && error.status === 408)) return 'uncertain';
+export function classifyCommandFailure(error: unknown, _current = true, timeoutIsUncertain = true): CommandFailure {
+  if (!(error instanceof ApiError) || error.status >= 500 || (timeoutIsUncertain && error.status === 408)) return 'uncertain';
   return error.status === 409 || error.code === 'REVISION_CONFLICT' ? 'conflict' : 'rejected';
 }
 

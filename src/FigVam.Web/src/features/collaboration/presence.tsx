@@ -1,13 +1,13 @@
 import { TextInput } from '../../ui/Inputs';
 import { StatusMessage } from '../../ui/Feedback';
 import { createViewModel } from '../../app/view-model';
-import { authHeaders, credentialsMode } from '../../api/auth-client';
+import type { AuthPolicy } from '../../api/auth-client';
 import { ApiError } from '../../api/api-client';
 import { requiredRecord, text, array, aborted } from '../../api/decode';
 interface Point { x: number; y: number }
 interface Participant { name: string; color: string; screenId: string | null; selectedIds: string[]; cursor: Point | null }
 interface Context { token: string | null; documentId: string | null; navigationEpoch: number; selectedLayer: {id:string} | null; selectedScreen: string | null }
-interface Options { isEditorVisible(): boolean;  models:ReturnType<typeof createPresenceModels>; element(id:string):HTMLElement; getContext():Context; toViewportPoint(point:Point):Point }
+interface Options { auth: AuthPolicy; isEditorVisible(): boolean;  models:ReturnType<typeof createPresenceModels>; element(id:string):HTMLElement; getContext():Context; toViewportPoint(point:Point):Point }
 function participant(value:unknown):Participant {
   const p=requiredRecord(value), color=text(p.color);
   if(!/^#[0-9a-fA-F]{6}$/.test(color))throw new TypeError('Invalid presence color');
@@ -26,7 +26,7 @@ function PresenceSettings({name,color,status,changeName,changeColor}:{name:strin
   return <><label htmlFor="presence-name">Ваше имя для участников</label><TextInput id="presence-name" maxLength={128} value={name} autoComplete="off" onChange={event=>changeName(event.currentTarget.value)}/><label htmlFor="presence-color">Ваш цвет</label><input id="presence-color" type="color" value={color} onChange={event=>changeColor(event.currentTarget.value)}/><StatusMessage id="presence-status">{status}</StatusMessage></>;
 }
 export function createPresenceModels(){return {list:createViewModel(PresenceList),markers:createViewModel(PresenceMarkers),settings:createViewModel(PresenceSettings)};}
-export function createPresence({models,element,getContext,toViewportPoint,isEditorVisible}:Options){
+export function createPresence({auth,models,element,getContext,toViewportPoint,isEditorVisible}:Options){
   let renderedParticipants:Participant[]|undefined;
   let controller:AbortController|null=null,timer:ReturnType<typeof setTimeout>|undefined;
   let participants:Participant[]=[],cursor:Point|null=null,cursorScreen:string|null=null,lastRead=0;
@@ -55,7 +55,7 @@ export function createPresence({models,element,getContext,toViewportPoint,isEdit
     const active=()=>{const ctx=getContext();return controller===operation&&!operation.signal.aborted&&ctx.documentId===documentId&&ctx.token===token&&ctx.navigationEpoch===navigationEpoch&&isEditorVisible();};
     const path='/api/v1/documents/'+encodeURIComponent(documentId)+'/presence';
     async function exchange(method:'GET'|'PUT',body?:unknown):Promise<unknown>{
-      const response=await fetch(path,{method,signal:AbortSignal.any([operation.signal,AbortSignal.timeout(5000)]),cache:'no-store',credentials:credentialsMode(),redirect:'error',headers:{...authHeaders(requestToken,method),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
+      const response=await fetch(path,{method,signal:AbortSignal.any([operation.signal,AbortSignal.timeout(5000)]),cache:'no-store',credentials:auth.credentialsMode(),redirect:'error',headers:{...auth.authHeaders(requestToken,method),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
       if(!active())throw new DOMException('Cancelled','AbortError');
       if(!response.ok)throw new ApiError(response.status,{});
       return response.json();

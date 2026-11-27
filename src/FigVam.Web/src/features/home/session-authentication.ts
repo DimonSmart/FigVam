@@ -1,4 +1,4 @@
-import { authHeaders, configureAuth } from '../../api/auth-client';
+import type { AuthPolicy } from '../../api/auth-client';
 import { requiredRecord, text } from '../../api/decode';
 
 export async function readAuthenticationMode(): Promise<'bearer' | 'google'> {
@@ -6,7 +6,6 @@ export async function readAuthenticationMode(): Promise<'bearer' | 'google'> {
   if (!config.ok) throw new Error('Режим аутентификации недоступен.');
   const info = requiredRecord(await config.json());
   if (info.mode !== 'bearer' && info.mode !== 'google') throw new TypeError('Некорректный режим аутентификации.');
-  configureAuth(info.mode);
   return info.mode;
 }
 
@@ -18,9 +17,9 @@ export async function restoreGoogleSession(): Promise<{ csrfToken: string; admin
   return { csrfToken: text(session.csrfToken), admin: session.admin === true };
 }
 
-export async function logoutGoogleSession(): Promise<void> {
-  const response = await fetch('/api/auth/logout', { method: 'POST', cache: 'no-store',
-    credentials: 'same-origin', redirect: 'error', headers: authHeaders('', 'POST') });
+export async function logoutGoogleSession(auth: AuthPolicy, signal: AbortSignal): Promise<void> {
+  const response = await fetch('/api/auth/logout', { method: 'POST', signal, cache: 'no-store',
+    credentials: 'same-origin', redirect: 'error', headers: auth.authHeaders('', 'POST') });
   if (!response.ok) throw new Error('Не удалось завершить серверную сессию.');
 }
 

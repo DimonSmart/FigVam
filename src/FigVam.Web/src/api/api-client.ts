@@ -1,6 +1,7 @@
-import { authHeaders, credentialsMode } from './auth-client.js';
+import { createAuthContext, type AuthPolicy } from './auth-client.js';
 
 export interface ApiClientOptions {
+  auth?: AuthPolicy;
   getToken: () => string;
   getSessionEpoch?: () => number;
   getSessionSignal?: () => AbortSignal;
@@ -76,7 +77,7 @@ export interface ApiClient {
   readPng(...args: RequestArgs): Promise<Blob>;
 }
 
-export function createApiClient({ getToken, getSessionEpoch, getSessionSignal, onUnauthorized }: ApiClientOptions): ApiClient {
+export function createApiClient({ auth = createAuthContext(), getToken, getSessionEpoch, getSessionSignal, onUnauthorized }: ApiClientOptions): ApiClient {
   async function readResponse(
     path: string, options?: RequestInit, signal?: AbortSignal | null,
     isCurrent: () => boolean = () => true,
@@ -91,11 +92,11 @@ export function createApiClient({ getToken, getSessionEpoch, getSessionSignal, o
         throw new DOMException('Cancelled', 'AbortError');
     };
     assertCurrent();
-    const headers = new Headers(authHeaders(requestToken, options?.method));
+    const headers = new Headers(auth.authHeaders(requestToken, options?.method));
     if (options?.body) headers.set('Content-Type', 'application/json');
     new Headers(options?.headers).forEach((value, key) => headers.set(key, value));
     const response = await fetch(path, {
-      ...options, signal: requestSignal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers,
+      ...options, signal: requestSignal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers,
     });
     assertCurrent();
     if (response.status === 401) {

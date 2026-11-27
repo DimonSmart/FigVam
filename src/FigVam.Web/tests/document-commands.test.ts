@@ -23,7 +23,7 @@ describe('document command transport', () => {
     expect(classifyCommandFailure(new ApiError(403, {}))).toBe('rejected');
     expect(classifyCommandFailure(new ApiError(500, {}))).toBe('uncertain');
     expect(classifyCommandFailure(new ApiError(408, {}))).toBe('uncertain');
-    expect(classifyCommandFailure(new ApiError(403, {}), false)).toBe('uncertain');
+    expect(classifyCommandFailure(new ApiError(403, {}), false)).toBe('rejected');
     expect(classifyCommandFailure(new TypeError('network'))).toBe('uncertain');
   });
 });
@@ -80,6 +80,16 @@ describe('prepared document command lifecycle', () => {
     [new DOMException('cancelled','AbortError'),'uncertain'] ] as const)('classifies %s as %s',async(error,kind)=>{
     const op=prepare(),request=vi.fn().mockRejectedValue(error);
     expect((await op.execute(execution(request))).kind).toBe(kind);
+  });
+  it('retains a definitive rejection received after navigation',async()=>{
+    const op=prepare(); let current=true;
+    const request=vi.fn(async()=>{current=false;throw new ApiError(403,{});});
+    const synchronize=vi.fn(async()=>true);
+    expect((await op.execute({request,synchronize,isCurrent:()=>current})).kind).toBe('rejected');
+    current=true;
+    await op.execute({request,synchronize,isCurrent:()=>current});
+    expect(request).toHaveBeenCalledOnce();
+    expect(synchronize).not.toHaveBeenCalled();
   });
   it('does not treat malformed successful HTTP responses as confirmation',async()=>{
     const op=prepare(),request=vi.fn().mockResolvedValue({...ack('doc','same'),commandId:'different'});

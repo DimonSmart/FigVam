@@ -1,7 +1,8 @@
-import { authHeaders, credentialsMode } from '../../api/auth-client.js';
+import type { AuthPolicy } from '../../api/auth-client.js';
 import { ApiError } from '../../api/api-client.js';
 type CaptureEvent = Record<string, unknown> & { code: string };
 interface CollaborationOptions {
+  auth: AuthPolicy;
   request(path: string, options: RequestInit, signal: AbortSignal): Promise<unknown>;
   workspace: { documentId: string | null; revision: number | null; token: string | null };
   isEditorVisible(): boolean;
@@ -20,7 +21,7 @@ function isRevision(value: unknown): value is number {
 }
 
 export function createDocumentCollaboration({
-  request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, onUnauthorized, onCaptureEvent, onCaptureDisconnect
+  auth, request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, onUnauthorized, onCaptureEvent, onCaptureDisconnect
 }: CollaborationOptions) {
   let liveController: AbortController | null = null;
   function stop() {
@@ -70,7 +71,7 @@ export function createDocumentCollaboration({
         if (recovery.revision > workspace.revision) await readRevision(signal, recovery.revision);
         if (!active()) return;
         const response = await fetch(`${base}/events?lastSeenRevision=${workspace.revision}`, {
-          signal, cache: 'no-store', credentials: credentialsMode(), redirect: 'error', headers: { ...authHeaders(workspace.token ?? ''), ...(onCaptureEvent ? { 'X-FigVam-Screen-Capture': '1' } : {}) }
+          signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers: { ...auth.authHeaders(workspace.token ?? ''), ...(onCaptureEvent ? { 'X-FigVam-Screen-Capture': '1' } : {}) }
         });
         if (!active()) return;
         if (response.status === 401) { onUnauthorized(); return; }

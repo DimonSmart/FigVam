@@ -1,4 +1,4 @@
-import { isGoogleMode, setCsrf } from '../api/auth-client';
+import { createAuthContext } from '../api/auth-client';
 import { createDocumentCreation } from '../features/home/document-creation';
 import { createScreenCapture } from '../canvas/screen-capture';
 import { createApiClient, type ApiClient } from '../api/api-client';
@@ -42,6 +42,7 @@ import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
 const sessionState = createSessionLifecycle();
+const auth = createAuthContext();
 const { setToken, advanceNavigation, cancelRequest, startRequest } = sessionState;
 const catalog = createDocumentCatalog();
 const shellState = createApplicationShellState();
@@ -70,7 +71,7 @@ mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views
 const authenticationView = createAuthenticationView(views.authentication, submitBearerToken);
 const documentListView = createDocumentListView(views.documentList, deleteCatalogDocument);
 const homeNavigation = createHomeNavigation(views.homeNavigation, selectHomeView);
-const userAdmin = createUserAdmin(views.userAdmin);
+const userAdmin = createUserAdmin(views.userAdmin, auth);
 function selectHomeView(view: 'users' | 'documents') {
   const users = view === 'users' && homeNavigation.isAdmin();
   shellState.patch({ homeView: users ? 'users' : 'documents' });
@@ -82,6 +83,7 @@ const selectionState = createWorkspaceSelection();
 const revisions = createDocumentRevisionState();
 let statusDismissTimer: ReturnType<typeof setTimeout> | undefined;
 const request: ApiClient = createApiClient({
+  auth,
   getToken: () => sessionState.token,
   getSessionEpoch: () => sessionState.sessionEpoch,
   getSessionSignal: () => sessionState.signal,
@@ -92,6 +94,7 @@ const request: ApiClient = createApiClient({
 });
 
 const documentCreation = createDocumentCreation({
+  auth,
   shellState, request, run, message, navigate, loadList, session: sessionState,
   onUnauthorized: () => { clearSession(); message('', 'Сессия завершена. Войдите повторно.'); }
 });
@@ -118,6 +121,7 @@ const mcpContext = () => ({ documentId, token: sessionState.token, navigationEpo
 const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, menu: editorShell.menu, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
+  auth,
   request,
   workspace: {
     get documentId() { return documentId; },
@@ -137,6 +141,7 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
 });
 
 const documentExport: ReturnType<typeof createDocumentExport> = createDocumentExport({
+  auth,
   model: views.documentExport, isEditorVisible, getContext: () => ({ token: sessionState.token, documentId, documentRole: getDocumentRole(), revision: revisions.revision, navigationEpoch: sessionState.navigationEpoch }),
   onUnauthorized: () => {
     clearSession();
@@ -216,7 +221,7 @@ function clearSession() {
   presence.stop(); advanceNavigation(); diagnostics.reset(); scenarios.reset(); members.reset(); documentExport.reset(); scenarios.clearCommands(); layers.clearCommands();
   stopLive();
   setToken('');
-  setCsrf('');
+  auth.setCsrf('');
   userAdmin.hide();
   homeNavigation.setAdmin(false);
   selectHomeView('documents');
@@ -403,6 +408,7 @@ function renderScreens() {
 
 
 const presence: ReturnType<typeof createPresence> = createPresence({
+  auth,
   isEditorVisible,
   models: views.presence,
   element,
@@ -590,13 +596,15 @@ function submitBearerToken(supplied: string) {
   requestAnimationFrame(() => element('content').focus());
 }
 async function signOut() {
-  if (isGoogleMode()) {
+  const epoch = sessionState.sessionEpoch;
+  if (auth.isGoogleMode()) {
     try {
-      await logoutGoogleSession();
-    } catch (error) { message('', errorMessage(error)); return; }
+      await logoutGoogleSession(auth, sessionState.signal);
+    } catch (error) { if (epoch === sessionState.sessionEpoch) message('', errorMessage(error)); return; }
   }
+  if (epoch !== sessionState.sessionEpoch) return;
   clearSession();
-  if (!isGoogleMode()) authenticationView.focusToken();
+  if (!auth.isGoogleMode()) authenticationView.focusToken();
 }
 function createScreen() {
   if (documentShell.getSnapshot().pageBusy) return;
@@ -653,6 +661,7 @@ async function initializeAuthentication() {
   try {
     const mode = await readAuthenticationMode();
     if (epoch !== sessionState.sessionEpoch) return;
+    auth.configureAuth(mode);
     if (mode === 'bearer') {
       authenticationView.setMode('bearer');
       editorShell.setSignoutLabel('Забыть токен');
@@ -663,7 +672,7 @@ async function initializeAuthentication() {
     if (authError) authenticationView.setError('Google-аккаунт не подтверждён или доступ к FigVam не разрешён.');
     const session = await restoreGoogleSession();
     if (!session || epoch !== sessionState.sessionEpoch) return;
-    setCsrf(session.csrfToken);
+    auth.setCsrf(session.csrfToken);
     setToken('__figvam_browser_session__');
     authenticationView.setVisible(false);
     shellState.patch({ authenticated: true });

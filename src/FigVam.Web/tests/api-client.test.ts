@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSessionLifecycle } from '../src/core/session';
 import { ApiError, createApiClient } from '../src/api/api-client';
-import { configureAuth, setCsrf } from '../src/api/auth-client';
+import { createAuthContext } from '../src/api/auth-client';
 
 describe('API transport', () => {
-  beforeEach(() => { configureAuth('bearer'); setCsrf(''); });
   afterEach(() => vi.unstubAllGlobals());
 
   it('preserves bearer, cache, and redirect policy', async () => {
@@ -20,16 +19,36 @@ describe('API transport', () => {
   });
 
   it('uses CSRF for Google-authenticated mutations', async () => {
-    configureAuth('google'); setCsrf('csrf-value');
+    const auth = createAuthContext();
+    auth.configureAuth('google'); auth.setCsrf('csrf-value');
     const fetch = vi.fn().mockResolvedValue(Response.json({}));
     vi.stubGlobal('fetch', fetch);
-    const client = createApiClient({ getToken: () => '', onUnauthorized: vi.fn() });
+    const client = createApiClient({ auth, getToken: () => '', onUnauthorized: vi.fn() });
     await client('/api/v1/documents', { method: 'POST', body: '{}' });
     const init = fetch.mock.calls[0]?.[1] as RequestInit;
     const headers = new Headers(init.headers);
     expect(headers.get('X-CSRF-TOKEN')).toBe('csrf-value');
     expect(headers.has('Authorization')).toBe(false);
     expect(init.credentials).toBe('same-origin');
+  });
+
+  it('isolates authentication policy and CSRF between clients', async () => {
+    const a = createAuthContext(), b = createAuthContext();
+    a.configureAuth('google'); a.setCsrf('first');
+    b.configureAuth('google'); b.setCsrf('second');
+    const fetch = vi.fn().mockResolvedValue(Response.json({}));
+    vi.stubGlobal('fetch', fetch);
+    const first = createApiClient({auth:a,getToken:()=>'',onUnauthorized:vi.fn()});
+    const second = createApiClient({auth:b,getToken:()=>'',onUnauthorized:vi.fn()});
+    await first('/api/test',{method:'POST'});
+    await second('/api/test',{method:'POST'});
+    a.setCsrf('');
+    await first('/api/test',{method:'POST'});
+    await second('/api/test',{method:'POST'});
+    expect(fetch.mock.calls.map(call=>new Headers(call[1].headers).get('X-CSRF-TOKEN'))).toEqual(['first','second','','second']);
+    a.configureAuth('bearer');
+    expect(a.authHeaders('token')).toEqual({Authorization:'Bearer token'});
+    expect(b.credentialsMode()).toBe('same-origin');
   });
 
   it('rejects responses from an obsolete session', async () => {
