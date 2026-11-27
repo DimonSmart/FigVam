@@ -5,7 +5,7 @@ import { requiredRecord, text, array, errorMessage, aborted } from '../api/decod
 import { ApiError, type ApiClient } from '../api/api-client';
 import type { components } from '../api/schema.generated';
 import type { DesignToken, NodePropertyValue, ResolvableValue, Theme } from '../core/tokens/token-model';
-import type { PreviewChrome, RenderFeedback } from '../app/preview-chrome';
+import type { PreviewChromeSink as PreviewChrome, RenderFeedbackSink as RenderFeedback } from './chrome-contracts';
 import type { CanvasNode, CanvasKind, LayoutBox, NodeProperties } from './canvas-model';
 type Schema=components['schemas'];
 type PreviewTrigger=Schema['PreviewTrigger'];

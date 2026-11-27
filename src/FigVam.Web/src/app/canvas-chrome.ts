@@ -1,6 +1,6 @@
 import { createPanelStore } from './panel-store';
 
-interface CanvasChromeState {caption:string;zoomPercent:number;available:boolean;hint:string}
+import type { CanvasChromeState } from '../canvas/chrome-contracts';
 export function createCanvasChrome(){
   const store=createPanelStore<CanvasChromeState>({caption:'Выберите экран, чтобы показать его на холсте.',zoomPercent:100,available:false,hint:''});
   return {...store,patch(next:Partial<CanvasChromeState>){

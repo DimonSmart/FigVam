@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/api/api-client';
-import { classifyCommandFailure, createCommandBody, postDocumentCommand, createDocumentCommand, prepareDocumentCommand } from '../src/api/document-commands';
+import { classifyCommandFailure, createCommandBody, createDocumentCommand, prepareDocumentCommand } from '../src/api/document-commands';
 
 function ack(documentId: string, commandId: string) {
   return {status:'ACCEPTED', documentId, commandId, revision:2, pageId:null, screenId:null, nodeId:null, versionId:null, affectedIds:[]};
@@ -9,12 +9,14 @@ describe('document command transport', () => {
   it('reuses the same ID and body on explicit retry, with cancellation and stale-response guard', async () => {
     const request = vi.fn().mockResolvedValue(ack('a/b','same-id'));
     const body = createCommandBody({pageId: 'p', expectedRevision: 1}, 'same-id');
-    const signal = new AbortController().signal, active = () => true;
-    await postDocumentCommand(request, 'a/b', 'delete-page', body, signal, active);
-    await postDocumentCommand(request, 'a/b', 'delete-page', body, signal, active);
+    const signal = new AbortController().signal, isCurrent = () => true;
+    const op=prepareDocumentCommand('a/b','delete-page',body);
+    request.mockRejectedValueOnce(new TypeError('network'));
+    await op.execute({request,signal,isCurrent,synchronize:async()=>true});
+    await op.execute({request,signal,isCurrent,synchronize:async()=>true});
     expect(request.mock.calls[0]).toEqual(request.mock.calls[1]);
     expect(request).toHaveBeenCalledWith('/api/v1/documents/a%2Fb/commands/delete-page',
-      {method: 'POST', body: JSON.stringify(body)}, signal, active);
+      {method:'POST',body:JSON.stringify(body)},signal);
   });
   it('distinguishes conflicts, definitive rejection and uncertain outcomes', () => {
     expect(classifyCommandFailure(new ApiError(409, {}))).toBe('conflict');

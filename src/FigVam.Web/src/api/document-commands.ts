@@ -31,13 +31,6 @@ export function decodeCommandConfirmation(raw: unknown, documentId: string, comm
     nodeId: nullableId(value.nodeId), versionId: nullableId(value.versionId), affectedIds: array(value.affectedIds, text)};
 }
 
-/** Existing feature-owned operations use this validated transport while migrating to prepared operations. */
-export async function postDocumentCommand<T extends CommandBody>(request: Transport, documentId: string, command: DocumentCommandName,
-  body: T, signal?: AbortSignal | null, isCurrent?: () => boolean): Promise<CommandConfirmation> {
-  const value = await request(commandPath(documentId, command), { method: 'POST', body: JSON.stringify(body) }, signal, isCurrent);
-  return decodeCommandConfirmation(value, documentId, body.commandId);
-}
-
 export type CommandFailure = 'rejected' | 'conflict' | 'uncertain';
 export function classifyCommandFailure(error: unknown, current = true, timeoutIsUncertain = true): CommandFailure {
   if (!current || !(error instanceof ApiError) || error.status >= 500 || (timeoutIsUncertain && error.status === 408)) return 'uncertain';

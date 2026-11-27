@@ -1,6 +1,6 @@
 interface Point { x: number; y: number }
 interface Screen { id: string; dimensions: { width: number; height: number } }
-import type { CanvasChrome } from '../app/canvas-chrome';
+import type { CanvasChromeSink as CanvasChrome } from './chrome-contracts';
 interface ViewportOptions {
   chrome:CanvasChrome;
   element: (id: string) => HTMLElement | null;
