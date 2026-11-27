@@ -50,6 +50,7 @@ function View({state,pageSize,search,select,load,move,moveUsage,resetKey}:{state
 export function createComponentsModel(){return createViewModel(View);}
 export function createComponents({model,request,pageSize,getContext}:{model:ReturnType<typeof createComponentsModel>;request:ApiClient;pageSize:number;getContext():Context}) {
   let state=initial(),generation=0,query='',resetKey=0;
+  let readController:AbortController|null=null;
   function render(patch:Partial<State>={}) {
     state={...state,...patch};
     model.publish({state,pageSize,resetKey,load:()=>void load(),
@@ -58,31 +59,32 @@ export function createComponents({model,request,pageSize,getContext}:{model:Retu
       move:delta=>{render({offset:Math.max(0,state.offset+delta*pageSize)});void load();},
       moveUsage:delta=>{render({usageOffset:Math.max(0,state.usageOffset+delta*pageSize)});void load();}});
   }
-  function reset(){generation++;query='';resetKey++;state=initial();render();}
+  function reset(){readController?.abort();readController=null;generation++;query='';resetKey++;state=initial();render();}
   async function load():Promise<void> {
+    readController?.abort();const controller=new AbortController();readController=controller;
     const {documentId:doc,revision,catalogRevision}=getContext();
     if(!doc||revision===null||!Number.isSafeInteger(revision))return;
     const current=++generation,offset=state.offset;
-    const valid=()=>{const ctx=getContext();return current===generation&&doc===ctx.documentId&&catalogRevision===ctx.catalogRevision;};
+    const valid=()=>{const ctx=getContext();return !controller.signal.aborted&&current===generation&&doc===ctx.documentId&&catalogRevision===ctx.catalogRevision;};
     const base='/api/v1/documents/'+encodeURIComponent(doc)+'/components';
     render({status:'Загрузка компонентов…',error:'',retry:false,items:[],detailVisible:false,total:0,usageTotal:0});
     try {
       const params=new URLSearchParams({revision:String(revision),offset:String(offset),limit:String(pageSize),search:query});
-      const result=page(await request(base+'?'+params),summary);if(!valid())return;
+      const result=page(await request(base+'?'+params,{},controller.signal,valid),summary);if(!valid())return;
       if(offset&&!result.items.length){render({offset:Math.max(0,offset-pageSize)});return load();}
       render({items:result.items,total:result.total,status:result.total?'Компонентов: '+result.total+' · ревизия '+revision:'Компоненты не найдены.'});
-      if(state.selection)await loadDetail(base,state.selection,revision,valid);
+      if(state.selection)await loadDetail(base,state.selection,revision,controller.signal,valid);
     }catch(error){if(valid()&&!aborted(error))render({status:'',error:errorMessage(error),retry:true});}
   }
-  async function loadDetail(base:string,id:string,revision:number,valid:()=>boolean):Promise<void> {
+  async function loadDetail(base:string,id:string,revision:number,signal:AbortSignal,valid:()=>boolean):Promise<void> {
     const atOffset=state.usageOffset,active=()=>valid()&&state.selection===id,path=base+'/'+encodeURIComponent(id);
     render({detailVisible:true,detailTitle:'Загрузка…',component:null,usages:[],usageStatus:'Загрузка компонента и использований…',usageError:'',usageRetry:false});
     try {
       const params=new URLSearchParams({revision:String(revision),offset:String(atOffset),limit:String(pageSize)});
-      const [data,usageData]=await Promise.all([request(path+'?revision='+revision),request(path+'/usages?'+params)]);
+      const [data,usageData]=await Promise.all([request(path+'?revision='+revision,{},signal,active),request(path+'/usages?'+params,{},signal,active)]);
       if(!active())return;
       const usages=page(usageData,usage),component=detail(data);
-      if(atOffset&&!usages.items.length){render({usageOffset:Math.max(0,atOffset-pageSize)});return loadDetail(base,id,revision,valid);}
+      if(atOffset&&!usages.items.length){render({usageOffset:Math.max(0,atOffset-pageSize)});return loadDetail(base,id,revision,signal,valid);}
       render({component,detailTitle:component.name,usages:usages.items,usageTotal:usages.total,usageStatus:'Использований: '+usages.total+' · ревизия '+revision});
     }catch(error){if(active()&&!aborted(error))render({detailTitle:'Компонент недоступен',usageStatus:'',usageError:errorMessage(error),usageRetry:true});}
   }

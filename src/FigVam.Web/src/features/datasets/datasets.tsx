@@ -15,7 +15,7 @@ type DatasetCommand =
   | {command:'replace-dataset-fixture';body:Schemas['ReplaceDatasetFixtureRequest']}
   | {command:'replace-dataset-fixture-from-csv';body:Schemas['ReplaceDatasetFixtureFromCsvRequest']}
   | {command:'delete-dataset';body:Schemas['DeleteDatasetRequest']};
-type Operation={mutation:DocumentCommandOperation;selection:string|null;busy:boolean};
+type Operation={mutation:DocumentCommandOperation;selection:string|null;selectionEpoch:number;busy:boolean};
 type Summary=Pick<Schemas['DatasetSummary'],'id'|'name'>;
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;catalogRevision:number|null;token:string|null;generation:number;navigationEpoch:number}
 interface Options {
@@ -57,31 +57,33 @@ function View({state,editable,op,pageSize,select,move,reload,retryCommand,create
 }
 export function createDatasetsModel(){return createViewModel(View);}
 export function createDatasets({model,request,getContext,pageSize,startRequest,stopLive,startLive,readPages,run}:Options){
-  const operations=new Map<string,Operation>();let state=initial(),generation=0;
+  const operations=new Map<string,Operation>();let state=initial(),generation=0,selectionEpoch=0;
+  let readController:AbortController|null=null;
   const editable=()=>['Owner','Editor'].includes(getContext().documentRole??'');
   function render(patch:Partial<State>={}){
     state={...state,...patch};const doc=getContext().documentId,op=doc?operations.get(doc):undefined;
     model.publish({state,editable:editable(),op,pageSize,
-      select:id=>{state.selection=id;void load();},move:delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();},
+      select:id=>{selectionEpoch++;state.selection=id;void load();},move:delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();},
       reload:()=>{if(getContext().documentId)void run(load,readPages);},retryCommand:()=>{if(op)void command(op);},
       create,replace,remove});
   }
-  function reset(){generation++;state={...initial(),formKey:state.formKey+1};render();}
+  function reset(){readController?.abort();readController=null;generation++;selectionEpoch++;state={...initial(),formKey:state.formKey+1};render();}
   async function load():Promise<void>{
+    readController?.abort();const controller=new AbortController();readController=controller;
     const {documentId:doc,revision,catalogRevision}=getContext(),current=++generation;
     if(!doc||revision===null||!Number.isSafeInteger(revision))return;
-    const valid=()=>current===generation&&doc===getContext().documentId&&catalogRevision===getContext().catalogRevision;
+    const valid=()=>!controller.signal.aborted&&current===generation&&doc===getContext().documentId&&catalogRevision===getContext().catalogRevision;
     const base='/api/v1/documents/'+encodeURIComponent(doc)+'/datasets';
     render({status:'Загрузка датасетов…',error:'',retry:false,items:[],detail:null});
     try{
-      const response=await request(base+'?revision='+revision+'&offset='+state.offset+'&limit='+pageSize);
+      const response=await request(base+'?revision='+revision+'&offset='+state.offset+'&limit='+pageSize,{},controller.signal,valid);
       if(!valid())return;
       const result=page(response,item=>{const i=requiredRecord(item);return{id:text(i.id),name:text(i.name)};});
       if(state.offset&&!result.items.length){state.offset=Math.max(0,state.offset-pageSize);return load();}
       render({items:result.items,total:result.total,status:result.total?'Датасетов: '+result.total+' · ревизия '+revision:'Датасетов пока нет.'});
       if(state.selection){
         const path=base+'/'+encodeURIComponent(state.selection);
-        const [detail,fixture]=await Promise.all([request(path+'?revision='+revision),request(path+'/fixture?revision='+revision)]);
+        const [detail,fixture]=await Promise.all([request(path+'?revision='+revision,{},controller.signal,valid),request(path+'/fixture?revision='+revision,{},controller.signal,valid)]);
         if(!valid())return;
         render({detail:{name:text(requiredRecord(requiredRecord(detail).dataset).name),fixture:text(requiredRecord(fixture).fixtureJson)}});
       }
@@ -98,7 +100,7 @@ export function createDatasets({model,request,getContext,pageSize,startRequest,s
     try{
       const result=await op.mutation.execute({request,isCurrent:active,synchronize:async confirmation=>{
         stopLive();refreshing=true;const {signal,current}=startRequest();
-        state.selection=op.selection;
+        if(selectionEpoch===op.selectionEpoch)state.selection=op.selection;
         const refreshed=await readPages(signal);
         return active()&&current===getContext().generation&&!signal.aborted&&refreshed===true&&(getContext().revision??-1)>=confirmation.revision;
       }});
@@ -124,7 +126,7 @@ export function createDatasets({model,request,getContext,pageSize,startRequest,s
   function submit(commandValue:DatasetCommand,selection:string|null){
     const doc=getContext().documentId;if(!doc||operations.has(doc))return;
     const mutation=prepareDocumentCommand(doc,commandValue.command,commandValue.body);
-    const op:Operation={mutation,selection,busy:false};
+    const op:Operation={mutation,selection,selectionEpoch,busy:false};
     operations.set(doc,op);void command(op);
   }
   function create(name:string,csv:boolean,content:string){

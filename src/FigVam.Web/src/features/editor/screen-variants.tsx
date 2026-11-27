@@ -11,7 +11,7 @@ type VariantCommand=components['schemas']['AddScreenVariantRequest'];
 interface Variant {id:string;name:string}
 interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;catalogRevision:number|null;token:string|null;navigationEpoch:number}
 interface Options {model:ReturnType<typeof createScreenVariantsModel>;element(id:string):HTMLElement;request:ApiClient;refreshPages():Promise<unknown>;onSelectionChanged?():void;pageSize:number;workspace:Workspace}
-interface Operation {body:VariantCommand;mutation:DocumentCommandOperation;state:'ready'|'pending'|'uncertain'|'sync'}
+interface Operation {body:VariantCommand;mutation:DocumentCommandOperation;selectionEpoch:number;state:'ready'|'pending'|'uncertain'|'sync'}
 interface State {items:Variant[];status:string;error:string;retry:boolean;offset:number;total:number;formKey:number;hasBase:boolean}
 const initial=():State=>({items:[],status:'Выберите экран.',error:'',retry:false,offset:0,total:0,formKey:0,hasBase:false});
 function View({state,selected,editable,enabled,op,pageSize,select,create,retry,retryCommand,move}:{state:State;selected:string|null;editable:boolean;enabled:boolean;op:Operation|undefined;pageSize:number;select(id:string|null):void;create(name:string):void;retry():void;retryCommand():void;move(delta:number):void}){
@@ -32,6 +32,7 @@ function View({state,selected,editable,enabled,op,pageSize,select,create,retry,r
 export function createScreenVariantsModel(){return createViewModel(View);}
 export function createScreenVariants({model,element,request,refreshPages,onSelectionChanged,pageSize,workspace}:Options){
   const operations=new Map<string,Operation>();
+  let readController:AbortController|null=null,selectionEpoch=0;
   let state=initial(),generation=0,screenId:string|null=null,selected:string|null=null,commandError:{key:string;message:string}|null=null;
   const key=(doc:string|null,screen:string|null)=>doc+'/'+screen;
   const currentKey=()=>key(workspace.documentId,workspace.selectedScreen);
@@ -43,17 +44,18 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
       select:selectVariant,create:name=>void create(name),retry:()=>void load(),retryCommand:()=>{const doc=workspace.documentId,screen=workspace.selectedScreen;if(doc&&screen&&(op?.state==='uncertain'||op?.state==='sync'))void send(doc,screen,op);},
       move:delta=>{state.offset=Math.max(0,state.offset+delta*pageSize);void load();}});
   }
-  function selectVariant(id:string|null){if(id===selected)return;selected=id;render();onSelectionChanged?.();}
-  function reset(){generation++;screenId=null;commandError=null;state={...initial(),formKey:state.formKey+1};if(selected!==null)selectVariant(null);else render();}
+  function selectVariant(id:string|null){if(id===selected)return;selectionEpoch++;selected=id;render();onSelectionChanged?.();}
+  function reset(){readController?.abort();readController=null;generation++;selectionEpoch++;screenId=null;commandError=null;state={...initial(),formKey:state.formKey+1};if(selected!==null)selectVariant(null);else render();}
   async function load():Promise<void>{
+    readController?.abort();const controller=new AbortController();readController=controller;
     const screen=workspace.selectedScreen,doc=workspace.documentId,revision=workspace.revision,catalogRevision=workspace.catalogRevision,current=++generation;
     if(screenId!==screen){state.offset=state.total=0;screenId=screen;commandError=null;selectVariant(null);}
     render({items:[],hasBase:false,error:'',retry:false});
     if(!screen||!doc||revision===null||!Number.isSafeInteger(revision)){render({status:'Выберите экран.'});return;}
-    const valid=()=>current===generation&&doc===workspace.documentId&&screen===workspace.selectedScreen&&catalogRevision===workspace.catalogRevision;
+    const valid=()=>!controller.signal.aborted&&current===generation&&doc===workspace.documentId&&screen===workspace.selectedScreen&&catalogRevision===workspace.catalogRevision;
     render({status:'Загрузка вариантов…'});
     try{
-      const response=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(doc)+'/screens/'+encodeURIComponent(screen)+'/variants?revision='+revision+'&offset='+state.offset+'&limit='+pageSize));
+      const response=requiredRecord(await request('/api/v1/documents/'+encodeURIComponent(doc)+'/screens/'+encodeURIComponent(screen)+'/variants?revision='+revision+'&offset='+state.offset+'&limit='+pageSize,{},controller.signal,valid));
       if(!valid())return;
       if(response.revision!==revision||text(response.screenId).toLowerCase()!==screen.toLowerCase()||text(response.documentId).toLowerCase()!==doc.toLowerCase())throw new TypeError('Некорректный ответ');
       const result=page(response,v=>{const item=requiredRecord(v);return{id:text(item.id),name:text(item.name)};});
@@ -69,7 +71,7 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
     op.state='pending';if(visible()){commandError=null;render({error:''});}
     try{
       const result=await op.mutation.execute({request,isCurrent:active,synchronize:async confirmation=>{
-        if(visible()){render({formKey:state.formKey+1});selectVariant(op.body.variantId);}
+        if(visible()){render({formKey:state.formKey+1});if(selectionEpoch===op.selectionEpoch)selectVariant(op.body.variantId);}
         await refreshPages();
         return active()&&(workspace.revision??-1)>=confirmation.revision;
       }});
@@ -87,7 +89,7 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
     const doc=workspace.documentId,screen=workspace.selectedScreen,k=currentKey();
     if(!doc||!screen||!canEdit()||operations.has(k))return;
     const body:VariantCommand={commandId:crypto.randomUUID(),screenId:screen,variantId:crypto.randomUUID(),name};
-    const op:Operation={body,mutation:prepareDocumentCommand(doc,'add-screen-variant',body),state:'ready'};
+    const op:Operation={body,mutation:prepareDocumentCommand(doc,'add-screen-variant',body),selectionEpoch,state:'ready'};
     operations.set(k,op);await send(doc,screen,op);
   }
   render();return{reset,load,clearCommands:()=>operations.clear(),discardDocument(doc:string){for(const id of operations.keys())if(id.startsWith(doc+'/'))operations.delete(id);},get selectedVariantId(){return selected;}};

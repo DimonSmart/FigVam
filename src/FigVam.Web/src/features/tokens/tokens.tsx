@@ -51,7 +51,9 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
   let importEpoch = 0;
   let selectedTypes=new Set<TokenType>(types);
   let createControls:ValueField[]=[],detailControls:ValueField[]=[],renaming=false;
-  const pendingThemeValues=new Map<Theme,ThemeSave>();
+  const pendingThemeValues=new Map<string,ThemeSave>();
+  const themeKey=(tokenId:string,theme:Theme)=>`${tokenId}:${theme}`;
+  let usageController:AbortController|null=null;
   let activeThemeSave:ThemeSave|null=null;
   let commandBusy=false,detailBusy=false,importOpen=false,importMode:'combined'|'pair'='combined';
   const emptyImport=():ImportValues=>({combined:'',light:'',dark:'',mapping:''});
@@ -224,7 +226,7 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
       function onEdit(kind:EditKind){
         if(!item||kind==='input'||kind==='color-preview'||(busy()&&!activeThemeSave)||!editable()||selectedToken!==item.id)return;
         try{const value=readExpression(field);setError('');queueThemeSave(item.id,theme,index,value);}
-        catch(error){pendingThemeValues.delete(theme);setError(errorMessage(error));}
+        catch(error){pendingThemeValues.delete(themeKey(item.id,theme));setError(errorMessage(error));}
       }
       field=createValueField(spec,prefix,{onEdit,disabled:!!item&&!editable()});
       return field;
@@ -237,17 +239,17 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
   // remains serialized, but saving Light must not discard an edit made in Dark.
   function queueThemeSave(tokenId:string,theme:Theme,index:number,value:TokenExpression) {
     const baseline = activeThemeSave?.tokenId === tokenId && activeThemeSave.theme === theme
-      ? activeThemeSave.value : selected()?.values?.[theme];
-    if (JSON.stringify(value) === JSON.stringify(baseline)) pendingThemeValues.delete(theme);
-    else pendingThemeValues.set(theme, { tokenId, theme, index, value, documentId: getContext().documentId });
+      ? activeThemeSave.value : tokenItems.find(item=>item.id===tokenId)?.values?.[theme];
+    if (JSON.stringify(value) === JSON.stringify(baseline)) pendingThemeValues.delete(themeKey(tokenId,theme));
+    else pendingThemeValues.set(themeKey(tokenId,theme), { tokenId, theme, index, value, documentId: getContext().documentId });
     void flushThemeSaves();
   }
   async function flushThemeSaves() {
     if (activeThemeSave || busy() || !editable() || !pendingThemeValues.size) return;
     const operation=pendingThemeValues.values().next().value;if(!operation)return;
-    pendingThemeValues.delete(operation.theme);
+    pendingThemeValues.delete(themeKey(operation.tokenId,operation.theme));
     if (operation.documentId !== getContext().documentId || !tokenItems.some(item => item.id === operation.tokenId)) {
-      pendingThemeValues.clear(); return;
+      void flushThemeSaves(); return;
     }
     activeThemeSave = operation;
     const saved = await tokenCommand('set-token-value', {
@@ -261,6 +263,7 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
   function endRename(){renaming=false;publishPanel();}
   function beginRename(){const item=selected();if(!item||!editable()||busy())return;renaming=true;renameName=item.name;publishPanel();}
   function resetTokens() {
+    usageController?.abort();usageController=null;
     tokenLoad++;importEpoch++;tokenItems=[];tokenUsages=[];selectedToken=null;rendered=false;
     pendingThemeValues.clear();activeThemeSave=null;group=[];collapsed=new Set();creating=false;usagesReady=false;
     search='';selectedTypes=new Set(types);models.groups.clear();resetImport();syncTypeFilter(false);
@@ -354,6 +357,7 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
       selectLayer:id=>{showEditor();selectLayer(id);}});
   }
   function clearSelection() {
+    usageController?.abort();usageController=null;
     selectedToken = null; tokenLoad++; tokenUsages = []; usagesReady = false;
     // A presentation filter must not discard theme edits already queued for saving.
     endRename();
@@ -371,17 +375,17 @@ export function createTokens({ models, selectLayer, showEditor, request, getCont
   }
   async function selectToken(id:string) {
     endRename();
-    pendingThemeValues.clear();
+    usageController?.abort();const controller=new AbortController();usageController=controller;
     selectedToken = id; tokenUsages = []; creating = false; usagesReady = false;
     const current = ++tokenLoad, doc = getContext().documentId, revision = getContext().revision;
     renderTokens();
     if(!id||!doc||revision===null||!Number.isSafeInteger(revision))return;
     try {
-      const items = await readAllTokenPages(`/api/v1/documents/${encodeURIComponent(doc)}/tokens/${encodeURIComponent(id)}/usages`,revision,usage);
+      const items = await readAllTokenPages(`/api/v1/documents/${encodeURIComponent(doc)}/tokens/${encodeURIComponent(id)}/usages`,revision,usage,controller.signal,()=>current===tokenLoad&&doc===getContext().documentId&&revision===getContext().revision);
       if (current !== tokenLoad || doc !== getContext().documentId || revision !== getContext().revision) return;
       tokenUsages = items; usagesReady = true; setError(''); renderTokens(true, false);
     } catch (error) {
-      if (current === tokenLoad && doc === getContext().documentId) setError(errorMessage(error));
+      if (!controller.signal.aborted && current === tokenLoad && doc === getContext().documentId && revision===getContext().revision) setError(errorMessage(error));
     }
   }
   async function tokenCommand(...input:TokenCommandInput):Promise<boolean|undefined>{
