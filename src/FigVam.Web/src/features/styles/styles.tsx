@@ -1,8 +1,11 @@
+import type { ComponentType } from 'react';
+import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
 import { ResourceUsages } from '../../ui/ResourceUsages';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
+import { postDocumentCommand } from '../../api/document-commands';
 import { requiredRecord, array, text, errorMessage, aborted } from '../../api/decode';
 import { nodeProperty } from '../../canvas/render-model';
 import type { DesignToken, NodePropertyValue, TokenType, TokenCategory, Theme, TokenValue, TypographyFieldsValue, TypographyField } from '../../core/tokens/token-model';
@@ -11,8 +14,7 @@ type StyleType='TextStyle'|'BorderStyle';
 interface DesignStyle {id:string;name:string;type:number|string;fields:Record<string,NodePropertyValue>;basedOnStyleId:string|null}
 interface Usage {label?:string;kind:string;property?:string;theme?:string|number|null;indirect?:boolean;ownerId:string;chain?:string[]}
 interface Context {documentId:string|null;documentRole:string|null;revision:number|null;generation:number}
-interface Options {models:ReturnType<typeof createStyleModels>;selectLayer(id:string):void;element(id:string):HTMLElement;request:ApiClient;getContext():Context;getTokens():DesignToken[];startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
-function checked<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected style field: '+node.id);return node;}
+interface Options {models:ReturnType<typeof createStyleModels>;selectLayer(id:string):void;request:ApiClient;getContext():Context;getTokens():DesignToken[];startRequest():{signal:AbortSignal;current:number};stopLive():void;startLive():void;readPages(signal:AbortSignal):Promise<unknown>}
 function style(value:unknown):DesignStyle{const s=requiredRecord(value);return{id:text(s.id),name:text(s.name),type:typeof s.type==='number'?s.type:text(s.type),fields:Object.fromEntries(Object.entries(requiredRecord(s.fields)).map(([name,v])=>[name,nodeProperty(v)])),basedOnStyleId:s.basedOnStyleId==null?null:text(s.basedOnStyleId)};}
 function usage(value:unknown):Usage{const v=requiredRecord(value);return{kind:text(v.kind),ownerId:text(v.ownerId),label:v.label==null?undefined:text(v.label),property:v.property==null?undefined:text(v.property),theme:v.theme==null?null:typeof v.theme==='number'?v.theme:text(v.theme),indirect:v.indirect===true,chain:array(v.chain??[],text)};}
 import { normalizedTokenType, normalizedTokenCategory, resolveTokenValue, resolveInlineTypography, tokenValueText } from '../../core/tokens/token-resolution';
@@ -118,28 +120,47 @@ function StyleFields({rows,tokens,updateDraft,setActive}:StyleFieldProps){
     })}</>;
 
 }
-export function createStyleModels(){return {fields:createViewModel(StyleFields),usage:createViewModel(ResourceUsages)};}
+interface StylePanelProps {
+  items:DesignStyle[]; selectedId:string|null; name:string; type:StyleType; parentId:string; writable:boolean; busy:boolean;
+  preview:string; error:string; status:string; Fields:ComponentType; Usages:ComponentType;
+  select(id:string):void; changeName(value:string):void; changeType(value:StyleType):void; changeParent(value:string):void; save():void; remove():void;
+}
+function StylePanel(p:StylePanelProps) {
+  const parents=p.items.filter(item=>styleType(item)===p.type&&item.id!==p.selectedId);
+  return <div id="styles-panel">
+    <h3>Стили оформления</h3><p id="styles-total" role="status">Стили: {p.items.length}</p>
+    <p id="styles-error" role="alert">{p.error}</p><p id="styles-status" role="status" aria-live="polite">{p.status}</p>
+    <label htmlFor="styles-list">TextStyle и BorderStyle</label>
+    <select id="styles-list" aria-label="Выбрать стиль или создать новый" value={p.selectedId??''} onChange={event=>p.select(event.currentTarget.value)}>
+      <option value="">Новый стиль</option>{p.items.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+    </select>
+    <form id="styles-form" hidden={!p.writable} onSubmit={event=>{event.preventDefault();p.save();}}>
+      <label htmlFor="styles-name">Имя стиля</label><TextInput id="styles-name" maxLength={256} required value={p.name} onChange={event=>p.changeName(event.currentTarget.value)}/>
+      <label htmlFor="styles-type">Тип</label><select id="styles-type" disabled={!!p.selectedId} value={p.type} onChange={event=>p.changeType(event.currentTarget.value==='TextStyle'?'TextStyle':'BorderStyle')}>
+        <option value="TextStyle">TextStyle</option><option value="BorderStyle">BorderStyle</option>
+      </select>
+      <label htmlFor="styles-based-on">Основан на (BasedOn)</label>
+      <select id="styles-based-on" value={p.parentId} onChange={event=>p.changeParent(event.currentTarget.value)}>
+        <option value="">Без родителя</option>{parents.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}
+        {p.parentId&&!parents.some(item=>item.id===p.parentId)&&<option value={p.parentId} disabled>Недоступная ссылка</option>}
+      </select>
+      <div id="styles-fields"><p.Fields/></div><Button id="styles-save" type="submit" disabled={!p.writable||p.busy}>Сохранить стиль</Button>
+    </form>
+    <Button id="styles-delete" type="button" hidden={!p.writable||!p.selectedId} disabled={p.busy} onClick={p.remove}>Удалить неиспользуемый стиль</Button>
+    <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark">{p.preview}</pre><h4>Использования стиля</h4>
+    <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"><p.Usages/></ul>
+  </div>;
+}
+export function createStyleModels(){return {panel:createViewModel(StylePanel),fields:createViewModel(StyleFields),usage:createViewModel(ResourceUsages)};}
 
-export function createStyles({ models, selectLayer, element, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
-  const el = element;
+export function createStyles({ models, selectLayer, request, getContext, getTokens, startRequest, stopLive, startLive, readPages }:Options) {
   let items:DesignStyle[]=[], selectedId:string|null=null,busy=false,tokenSignature='';
-  const select=(id:string)=>checked(el(id),HTMLSelectElement),fieldInput=(id:string)=>checked(el(id),HTMLInputElement),btn=(id:string)=>checked(el(id),HTMLButtonElement);
+  let draftName='',draftType:StyleType='TextStyle',draftParent='',status='',error='',lastWritable=false;
   let styleUsages:Usage[]=[],styleUsageRequest=0;
   const editable = () => ['Owner', 'Editor'].includes(getContext().documentRole??'');
   const chosen = () => items.find(style => style.id === selectedId);
   const tokens = () => getTokens() ?? [];
-  const choices = (source:HTMLSelectElement,options:readonly {id:string;name:string}[],empty='Выберите токен') => {
-    source.replaceChildren(new Option(empty, ''));
-    for (const item of options) source.add(new Option(item.name, item.id));
-  };
   let rows:FieldDraft[]=[];
-  function choose(select:HTMLSelectElement,value:string|null|undefined) {
-    if (value && ![...select.options].some(option => option.value === value)) {
-      const missing = new Option('Недоступная ссылка', value);
-      missing.disabled = true; select.add(missing);
-    }
-    select.value = value ?? '';
-  }
 
   function makeTypographyDraft(existing:TokenValue|null|undefined):TypographyDraft {
     const make=(field:TypographyField):ValueDraft=>{
@@ -196,26 +217,20 @@ export function createStyles({ models, selectLayer, element, request, getContext
     renderFields();
   }
 
+  function publishPanel() {
+    lastWritable=editable();
+    models.panel.publish({items,selectedId,name:draftName,type:draftType,parentId:draftParent,writable:lastWritable,busy,preview:previewText(chosen()),error,status,
+      Fields:models.fields.Component,Usages:models.usage.Component,
+      select:id=>{selectedId=id||null;void loadUsages();},
+      changeName:value=>{draftName=value;publishPanel();},
+      changeType:value=>{draftType=value;draftParent='';buildFields(chosen(),value);publishPanel();},
+      changeParent:value=>{draftParent=value;publishPanel();},save:saveStyle,remove:deleteStyle});
+  }
   function render() {
     const selected = chosen();
-    const type = styleType(selected);
-    const list = select('styles-list');
-    choices(list, items, 'Новый стиль');
-    choose(list, selectedId);
-    el('styles-total').textContent = 'Стили: ' + items.length;
-    const writable = editable();
-    el('styles-form').hidden = !writable;
-    el('styles-delete').hidden = !writable || !selected;
-    btn('styles-save').disabled = !writable || busy;
-    btn('styles-delete').disabled = busy;
-    fieldInput('styles-name').value = selected?.name ?? '';
-    select('styles-type').value = type;
-    select('styles-type').disabled = Boolean(selected);
-    const parent = select('styles-based-on');
-    choices(parent, items.filter(item => styleType(item) === type && item.id !== selected?.id), 'Без родителя');
-    choose(parent, selected?.basedOnStyleId);
-    buildFields(selected, type);
-    renderPreview(selected);
+    draftType=styleType(selected);draftName=selected?.name??'';draftParent=selected?.basedOnStyleId??'';
+    buildFields(selected,draftType);
+    publishPanel();
     models.usage.publish({usages:styleUsages,name:id=>items.find(item=>item.id===id)?.name??id,selectLayer});
   }
 
@@ -237,20 +252,19 @@ export function createStyles({ models, selectLayer, element, request, getContext
     return result;
   }
 
-  function renderPreview(style:DesignStyle|null|undefined) {
-    const box = el('styles-preview');
-    if (!style) { box.textContent = 'Выберите стиль или создайте новый.'; return; }
+  function previewText(style:DesignStyle|null|undefined) {
+    if (!style) return 'Выберите стиль или создайте новый.';
     const summarize = (theme:Theme) => {
       const result = resolvePreview(style, theme);
       return theme + ': ' + Object.entries(result).map(([key, value]) => key + ' = ' + value).join('; ');
     };
-    box.textContent = summarize('Light') + '\n' + summarize('Dark');
+    return summarize('Light') + '\n' + summarize('Dark');
   }
 
   function reset() {
     items = []; selectedId = null; busy = false; tokenSignature = '';
     styleUsages = []; styleUsageRequest++;
-    el('styles-error').textContent = ''; el('styles-status').textContent = '';
+    error = ''; status = '';
     render();
   }
 
@@ -276,7 +290,7 @@ export function createStyles({ models, selectLayer, element, request, getContext
     tokenSignature = nextTokenSignature;
     items = next;
     if (selectedId && !items.some(item => item.id === selectedId)) selectedId = null;
-    if (changed || el('styles-form').hidden === editable()) render();
+    if (changed || lastWritable !== editable()) render();
     if (changed && selectedId) loadUsages();
   }
 
@@ -285,20 +299,18 @@ export function createStyles({ models, selectLayer, element, request, getContext
     busy = true;
     const { signal, current } = startRequest();
     stopLive();
-    btn('styles-save').disabled = btn('styles-delete').disabled = true;
-    el('styles-error').textContent = '';
+    error = ''; publishPanel();
     try {
       const context=getContext();if(!context.documentId)throw new Error('No document');
-      await request('/api/v1/documents/' + encodeURIComponent(context.documentId) + '/commands/' + endpoint,
-        { method: 'POST', body: JSON.stringify({ commandId: crypto.randomUUID(), expectedRevision: context.revision, ...payload }) },
-        signal);
+      await postDocumentCommand(request, context.documentId, endpoint,
+        { commandId: crypto.randomUUID(), expectedRevision: context.revision, ...payload }, signal);
       if (signal.aborted || current !== getContext().generation) return;
       selectedId = id;
       await readPages(signal);
-      el('styles-status').textContent = 'Стиль сохранён.';
-    } catch (error) {
-      if (!aborted(error)) el('styles-error').textContent =
-        (error instanceof ApiError&&error.status>=500)||error instanceof TypeError ? 'Результат неизвестен. Обновите документ.' : errorMessage(error);
+      status = 'Стиль сохранён.'; publishPanel();
+    } catch (failure) {
+      if (!aborted(failure)) { error =
+        (failure instanceof ApiError&&failure.status>=500)||failure instanceof TypeError ? 'Результат неизвестен. Обновите документ.' : errorMessage(failure); publishPanel(); }
     } finally {
       busy = false; render(); startLive();
     }
@@ -323,26 +335,16 @@ export function createStyles({ models, selectLayer, element, request, getContext
         styleUsages = found;
         render();
       }
-    } catch (error) {
-      if (generation === styleUsageRequest) el('styles-error').textContent = errorMessage(error);
+    } catch (failure) {
+      if (generation === styleUsageRequest) { error = errorMessage(failure); publishPanel(); }
     }
   }
-  el('styles-list').addEventListener('change', () => {
-    selectedId = select('styles-list').value || null;
-    loadUsages();
-  });
-  el('styles-type').addEventListener('change', () => {
-    const type:StyleType=select('styles-type').value==='TextStyle'?'TextStyle':'BorderStyle';
-    choices(select('styles-based-on'), items.filter(style => styleType(style) === type && style.id !== selectedId), 'Без родителя');
-    buildFields(chosen(), type);
-  });
-  el('styles-form').addEventListener('submit', event => {
-    event.preventDefault();
+  function saveStyle() {
     try {
       const existing = chosen();
-      const name = fieldInput('styles-name').value.trim();
+      const name = draftName.trim();
       if (!name || name.length > 256) throw new Error('Введите название стиля.');
-      const type:StyleType=select('styles-type').value==='TextStyle'?'TextStyle':'BorderStyle';
+      const type=draftType;
       const fields:Record<string,NodePropertyValue>={};
       for (const row of rows) {
         if (!row.active) continue;
@@ -354,12 +356,12 @@ export function createStyles({ models, selectLayer, element, request, getContext
       }
       const id = existing?.id ?? crypto.randomUUID();
       write('upsert-style', { style: { id, name, type: type === 'TextStyle' ? 0 : 1,
-        fields, basedOnStyleId: select('styles-based-on').value || null } }, id);
-    } catch (error) { el('styles-error').textContent = errorMessage(error); }
-  });
-  el('styles-delete').addEventListener('click', () => {
-    if (selectedId) write('delete-style', { styleId: selectedId }, null);
-  });
+        fields, basedOnStyleId: draftParent || null } }, id);
+    } catch (failure) { error = errorMessage(failure); publishPanel(); }
+  }
+  function deleteStyle() {
+    if (selectedId) void write('delete-style', { styleId: selectedId }, null);
+  }
   render();
   return { reset, read, apply, get items() { return items; } };
 }

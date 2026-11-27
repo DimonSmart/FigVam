@@ -154,7 +154,7 @@ const tokens: ReturnType<typeof createTokens> = createTokens({
   startRequest, stopLive, startLive, readPages
 });
 const styles: ReturnType<typeof createStyles> = createStyles({
-  models:views.styles,selectLayer:id=>layers.selectById(id),element, request, getTokens: () => tokens.items,
+  models:views.styles,selectLayer:id=>layers.selectById(id),request, getTokens: () => tokens.items,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, generation }),
   startRequest, stopLive, startLive, readPages
 });

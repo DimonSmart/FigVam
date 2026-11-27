@@ -382,31 +382,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               </section>
               <section aria-labelledby="datasets-title"><views.datasets.Component/></section>
               <section className="editor-group">
-                <div id="styles-panel">
-                  <h3>{"Стили оформления"}</h3>
-                  <p id="styles-total" role="status"/>
-                  <p id="styles-error" role="alert"/>
-                  <p id="styles-status" role="status" aria-live="polite"/>
-                  <label htmlFor="styles-list">{"TextStyle и BorderStyle"}</label>
-                  <select id="styles-list" aria-label="Выбрать стиль или создать новый"/>
-                  <form id="styles-form" hidden>
-                    <label htmlFor="styles-name">{"Имя стиля"}</label>
-                    <input id="styles-name" maxLength={256} required/>
-                    <label htmlFor="styles-type">{"Тип"}</label>
-                    <select id="styles-type">
-                      <option value="TextStyle">{"TextStyle"}</option>
-                      <option value="BorderStyle">{"BorderStyle"}</option>
-                    </select>
-                    <label htmlFor="styles-based-on">{"Основан на (BasedOn)"}</label>
-                    <select id="styles-based-on"/>
-                    <div id="styles-fields"><views.styles.fields.Component/></div>
-                    <Button id="styles-save" type="submit">{"Сохранить стиль"}</Button>
-                  </form>
-                  <Button id="styles-delete" type="button" hidden>{"Удалить неиспользуемый стиль"}</Button>
-                  <pre id="styles-preview" aria-label="Вычисленное оформление Light и Dark"/>
-                  <h4>{"Использования стиля"}</h4>
-                  <ul id="styles-usages" aria-label="Прямые и косвенные использования стиля"><views.styles.usage.Component/></ul>
-                </div>
+                <views.styles.panel.Component/>
               </section>
               <section aria-labelledby="screen-variants-title"><views.screenVariants.Component/></section>
             </div>
