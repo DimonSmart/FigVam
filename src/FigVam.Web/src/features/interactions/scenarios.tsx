@@ -1,5 +1,4 @@
-import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
 import { Button } from '../../ui/Button';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
@@ -9,7 +8,7 @@ import type { ActionDraft, ScenarioDraft, EditorContext } from './interaction-ed
 import type { LayerCaptionSource } from '../../core/layer-caption';
 type Node=LayerCaptionSource & {id:string;screenId?:string;label?:string};
 interface Workspace {documentId:string|null;selectedScreen:string|null;layerSelection:Node|null;revision:number|null;documentRole:string|null}
-interface Options {element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void}
+interface Options {models:ReturnType<typeof createScenarioModels>;element(id:string):HTMLElement;request:ApiClient;pageSize:number;workspace:Workspace;findLayer(id:string):Node|undefined|null;setInteractiveNodes(ids:string[]):void;selectSource(node:Node,nodes:Node[]):void;reloadPages(revision:number|null,active:()=>boolean):Promise<unknown>;findRole(doc:string,signal?:AbortSignal):Promise<string|null|undefined>;setDocumentRole(role:string):void;closeInaccessibleDocument(status:number):void}
 type CommandKind='create'|'update'|'delete';
 type Operation={kind:CommandKind;body:{commandId:string;expectedRevision:number;scenarioId?:string;scenario?:ScenarioDraft};state:'ready'|'pending'|'uncertain';token:string|null;doc:string;screen:string};
 function typed<T extends HTMLElement>(node:HTMLElement,ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected scenario element: '+node.id);return node;}
@@ -17,10 +16,70 @@ function readScenario(value:unknown):ScenarioDraft{const s=requiredRecord(value)
 import { token, navigationEpoch } from '../../core/session';
 import { layerDisplayName } from '../../core/layer-caption';
 import { readInteractionCatalog, interactionObjectName } from './interaction-catalog';
-import { createInteractionEditor, eventLabels, actionLabels } from './interaction-editor';
+import { createInteractionEditor, createInteractionModel, eventLabels, actionLabels } from './interaction-editor';
+
+interface ScenarioListProps {
+  items:(ScenarioDraft|[string,ScenarioDraft[]])[];c:EditorContext;catalog:Catalog|null;
+  collapsedGroups:ReadonlySet<string>;blocked:boolean;
+  name(kind:keyof Catalog,id:string|null|undefined):string;sourceName(id:string):string;description(scenario:ScenarioDraft):string;actionText(action:ActionDraft):string;
+  selectSource(node:Node,nodes:Node[]):void;edit(scenario:ScenarioDraft,opener:HTMLElement):void;remove(scenario:ScenarioDraft):void;toggle(id:string,open:boolean):void;
+}
+function ScenarioList({items,c,catalog,collapsedGroups,blocked,name,sourceName,description,actionText,selectSource,edit,remove,toggle}:ScenarioListProps){
+  function renderAction(action:ActionDraft,index:number,total:number) {
+    const screen = action.type === 'navigate' ? catalog?.screens.find(s => s.id === action.screenId) : undefined;
+    const prefix = screen ? screen.pageName + ' / ' : '';
+    return <li key={index} className="scenario-action" title={action.type === 'navigate' ? actionText(action) : undefined}>
+      {total > 1 && <span className="scenario-action-order">{index + 1}.</span>}
+      {action.type === 'navigate' ? <>
+        <span className="scenario-action-arrow" aria-hidden="true">→</span>
+        <span className="scenario-sr-only">{actionLabels.navigate}: </span>
+        <span className="scenario-target">
+          <span className="scenario-target-name">{screen && screen.label.startsWith(prefix) ? screen.label.slice(prefix.length) : name('screens',action.screenId)}</span>
+          {screen && <span className="scenario-target-page">{screen.pageName}</span>}
+        </span>
+      </> : <span>{actionText(action)}</span>}
+    </li>;
+  }
+
+  function renderScenario(scenario:ScenarioDraft,c:EditorContext) {
+    const event = eventLabels[scenario.event??-1] ?? 'Неизвестное событие';
+    const source = !c.node && catalog?.nodes.find(n => n.id === scenario.nodeId && n.screenId === c.screen);
+    return <li key={scenario.id} className="scenario-entry" data-scenario-id={scenario.id}>
+      <div className="scenario-event">{source ?
+        <Button className="scenario-source-select" aria-label={description(scenario)} title={'Выбрать элемент: ' + sourceName(source.id)}
+          onClick={() => selectSource(source,catalog?.nodes.filter(n => n.screenId === c.screen)??[])}>{event}</Button> : <span>{event}</span>}</div>
+      <ol className="scenario-actions" aria-label="Действия по порядку">
+        {scenario.actions.map((action,index)=>renderAction(action,index,scenario.actions.length))}
+      </ol>
+      {c.editable && c.node && <div className="scenario-entry-controls">
+        <Button aria-label={'Изменить сценарий ' + description(scenario)} disabled={blocked}
+          onClick={event=>edit(scenario,event.currentTarget)}>Изменить</Button>
+        <Button aria-label={'Удалить сценарий ' + description(scenario)} disabled={blocked}
+          onClick={()=>remove(scenario)}>Удалить</Button>
+      </div>}
+    </li>;
+  }
+
+  function renderGroup(nodeId:string,entries:ScenarioDraft[],c:EditorContext) {
+    return <li key={nodeId} className="scenario-group" data-node-id={nodeId}>
+      <details open={!collapsedGroups.has(nodeId)} onToggle={event=>{
+        if (!event.currentTarget.isConnected) return;
+        toggle(nodeId,event.currentTarget.open);
+      }}>
+        <summary><span className="scenario-group-name">{sourceName(nodeId)}</span>
+          <span className="scenario-group-count" aria-label={'Взаимодействий: ' + entries.length}>{entries.length}</span></summary>
+        <ul className="scenario-group-items">{entries.map(scenario=>renderScenario(scenario,c))}</ul>
+      </details>
+    </li>;
+  }
+
+
+  return <>{items.map(item=>Array.isArray(item)?renderGroup(item[0],item[1],c):renderScenario(item,c))}</>;
+}
+export function createScenarioModels(){return {list:createViewModel(ScenarioList),actions:createInteractionModel()};}
 
 export function createScenarios({
-  element, request, pageSize, workspace, findLayer, setInteractiveNodes, selectSource,
+  models, element, request, pageSize, workspace, findLayer, setInteractiveNodes, selectSource,
   reloadPages, findRole, setDocumentRole, closeInaccessibleDocument
 }:Options) {
   let controller:AbortController|null=null,generation=0,offset=0,catalog:Catalog|null=null,scenarios:ScenarioDraft[]|null=null,key:string|null=null;
@@ -28,7 +87,6 @@ export function createScenarios({
   const operations = new Map<string,Operation>();
   const btn=(id:string)=>typed(element(id),HTMLButtonElement);
   const collapsedGroups = new Set<string>();
-  const listRoot = createPanelRoot(element('scenarios-list'));
   const context = ():EditorContext => ({
     doc: workspace.documentId, screen: workspace.selectedScreen, node: workspace.layerSelection?.id ?? null,
     revision: workspace.revision, token, epoch: navigationEpoch,
@@ -60,7 +118,7 @@ export function createScenarios({
     }
   }
   const editor = createInteractionEditor({
-    element, request, current: context, catalog: () => catalog, sourceName,
+    model:models.actions,element, request, current: context, catalog: () => catalog, sourceName,
     submit: (draft, scenario) => begin(draft.creating ? 'create' : 'update', scenario, draft.revision),
     pending: opPending, onClose: () => render()
   });
@@ -87,54 +145,6 @@ export function createScenarios({
     if (editor.save()) closeDialog();
   });
 
-  function renderAction(action:ActionDraft,index:number,total:number) {
-    const screen = action.type === 'navigate' ? catalog?.screens.find(s => s.id === action.screenId) : undefined;
-    const prefix = screen ? screen.pageName + ' / ' : '';
-    return <li key={index} className="scenario-action" title={action.type === 'navigate' ? actionText(action) : undefined}>
-      {total > 1 && <span className="scenario-action-order">{index + 1}.</span>}
-      {action.type === 'navigate' ? <>
-        <span className="scenario-action-arrow" aria-hidden="true">→</span>
-        <span className="scenario-sr-only">{actionLabels.navigate}: </span>
-        <span className="scenario-target">
-          <span className="scenario-target-name">{screen && screen.label.startsWith(prefix) ? screen.label.slice(prefix.length) : name('screens',action.screenId)}</span>
-          {screen && <span className="scenario-target-page">{screen.pageName}</span>}
-        </span>
-      </> : <span>{actionText(action)}</span>}
-    </li>;
-  }
-
-  function renderScenario(scenario:ScenarioDraft,c:EditorContext) {
-    const event = eventLabels[scenario.event??-1] ?? 'Неизвестное событие';
-    const source = !c.node && catalog?.nodes.find(n => n.id === scenario.nodeId && n.screenId === c.screen);
-    return <li key={scenario.id} className="scenario-entry" data-scenario-id={scenario.id}>
-      <div className="scenario-event">{source ?
-        <Button className="scenario-source-select" aria-label={description(scenario)} title={'Выбрать элемент: ' + sourceName(source.id)}
-          onClick={() => selectSource(source,catalog?.nodes.filter(n => n.screenId === c.screen)??[])}>{event}</Button> : <span>{event}</span>}</div>
-      <ol className="scenario-actions" aria-label="Действия по порядку">
-        {scenario.actions.map((action,index)=>renderAction(action,index,scenario.actions.length))}
-      </ol>
-      {c.editable && c.node && <div className="scenario-entry-controls">
-        <Button aria-label={'Изменить сценарий ' + description(scenario)} disabled={opPending() || !!editor.draft}
-          onClick={event=>{editor.open(scenario,event.currentTarget);render();}}>Изменить</Button>
-        <Button aria-label={'Удалить сценарий ' + description(scenario)} disabled={opPending() || !!editor.draft}
-          onClick={()=>{if(confirm('Удалить взаимодействие «' + description(scenario) + '»?')) begin('delete',scenario,c.revision);}}>Удалить</Button>
-      </div>}
-    </li>;
-  }
-
-  function renderGroup(nodeId:string,entries:ScenarioDraft[],c:EditorContext) {
-    return <li key={nodeId} className="scenario-group" data-node-id={nodeId}>
-      <details open={!collapsedGroups.has(nodeId)} onToggle={event=>{
-        if (!event.currentTarget.isConnected) return;
-        if (event.currentTarget.open) collapsedGroups.delete(nodeId); else collapsedGroups.add(nodeId);
-      }}>
-        <summary><span className="scenario-group-name">{sourceName(nodeId)}</span>
-          <span className="scenario-group-count" aria-label={'Взаимодействий: ' + entries.length}>{entries.length}</span></summary>
-        <ul className="scenario-group-items">{entries.map(scenario=>renderScenario(scenario,c))}</ul>
-      </details>
-    </li>;
-  }
-
   function render() {
     const c = context(), op = currentOperation(), selected = workspace.layerSelection;
     element('scenarios-title').textContent = selected ? sourceName(selected.id) : 'Взаимодействия';
@@ -155,7 +165,7 @@ export function createScenarios({
     element('scenarios-number').textContent = '';
     btn('scenarios-previous').disabled = btn('scenarios-next').disabled = true;
     if (loadState !== 'ready') {
-      flushSync(()=>listRoot.render(null));
+      models.list.clear();
       element('scenarios-status').textContent = loadState === 'loading' ? 'Загрузка сценариев…' :
         loadState === 'error' ? 'Не удалось загрузить сценарии.' : 'Выберите экран.';
       editor.refreshControls(); return;
@@ -181,7 +191,10 @@ export function createScenarios({
       (offset + 1) + '–' + (offset + items.length) + ' из ' + rows.length : '';
     btn('scenarios-previous').disabled = offset === 0;
     btn('scenarios-next').disabled = offset + items.length >= rows.length;
-    flushSync(()=>listRoot.render(<>{items.map(item=>Array.isArray(item)?renderGroup(item[0],item[1],c):renderScenario(item,c))}</>));
+    models.list.publish({items,c,catalog,collapsedGroups:new Set(collapsedGroups),blocked:opPending()||!!editor.draft,name,sourceName,description,actionText,selectSource,
+      edit:(scenario,opener)=>{editor.open(scenario,opener);render();},
+      remove:scenario=>{if(confirm('Удалить взаимодействие «'+description(scenario)+'»?'))begin('delete',scenario,c.revision);},
+      toggle:(id,open)=>{if(open)collapsedGroups.delete(id);else collapsedGroups.add(id);}});
     editor.refreshControls();
   }
 

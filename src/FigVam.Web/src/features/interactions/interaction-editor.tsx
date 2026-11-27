@@ -1,5 +1,6 @@
 import { flushSync } from 'react-dom';
-import { createPanelRoot } from '../../app/react-panels';
+import { createViewModel } from '../../app/view-model';
+import { ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
 import type { ApiClient } from '../../api/api-client';
@@ -12,7 +13,7 @@ export interface ScenarioDraft {id:string;screenId:string;nodeId:string;event:nu
 export interface EditorContext {doc:string|null;screen:string|null;node:string|null;revision:number|null;token:string|null;epoch:number;editable:boolean}
 interface Capability {events:number[];actions:string[];potentialActions:string[];demoTargetIds:string[];navigationScreenId:string|null;demoScreenId:string|null}
 export interface Draft extends EditorContext {scenario:ScenarioDraft;creating:boolean;opener:HTMLElement|null;original:string;conflict:boolean;valid:boolean;capabilityCache:Map<string,Capability>}
-interface EditorOptions {element(id:string):HTMLElement;request:ApiClient;current():EditorContext;catalog():Catalog|null;sourceName(id:string):string;submit(draft:Draft,scenario:ScenarioDraft):void;pending():boolean;onClose():void}
+interface EditorOptions {model:ReturnType<typeof createInteractionModel>;element(id:string):HTMLElement;request:ApiClient;current():EditorContext;catalog():Catalog|null;sourceName(id:string):string;submit(draft:Draft,scenario:ScenarioDraft):void;pending():boolean;onClose():void}
 interface Choice {id:string;label:string;group?:string}
 interface Values {targetId?:string;screenId?:string|null;variantId?:string|null;datasetId?:string|null;demoNodeId?:string;demoValue?:string|null}
 function asElement<T extends HTMLElement>(node:HTMLElement, ctor:{new():T}):T{if(!(node instanceof ctor))throw new Error('Unexpected interaction editor element: '+node.id);return node;}
@@ -82,9 +83,74 @@ function emptyAction(type:string):ActionDraft {
   return { type:isActionKind(type)?type:'' };
 }
 
-export function createInteractionEditor({ element, request, current, catalog, sourceName, submit, pending, onClose }:EditorOptions) {
+function parameter(action:ActionDraft):string|null|undefined {
+  if (action.type === 'navigate' || action.type === 'openOverlay') return action.screenId;
+  if (action.type === 'showVariant') return action.variantId === null ? noValue : action.variantId;
+  if (action.type === 'selectDataset') return action.datasetId === null ? noValue : action.datasetId;
+  if (action.type === 'setDemoValue') return action.nodeId;
+  return '';
+}
+
+interface InteractionRowsProps {
+  actions:ActionDraft[];rows:RowState[];catalog:Catalog|null;
+  moveAction(index:number,direction:number):void;removeAction(index:number):void;changeType(index:number,type:string):void;
+  setAction<K extends keyof ActionDraft>(index:number,key:K,value:ActionDraft[K]):void;search(index:number,value:string):void;setValue(index:number,value:string):void;
+}
+function InteractionRows({actions,rows,catalog,moveAction,removeAction,changeType,setAction,search,setValue}:InteractionRowsProps){
+  return <>{actions.map((action,index)=>{
+      const row=rows[index];if(!row)return null;
+      const label=pickerLabel(action.type);
+      const value=parameter(action)??'';
+      const q=row.search.toLocaleLowerCase().trim();
+      const options=row.options.filter(o=>!q||o.label.toLocaleLowerCase().includes(q)||o.id===value);
+      const move=(direction:number)=>moveAction(index,direction);
+      const set=<K extends keyof ActionDraft>(key:K,next:ActionDraft[K])=>setAction(index,key,next);
+      const pick=(next:string)=>{
+        switch(action.type){
+          case 'navigate':case 'openOverlay':set('screenId',next||undefined);break;
+          case 'showVariant':set('variantId',next===noValue?null:next||undefined);break;
+          case 'selectDataset':set('datasetId',next===noValue?null:next||undefined);break;
+          case 'setDemoValue':set('nodeId',next||undefined);break;
+        }
+      };
+      const secret=catalog?.nodes.find(n=>n.id===action.nodeId)?.properties?.inputType?.value==='Password';
+      return <li className="interaction-action" key={index}>
+        <div className="interaction-action-tools"><strong>Действие {index+1}</strong>
+          <Button aria-label={'Поднять действие '+(index+1)} disabled={index===0} onClick={()=>move(-1)}><ArrowUp size={14}/></Button>
+          <Button aria-label={'Опустить действие '+(index+1)} disabled={index===actions.length-1} onClick={()=>move(1)}><ArrowDown size={14}/></Button>
+          <Button aria-label={'Удалить действие '+(index+1)} onClick={()=>removeAction(index)}>Удалить</Button>
+        </div>
+        <label>Тип действия {index+1}<select aria-label={'Тип действия '+(index+1)} data-action-type={index} value={action.type}
+          onChange={event=>changeType(index,event.currentTarget.value)}>
+          <ChoiceOptions items={row.types} value={action.type} placeholder="Выберите действие"/>
+        </select></label>
+        <div>
+          {label&&<>
+            <label>Поиск: {label}<TextInput type="search" placeholder="Поиск по имени" aria-label={'Поиск: '+label} value={row.search}
+              onChange={event=>search(index,event.currentTarget.value)}/></label>
+            <label>{label}<select aria-label={label} value={value} onChange={event=>pick(event.currentTarget.value)}>
+              <ChoiceOptions items={options} value={value}/>
+            </select></label>
+          </>}
+          {action.type==='setDemoValue'&&<>
+            <label>Значение null<input type="checkbox" aria-label="Значение null" checked={action.value===null}
+              onChange={event=>set('value',event.currentTarget.checked?null:row.valueDraft)}/></label>
+            <label>Демонстрационное значение{secret?
+              <TextInput type="password" maxLength={4096} value={row.valueDraft} disabled={action.value===null}
+                onChange={event=>{setValue(index,event.currentTarget.value);}}/>:
+              <textarea maxLength={4096} rows={2} value={row.valueDraft} disabled={action.value===null}
+                onChange={event=>{setValue(index,event.currentTarget.value);}}/>}</label>
+          </>}
+        </div>
+        <p className="interaction-action-error" role="status">{row.error}</p>
+      </li>;
+    })}</>;
+
+}
+export function createInteractionModel(){return createViewModel(InteractionRows);}
+
+export function createInteractionEditor({ model, element, request, current, catalog, sourceName, submit, pending, onClose }:EditorOptions) {
   let draft:Draft|null=null, rows:RowState[]=[], controller:AbortController|null=null, generation=0, validationTimer:ReturnType<typeof setTimeout>|undefined;
-  const listRoot=createPanelRoot(element('scenario-edit-actions'));
   const btn=(id:string)=>asElement(element(id),HTMLButtonElement);
   const form=asElement(element('scenario-edit'),HTMLFormElement),fields=asElement(element('scenario-edit-fields'),HTMLFieldSetElement);
   const event = asElement(element('scenario-edit-event'),HTMLSelectElement), status = element('scenario-edit-validation');
@@ -110,7 +176,7 @@ export function createInteractionEditor({ element, request, current, catalog, so
     controller?.abort(); clearTimeout(validationTimer); generation++;
     draft = null; rows = [];
     form.hidden = true; fields.disabled = false;
-    flushSync(()=>listRoot.render(null));
+    model.clear();
     onClose();
     if (restoreFocus && old) {
       const target = old.creating ? element('scenario-create') : [...element('scenarios-list').querySelectorAll<HTMLElement>(':scope > *')].find(card => card.dataset.scenarioId === old.scenario.id)?.querySelector<HTMLElement>('button[aria-label^="Изменить"]');
@@ -148,59 +214,16 @@ export function createInteractionEditor({ element, request, current, catalog, so
     if(!draft)return;
     const actions=draft.scenario.actions;
     if(reset)rows=actions.map(action=>({types:[],options:[],error:'',search:'',valueDraft:action.value??''}));
-    flushSync(()=>listRoot.render(<>{actions.map((action,index)=>{
-      const row=rows[index];if(!row)return null;
-      const label=pickerLabel(action.type);
-      const value=parameter(action)??'';
-      const q=row.search.toLocaleLowerCase().trim();
-      const options=row.options.filter(o=>!q||o.label.toLocaleLowerCase().includes(q)||o.id===value);
-      const move=(direction:number)=>{
-        const destination=index+direction,dest=actions[destination];if(!dest)return;
-        actions[index]=dest;actions[destination]=action;renderRows(destination);changed(true);
-      };
-      const set=<K extends keyof ActionDraft>(key:K,next:ActionDraft[K])=>{
-        const current=actions[index];if(current){current[key]=next;renderRows(undefined,false);changed();}
-      };
-      const pick=(next:string)=>{
-        switch(action.type){
-          case 'navigate':case 'openOverlay':set('screenId',next||undefined);break;
-          case 'showVariant':set('variantId',next===noValue?null:next||undefined);break;
-          case 'selectDataset':set('datasetId',next===noValue?null:next||undefined);break;
-          case 'setDemoValue':set('nodeId',next||undefined);break;
-        }
-      };
-      const secret=catalog()?.nodes.find(n=>n.id===action.nodeId)?.properties?.inputType?.value==='Password';
-      return <li className="interaction-action" key={index}>
-        <div className="interaction-action-tools"><strong>Действие {index+1}</strong>
-          <Button aria-label={'Поднять действие '+(index+1)} disabled={index===0} onClick={()=>move(-1)}>↑</Button>
-          <Button aria-label={'Опустить действие '+(index+1)} disabled={index===actions.length-1} onClick={()=>move(1)}>↓</Button>
-          <Button aria-label={'Удалить действие '+(index+1)} onClick={()=>{actions.splice(index,1);renderRows(Math.min(index,actions.length-1));changed(true);}}>Удалить</Button>
-        </div>
-        <label>Тип действия {index+1}<select aria-label={'Тип действия '+(index+1)} data-action-type={index} value={action.type}
-          onChange={event=>{actions[index]=emptyAction(event.currentTarget.value);renderRows(index);changed(true);}}>
-          <ChoiceOptions items={row.types} value={action.type} placeholder="Выберите действие"/>
-        </select></label>
-        <div>
-          {label&&<>
-            <label>Поиск: {label}<TextInput type="search" placeholder="Поиск по имени" aria-label={'Поиск: '+label} value={row.search}
-              onChange={event=>{row.search=event.currentTarget.value;renderRows(undefined,false);}}/></label>
-            <label>{label}<select aria-label={label} value={value} onChange={event=>pick(event.currentTarget.value)}>
-              <ChoiceOptions items={options} value={value}/>
-            </select></label>
-          </>}
-          {action.type==='setDemoValue'&&<>
-            <label>Значение null<input type="checkbox" aria-label="Значение null" checked={action.value===null}
-              onChange={event=>set('value',event.currentTarget.checked?null:row.valueDraft)}/></label>
-            <label>Демонстрационное значение{secret?
-              <TextInput type="password" maxLength={4096} value={row.valueDraft} disabled={action.value===null}
-                onChange={event=>{row.valueDraft=event.currentTarget.value;set('value',row.valueDraft);}}/>:
-              <textarea maxLength={4096} rows={2} value={row.valueDraft} disabled={action.value===null}
-                onChange={event=>{row.valueDraft=event.currentTarget.value;set('value',row.valueDraft);}}/>}</label>
-          </>}
-        </div>
-        <p className="interaction-action-error" role="status">{row.error}</p>
-      </li>;
-    })}</>));
+    const props:InteractionRowsProps={
+      actions:actions.map(action=>({...action})),rows:rows.map(row=>({...row})),catalog:catalog(),
+      moveAction:(index,direction)=>{const destination=index+direction,from=actions[index],dest=actions[destination];if(!dest||!from)return;actions[index]=dest;actions[destination]=from;renderRows(destination);changed(true);},
+      removeAction:index=>{actions.splice(index,1);renderRows(Math.min(index,actions.length-1));changed(true);},
+      changeType:(index,type)=>{actions[index]=emptyAction(type);renderRows(index);changed(true);},
+      setAction:(index,key,value)=>{const action=actions[index];if(action){action[key]=value;renderRows(undefined,false);changed();}},
+      search:(index,value)=>{const row=rows[index];if(row){row.search=value;renderRows(undefined,false);}},
+      setValue:(index,value)=>{const row=rows[index],action=actions[index];if(row&&action){row.valueDraft=value;action.value=value;renderRows(undefined,false);changed();}}
+    };
+    if(focusIndex!==undefined)flushSync(()=>model.publish(props));else model.publish(props);
     refreshControls();
     if(focusIndex!==undefined)(element('scenario-edit-actions').querySelector<HTMLElement>('[data-action-type="'+focusIndex+'"]')??element('scenario-edit-add')).focus();
   }
@@ -243,13 +266,6 @@ export function createInteractionEditor({ element, request, current, catalog, so
       case 'setDemoValue': return objects.nodes.filter(n => (!ctx.demoScreenId || n.screenId === ctx.demoScreenId) && ctx.demoTargetIds.includes(n.id));
       default: return [];
     }
-  }
-  function parameter(action:ActionDraft):string|null|undefined {
-    if (action.type === 'navigate' || action.type === 'openOverlay') return action.screenId;
-    if (action.type === 'showVariant') return action.variantId === null ? noValue : action.variantId;
-    if (action.type === 'selectDataset') return action.datasetId === null ? noValue : action.datasetId;
-    if (action.type === 'setDemoValue') return action.nodeId;
-    return '';
   }
   function exact(action:ActionDraft, ctx:Capability, objects:Catalog, d:Draft):Values {
     switch (action.type) {

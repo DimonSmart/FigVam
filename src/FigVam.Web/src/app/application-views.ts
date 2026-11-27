@@ -1,3 +1,4 @@
+import { createScenarioModels } from '../features/interactions/scenarios';
 import { createTokenModels } from '../features/tokens/tokens';
 import { createStyleModels } from '../features/styles/styles';
 import { createLayersModel } from '../features/editor/layers';
@@ -18,6 +19,7 @@ import { createPresenceModels } from '../features/collaboration/presence';
 
 export function createApplicationViews() {
   return {
+    scenarios: createScenarioModels(),
     tokens: createTokenModels(),
     styles: createStyleModels(),
     layers: createLayersModel(),

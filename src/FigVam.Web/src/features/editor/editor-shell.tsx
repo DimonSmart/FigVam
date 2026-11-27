@@ -557,7 +557,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <p id="scenario-command-status" role="status" aria-live="polite"/>
                 <p id="scenario-command-error" role="alert"/>
                 <button id="scenario-command-retry" type="button" hidden>{"Повторить команду"}</button>
-                <ul id="scenarios-list" aria-label="Взаимодействия"/>
+                <ul id="scenarios-list" aria-label="Взаимодействия"><views.scenarios.list.Component/></ul>
                 <form id="scenario-edit" aria-labelledby="scenario-edit-title" hidden>
                   <h3 id="scenario-edit-title" tabIndex={-1}>{"Настройка взаимодействия"}</h3>
                   <p id="scenario-edit-source"/>
@@ -569,7 +569,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                       {"Событие "}
                       <select id="scenario-edit-event" aria-label="Событие"/>
                     </label>
-                    <ol id="scenario-edit-actions" aria-label="Порядок действий"/>
+                    <ol id="scenario-edit-actions" aria-label="Порядок действий"><views.scenarios.actions.Component/></ol>
                     <button id="scenario-edit-add" type="button">{"Добавить действие"}</button>
                   </fieldset>
                   <p id="scenario-edit-validation" role="status" aria-live="polite"/>

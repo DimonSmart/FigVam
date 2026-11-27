@@ -282,7 +282,7 @@ const layers: ReturnType<typeof createLayers> = createLayers({
 });
 
 const scenarios: ReturnType<typeof createScenarios> = createScenarios({
-  element, request, pageSize,
+  models:views.scenarios,element, request, pageSize,
   workspace: {
     get documentId() { return documentId; },
     get documentRole() { return documentRole; },
