@@ -189,8 +189,10 @@ export function createLayers({
       if (nodeOperations.get(key) !== op) return;
       if (!(error instanceof ApiError)) op.state = 'uncertain';
       else {
+        const stillActive=active();
         nodeOperations.delete(key);
-        if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(error.status); return; }
+        if (error instanceof ApiError && error.status === 403) { if(stillActive)closeInaccessibleDocument(error.status); return; }
+        if(!stillActive)return;
         if (error.code === 'NODE_NOT_FOUND') {
           const currentContext = () => workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && layerSelectionEpoch === selectionEpoch && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible();
           await runPageRefresh(signal => readCurrentPages(signal, currentContext));
@@ -234,7 +236,8 @@ export function createLayers({
       else op.state='sync';
     } catch (error) {
       if (!(error instanceof ApiError)) { op.state = 'uncertain'; return; }
-      if (error instanceof ApiError && error.status === 403) { nodeDeletions.delete(key); closeInaccessibleDocument(403); return; }
+      if (error instanceof ApiError && error.status === 403) { const stillActive=active();nodeDeletions.delete(key);if(stillActive)closeInaccessibleDocument(403);return; }
+      if(!active()){nodeDeletions.delete(key);return;}
       if (error.code === 'NODE_NOT_FOUND') {
         await runPageRefresh(signal => readCurrentPages(signal, active));
         if (!active()) { op.state = 'rejected'; return; }
@@ -347,7 +350,8 @@ export function createLayers({
       } else op.state = 'sync';
     } catch (error) {
       if (!(error instanceof ApiError)) { op.state = 'uncertain'; return; }
-      if (error instanceof ApiError && error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { nodeMoves.delete(key); closeInaccessibleDocument(error.status); return; }
+      if (error.status === 403 || error.code === 'DOCUMENT_NOT_FOUND') { const stillActive=context();nodeMoves.delete(key);if(stillActive)closeInaccessibleDocument(error.status);return; }
+      if(!context()){nodeMoves.delete(key);return;}
       const explanations:Record<string,string> = {
         NODE_NOT_FOUND: 'Слой уже удалён другим участником.',
         PARENT_NOT_FOUND: 'Новый родитель уже удалён другим участником.',

@@ -53,7 +53,7 @@ The repository CI runs frontend typecheck/build/tests, generated-contract compar
 | Shell, editor chrome, layer move availability | Application and document shell models; React subscribes to snapshots |
 | Resource and inspector drafts | Feature controllers; transient input is not read back from rendered DOM |
 | Command ID, immutable prepared payload, outcome | Prepared document operation |
-| Collaboration and presence | Document-scoped controllers; collaboration rechecks membership on READY and HEARTBEAT |
+| Collaboration and presence | Document-scoped controllers; collaboration rechecks membership on HEARTBEAT |
 
 Navigation cancels document reads; the foreground request lane must not abort independent command confirmation. A known server rejection remains a rejection even when its originating UI context is obsolete. A stale result must not update a new workspace. Downgrade to Viewer discards pending edits for the current document. Native DOM use is limited to canvas rendering, geometry, focus, browser APIs and positioning.
 

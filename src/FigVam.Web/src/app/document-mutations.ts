@@ -45,7 +45,10 @@ async function deleteCatalogDocument(item: DocumentListItem, command: DeleteCata
   const result = await entry.operation.execute({request,isCurrent:active,
     validate:confirmation=>{if(confirmation.revision!==entry.expectedRevision+1)throw new TypeError('Некорректная ревизия удаления');},
     synchronize:refresh});
-  if (!active()) return;
+  if (!active()) {
+    if(catalogDeletions.get(id)===entry&&(result.kind==='rejected'||result.kind==='conflict'))catalogDeletions.delete(id);
+    return;
+  }
   if (result.kind === 'confirmed' && result.synchronization === 'synced') {
     catalogDeletions.delete(id); message('Документ удалён.');
   } else if (result.kind === 'conflict' || result.kind === 'rejected') {
@@ -85,7 +88,13 @@ async function submitDeletion(entry: Deletion): Promise<void> {
   const result=await entry.operation.execute({request,isCurrent:active,
     validate:confirmation=>{if(confirmation.revision!==entry.expectedRevision+1)throw new TypeError('Некорректная ревизия удаления');},
     synchronize:refresh});
-  if(!active())return;
+  if(!active()){
+    if(deletion===entry&&sessionState.sessionEpoch===sessionEpoch){
+      if(result.kind==='rejected'||result.kind==='conflict')resetDeletion();
+      else if(result.kind==='confirmed')deletionView.publish({status:'uncertain',message:'Удаление подтверждено. Обновите список документов.'});
+    }
+    return;
+  }
   if(result.kind==='confirmed'&&result.synchronization==='synced'){
     resetDeletion();message('Документ удалён.');return;
   }
@@ -121,7 +130,10 @@ async function renameDocument() {
       const synchronized=await refresh(sessionState.signal,active);
       return synchronized===true&&(getRevision()??-1)>=confirmation.revision;
     }});
-    if(!active())return;
+    if(!active()){
+      if(renames.get(id)===operation&&(result.kind==='rejected'||result.kind==='conflict'))renames.delete(id);
+      return;
+    }
     if(result.kind==='confirmed'&&result.synchronization==='synced'){
       renames.delete(id);documentShell.patch({renameName:documentShell.getSnapshot().title,renameStatus:'Имя документа изменено.'});
     }else if(result.kind==='conflict'||result.kind==='rejected'){

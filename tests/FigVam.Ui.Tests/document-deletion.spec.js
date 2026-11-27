@@ -82,7 +82,7 @@ for (const action of ['navigate', 'logout']) test(`ignores pending response afte
   await openDocument(page);
   let release; const gate = new Promise(resolve => release = resolve);
   let count = 0; const bodies = [];
-  await page.route('**/commands/delete-document', async route => { count++; bodies.push(route.request().postData()); await gate; await route.fulfill({ status: 403, json: {} }).catch(() => {}); });
+  await page.route('**/commands/delete-document', async route => { count++; bodies.push(route.request().postData()); await gate; if(count===1)await route.abort().catch(()=>{});else await route.fulfill({status:403,json:{}}).catch(()=>{}); });
   await confirmDeletion(page);
   await expect(page.locator('#delete-document')).toBeDisabled();
   if (action === 'navigate') await page.getByRole('link', { name: '← Документы' }).click();
@@ -100,4 +100,21 @@ for (const action of ['navigate', 'logout']) test(`ignores pending response afte
     expect(count).toBe(2); expect(bodies[0]).toBe(bodies[1]);
   } else await expect(page.locator('#delete-result')).toBeHidden();
   if (action === 'logout') expect(count).toBe(1);
+});
+
+test('definitive late deletion refusal clears the operation without touching the catalog',async({page})=>{
+  await openDocument(page);
+  let release,entered;const gate=new Promise(r=>release=r),waiting=new Promise(r=>entered=r);
+  let count=0;
+  await page.route('**/commands/delete-document',async route=>{count++;entered();await gate;await route.fulfill({status:403,json:{code:'FORBIDDEN'}});});
+  await confirmDeletion(page);await waiting;
+  await page.getByRole('link',{name:'← Документы'}).click();
+  await expect(page.locator('#documents-view')).toBeVisible();
+  release();
+  await expect(page.locator('#delete-result')).toBeHidden();
+  await expect(page.locator('#documents-view')).toBeVisible();
+  await expect(page.locator('#error')).toHaveText('');
+  await page.getByRole('link',{name:'Deletion target'}).click();
+  await expect(page.locator('#editor-view')).toBeVisible();
+  expect(count).toBe(1);
 });

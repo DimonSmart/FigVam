@@ -58,7 +58,7 @@ export function createDocumentCollaboration({
       if (event.code.startsWith('SCREEN_CAPTURE_')) { onCaptureEvent?.({ ...event, code: event.code }, signal); return; }
       if (event.code === 'FORBIDDEN') { throw new ApiError(403, {}); }
       if (event.code === 'RECONNECT_REQUIRED') throw new Error('Требуется восстановление');
-      if (event.code === 'READY' || event.code === 'HEARTBEAT') { await reconcileRole(); return; }
+      if (event.code === 'HEARTBEAT') { await reconcileRole(); return; }
       if (event.code !== 'CHANGE') return;
       if (!isRevision(event.revision) || !isRecord(event.change) || typeof event.change.documentId !== 'string' || event.change.documentId.toLowerCase() !== id.toLowerCase()) throw new Error('Некорректное событие');
       const current = workspace.revision;

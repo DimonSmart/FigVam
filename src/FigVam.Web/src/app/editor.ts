@@ -407,7 +407,7 @@ function renderScreens() {
   if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) editorShell.menu.close('screen-create');
   else if (selectionState.selectedPage && selectionState.pages.length === 1 &&
       (getDocumentRole() === 'Owner' || getDocumentRole() === 'Editor') &&
-      !editorShell.menu.getSnapshot()?.startsWith('page:') && !editorShell.menu.getSnapshot()?.startsWith('screen:') && !selectionState.renameDraft('page')) editorShell.menu.publish('screen-create');
+      editorShell.menu.getSnapshot()===null && !selectionState.renameDraft('page')) editorShell.menu.publish('screen-create');
 }
 
 

@@ -175,12 +175,14 @@ test('loads all pages into the tree, handles command errors and hides editing fo
   await page.getByRole('button', { name: 'Сохранить название страницы' }).click();
   await expect(page.locator('#error')).toContainText('команда могла выполниться');
   await page.unroute('**/commands/rename-page');
+  // Register the role route after navigation, before login starts the document reads.
+  await page.reload();
   await page.route('**/api/v1/documents?*', async route => {
     const response = await route.fetch(); const body = await response.json();
     body.items = body.items.map(item => ({ ...item, role: 'Viewer' }));
     await route.fulfill({ response, json: body });
   });
-  await page.reload(); await login(page);
+  await login(page);
   await expect(page.getByText('Только просмотр страниц.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Создать страницу' })).toBeHidden();
   await expect(page.locator('#pages .navigator-rename-action, #pages .navigator-context-menu')).toHaveCount(0);
