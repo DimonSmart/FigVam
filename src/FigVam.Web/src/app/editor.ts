@@ -30,10 +30,10 @@ import { postPageCommand, type PageCommandData } from './page-commands';
 import { createRequestRunner } from './request-runner';
 import { createDocumentCatalog } from './document-catalog';
 import { createNavigation } from './navigation';
-import { createDocumentRevisionState, readDocumentStructure } from './document-workspace';
+import { createDocumentRevisionState } from './document-workspace';
+import { createDocumentSync, type SelectionChange } from './document-sync';
 import { isValidBearerToken, logoutGoogleSession, readAuthenticationMode, restoreGoogleSession } from '../features/home/session-authentication';
 import { createDocumentNavigator, type NavigatorKind, type RenameDraft } from '../features/editor/document-navigator';
-type SelectionChange = { nodeId: string; previousId?: string };
 type ImportOperation = { token: string; epoch: number };
 type Deletion = { id: string; name: string; body: string; commandId: string; state: 'ready' | 'pending' | 'uncertain' };
 const statusOf = (error: unknown) => error instanceof ApiError ? error.status : undefined;
@@ -498,76 +498,46 @@ function renderRevision() {
   documentExport.render();
 }
 
-async function readNodeEditRevision(signal: AbortSignal, newRevision: number, isCurrent: () => boolean, reveal: string[], selectionChange?: SelectionChange, resourcesChanged = false): Promise<true | undefined> {
-  const doc = documentId, screen = selectedScreen, current = generation, previousRevision = revisions.revision;
-  if (!doc) return;
-  const valid = () => !signal.aborted && current === generation && previousRevision === revisions.revision &&
-    doc === documentId && screen === selectedScreen && isCurrent();
-  const base = `/api/v1/documents/${encodeURIComponent(doc)}`;
-  // One confirmed node command cannot change the document header, page and screen lists, or token definitions.
-  const [layerSnapshot, usages] = await Promise.all([
-    layers.readSnapshot({ base, screen, revision: newRevision, signal, isCurrent: valid, reveal,
-      shouldReportFailure: () => signal === pending?.signal }),
-    tokens.readSelectedUsages(base, newRevision, signal, valid)
-  ]);
-  if (!valid()) return;
-  if (!layers.isExpansionCurrent(layerSnapshot)) return readNodeEditRevision(signal, newRevision, isCurrent, reveal, selectionChange, resourcesChanged);
-  const selection = selectionAfterCommand(selectionChange);
-  revisions.confirmNodeEdit(newRevision);
-  tokens.applySelectedUsages(usages);
-  layers.applySnapshot(layerSnapshot, selection);
-  renderCanvas(!resourcesChanged);
-  scenarios.retainAfterNodeEdit(screen);
-  diagnostics.refresh();
-  renderRevision();
-  return true;
-}
-
-async function readPages(signal: AbortSignal, _offset = 0, targetRevision: number | null = null, isCurrent = () => true, reveal: string[] = [], selectionChange?: SelectionChange): Promise<true | undefined> {
-  const id = documentId, current = generation;
-  if (!id) return;
-  const valid = () => !signal.aborted && id === documentId && current === generation && isCurrent();
-  const base = `/api/v1/documents/${encodeURIComponent(id)}`;
-  const structure = await readDocumentStructure(documentQueries, id, signal, valid, targetRevision,
-    { page: selectedPage, screen: selectedScreen });
-  if (!structure || !valid()) return;
-  const { revision: nextRevision, pages: result, screens, selection: { page, screen } } = structure;
-  if (page !== selectedPage) pageExpanded = true;
-  const layerSnapshot = await layers.readSnapshot({
-    base, screen, revision: nextRevision, signal, isCurrent: valid, reveal,
-    shouldReportFailure: () => signal === pending?.signal
-  });
-  const [tokenSnapshot, styleSnapshot] = await Promise.all([
-    tokens.read(base, nextRevision, signal, valid), styles.read(base, nextRevision, signal, valid)
-  ]);
-  const name = await documentQueries.readName(id, signal, nextRevision, valid);
-  if (!valid()) return;
-  if (!layers.isExpansionCurrent(layerSnapshot))
-    return readPages(signal, 0, nextRevision, isCurrent, reveal, selectionChange);
-  const selection = selectionAfterCommand(selectionChange);
-  const pagesChanged = page !== selectedPage ||
-    JSON.stringify(result.items) !== JSON.stringify(pagesItems);
-  const screensChanged = screen !== selectedScreen ||
-    JSON.stringify(screens.items) !== JSON.stringify(screensItems);
-  if (page !== selectedPage || screen !== selectedScreen) layers.reset();
-  pagesOffset = 0; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
-  screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
-  revisions.confirmStructure(nextRevision);
-  tokens.apply(tokenSnapshot);
-  styles.apply(styleSnapshot);
-  if (pagesChanged) renderPages();
-  if (screensChanged || pagesChanged) renderScreens();
-  else renderCanvas();
-  layers.applySnapshot(layerSnapshot, selection);
-  element('document-title').textContent = name; document.title = `${name} — FigVam`;
-  element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
-  components.load(); datasets.load(); screenVariants.load();
-  diagnostics.refresh();
-  scenarios.refresh(screen);
-  renderRevision();
-  return true;
-}
-
+const documentSync = createDocumentSync({
+  context: () => ({ documentId, screen: selectedScreen, page: selectedPage, generation, revision: revisions.revision }),
+  shouldReportFailure: signal => signal === pending?.signal,
+  queries: documentQueries, layers, tokens, styles,
+  applyNodeEdit(newRevision, screen, layerSnapshot, usages, selectionChange, resourcesChanged = false) {
+    const selection = selectionAfterCommand(selectionChange);
+    revisions.confirmNodeEdit(newRevision);
+    tokens.applySelectedUsages(usages);
+    layers.applySnapshot(layerSnapshot, selection);
+    renderCanvas(!resourcesChanged);
+    scenarios.retainAfterNodeEdit(screen);
+    diagnostics.refresh();
+    renderRevision();
+  },
+  applyStructure(structure, layerSnapshot, tokenSnapshot, styleSnapshot, name, selectionChange) {
+    const { revision: nextRevision, pages: result, screens, selection: { page, screen } } = structure;
+    if (page !== selectedPage) pageExpanded = true;
+    const selection = selectionAfterCommand(selectionChange);
+    const pagesChanged = page !== selectedPage || JSON.stringify(result.items) !== JSON.stringify(pagesItems);
+    const screensChanged = screen !== selectedScreen || JSON.stringify(screens.items) !== JSON.stringify(screensItems);
+    if (page !== selectedPage || screen !== selectedScreen) layers.reset();
+    pagesOffset = 0; pagesItems = result.items; pagesTotal = result.total; selectedPage = page;
+    screensOffset = 0; screensItems = screens.items; screensTotal = screens.total; selectedScreen = screen;
+    revisions.confirmStructure(nextRevision);
+    tokens.apply(tokenSnapshot);
+    styles.apply(styleSnapshot);
+    if (pagesChanged) renderPages();
+    if (screensChanged || pagesChanged) renderScreens();
+    else renderCanvas();
+    layers.applySnapshot(layerSnapshot, selection);
+    element('document-title').textContent = name; document.title = `${name} — FigVam`;
+    element('token-create').inert = element('token-edit').inert = element('token-import-form').inert = false;
+    components.load(); datasets.load(); screenVariants.load();
+    diagnostics.refresh();
+    scenarios.refresh(screen);
+    renderRevision();
+  }
+});
+function readPages(...args: Parameters<typeof documentSync.readPages>) { return documentSync.readPages(...args); }
+function readNodeEditRevision(...args: Parameters<typeof documentSync.readNodeEditRevision>) { return documentSync.readNodeEditRevision(...args); }
 
 function resetDocumentRename() {
   const form = element('document-rename');
