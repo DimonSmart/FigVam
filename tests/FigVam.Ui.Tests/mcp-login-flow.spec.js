@@ -707,17 +707,23 @@ test('Server simulation matches the composed interactive overlay and final input
     properties: { x: 20, y: 20, width: 130, height: 40, text: 'Open overlay' } });
   const { nodeId: input } = await call('create_node', { parentId: overlay, kind: 'TextInput',
     properties: { x: 100, y: 100, width: 200, height: 40, placeholder: 'Overlay value', backgroundColor: '#FFFFFF' } });
-  await call('create_scenario', { screenId: base, nodeId: button, event: 'Click',
-    actions: [{ type: 'openOverlay', screenId: overlay }] });
+  // MCP create_scenario currently accepts only navigate; use the existing document command.
+  const scenario = await request.post('/api/v1' + new URL(page.url()).pathname + '/commands/create-scenario', {
+    headers: { Authorization: 'Bearer ' + bearer },
+    data: { commandId: require('node:crypto').randomUUID(), scenario: {
+      id: require('node:crypto').randomUUID(), screenId: base, nodeId: button, event: 0,
+      actions: [{ type: 'openOverlay', screenId: overlay }, { type: 'setDemoValue', nodeId: input, value: 'Final state' }]
+    } }
+  });
+  expect(scenario.ok(), await scenario.text()).toBeTruthy();
   await page.locator('#screens .screen-select[data-screen-id="' + base + '"]').click();
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await page.locator('#preview-viewport [data-visual-node="' + button + '"] button').click();
   await expect(page.locator('#preview-viewport .preview-screen')).toHaveCount(2);
   const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] input');
-  await field.fill('Final state');
-  await field.blur();
+  await expect(field).toHaveValue('Final state');
   const result = await call.raw('simulate_preview', { screenId: base, theme: 'Light', includeImage: true,
-    events: [{ nodeId: button, event: 'Click' }, { nodeId: input, event: 'Change', value: 'Final state' }] });
+    events: [{ nodeId: button, event: 'Click' }] });
   expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
   expect(result.structuredContent.overlays).toEqual([overlay]);
   await compareNativePreview(page, result.content.find(block => block.type === 'image'));
