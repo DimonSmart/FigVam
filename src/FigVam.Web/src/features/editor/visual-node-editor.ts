@@ -3,8 +3,9 @@ import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperati
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
+import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, type VisualAction, type AlignAction } from './visual-tools';
 import { inheritedLock } from '../../canvas/visual-geometry';
-import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
+import type { CanvasModel, CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
 
@@ -12,7 +13,7 @@ interface Context {documentId:string|null;documentRole:string|null;revision:numb
 interface Target extends Context {documentId:string;screen:string;revision:number;nodeId:string}
 interface Model extends PropertyModel {nodes:ReadonlyMap<string,CanvasNode>;kinds:ReadonlyMap<string,CanvasKind & {kind:string}>;overridden?:ReadonlyMap<string,ReadonlySet<string>>}
 interface Selection {nodeId:string;previousId?:string}
-interface Options {models:ReturnType<typeof createPropertyFieldModels>;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
+interface Options {models:ReturnType<typeof createPropertyFieldModels>;request:ApiClient;getContext():Context;readModel():Promise<Model>;getCanvasModel():CanvasModel|null;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
 interface Draft {values:Map<string,RawValue>;error:string;status:string;coordinateParentId?:string}
 interface Palette extends Draft {kind:string;parent:string|null|undefined;selectionId?:string;uploadStatus?:string;uploadError?:string}
 interface Field extends ValueField {baseline:RawValue;signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
@@ -39,7 +40,7 @@ const scopeKey = (context:Context) => context.documentId && context.screen && Nu
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  models, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
+  models, request, getContext, readModel, getCanvasModel,refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
 }:Options) {
   let assetFile:File|null=null,fileReset=0,optionalOpen=false,optionalHidden=true,addDisabled=true,paletteBlocked=true;
   function resetAssetFile(){assetFile=null;fileReset++;}
@@ -53,6 +54,7 @@ export function createVisualNodeEditor({
   let loadingFocus:{id:string;key:string|undefined}|null=null,uploadDocument:string|null|undefined;
   const uploads=new Map<string,Upload>();
   const automatic=new Map<Draft,Automatic>();
+  let appearanceClipboard:{documentId:string;properties:NodeProperties}|null=null;
   let applyTimer:ReturnType<typeof setTimeout>|undefined;
 
   // Each entry owns a captured target and validated snapshots, not DOM references.
@@ -395,6 +397,7 @@ export function createVisualNodeEditor({
       Fields:models.inspector.Component,submit:()=>finishApply(inspector),reset:resetInspector,loadRetryHidden:!loadError,loadRetry:retryLoad,
       retryHidden:!editable||!(editing&&retryable(op)||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
       status:editing?operationStatus(op,'Сохранение свойств…'):loading||(autoEntry?.fields.size&&!autoEntry.rejected?'Сохранение свойств…':inspector?.status||'')});
+    publishVisualActions(blocked);
     onDrawingToolsChanged(!hidden&&!formHidden&&!blocked?kinds:[]);
   }
 
@@ -623,9 +626,35 @@ export function createVisualNodeEditor({
       canvasDrafts.get(key), settlePreview);
   }
 
+  const alignActions:AlignAction[]=['left','right','top','bottom','centerX','centerY','distributeX','distributeY'];
+  function planAction(action:VisualAction,drawing:CanvasModel,ids:readonly string[]):NodeEdit[]{
+    if(action==='copy')return [];
+    if(action==='paste')return appearanceClipboard?.documentId===context.documentId&&appearanceClipboard?pasteAppearance(drawing,ids,appearanceClipboard.properties):[];
+    if(action==='group')return context.variantId?[]:grouping(drawing,ids,crypto.randomUUID());
+    if(action==='ungroup')return context.variantId||ids.length!==1?[]:ungrouping(drawing,ids[0]??'');
+    return alignment(drawing,ids,action);
+  }
+  function publishVisualActions(blocked:boolean){
+    const ids=context.selectedIds??(context.selection?[context.selection.id]:[]),drawing=getCanvasModel(),available:VisualAction[]=[];
+    if(drawing&&drawing.revision===context.revision&&ids.length){
+      if(ids.length===1)available.push('copy');
+      if(!blocked&&!ids.some(id=>inheritedLock(drawing,id)))for(const action of [...alignActions,'group','ungroup','paste'] as VisualAction[]){
+        if(planAction(action,drawing,ids).length)available.push(action);
+      }
+    }
+    models.visualActions.publish({visible:ids.length>0,available,run:action=>{
+      const current=getContext(),drawing=getCanvasModel(),ids=current.selectedIds??[];
+      if(!drawing||drawing.revision!==current.revision||current.documentId!==context.documentId)return;
+      if(action==='copy'){if(ids.length===1&&current.documentId){appearanceClipboard={documentId:current.documentId,properties:copyAppearance(drawing,ids[0]??'')};updateControls();}return;}
+      if(ids.some(id=>inheritedLock(drawing,id)))return;
+      const ops=planAction(action,drawing,ids);
+      editBatch(ops.map(op=>current.variantId&&current.screen&&op.action==='set'?{...op,variantId:current.variantId,screenId:current.screen}:op),drawing.revision);
+    }});
+  }
+
   function editBatch(operations:NodeEdit[], expectedRevision:number, settle:(confirmed:boolean)=>void=()=>{}) {
     const current=getContext(),key=scopeKey(current);
-    if(!key||!canEdit(current.documentRole)||current.revision!==expectedRevision||operations.length===0||operations.length>128||!current.screen||automatic.size||uploads.size)return false;
+    if(!key||!canEdit(current.documentRole)||current.revision!==expectedRevision||operations.length===0||operations.length>128||!current.screen||[...automatic.values()].some(entry=>entry.fields.size>0)||uploads.size)return false;
     if(!canvasDrafts.has(key))canvasDrafts.set(key,draft());
     return begin('edit-nodes',{nodeId:current.selection?.id??current.screen,expectedRevision,operations},canvasDrafts.get(key),settle);
   }

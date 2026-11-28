@@ -331,6 +331,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="inspector-page panel-page" id="shell-design" role="tabpanel" aria-labelledby="tab-design" hidden={rightTab!=="design"}>
               <h2 id="inspector-title">{"Инспектор"}</h2>
               <views.layers.caption.Component/>
+              <views.propertyFields.visualActions.Component/>
               <views.layers.deletion.Component/>
               <views.propertyFields.inspectorPanel.Component/>
               <views.layers.metadata.Component/>

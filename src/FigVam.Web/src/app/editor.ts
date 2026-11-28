@@ -426,13 +426,13 @@ const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasView
 });
 const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreens({
   chrome:previewChrome,publishMode:active=>{if(previewChrome.getSnapshot().active!==active)flushSync(()=>previewChrome.patch({active}));},
-  element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
+  element, request, closeInaccessibleDocument, onDesignChange: () => {canvasNodes.sync();visualNodeEditor.refresh();},
   getContext: () => ({ documentId, revision: revisions.revision, screen: selectionState.activeScreen,
     selection: layers.selection, selectedIds:layers.selectedIds,tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
   models: views.propertyFields,
-  request, readModel: visualScreens.readDesignModel, closeInaccessibleDocument, stopLive, startLive,
+  request, readModel: visualScreens.readDesignModel,getCanvasModel:()=>visualScreens.designModel, closeInaccessibleDocument, stopLive, startLive,
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, screen: selectionState.selectedScreen,

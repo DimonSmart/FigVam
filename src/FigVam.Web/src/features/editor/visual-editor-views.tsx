@@ -1,5 +1,6 @@
 import type { ComponentType } from 'react';
 import { createViewModel } from '../../app/view-model';
+import type { VisualAction } from './visual-tools';
 import { Button } from '../../ui/Button';
 interface Feedback {status:string;error:string;retryHidden:boolean;retry():void}
 interface AssetViewProps extends Feedback {disabled:boolean;fileReset:number;choose(file:File|null):void;submit():void}
@@ -55,4 +56,6 @@ function CanvasFeedback(p:Feedback){return <>          <p id="canvas-edit-status
           <p id="canvas-edit-error" role="alert">{p.error}</p>
           <Button id="canvas-edit-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>{"Повторить неподтверждённую команду"}</Button>
 </>;}
-export function createVisualEditorViews(){return {asset:createViewModel(AssetView),palette:createViewModel(PaletteView),inspectorPanel:createViewModel(InspectorView),canvasFeedback:createViewModel(CanvasFeedback)};}
+const actionLabels:Record<VisualAction,string>={left:'По левому краю',right:'По правому краю',top:'По верхнему краю',bottom:'По нижнему краю',centerX:'По центру горизонтали',centerY:'По центру вертикали',distributeX:'Распределить горизонтально',distributeY:'Распределить вертикально',group:'Сгруппировать',ungroup:'Разгруппировать',copy:'Копировать оформление',paste:'Вставить оформление'};
+function VisualActions(p:{visible:boolean;available:readonly VisualAction[];run(action:VisualAction):void}){return <section hidden={!p.visible} aria-label="Визуальное редактирование"><div className="visual-action-buttons">{(Object.keys(actionLabels) as VisualAction[]).map(action=><Button key={action} disabled={!p.available.includes(action)} onClick={()=>p.run(action)}>{actionLabels[action]}</Button>)}</div></section>;}
+export function createVisualEditorViews(){return {visualActions:createViewModel(VisualActions),asset:createViewModel(AssetView),palette:createViewModel(PaletteView),inspectorPanel:createViewModel(InspectorView),canvasFeedback:createViewModel(CanvasFeedback)};}
