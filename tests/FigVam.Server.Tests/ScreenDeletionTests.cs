@@ -59,6 +59,33 @@ public sealed class ScreenDeletionTests : IDisposable
         Assert.Empty((await Journal().ReadAsync(doc))!.Document.Screens);
     }
 
+    [Fact]
+    public async Task DeletesContainedInstancesAndPreservesSharedDefinitions()
+    {
+        var definition = Guid.NewGuid(); var definitionRoot = Guid.NewGuid(); var definitionScreen = Guid.NewGuid();
+        var document = Initial();
+        document = document with
+        {
+            Pages = [new(page, [screen, definitionScreen]) { Name = "Design" }],
+            Screens = [.. document.Screens, new(definitionScreen, [definitionRoot], new(100, 100))],
+            Nodes = [.. document.Nodes, new(definitionRoot, "test", [])],
+            ComponentDefinitions = [new(definition, "External", "", definitionRoot, [], [], [])],
+            ComponentInstances = [new(root, definition, null, new Dictionary<Guid, ComponentValue>(), new Dictionary<Guid, IReadOnlyList<Guid>>())]
+        };
+        await Journal().InitializeAsync(document);
+        Assert.True((await Handler().HandleAsync(Delete(), owner)).Accepted);
+        var current = (await Journal().ReadAsync(doc))!.Document;
+        Assert.Equal(definitionScreen, Assert.Single(Assert.Single(current.Pages).ScreenIds));
+        Assert.Equal(definitionScreen, Assert.Single(current.Screens).Id);
+        Assert.Empty(current.ComponentInstances);
+        Assert.Equal(definition, Assert.Single(current.ComponentDefinitions).Id);
+        Assert.Equal(definitionRoot, Assert.Single(current.Nodes).Id);
+        Assert.True((await Handler().HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), owner)).Accepted);
+        Assert.Single((await Journal().ReadAsync(doc))!.Document.ComponentInstances);
+        Assert.True((await Handler().HandleAsync(new RedoDocumentCommand(doc, Guid.NewGuid()), owner)).Accepted);
+        Assert.Empty((await Journal().ReadAsync(doc))!.Document.ComponentInstances);
+    }
+
     [Theory]
     [InlineData("page")]
     [InlineData("scenario")]
