@@ -27,6 +27,7 @@ const codes: Readonly<Partial<Record<string, string>>> = {
   PROFILE_UNAVAILABLE: 'Профиль документа не установлен.',
   INVALID_PROFILE: 'Профиль документа некорректен.',
   REVISION_CONFLICT: 'Документ изменился. Обновите страницы и повторите действие.',
+  SCREEN_IN_USE: 'Экран используется другими объектами. Удалите ссылки на него и его содержимое перед удалением.',
   PAGE_IN_USE: 'Страница используется другими объектами. Удалите ссылки на неё и её содержимое перед удалением.',
   PAGE_NOT_FOUND: 'Страница больше не существует. Обновите страницы.',
   PARENT_NOT_FOUND: 'Экран или слой больше не существует.',
@@ -57,6 +58,7 @@ export class ApiError extends Error {
     const code = body.code;
     super((code && Object.hasOwn(codes, code) ? codes[code] : undefined)
       ?? errors[status] ?? 'Сервер не смог выполнить запрос. Повторите позже.');
+    if ((code === 'SCREEN_IN_USE' || code === 'PAGE_IN_USE') && body.detail) this.message += ' ' + body.detail;
     this.name = 'ApiError';
     this.code = code;
     this.detail = body.detail;

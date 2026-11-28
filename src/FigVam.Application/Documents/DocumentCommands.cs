@@ -47,6 +47,7 @@ public sealed record AddComponentParameterCommand(Guid DocumentId, Guid CommandI
 public sealed record AddComponentDefinitionCommand(Guid DocumentId, Guid CommandId, Guid ComponentId, string Name, string Description, Guid RootNodeId);
 public sealed record AddPageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string? Name = null);
 public sealed record DeletePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, long ExpectedRevision);
+public sealed record DeleteScreenCommand(Guid DocumentId, Guid CommandId, Guid ScreenId, long ExpectedRevision);
 public sealed record DeleteDocumentCommand(Guid DocumentId, Guid CommandId, long ExpectedRevision);
 public sealed record RenameDocumentCommand(Guid DocumentId, Guid CommandId, string Name);
 public sealed record RenamePageCommand(Guid DocumentId, Guid CommandId, Guid PageId, string Name);
@@ -128,6 +129,7 @@ public interface IDocumentAuthorization
 [System.Text.Json.Serialization.JsonDerivedType(typeof(TokenRenamed), "TOKEN_RENAMED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(AssetAdded), "ASSET_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageDeleted), "PAGE_DELETED")]
+[System.Text.Json.Serialization.JsonDerivedType(typeof(ScreenDeleted), "SCREEN_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(PageAdded), "PAGE_ADDED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentDeleted), "DOCUMENT_DELETED")]
 [System.Text.Json.Serialization.JsonDerivedType(typeof(DocumentRenamed), "DOCUMENT_RENAMED")]
@@ -176,6 +178,7 @@ public sealed record TokenDeleted(Guid TokenId) : DocumentEvent;
 public sealed record StyleUpserted(DesignStyle Style) : DocumentEvent;
 public sealed record StyleDeleted(Guid StyleId) : DocumentEvent;
 public sealed record PageDeleted(Guid PageId) : DocumentEvent;
+public sealed record ScreenDeleted(Guid ScreenId) : DocumentEvent;
 public sealed record PageAdded(Guid PageId, [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Name = null) : DocumentEvent;
 public sealed record DocumentDeleted : DocumentEvent;
 public sealed record DocumentRenamed(string Name) : DocumentEvent;
@@ -271,6 +274,7 @@ public interface IDocumentCommandHandler
     Task<CommandResult> HandleAsync(AddNodeCommand command, DocumentActor actor,
         CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(DeletePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
+    Task<CommandResult> HandleAsync(DeleteScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenameDocumentCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenamePageCommand command, DocumentActor actor, CancellationToken cancellationToken = default);
     Task<CommandResult> HandleAsync(RenameScreenCommand command, DocumentActor actor, CancellationToken cancellationToken = default);

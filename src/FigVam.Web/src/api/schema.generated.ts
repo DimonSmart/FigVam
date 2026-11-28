@@ -3469,6 +3469,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{documentId}/commands/delete-screen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Delete a screen and its node subtrees at an expected revision
+         * @description Requires edit permission and expectedRevision matching the current draft. Deletes contained nodes, component instances and screen variants. Retained references cause SCREEN_IN_USE (409); remove those references explicitly first. Missing screen returns SCREEN_NOT_FOUND (404), stale revision REVISION_CONFLICT (409). Refusal preserves the document and revision. Reusing commandId returns its original result. Undo/Redo use the shared safe compensation history.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/*+json": components["schemas"]["DeleteScreenRequest"];
+                    "application/json": components["schemas"]["DeleteScreenRequest"];
+                    "text/json": components["schemas"]["DeleteScreenRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommandResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Payload Too Large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unsupported Media Type */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{documentId}/commands/delete-style": {
         parameters: {
             query?: never;
@@ -13049,6 +13177,14 @@ export interface components {
             /** Format: uuid */
             scenarioId: string;
         };
+        DeleteScreenRequest: {
+            /** Format: uuid */
+            commandId: string;
+            /** Format: int64 */
+            expectedRevision: number | string;
+            /** Format: uuid */
+            screenId: string;
+        };
         DeleteStyleRequest: {
             /** Format: uuid */
             commandId: string;
@@ -13142,7 +13278,7 @@ export interface components {
             id: string;
             name: string;
         };
-        DocumentEvent: components["schemas"]["DocumentEventScenarioChanged"] | components["schemas"]["DocumentEventScreenVariantChanged"] | components["schemas"]["DocumentEventComponentSlotAdded"] | components["schemas"]["DocumentEventComponentSlotContentSet"] | components["schemas"]["DocumentEventComponentVariantAdded"] | components["schemas"]["DocumentEventComponentInstanceVariantSet"] | components["schemas"]["DocumentEventComponentDefinitionDeleted"] | components["schemas"]["DocumentEventComponentInstanceDetached"] | components["schemas"]["DocumentEventComponentInstanceInserted"] | components["schemas"]["DocumentEventComponentVariantParameterChangeSet"] | components["schemas"]["DocumentEventComponentParameterDefaultSet"] | components["schemas"]["DocumentEventComponentParameterOverrideSet"] | components["schemas"]["DocumentEventComponentParameterAdded"] | components["schemas"]["DocumentEventComponentDefinitionAdded"] | components["schemas"]["DocumentEventNodeRepeaterSet"] | components["schemas"]["DocumentEventNodeDataBindingSet"] | components["schemas"]["DocumentEventDatasetConnectorSet"] | components["schemas"]["DocumentEventDatasetDeleted"] | components["schemas"]["DocumentEventDatasetAdded"] | components["schemas"]["DocumentEventDatasetFixtureReplaced"] | components["schemas"]["DocumentEventTokensImported"] | components["schemas"]["DocumentEventTokenAdded"] | components["schemas"]["DocumentEventTokenDeleted"] | components["schemas"]["DocumentEventStyleUpserted"] | components["schemas"]["DocumentEventStyleDeleted"] | components["schemas"]["DocumentEventNodePropertiesRemoved"] | components["schemas"]["DocumentEventTokenValueSet"] | components["schemas"]["DocumentEventTokenRenamed"] | components["schemas"]["DocumentEventAssetAdded"] | components["schemas"]["DocumentEventPageDeleted"] | components["schemas"]["DocumentEventPageAdded"] | components["schemas"]["DocumentEventDocumentDeleted"] | components["schemas"]["DocumentEventDocumentRenamed"] | components["schemas"]["DocumentEventPageRenamed"] | components["schemas"]["DocumentEventScreenRenamed"] | components["schemas"]["DocumentEventScreenResized"] | components["schemas"]["DocumentEventScreenAdded"] | components["schemas"]["DocumentEventScreenDuplicated"] | components["schemas"]["DocumentEventNodeAdded"] | components["schemas"]["DocumentEventNodeMoved"] | components["schemas"]["DocumentEventNodeDeleted"] | components["schemas"]["DocumentEventNodeNameSet"] | components["schemas"]["DocumentEventNodeSemanticKeySet"] | components["schemas"]["DocumentEventNodePropertySet"] | components["schemas"]["DocumentEventNodePropertiesSet"] | components["schemas"]["DocumentEventVersionSaved"] | components["schemas"]["DocumentEventVersionRestored"] | components["schemas"]["DocumentEventHistoryCompensated"] | components["schemas"]["DocumentEventBatchApplied"];
+        DocumentEvent: components["schemas"]["DocumentEventScenarioChanged"] | components["schemas"]["DocumentEventScreenVariantChanged"] | components["schemas"]["DocumentEventComponentSlotAdded"] | components["schemas"]["DocumentEventComponentSlotContentSet"] | components["schemas"]["DocumentEventComponentVariantAdded"] | components["schemas"]["DocumentEventComponentInstanceVariantSet"] | components["schemas"]["DocumentEventComponentDefinitionDeleted"] | components["schemas"]["DocumentEventComponentInstanceDetached"] | components["schemas"]["DocumentEventComponentInstanceInserted"] | components["schemas"]["DocumentEventComponentVariantParameterChangeSet"] | components["schemas"]["DocumentEventComponentParameterDefaultSet"] | components["schemas"]["DocumentEventComponentParameterOverrideSet"] | components["schemas"]["DocumentEventComponentParameterAdded"] | components["schemas"]["DocumentEventComponentDefinitionAdded"] | components["schemas"]["DocumentEventNodeRepeaterSet"] | components["schemas"]["DocumentEventNodeDataBindingSet"] | components["schemas"]["DocumentEventDatasetConnectorSet"] | components["schemas"]["DocumentEventDatasetDeleted"] | components["schemas"]["DocumentEventDatasetAdded"] | components["schemas"]["DocumentEventDatasetFixtureReplaced"] | components["schemas"]["DocumentEventTokensImported"] | components["schemas"]["DocumentEventTokenAdded"] | components["schemas"]["DocumentEventTokenDeleted"] | components["schemas"]["DocumentEventStyleUpserted"] | components["schemas"]["DocumentEventStyleDeleted"] | components["schemas"]["DocumentEventNodePropertiesRemoved"] | components["schemas"]["DocumentEventTokenValueSet"] | components["schemas"]["DocumentEventTokenRenamed"] | components["schemas"]["DocumentEventAssetAdded"] | components["schemas"]["DocumentEventPageDeleted"] | components["schemas"]["DocumentEventScreenDeleted"] | components["schemas"]["DocumentEventPageAdded"] | components["schemas"]["DocumentEventDocumentDeleted"] | components["schemas"]["DocumentEventDocumentRenamed"] | components["schemas"]["DocumentEventPageRenamed"] | components["schemas"]["DocumentEventScreenRenamed"] | components["schemas"]["DocumentEventScreenResized"] | components["schemas"]["DocumentEventScreenAdded"] | components["schemas"]["DocumentEventScreenDuplicated"] | components["schemas"]["DocumentEventNodeAdded"] | components["schemas"]["DocumentEventNodeMoved"] | components["schemas"]["DocumentEventNodeDeleted"] | components["schemas"]["DocumentEventNodeNameSet"] | components["schemas"]["DocumentEventNodeSemanticKeySet"] | components["schemas"]["DocumentEventNodePropertySet"] | components["schemas"]["DocumentEventNodePropertiesSet"] | components["schemas"]["DocumentEventVersionSaved"] | components["schemas"]["DocumentEventVersionRestored"] | components["schemas"]["DocumentEventHistoryCompensated"] | components["schemas"]["DocumentEventBatchApplied"];
         DocumentEventAssetAdded: {
             asset: components["schemas"]["DocumentAsset"];
             fontFamily?: null | components["schemas"]["DocumentFontFamily"];
@@ -13410,6 +13546,12 @@ export interface components {
             pageId: string;
             /** @enum {string} */
             payloadType?: "SCREEN_ADDED";
+            /** Format: uuid */
+            screenId: string;
+        };
+        DocumentEventScreenDeleted: {
+            /** @enum {string} */
+            payloadType?: "SCREEN_DELETED";
             /** Format: uuid */
             screenId: string;
         };

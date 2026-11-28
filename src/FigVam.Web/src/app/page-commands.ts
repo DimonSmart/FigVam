@@ -2,7 +2,7 @@ import { createDocumentCommand, type DocumentCommandRequest, type DocumentComman
 import { errorMessage } from '../api/decode';
 import type { ApiClient } from '../api/api-client';
 
-type PageCommandName = 'add-page' | 'rename-page' | 'delete-page' | 'add-screen' | 'rename-screen' | 'duplicate-screen';
+type PageCommandName = 'add-page' | 'rename-page' | 'delete-page' | 'add-screen' | 'rename-screen' | 'duplicate-screen' | 'delete-screen';
 export type PageCommandData = { [K in PageCommandName]: Omit<DocumentCommandRequest<K>, 'commandId'> };
 
 export function preparePageCommand<K extends PageCommandName>(documentId: string, command: K, data: PageCommandData[K]) {

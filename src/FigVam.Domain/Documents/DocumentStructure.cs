@@ -243,7 +243,23 @@ public static class DocumentStructureEditor
     {
         var page = document.Pages.FirstOrDefault(p => p.Id == pageId)
             ?? throw new InvalidOperationException("Page does not exist.");
-        var screens = page.ScreenIds.ToHashSet();
+        return DeleteScreens(document with { Pages = document.Pages.Where(p => p.Id != pageId).ToArray() }, page.ScreenIds.ToHashSet());
+    }
+
+    public static DocumentStructure DeleteScreen(DocumentStructure document, Guid screenId)
+    {
+        if (!document.Screens.Any(s => s.Id == screenId))
+            throw new InvalidOperationException("Screen does not exist.");
+        var parent = document.Pages.FirstOrDefault(p => p.ScreenIds.Contains(screenId));
+        return DeleteScreens(document with
+        {
+            Pages = document.Pages.Select(p => p.Id == parent?.Id
+                ? p with { ScreenIds = p.ScreenIds.Where(id => id != screenId).ToArray() } : p).ToArray()
+        }, new HashSet<Guid> { screenId });
+    }
+
+    private static DocumentStructure DeleteScreens(DocumentStructure document, HashSet<Guid> screens)
+    {
         var nodes = document.Nodes.ToDictionary(n => n.Id);
         var removed = new HashSet<Guid>();
         var pending = new Stack<Guid>(document.Screens.Where(s => screens.Contains(s.Id)).SelectMany(s => s.ChildIds));
@@ -251,7 +267,6 @@ public static class DocumentStructureEditor
             if (removed.Add(id)) foreach (var child in nodes[id].ChildIds) pending.Push(child);
         return document with
         {
-            Pages = document.Pages.Where(p => p.Id != pageId).ToArray(),
             Screens = document.Screens.Where(s => !screens.Contains(s.Id)).ToArray(),
             Nodes = document.Nodes.Where(n => !removed.Contains(n.Id)).ToArray(),
             ComponentInstances = document.ComponentInstances.Where(i => !removed.Contains(i.NodeId)).ToArray()

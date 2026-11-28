@@ -24,7 +24,7 @@ async function connect(request, endpoint, token) {
   protocolVersion = initialized.protocolVersion;
   await rpc('notifications/initialized', {}, true);
   const tools = (await rpc('tools/list', {})).tools;
-  expect(tools).toHaveLength(41);
+  expect(tools).toHaveLength(42);
   const renderSchema = tools.find(t => t.name === 'render_screen').inputSchema;
   expect(renderSchema.properties.theme.anyOf[0].enum).toEqual(['Light', 'Dark']);
   expect(renderSchema.required).not.toContain('theme');

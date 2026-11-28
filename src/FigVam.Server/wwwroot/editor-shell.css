@@ -507,7 +507,7 @@ body:has(#editor-view:not([hidden])) .feedback > :not(:empty) {
 }
 .app-shell .layers-master .navigator-context-body input[type="button"]:hover,
 .app-shell .layers-master .navigator-context-body input[type="button"]:focus-visible { background: var(--ui-selected); }
-.app-shell .layers-master .navigator-context-body .navigator-danger-action { color: #b42318; }
+.app-shell .layers-master .navigator-context-body input.navigator-danger-action { color: #b42318; border-top: 1px solid var(--ui-border); margin-top: 4px; padding-top: 8px; }
 .app-shell #screen-variants-list button[aria-pressed="true"] { font-weight: 650; color: var(--ui-accent); }
 .app-shell #visual-properties [data-variant-override="true"] { border-inline-start: 2px solid var(--ui-accent); padding-inline-start: 5px; }
 .app-shell #visual-properties .variant-override-reset { font-size: 11px; padding: 2px 5px; margin-inline-start: 5px; }

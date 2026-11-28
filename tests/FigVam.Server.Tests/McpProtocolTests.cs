@@ -43,7 +43,7 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(41, tools.Count);
+        Assert.Equal(42, tools.Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
@@ -257,7 +257,12 @@ public sealed class McpProtocolTests
         Assert.Equal("Failed", unavailable.GetProperty("render").GetProperty("status").GetString());
         Assert.Equal("RENDER_UNAVAILABLE", unavailable.GetProperty("render").GetProperty("code").GetString());
         Assert.Equal(simulationRevision, (await Call("get_document")).GetProperty("revision").GetInt64());
-        await Call("delete_scenario", new { scenarioId, expectedRevision = updatedScenario.GetProperty("revision").GetInt64() });
+        var blocked = await Call("delete_screen", new { screenId = target, expectedRevision = simulationRevision }, true);
+        Assert.Equal("SCREEN_IN_USE", blocked.GetProperty("code").GetString());
+        var removedScenario = await Call("delete_scenario", new { scenarioId, expectedRevision = updatedScenario.GetProperty("revision").GetInt64() });
+        var deleted = await Call("delete_screen", new { screenId = target, expectedRevision = removedScenario.GetProperty("revision").GetInt64() });
+        Assert.Equal(target, deleted.GetProperty("screenId").GetGuid());
+        await Call("get_screen", new { screenId = target }, true);
         await Call("list_pages");
         await Call("list_screens", new { pageId });
         await Call("get_screen", new { screenId });
@@ -520,7 +525,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(41, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(42, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>

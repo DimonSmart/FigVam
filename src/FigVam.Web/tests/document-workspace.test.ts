@@ -21,10 +21,48 @@ describe('document workspace', () => {
     expect(result?.selection).toEqual({ page: 'page', screen: 'screen' });
     expect(api.readScreens).toHaveBeenCalledWith('doc', 'page', signal, valid, 7);
   });
-  it('clears an obsolete screen selection when selecting the fallback page', async () => {
+  it('selects the first screen when selecting the fallback page', async () => {
     const result = await readDocumentStructure(queries(), 'doc', new AbortController().signal, () => true, null,
       { page: 'deleted', screen: 'screen' });
-    expect(result?.selection).toEqual({ page: 'page', screen: null });
+    expect(result?.selection).toEqual({ page: 'page', screen: 'screen' });
+  });
+  it('automatically selects the first screen on opening or after deleting the selected screen', async () => {
+    for (const selection of [{page:null,screen:null},{page:'page',screen:'deleted'}]) {
+      const result = await readDocumentStructure(queries(), 'doc', new AbortController().signal, () => true, null, selection);
+      expect(result?.selection).toEqual({page:'page',screen:'screen'});
+    }
+  });
+  it('preserves a non-first valid screen and page and uses document order for fallback', async () => {
+    const api = queries();
+    vi.mocked(api.readPages).mockResolvedValue({revision:7,total:2,items:[
+      {id:'first',type:'page',name:'First',childCount:1},{id:'second',type:'page',name:'Second',childCount:2}
+    ]});
+    vi.mocked(api.readScreens).mockResolvedValue({revision:7,total:2,items:[
+      {id:'s1',type:'screen',dimensions:{width:10,height:10}},
+      {id:'s2',type:'screen',dimensions:{width:10,height:10}}
+    ]});
+    const read = (page:string|null,screen:string|null) => readDocumentStructure(api,'doc',new AbortController().signal,()=>true,null,{page,screen});
+    expect((await read('second','s2'))?.selection).toEqual({page:'second',screen:'s2'});
+    expect((await read('second','removed'))?.selection).toEqual({page:'second',screen:'s1'});
+    expect((await read('removed','s2'))?.selection).toEqual({page:'first',screen:'s1'});
+    expect((await read('second',null))?.selection).toEqual({page:'second',screen:'s1'});
+  });
+  it('discards a screen response that becomes obsolete while loading', async () => {
+    const api = queries();
+    let current = true;
+    vi.mocked(api.readScreens).mockImplementationOnce(async () => {
+      current = false;
+      return {revision:7,total:1,items:[{id:'old',type:'screen',dimensions:{width:10,height:10}}]};
+    });
+    expect(await readDocumentStructure(api,'doc',new AbortController().signal,()=>current,null,{page:'page',screen:null})).toBeNull();
+  });
+  it('leaves selection empty only for actually empty lists', async () => {
+    const api = queries();
+    vi.mocked(api.readScreens).mockResolvedValueOnce({revision:7,items:[],total:0});
+    const read = () => readDocumentStructure(api,'doc',new AbortController().signal,()=>true,null,{page:'page',screen:'deleted'});
+    expect((await read())?.selection).toEqual({page:'page',screen:null});
+    vi.mocked(api.readPages).mockResolvedValueOnce({revision:7,items:[],total:0});
+    expect((await read())?.selection).toEqual({page:null,screen:null});
   });
   it('stops before screen loading when the request is obsolete', async () => {
     const api = queries();

@@ -22,7 +22,7 @@ export async function readDocumentStructure(queries: Queries, id: string, signal
     if (signal.aborted || !valid() || !result) return null;
     screens = result;
   }
-  if (!screens.items.some(item => item.id === screen)) screen = null;
+  if (!screens.items.some(item => item.id === screen)) screen = screens.items[0]?.id ?? null;
   return { revision: pages.revision, pages, screens, selection: { page, screen } };
 }
 
