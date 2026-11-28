@@ -45,18 +45,6 @@ describe('document font registry', () => {
     expect(remove).toHaveBeenCalledTimes(2);
   });
 
-  it('embeds data only for requested registered families', async () => {
-    const { registry, loader } = harness();
-    expect(await registry.embeddedCss([])).toBe('');
-    expect(loader).not.toHaveBeenCalled();
-    const css = await registry.embeddedCss([familyId, familyId]);
-    expect(css).toContain('src:url(data:font/woff2;base64,AQID)');
-    expect(css).toContain('font-weight:100 900');
-    expect(css).toContain('font-style:normal');
-    expect(css.match(/@font-face/g)).toHaveLength(1);
-    expect(loader).toHaveBeenCalledTimes(1);
-  });
-
   it('does not register a stale result after switching documents', async () => {
     let complete!: (value: ArrayBuffer) => void;
     const loader = vi.fn(() => new Promise<ArrayBuffer>(resolve => { complete = resolve; }));
@@ -71,7 +59,7 @@ describe('document font registry', () => {
   it('propagates failed capture loads and permits retry', async () => {
     const loader = vi.fn(async () => bytes()).mockRejectedValueOnce(new Error('unavailable'));
     const { registry, add } = harness(loader);
-    await expect(registry.embeddedCss([familyId])).rejects.toThrow('unavailable');
+    await expect(registry.ensure(familyId)).rejects.toThrow('unavailable');
     expect(add).not.toHaveBeenCalled();
     await expect(registry.ensure(familyId)).resolves.toMatch(/^figvam-font-/);
     expect(add).toHaveBeenCalledTimes(1);

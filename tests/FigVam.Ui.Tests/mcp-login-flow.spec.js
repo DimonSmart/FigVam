@@ -208,6 +208,73 @@ test('MCP builds the login prototype, both editors see changes and restart inval
 });
 
 
+// Compare native Chromium screenshots, not PNG signatures or selected colors alone.
+// Ignore only minor antialiasing differences (<= 16 levels); a large changed
+// region or a substantial average channel error still fails the comparison.
+async function compareNativePreview(page, image) {
+  await page.mouse.move(0, 0);
+  await page.evaluate(async () => {
+    document.activeElement?.blur();
+    await document.fonts.ready;
+    await Promise.all([...document.querySelectorAll('#preview-viewport img')].map(img => img.decode()));
+  });
+  const expected = Buffer.from(image.data, 'base64');
+  const width = expected.readUInt32BE(16), height = expected.readUInt32BE(20);
+  const viewport = page.locator('#preview-viewport');
+  // Compare the actual Preview DOM at the same integer origin as the server.
+  // Do not use CSS transforms: they change Chromium's text rasterization.
+  const bounds = await viewport.boundingBox();
+  expect(Math.abs(bounds.width - width), JSON.stringify({ bounds, width, height })).toBeLessThan(1);
+  expect(Math.abs(bounds.height - height), JSON.stringify({ bounds, width, height })).toBeLessThan(1);
+  const original = await viewport.getAttribute('style');
+  let interactive;
+  try {
+    await viewport.evaluate((el, size) => {
+      Object.assign(el.style, { position: 'fixed', left: '0px', top: '0px',
+        margin: '0', width: size.width + 'px', height: size.height + 'px', zIndex: '1000' });
+    }, { width, height });
+    await page.mouse.move(width + 5, height + 5);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    interactive = await page.screenshot({
+      clip: { x: 0, y: 0, width, height },
+      animations: 'disabled', caret: 'hide', scale: 'css'
+    });
+  } finally {
+    await viewport.evaluate((el, style) => style === null ? el.removeAttribute('style') : el.setAttribute('style', style), original);
+  }
+  const difference = await page.evaluate(async ({ a, b }) => {
+    async function pixels(data) {
+      const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], {type:'image/png'}));
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width; canvas.height = bmp.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bmp, 0, 0);
+      const result = { width: bmp.width, height: bmp.height, data: ctx.getImageData(0, 0, bmp.width, bmp.height).data };
+      bmp.close();
+      return result;
+    }
+    const [one, two] = await Promise.all([pixels(a), pixels(b)]);
+    if (one.width !== two.width || one.height !== two.height) return { sizeMatches: false, interactive: [one.width, one.height], server: [two.width, two.height] };
+    let changed = 0, sum = 0, minX = one.width, minY = one.height, maxX = -1, maxY = -1;
+    for (let i = 0; i < one.data.length; i += 4) {
+      let max = 0;
+      for (let channel = 0; channel < 4; channel++) {
+        const delta = Math.abs(one.data[i + channel] - two.data[i + channel]);
+        max = Math.max(max, delta); sum += delta;
+      }
+      if (max > 16) { changed++; const x = (i / 4) % one.width, y = Math.floor(i / 4 / one.width); minX = Math.min(minX,x); maxX = Math.max(maxX,x); minY = Math.min(minY,y); maxY = Math.max(maxY,y); }
+    }
+    return { sizeMatches: true, changed: changed / (one.width * one.height), average: sum / one.data.length, region: [minX, minY, maxX, maxY] };
+  }, { a: interactive.toString('base64'), b: image.data });
+  expect(difference.sizeMatches, JSON.stringify(difference)).toBe(true);
+  if (!difference.sizeMatches || difference.changed > 0.005 || difference.average > 0.5) {
+    await test.info().attach('interactive-preview', { body: interactive, contentType: 'image/png' });
+    await test.info().attach('server-preview', { body: expected, contentType: 'image/png' });
+  }
+  expect(difference.changed, JSON.stringify(difference)).toBeLessThanOrEqual(0.005);
+  expect(difference.average).toBeLessThanOrEqual(0.5);
+}
+
 test('Autonomous MCP rendering uses both themes and screens without changing editor state', async ({ page, request, server }, testInfo) => {
   test.setTimeout(300000);
   // Even if requested accidentally, the native tab picker must never be used.
@@ -365,7 +432,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
     const image = result.content.find(block => block.type === 'image');
     expect(image?.mimeType).toBe('image/png');
-    expect(result.structuredContent).toEqual({ screenId, theme: theme ?? 'Dark', revision: expectedRevision, width: 800, height: 600 });
+    expect(result.structuredContent).toEqual({ screenId, theme: theme ?? 'Light', revision: expectedRevision, width: 800, height: 600 });
     await testInfo.attach(name, { body: Buffer.from(image.data, 'base64'), contentType: 'image/png' });
     await assertImage(image, expectedBackground, expectedError, expectedButton);
   }
@@ -436,9 +503,11 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   expect(await field.boundingBox()).toEqual(fieldBounds);
   await testInfo.attach('focused-dark', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
   await field.blur();
+  const darkPng = await call.raw('render_screen', { screenId: login, theme: 'Dark' });
+  await compareNativePreview(page, darkPng.content.find(block => block.type === 'image'));
   const previewBefore = await editorState();
   await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false);
-  await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
+  await inspect(login, null, 'default-light', changedButton.revision, [238, 242, 247], false);
   expect(await editorState()).toEqual(previewBefore);
   await page.locator('#preview-theme button[data-theme=Light]').click();
   await field.focus();
@@ -446,18 +515,23 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await expect(field).toHaveCSS('outline-color', 'rgb(37, 99, 235)');
   await testInfo.attach('focused-light', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
   await field.blur();
+  const lightPng = await call.raw('render_screen', { screenId: login, theme: 'Light' });
+  await compareNativePreview(page, lightPng.content.find(block => block.type === 'image'));
   await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true, [220, 38, 38]);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });
   await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#15243A' });
   await call('save_version', { name: 'P2 Login Prototype' });
-  // The document grant remains valid even when there is no editor capture provider.
+  // Both screenshot tools work without any editor tab.
   expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
   await page.locator('#mcp-access-menu summary').click();
   await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);
   const documentUrl = page.url();
   const documentPath = new URL(documentUrl).pathname;
   await page.close();
+  const standalone = await call.raw('render_screen', { screenId: login, theme: 'Dark' });
+  expect(standalone.isError, JSON.stringify(standalone.structuredContent)).not.toBe(true);
+  expect(standalone.content.some(block => block.type === 'image')).toBe(true);
   const detached = await call.raw('simulate_preview', { screenId: login, theme: 'Light', includeImage: true,
     events: [{ nodeId: button, event: 'Click' }] });
   expect(detached.isError, JSON.stringify(detached.structuredContent)).not.toBe(true);
@@ -510,10 +584,29 @@ test('MCP-uploaded resource renders in an already open editor, Preview and scree
   expect(pixels.left[1]).toBeLessThan(55);
   expect(pixels.right[1]).toBeGreaterThan(200);
   expect(pixels.right[0]).toBeLessThan(55);
+  // Compare an image under a translucent, clipping frame and wrapped text.
+  // The child extends beyond the frame and its text needs several lines.
+  const { nodeId: frame } = await call('create_node', { parentId: screenId, kind: 'Frame',
+    properties: { x: 50, y: 10, width: 100, height: 80, overflow: 'Clip', backgroundColor: '#FFFFFF80',
+      borderWidth: 1, borderColor: '#202020', opacity: 0.8 } });
+  const { nodeId: wrapped } = await call('create_node', { parentId: frame, kind: 'Text',
+    properties: { x: 5, y: 5, width: 120, height: 110, text: 'Long text wraps onto several lines and extends beyond the frame.',
+      fontSize: 14, wrap: true, textColor: '#000000' } });
+  const layered = await call.raw('render_screen', { screenId });
+  expect(layered.isError, JSON.stringify(layered.structuredContent)).not.toBe(true);
+  const layeredImage = layered.content.find(block => block.type === 'image');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const preview = page.locator('#preview-viewport [data-visual-node="' + nodeId + '"] img');
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.evaluate(img => img.naturalWidth)).toBe(2);
+  const text = page.locator('#preview-viewport [data-visual-node="' + wrapped + '"] .visual-surface');
+  await expect(text).toContainText('Long text wraps');
+  expect(await text.evaluate(el => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return new Set([...range.getClientRects()].map(rect => rect.top)).size;
+  })).toBeGreaterThan(1);
+  await compareNativePreview(page, layeredImage);
 });
 
 
@@ -590,6 +683,7 @@ test('TextInput placeholders and values use the correct text, mask and theme col
     expect(capture.isError, JSON.stringify(capture.structuredContent)).not.toBe(true);
     const image = capture.content.find(block => block.type === 'image');
     expect(image?.mimeType).toBe('image/png');
+    await compareNativePreview(page, image);
     const pixels = await page.evaluate(async ({ data, colors }) => {
       const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
       const canvas = document.createElement('canvas');
@@ -609,7 +703,7 @@ test('TextInput placeholders and values use the correct text, mask and theme col
         counts: rows.map(row => ({ placeholder: count(row, colors.placeholder), value: count(row, colors.value) })),
         empty: rows[4].every(channel => channel === 255),
         placeholderMatchesText: same(rows[2], rows[5]),
-        passwordMatchesBullets: same(rows[3], rows[6])
+        passwordHasInk: count(rows[3], colors.value) > 10
       };
     }, { data: image.data, colors: colors[theme] });
     expect([pixels.width, pixels.height]).toEqual([280, 370]);
@@ -623,6 +717,114 @@ test('TextInput placeholders and values use the correct text, mask and theme col
     }
     expect(pixels.empty).toBe(true);
     expect(pixels.placeholderMatchesText).toBe(true);
-    expect(pixels.passwordMatchesBullets).toBe(true);
+    expect(pixels.passwordHasInk).toBe(true);
   }
+});
+
+test('Server simulation matches variants, dataset bindings, overlays and multiline input', async ({ page, request, server }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await signIn(page, server);
+  await page.getByLabel('Имя нового документа').fill('Overlay screenshot parity');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+  const { token, endpoint } = await grant(page);
+  const call = await connect(request, endpoint, token);
+  const { pageId } = await call('create_page');
+  const { screenId: base } = await call('create_screen', { pageId, width: 400, height: 300 });
+  const { screenId: overlay } = await call('create_screen', { pageId, width: 400, height: 300 });
+  const { nodeId: button } = await call('create_node', { parentId: base, kind: 'Button',
+    properties: { x: 20, y: 20, width: 130, height: 40, text: 'Open overlay' } });
+  const { nodeId: input } = await call('create_node', { parentId: overlay, kind: 'TextInput',
+    properties: { x: 100, y: 100, width: 200, height: 80, multiline: true, placeholder: 'Overlay value', backgroundColor: '#FFFFFF' } });
+  const { nodeId: label } = await call('create_node', { parentId: base, kind: 'Text',
+    properties: { x: 20, y: 65, width: 150, height: 30, text: 'Base label' } });
+  const { nodeId: bound } = await call('create_node', { parentId: overlay, kind: 'Text',
+    properties: { x: 100, y: 190, width: 200, height: 40, text: 'Unbound text' } });
+  const uuid = require('node:crypto').randomUUID;
+  const variantId = uuid(), datasetId = uuid();
+  const commands = '/api/v1' + new URL(page.url()).pathname + '/commands/';
+  async function command(name, data) {
+    const response = await request.post(commands + name, { headers: { Authorization: 'Bearer ' + bearer }, data: { commandId: uuid(), ...data } });
+    expect(response.ok(), await response.text()).toBeTruthy();
+  }
+  await command('add-screen-variant', { screenId: base, variantId, name: 'Alternate' });
+  await command('set-screen-variant-override', { screenId: base, variantId, nodeId: label, property: 'text', value: { type: 'string', value: 'Alternate label' } });
+  await command('add-dataset', { datasetId, name: 'Fixture', fixtureJson: '{"name":"Dataset text"}' });
+  await command('bind-node-data', { nodeId: bound, property: 'text', binding: {
+    datasetId, binding: { path: [{ type: 'property', name: 'name' }], operation: 0, expectedType: 1 }
+  } });
+  // MCP create_scenario currently accepts only navigate; use the existing document command.
+  const scenario = await request.post('/api/v1' + new URL(page.url()).pathname + '/commands/create-scenario', {
+    headers: { Authorization: 'Bearer ' + bearer },
+    data: { commandId: require('node:crypto').randomUUID(), scenario: {
+      id: require('node:crypto').randomUUID(), screenId: base, nodeId: button, event: 0,
+      actions: [{ type: 'showVariant', variantId }, { type: 'selectDataset', datasetId }, { type: 'openOverlay', screenId: overlay }, { type: 'setDemoValue', nodeId: input, value: 'Final state\nSecond line' }]
+    } }
+  });
+  expect(scenario.ok(), await scenario.text()).toBeTruthy();
+  await page.locator('#screens .screen-select[data-screen-id="' + base + '"]').click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await page.locator('#preview-viewport [data-visual-node="' + button + '"] button').click();
+  await expect(page.locator('#preview-viewport .preview-screen')).toHaveCount(2);
+  const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] textarea');
+  await expect(field).toHaveValue('Final state\nSecond line');
+  await expect(page.locator('#preview-viewport [data-visual-node="' + label + '"]')).toContainText('Alternate label');
+  await expect(page.locator('#preview-viewport [data-visual-node="' + bound + '"]')).toContainText('Dataset text');
+  const result = await call.raw('simulate_preview', { screenId: base, theme: 'Light', includeImage: true,
+    events: [{ nodeId: button, event: 'Click' }] });
+  expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+  expect(result.structuredContent.overlays).toEqual([overlay]);
+  await compareNativePreview(page, result.content.find(block => block.type === 'image'));
+});
+
+test('Uploaded variable font is loaded for native Preview and detached screenshots', async ({ page, request, server }) => {
+  test.setTimeout(120000);
+  const uuid = require('node:crypto').randomUUID;
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await signIn(page, server);
+  await page.getByLabel('Имя нового документа').fill('Variable font parity');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+  const access = await grant(page);
+  const call = await connect(request, access.endpoint, access.token);
+  const { pageId } = await call('create_page');
+  const { screenId } = await call('create_screen', { pageId, width: 320, height: 180 });
+  const familyId = uuid(), familyName = 'FigVamProbe';
+  await call('upload_asset', { contentType: 'font/woff2',
+    contentBase64: 'd09GMgABAAAAAAHIAA4AAAAABGgAAAFuAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP0hWQVIqBmA/U1RBVBwANC8kChg2MC4BNgIkAwYLBgAEIAWCfQcmG4QDIC4ObDrPQjtGVGhWnI3Qu774EM9TS/f+7iaUWoyFU/EIW4XE1vF04ZGa8Zxx8Xmu+a/E755HYYVVYPSqgIcbjWwNA2BUv2LS8h9Yzc/d820nHj2ggFJtJW0HlElL4zyBAsnDM8sw/STw3cZmHsFRiEN+31DAKgAgmBUsIlBArb0bjAYmoIsrgo5T83FQr/wAAIcgYlKwCqA83G9PAqCgYhUlWEU7BE0TdGO0LLBbRIpVMBn3OzCBG6ivEKCAhqBhAGiAtMxMTPs5/AGCgG0k2AZMP8a0yUeX8Njlm7fXNwTh9/My2y7on6y1h3+jARV+6mFQFRAKk740NzapPUgpYqQQk9kADTGDgGLCzIpqwTKaFRwNWVOEoRFK2pRYF60o5l2j2ndDc+5DQ/6fw6y/Xev+lN4vw/wtqzyOPNBiTfEaXmA9CUI7q1rvJHV3MZjlZquXo96dc3gyiWToZ8XUjLkxz4LNE0nekk4BAAAA',
+    font: { familyId, familyName, faceId: uuid(), faceName: 'Variable', weightFrom: 100, weightTo: 900, style: 0 } });
+  const ids = [];
+  for (const [index, weight] of [100, 900].entries()) {
+    const { nodeId } = await call('create_node', { parentId: screenId, kind: 'Text',
+      properties: { x: 10, y: 10 + index * 80, width: 300, height: 75, text: 'AAAA', fontFamily: familyName,
+        fontSize: 40, fontWeight: weight, textColor: '#000000' } });
+    ids.push(nodeId);
+  }
+  await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  for (const id of ids) {
+    const surface = page.locator('#preview-viewport [data-visual-node="' + id + '"] .visual-surface');
+    await expect(surface).toHaveCSS('font-family', /figvam-font-/);
+  }
+  const result = await call.raw('render_screen', { screenId });
+  expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+  const image = result.content.find(block => block.type === 'image');
+  await compareNativePreview(page, image);
+  const ink = await page.evaluate(async data => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
+    const canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(bmp,0,0);
+    return [0,80].map(y => {
+      const pixels = ctx.getImageData(10, 10+y, 300, 75).data;
+      let count = 0; for (let i=0;i<pixels.length;i+=4) if (pixels[i]<100 && pixels[i+1]<100 && pixels[i+2]<100) count++;
+      return count;
+    });
+  }, image.data);
+  expect(ink[0]).toBeGreaterThan(0);
+  expect(ink[1]).toBeGreaterThan(ink[0] * 2);
+  await page.close();
+  const detached = await call.raw('render_screen', { screenId });
+  expect(detached.isError, JSON.stringify(detached.structuredContent)).not.toBe(true);
+  expect(detached.content.find(block => block.type === 'image').data).toBe(image.data);
 });

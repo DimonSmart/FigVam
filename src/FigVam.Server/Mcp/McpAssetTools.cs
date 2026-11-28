@@ -22,7 +22,7 @@ public sealed class McpAssetTools(IHttpContextAccessor accessor, IDocumentAssets
         var result = await assets.ListAsync(Grant.DocumentId, Actor, revision, versionId, ct);
         return McpReadTools.Result(result.Code, result.Response is { } response ? new
         {
-            response.DocumentId, response.Revision, response.Assets,
+            response.DocumentId, response.Revision, response.Assets, response.Fonts,
             supportedContentTypes = DocumentAssetContentFormat.SupportedContentTypes,
             maxAssetBytes = DocumentAssetValidator.MaxAssetBytes
         } : null);
@@ -39,9 +39,9 @@ public sealed class McpAssetTools(IHttpContextAccessor accessor, IDocumentAssets
             McpReadTools.Result("OK", new { response.DocumentId, response.Revision, asset });
     }
 
-    [McpServerTool(Name = "upload_asset"), Description("Upload a binary resource to the granted document using standard padded Base64 (no data URI, URL or file path). Use list_assets to discover supported MIME types. Maximum decoded size 5 MiB. Supply a unique commandId for safe retries. For Image nodes use the returned assetId in properties.asset.")]
+    [McpServerTool(Name = "upload_asset"), Description("Upload a binary resource to the granted document using standard padded Base64 (no data URI, URL or file path). Use list_assets to discover supported MIME types. Maximum decoded size 5 MiB. Supply a unique commandId for safe retries. For Image nodes use the returned assetId in properties.asset. For fonts supply font metadata with familyId, familyName, faceId, faceName, weightFrom, weightTo and style (0 normal, 1 italic), then use familyName as fontFamily.")]
     public async Task<CallToolResult> UploadAsset(string contentType, string contentBase64,
-        Guid? assetId = null, Guid? commandId = null, CancellationToken ct = default)
+        Guid? assetId = null, Guid? commandId = null, FontUploadMetadata? font = null, CancellationToken ct = default)
     {
         var id = commandId ?? Guid.NewGuid();
         var requestedAsset = assetId ?? Guid.NewGuid();
@@ -55,13 +55,15 @@ public sealed class McpAssetTools(IHttpContextAccessor accessor, IDocumentAssets
             return Error("INVALID_ID", "commandId and assetId must be nonempty UUIDs.");
         if (!DocumentAssetContentFormat.IsSupported(contentType))
             return Error("INVALID_ASSET", "Unsupported resource MIME type. Use list_assets to discover supported formats.");
+        if (DocumentFontValidator.IsFontContentType(contentType) != (font is not null))
+            return Error("INVALID_ASSET", "Font uploads require family and face metadata; PNG uploads do not.");
         var decoded = DecodeContent(contentBase64);
         if (decoded.Content is not { } bytes)
             return Error(decoded.Code, decoded.Code == "ASSET_TOO_LARGE" ?
                 "Decoded resource exceeds 5 MiB." : "Expected standard padded Base64 without whitespace or a data URI.");
 
         var result = await handler.HandleAsync(new UploadDocumentAssetCommand(
-            Grant.DocumentId, id, requestedAsset, contentType, bytes), Actor, ct);
+            Grant.DocumentId, id, requestedAsset, contentType, bytes, font), Actor, ct);
         if (!result.Accepted)
             return Error(result.Code, result.Explanation ?? "Resource upload rejected.");
         // Use the original affected ID on command-stream retry, not a newly generated ID.

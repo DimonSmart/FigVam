@@ -18,8 +18,6 @@ public sealed class DocumentAssetContentFormatTests
     }
 
     [Theory]
-    [InlineData("font/woff2", ".woff2")]
-    [InlineData("font/ttf", ".ttf")]
     [InlineData("image/svg+xml", ".svg")]
     [InlineData("application/octet-stream", ".bin")]
     public void UnregisteredContentFailsClosed(string type, string extension)

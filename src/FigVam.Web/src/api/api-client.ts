@@ -75,6 +75,7 @@ type RequestArgs = [
 export interface ApiClient {
   (...args: RequestArgs): Promise<unknown>;
   readPng(...args: RequestArgs): Promise<Blob>;
+  readFont?(path: string, contentType: string, signal: AbortSignal): Promise<ArrayBuffer>;
   command?(...args: RequestArgs): Promise<unknown>;
 }
 
@@ -130,6 +131,13 @@ export function createApiClient({ auth = createAuthContext(), getToken, getSessi
     const png = await response.blob();
     assertCurrent();
     return png;
+  };
+  request.readFont = async (path: string, contentType: string, signal: AbortSignal): Promise<ArrayBuffer> => {
+    const { response, assertCurrent } = await readResponse(path, {}, signal);
+    if (response.headers.get('Content-Type') !== contentType) throw new TypeError('Неподдерживаемый формат шрифта.');
+    const bytes = await response.arrayBuffer();
+    assertCurrent();
+    return bytes;
   };
   return request;
 }

@@ -112,6 +112,32 @@ public sealed class DocumentAssetTests : IDisposable
         Assert.NotNull(await Journal().ReadAsync(other));
     }
 
+    [Fact]
+    public async Task FontCatalogAndBytesRecoverUndoAndRedoTogether()
+    {
+        await Initialize();
+        var bytes = Convert.FromBase64String("d09GMgABAAAAAAHIAA4AAAAABGgAAAFuAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP0hWQVIqBmA/U1RBVBwANC8kChg2MC4BNgIkAwYLBgAEIAWCfQcmG4QDIC4ObDrPQjtGVGhWnI3Qu774EM9TS/f+7iaUWoyFU/EIW4XE1vF04ZGa8Zxx8Xmu+a/E755HYYVVYPSqgIcbjWwNA2BUv2LS8h9Yzc/d820nHj2ggFJtJW0HlElL4zyBAsnDM8sw/STw3cZmHsFRiEN+31DAKgAgmBUsIlBArb0bjAYmoIsrgo5T83FQr/wAAIcgYlKwCqA83G9PAqCgYhUlWEU7BE0TdGO0LLBbRIpVMBn3OzCBG6ivEKCAhqBhAGiAtMxMTPs5/AGCgG0k2AZMP8a0yUeX8Njlm7fXNwTh9/My2y7on6y1h3+jARV+6mFQFRAKk740NzapPUgpYqQQk9kADTGDgGLCzIpqwTKaFRwNWVOEoRFK2pRYF60o5l2j2ndDc+5DQ/6fw6y/Xev+lN4vw/wtqzyOPNBiTfEaXmA9CUI7q1rvJHV3MZjlZquXo96dc3gyiWToZ8XUjLkxz4LNE0nekk4BAAAA");
+        var metadata = new FontUploadMetadata(Guid.NewGuid(), "FigVamProbe", Guid.NewGuid(), "Variable", 100, 900, DocumentFontStyle.Normal);
+        var command = new UploadDocumentAssetCommand(doc, Guid.NewGuid(), asset, "font/woff2", bytes, metadata);
+        Assert.Equal("FORBIDDEN", (await Handler().HandleAsync(command, viewer)).Code);
+        Assert.True((await Handler().HandleAsync(command, owner)).Accepted);
+        var response = (await Assets().ListAsync(doc, viewer)).Response!;
+        Assert.Equal(metadata.FamilyId, Assert.Single(response.Fonts).Id);
+        Assert.Equal(metadata.FaceId, Assert.Single(Assert.Single(response.Fonts).Faces).Id);
+        Assert.Equal(bytes, (await Assets().ReadAsync(doc, asset, viewer)).Content!.Content);
+        Assert.Empty((await Assets().ListAsync(doc, viewer, revision: 0)).Response!.Fonts);
+        Assert.Equal("FORBIDDEN", (await Assets().ReadAsync(doc, asset, new("other-owner"))).Code);
+        var overlap = command with { CommandId = Guid.NewGuid(), AssetId = Guid.NewGuid(), Font = metadata with { FaceId = Guid.NewGuid() } };
+        Assert.False((await Handler().HandleAsync(overlap, owner)).Accepted);
+        Assert.True((await Handler().HandleAsync(new UndoDocumentCommand(doc, Guid.NewGuid()), owner)).Accepted);
+        Assert.Empty((await Assets().ListAsync(doc, viewer)).Response!.Fonts);
+        Assert.Empty((await Assets().ListAsync(doc, viewer)).Response!.Assets);
+        Assert.True((await Handler().HandleAsync(new RedoDocumentCommand(doc, Guid.NewGuid()), owner)).Accepted);
+        Assert.Equal(metadata.FamilyId, Assert.Single((await Assets().ListAsync(doc, viewer)).Response!.Fonts).Id);
+        Assert.Equal(bytes, (await Assets().ReadAsync(doc, asset, viewer)).Content!.Content);
+        Assert.Null(SafeFontAsset.Inspect(Guid.NewGuid(), "font/woff2", bytes[..^1]));
+    }
+
     public static IEnumerable<byte[]> InvalidPngs()
     {
         yield return Encoding.UTF8.GetBytes("<svg><script>alert(1)</script><image href='https://example.com/x'/></svg>");

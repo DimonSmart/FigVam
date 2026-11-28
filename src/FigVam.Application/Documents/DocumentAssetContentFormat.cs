@@ -10,7 +10,11 @@ public static class DocumentAssetContentFormat
     private static readonly IReadOnlyDictionary<string, Format> Formats =
         new Dictionary<string, Format>(StringComparer.Ordinal)
         {
-            ["image/png"] = new(".png", SafeRasterImage.Inspect)
+            ["image/png"] = new(".png", SafeRasterImage.Inspect),
+            ["font/woff2"] = new(".woff2", SafeFontAsset.Inspect),
+            ["font/woff"] = new(".woff", SafeFontAsset.Inspect),
+            ["font/ttf"] = new(".ttf", SafeFontAsset.Inspect),
+            ["font/otf"] = new(".otf", SafeFontAsset.Inspect)
         };
 
     public static IReadOnlyList<string> SupportedContentTypes { get; } =

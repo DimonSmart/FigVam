@@ -52,6 +52,8 @@ jobs:
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
+      - name: Install server Chromium
+        run: pwsh src/FigVam.Server/bin/Debug/net10.0/playwright.ps1 install chromium
       - name: Verify generated OpenAPI contracts
         working-directory: src/FigVam.Web
         run: npm run generate:api -- --no-build --check
@@ -60,6 +62,7 @@ jobs:
           dotnet publish src/FigVam.Server --no-restore -c Release -o "$env:RUNNER_TEMP/figvam-publish"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $published = "$env:RUNNER_TEMP/figvam-publish/wwwroot"
+          if (!(Test-Path (Join-Path $published 'render.html'))) { throw 'Missing published render page' }
           if (!(Test-Path (Join-Path $published 'index.html'))) { throw 'Missing published editor shell' }
           $bundles = @(Get-ChildItem src/FigVam.Web/dist -Filter '*.js' -File)
           if (!$bundles.Count) { throw 'No generated frontend assets' }
@@ -102,6 +105,8 @@ jobs:
         run: dotnet restore FigVam.sln --locked-mode
       - name: Build solution
         run: dotnet build FigVam.sln --no-restore
+      - name: Install server Chromium
+        run: pwsh src/FigVam.Server/bin/Debug/net10.0/playwright.ps1 install chromium
       - name: Install UI dependencies
         working-directory: tests/FigVam.Ui.Tests
         run: npm ci

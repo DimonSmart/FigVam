@@ -666,8 +666,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read verified raster bytes from a document snapshot
-         * @description Requires current document read permission and asset membership in the selected draft revision or saved version. revision and versionId are mutually exclusive. Returns image/png with no-store, nosniff, sandbox CSP and SHA-256 ETag; no public storage URLs or redirects. At most 5 MiB.
+         * Read verified image or font bytes from a document snapshot
+         * @description Requires current document read permission and asset membership in the selected draft revision or saved version. revision and versionId are mutually exclusive. Returns the asset MIME type with no-store, nosniff, sandbox CSP and SHA-256 ETag; no public storage URLs or redirects. At most 5 MiB.
          */
         get: {
             parameters: {
@@ -690,6 +690,10 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
+                        "font/otf": string;
+                        "font/ttf": string;
+                        "font/woff": string;
+                        "font/woff2": string;
                         "image/png": string;
                     };
                 };
@@ -700,6 +704,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -710,6 +718,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -720,6 +732,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -730,6 +746,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -740,6 +760,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -750,6 +774,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -760,6 +788,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -770,6 +802,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -780,6 +816,10 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["ApiError"];
+                        "font/otf": components["schemas"]["ApiError"];
+                        "font/ttf": components["schemas"]["ApiError"];
+                        "font/woff": components["schemas"]["ApiError"];
+                        "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
                     };
                 };
@@ -11170,119 +11210,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/documents/{documentId}/screen-capture/providers": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    documentId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/documents/{documentId}/screen-capture/providers/{providerId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    documentId: string;
-                    providerId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/documents/{documentId}/screen-capture/providers/{providerId}/results/{requestId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: {
-                    code?: string;
-                    revision?: number | string;
-                    screenId?: string;
-                    theme?: string;
-                };
-                header?: never;
-                path: {
-                    documentId: string;
-                    providerId: string;
-                    requestId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description OK */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/documents/{documentId}/screens": {
         parameters: {
             query?: never;
@@ -13204,6 +13131,7 @@ export interface components {
             assets: components["schemas"]["DocumentAsset"][];
             /** Format: uuid */
             documentId: string;
+            fonts?: components["schemas"]["DocumentFontFamily"][];
             /** Format: int64 */
             revision: number | string;
         };
@@ -13217,6 +13145,7 @@ export interface components {
         DocumentEvent: components["schemas"]["DocumentEventScenarioChanged"] | components["schemas"]["DocumentEventScreenVariantChanged"] | components["schemas"]["DocumentEventComponentSlotAdded"] | components["schemas"]["DocumentEventComponentSlotContentSet"] | components["schemas"]["DocumentEventComponentVariantAdded"] | components["schemas"]["DocumentEventComponentInstanceVariantSet"] | components["schemas"]["DocumentEventComponentDefinitionDeleted"] | components["schemas"]["DocumentEventComponentInstanceDetached"] | components["schemas"]["DocumentEventComponentInstanceInserted"] | components["schemas"]["DocumentEventComponentVariantParameterChangeSet"] | components["schemas"]["DocumentEventComponentParameterDefaultSet"] | components["schemas"]["DocumentEventComponentParameterOverrideSet"] | components["schemas"]["DocumentEventComponentParameterAdded"] | components["schemas"]["DocumentEventComponentDefinitionAdded"] | components["schemas"]["DocumentEventNodeRepeaterSet"] | components["schemas"]["DocumentEventNodeDataBindingSet"] | components["schemas"]["DocumentEventDatasetConnectorSet"] | components["schemas"]["DocumentEventDatasetDeleted"] | components["schemas"]["DocumentEventDatasetAdded"] | components["schemas"]["DocumentEventDatasetFixtureReplaced"] | components["schemas"]["DocumentEventTokensImported"] | components["schemas"]["DocumentEventTokenAdded"] | components["schemas"]["DocumentEventTokenDeleted"] | components["schemas"]["DocumentEventStyleUpserted"] | components["schemas"]["DocumentEventStyleDeleted"] | components["schemas"]["DocumentEventNodePropertiesRemoved"] | components["schemas"]["DocumentEventTokenValueSet"] | components["schemas"]["DocumentEventTokenRenamed"] | components["schemas"]["DocumentEventAssetAdded"] | components["schemas"]["DocumentEventPageDeleted"] | components["schemas"]["DocumentEventPageAdded"] | components["schemas"]["DocumentEventDocumentDeleted"] | components["schemas"]["DocumentEventDocumentRenamed"] | components["schemas"]["DocumentEventPageRenamed"] | components["schemas"]["DocumentEventScreenRenamed"] | components["schemas"]["DocumentEventScreenResized"] | components["schemas"]["DocumentEventScreenAdded"] | components["schemas"]["DocumentEventScreenDuplicated"] | components["schemas"]["DocumentEventNodeAdded"] | components["schemas"]["DocumentEventNodeMoved"] | components["schemas"]["DocumentEventNodeDeleted"] | components["schemas"]["DocumentEventNodeNameSet"] | components["schemas"]["DocumentEventNodeSemanticKeySet"] | components["schemas"]["DocumentEventNodePropertySet"] | components["schemas"]["DocumentEventNodePropertiesSet"] | components["schemas"]["DocumentEventVersionSaved"] | components["schemas"]["DocumentEventVersionRestored"] | components["schemas"]["DocumentEventHistoryCompensated"] | components["schemas"]["DocumentEventBatchApplied"];
         DocumentEventAssetAdded: {
             asset: components["schemas"]["DocumentAsset"];
+            fontFamily?: null | components["schemas"]["DocumentFontFamily"];
             /** @enum {string} */
             payloadType?: "ASSET_ADDED";
         };
@@ -13568,6 +13497,25 @@ export interface components {
             /** Format: uuid */
             versionId: string;
         };
+        DocumentFontFace: {
+            /** Format: uuid */
+            assetId: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            style: components["schemas"]["DocumentFontStyle"];
+            /** Format: int32 */
+            weightFrom: number | string;
+            /** Format: int32 */
+            weightTo: number | string;
+        };
+        DocumentFontFamily: {
+            faces: components["schemas"]["DocumentFontFace"][];
+            /** Format: uuid */
+            id: string;
+            name: string;
+        };
+        DocumentFontStyle: number;
         DocumentImportFailure: {
             code: string;
             diagnostics: components["schemas"]["DocumentReadDiagnostic"][];
@@ -13609,6 +13557,7 @@ export interface components {
             componentDefinitions: components["schemas"]["EntityChangeOfComponentDefinition"][];
             componentInstances: components["schemas"]["EntityChangeOfComponentInstance"][];
             datasets: components["schemas"]["EntityChangeOfDocumentDataset"][];
+            fonts?: components["schemas"]["EntityChangeOfDocumentFontFamily"][];
             name: null | components["schemas"]["NameChange"];
             nodes: components["schemas"]["EntityChangeOfNodeStructure"][];
             pages: components["schemas"]["EntityChangeOfPageStructure"][];
@@ -13653,6 +13602,7 @@ export interface components {
             componentDefinitions: components["schemas"]["ComponentDefinition"][];
             componentInstances: components["schemas"]["ComponentInstance"][];
             datasets: components["schemas"]["DocumentDataset"][];
+            fonts?: components["schemas"]["DocumentFontFamily"][];
             /** Format: uuid */
             id: string;
             name: string;
@@ -13746,6 +13696,18 @@ export interface components {
             /** Format: int32 */
             afterIndex: number | string;
             before: null | components["schemas"]["DocumentDataset"];
+            /** Format: int32 */
+            beforeIndex: number | string;
+            /** Format: uuid */
+            id: string;
+            /** @default false */
+            reorder: boolean;
+        };
+        EntityChangeOfDocumentFontFamily: {
+            after: null | components["schemas"]["DocumentFontFamily"];
+            /** Format: int32 */
+            afterIndex: number | string;
+            before: null | components["schemas"]["DocumentFontFamily"];
             /** Format: int32 */
             beforeIndex: number | string;
             /** Format: uuid */

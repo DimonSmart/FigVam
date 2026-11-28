@@ -69,6 +69,8 @@ try {
   if ($Setup) {
     & dotnet build (Join-Path $root 'src/FigVam.Server/FigVam.Server.csproj')
     if ($LASTEXITCODE -ne 0) { throw 'Failed to build FigVam.Server' }
+    & pwsh (Join-Path $root 'src/FigVam.Server/bin/Debug/net10.0/playwright.ps1') install chromium
+    if ($LASTEXITCODE -ne 0) { throw 'Server Chromium installation failed' }
     & npm ci
     if ($LASTEXITCODE -ne 0) { throw 'npm ci failed' }
     & npx playwright install chromium

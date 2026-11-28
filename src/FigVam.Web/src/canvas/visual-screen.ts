@@ -1,3 +1,6 @@
+import { DocumentFontRegistry } from './document-font-registry';
+import { loadPreviewFonts } from './preview-fonts';
+import { previewSurface } from './preview-surface';
 import { reconcileScreen, renderScreen, type RenderModel } from './screen-renderer.js';
 import { resolvePropertyToken } from '../core/tokens/token-resolution';
 import { number, node, kind, box, properties, token, nodeProperty } from './render-model';
@@ -14,12 +17,12 @@ interface Scenario {nodeId:string;event:number;actions:PreviewAction[]}
 interface Playback {selection:{screenId:string;datasetId:string|null;variantId:string|null};overlays:string[];values:Record<string,string|null>;canGoBack:boolean}
 interface Asset {id:string;width:number;height:number}
 interface Style {id:string;name:string;type:number|string}
-interface Resources {kinds:Map<string,CanvasKind & {kind:string}>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
+interface Resources {fontFamilies?: ReadonlyMap<string,string>;kinds:Map<string,CanvasKind & {kind:string}>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
 interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens'>, Resources {
   screen:string;revision:number;scenarios:Scenario[];diagnostics:Diagnostic[];orderedNodes:CanvasNode[];
 }
 interface Diagnostic {objectId:string;property:string;message:string;code:string}
-interface View {host:HTMLElement;feedback:RenderFeedback;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null;captureStamp?:string|null}
+interface View {host:HTMLElement;feedback:RenderFeedback;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null}
 interface Screen {id:string;dimensions:{width:number;height:number}}
 interface InputContext {documentId:string|null;revision:number|null;screen?:Screen;selection?:{id:string}|null;tokens:unknown[];styles?:unknown[];variantId:string|null}
 type Context=Omit<InputContext,'documentId'|'revision'|'screen'>&{documentId:string;revision:number;screen:Screen};
@@ -52,6 +55,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
   const inputValues=new Map<string,string>();
   const screenNodes=new Map<string,Promise<Page<CanvasNode>>>(),screenScenarios=new Map<string,Promise<Page<Scenario>>>(),assetUrls=new Map<string,Promise<string>>();
   let resources:Promise<Resources>|null=null,loadedResources:Resources|null=null;
+  const fonts = new DocumentFontRegistry(async () => { throw new Error('No font asset loader'); });
   const propertyPreviews=new Map<string,Map<string,NodeProperties>>();
   function currentContext():Context{if(!context)throw new Error('No active screen');return context;}
   function documentSignal():AbortSignal{if(!controller)throw new Error('No active screen request');return controller.signal;}
@@ -152,6 +156,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
     chrome.patch({available:!!key});
     if (contextKey === key) return;
     const sameScreen = next.documentId === context?.documentId && next.screen?.id === context?.screen.id;
+    if (!nextContext || nextContext.documentId !== context?.documentId) fonts.dispose();
     contextKey = key;
     controller?.abort();
     controller = new AbortController();
@@ -216,8 +221,14 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
     const tokens=new Map(ctx.tokens.map(token).map(t=>[t.id,t]));
     const styles=new Map((ctx.styles??[]).map(style).map(s=>[s.id,s]));
     const loading = Promise.all([readPath('profile', {}, signal), readPath('assets', {}, signal)])
-      .then(([profile, manifest]) => {
-        const result = { kinds: new Map(array(profile.kinds,kind).map(k=>[k.kind,k])),
+      .then(async ([profile, manifest]) => {
+        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        const fontFamilies = await loadPreviewFonts(fonts, ctx.documentId, manifest.fonts, manifest.assets, async (face, fontSignal) => {
+          if (!request.readFont) throw new Error('Font asset loading unavailable');
+          return request.readFont(`/api/v1/documents/${ctx.documentId}/assets/${face.assetId}?revision=${ctx.revision}`, face.contentType, fontSignal);
+        });
+        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        const result = { fontFamilies, kinds: new Map(array(profile.kinds,kind).map(k=>[k.kind,k])),
           assets: new Map(array(manifest.assets,asset).map(a=>[a.id,a])), tokens, styles };
         if (resources === loading) loadedResources = result;
         return result;
@@ -359,16 +370,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
           report: (node, property, message) => diagnostics.add(`${node.name || node.id} · ${property}: ${message}`)
         });
         if (previewMode) {
-          const surface = document.createElement('div');
-          const bounds = boxes.get(screen)?.bounds;
-          if(!bounds)continue;
-          surface.className = 'preview-screen';
-          surface.dataset.previewScreen = screen;
-          surface.style.width = `${bounds.width}px`;
-          surface.style.height = `${bounds.height}px`;
-          surface.inert = index !== models.length - 1;
-          surface.append(drawing.root);
-          content.append(surface);
+          content.append(previewSurface(model, drawing.root, index === models.length - 1));
         } else content.append(drawing.root);
         shown = true;
       }
@@ -416,7 +418,6 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
       if (!current() || aborted(error)) return;
       if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
       view.key = null;
-      view.captureStamp = null;
       view.feedback.patch({ ...(!view.host.hasChildNodes() ? {diagnostics:[]} : {}),status:`Не удалось показать экран. ${errorMessage(error)}`,canRetry:true });
       if (previewMode) onDesignChange();
     }
@@ -514,6 +515,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
   });
   observer.observe(viewport);
   function dispose() {
+    fonts.dispose();
     observer.disconnect(); clearTimeout(resizeTimer); cancelAnimationFrame(previewFrame);
     controller?.abort(); controller=null; playbackRequest?.abort(); playbackRequest=null;
     resetView(design); resetView(preview); context=null;contextKey=null;playback=null;triggers=[];

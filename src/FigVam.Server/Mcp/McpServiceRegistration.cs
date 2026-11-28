@@ -21,9 +21,9 @@ public static class McpServiceRegistration
     public static void AddDocumentMcp(this WebApplicationBuilder builder)
     {
         builder.Services.AddSingleton<McpAccessRegistry>();
-        builder.Services.AddSingleton<ScreenCaptureService>();
+        builder.Services.AddSingleton<PlaywrightPreviewBrowser>();
         builder.Services.AddSingleton<HeadlessPreviewCapture>();
-        builder.Services.AddSingleton<IScreenCaptureService>(sp => sp.GetRequiredService<ScreenCaptureService>());
+        builder.Services.AddSingleton<IScreenCaptureService>(sp => sp.GetRequiredService<HeadlessPreviewCapture>());
         builder.Services.AddSingleton(McpTunnelCredential.Create(builder.Configuration, builder.Environment));
         builder.Services.AddHttpContextAccessor();
         builder.Services.AddAuthentication()
@@ -49,7 +49,7 @@ public static class McpServiceRegistration
                 {
                     var schema = System.Text.Json.Nodes.JsonNode.Parse(tool.InputSchema.GetRawText())!.AsObject();
                     schema["properties"]!["theme"] = System.Text.Json.Nodes.JsonNode.Parse(tool.Name == "render_screen"
-                        ? """{"description":"Optional render-only theme; omit to use the current prototype theme.","anyOf":[{"type":"string","enum":["Light","Dark"]},{"type":"null"}]}"""
+                        ? """{"description":"Optional render-only theme; defaults to Light.","anyOf":[{"type":"string","enum":["Light","Dark"]},{"type":"null"}]}"""
                         : """{"description":"Theme for this read-only operation.","type":"string","enum":["Light","Dark"],"default":"Light"}""");
                     if (tool.Name == "simulate_preview")
                         schema["properties"]!["events"] = System.Text.Json.Nodes.JsonNode.Parse(

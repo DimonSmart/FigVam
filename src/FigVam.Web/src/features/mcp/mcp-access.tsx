@@ -10,7 +10,6 @@ interface Tunnel { configured: boolean; enabled: boolean; occupied: boolean }
 type Access = { enabled: false; tunnel: Tunnel } | { enabled: true; endpoint: string; token: string; tunnel: Tunnel };
 interface Context { title: string; documentId: string | null; token: string | null; navigationEpoch: number; role: string | null; theme: string }
 interface Operation extends Context { signal: AbortSignal }
-interface Capture { stop(): void; onEvent(event: unknown, signal: AbortSignal): void; onDisconnect(signal: AbortSignal): void }
 function record(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null; }
 export function decodeMcpAccess(value: unknown): Access {
   if (!record(value) || typeof value.enabled !== 'boolean' || !record(value.tunnel) ||
@@ -73,7 +72,7 @@ function McpView({state}:{state:McpViewState}){
   return <><p role="alert">{state.message}</p><Button onClick={state.reload}>Обновить</Button></>;
 }
 export function createMcpAccessModel(){return createViewModel(McpView);}
-export function createMcpAccess({model,request,getContext,capture,menu}:{model:ReturnType<typeof createMcpAccessModel>;request:ApiClient;getContext():Context;capture:Capture;menu:EditorMenu}) {
+export function createMcpAccess({model,request,getContext,menu}:{model:ReturnType<typeof createMcpAccessModel>;request:ApiClient;getContext():Context;menu:EditorMenu}) {
   const isOpen = () => menu.getSnapshot() === 'mcp';
   let controller: AbortController | null = null, current: Operation | null = null;
   const valid = (operation: Operation) => {
@@ -85,7 +84,7 @@ export function createMcpAccess({model,request,getContext,capture,menu}:{model:R
     controller?.abort(); controller = null; current = null;
     model.clear();
   }
-  function reset() { capture.stop(); menu.close('mcp'); clear(); }
+  function reset() { menu.close('mcp'); clear(); }
   async function load(method: Method = 'GET', tunnel = false) {
     clear();
     const context = getContext();
@@ -111,5 +110,5 @@ export function createMcpAccess({model,request,getContext,capture,menu}:{model:R
   }
   const unsubscribe = menu.subscribe(() => { if (isOpen()) void load(); else clear(); });
   function dispose() { unsubscribe(); reset(); }
-  return {reset, dispose, onCaptureEvent: capture.onEvent, onCaptureDisconnect: capture.onDisconnect};
+  return {reset, dispose};
 }

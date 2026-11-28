@@ -23,8 +23,6 @@ type FontSet = Pick<FontFaceSet, 'add' | 'delete'>;
 
 interface LoadedFace {
   face: FontFace;
-  bytes: ArrayBuffer;
-  descriptor: DocumentFontFace;
 }
 
 interface Entry {
@@ -69,14 +67,6 @@ function identity(documentId: string, family: DocumentFontFamily): { key: string
   }).join('--');
   const key = id(documentId) + '-' + id(family.id) + '--' + composition;
   return { key, cssName: 'figvam-font-' + key };
-}
-
-function base64(bytes: ArrayBuffer): string {
-  const data = new Uint8Array(bytes);
-  let binary = '';
-  for (let offset = 0; offset < data.length; offset += 8192)
-    binary += String.fromCharCode(...data.subarray(offset, offset + 8192));
-  return btoa(binary);
 }
 
 // One registry owns one rendering context. An editor can keep it across revisions;
@@ -154,7 +144,7 @@ export class DocumentFontRegistry {
         const face = this.createFace(entry.cssName, bytes, { weight: weight(descriptor), style: descriptor.style });
         await face.load();
         if (signal.aborted) throw cancelled();
-        faces.push({ face, bytes, descriptor });
+        faces.push({ face });
       }
       // A family is published atomically only after all faces loaded.
       for (const loaded of faces) {
@@ -167,23 +157,6 @@ export class DocumentFontRegistry {
       entry.loaded = [];
       throw error;
     }
-  }
-
-  // Self-contained rules for SVG foreignObject. Call only for families used by
-  // the surface; errors propagate rather than silently producing fallback PNG.
-  async embeddedCss(familyIds: Iterable<string>): Promise<string> {
-    const rules: string[] = [];
-    for (const familyId of new Set(Array.from(familyIds, id))) {
-      const entry = this.entries.get(familyId);
-      if (!entry) throw new Error('Document font family not found');
-      await this.ensure(familyId);
-      if (this.entries.get(familyId) !== entry || entry.abort.signal.aborted) throw cancelled();
-      for (const { bytes, descriptor } of entry.loaded)
-        rules.push('@font-face{font-family:' + entry.cssName + ';src:url(data:' +
-          descriptor.contentType + ';base64,' + base64(bytes) + ');font-weight:' +
-          weight(descriptor) + ';font-style:' + descriptor.style + ';}');
-    }
-    return rules.join('\n');
   }
 
   dispose(): void {

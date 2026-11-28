@@ -27,6 +27,8 @@ public sealed record DocumentStructure(Guid Id, IReadOnlyList<PageStructure> Pag
     public PortableUiProfileReference Profile { get; init; } = PortableUiProfileReference.Current;
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<DocumentAsset> Assets { get; init; } = [];
+    // Optional for snapshots written before document-owned fonts were enabled.
+    public IReadOnlyList<DocumentFontFamily> Fonts { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<FigVam.Domain.Preview.PreviewScenario> Scenarios { get; init; } = [];
     [System.Text.Json.Serialization.JsonRequired]
@@ -334,6 +336,12 @@ public static class DocumentStructureValidator
         if (document.Scenarios is null || document.Scenarios.Any(s => s is null)) return [new("INVALID_SCENARIO", document.Id, null, "Scenarios are required.")];
         if (!DocumentAssetValidator.IsValid(document.Assets)) return [new("INVALID_ASSET_MANIFEST", document.Id, null, "Asset manifest is invalid or exceeds its limits.")];
         foreach (var asset in document.Assets) Register(asset.Id, "asset");
+        if (!DocumentFontValidator.IsValid(document.Fonts, document.Assets)) return [new("INVALID_FONT_MANIFEST", document.Id, null, "Document font manifest is invalid or exceeds its limits.")];
+        foreach (var family in document.Fonts)
+        {
+            Register(family.Id, "font family");
+            foreach (var face in family.Faces) Register(face.Id, "font face");
+        }
         foreach (var scenario in document.Scenarios) Register(scenario.Id, "scenario");
         errors.AddRange(DocumentScenarioValidator.Validate(document, profile));
         foreach (var dataset in document.Datasets) Register(dataset.Id, "dataset");

@@ -30,6 +30,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
 
     [System.Text.Json.Serialization.JsonRequired]
     public IReadOnlyList<EntityChange<DocumentAsset>> Assets { get; init; } = [];
+    public IReadOnlyList<EntityChange<DocumentFontFamily>> Fonts { get; init; } = [];
 
     public sealed record NameChange(string Before, string After);
     [System.Text.Json.Serialization.JsonRequired]
@@ -41,6 +42,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     {
         Name = before.Name == after.Name ? null : new(before.Name, after.Name),
         Assets = Diff(before.Assets, after.Assets, a => a.Id),
+        Fonts = Diff(before.Fonts, after.Fonts, f => f.Id),
         Scenarios = Diff(before.Scenarios, after.Scenarios, s => s.Id),
         Datasets = Diff(before.Datasets, after.Datasets, d => d.Id),
         Tokens = Diff(before.Tokens, after.Tokens, t => t.Id),
@@ -66,6 +68,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     {
         Name = Name is null ? null : new(Name.After, Name.Before),
         Assets = Reverse(Assets),
+        Fonts = Reverse(Fonts),
         Scenarios = Reverse(Scenarios),
         Datasets = Reverse(Datasets),
         Tokens = Reverse(Tokens),
@@ -80,6 +83,7 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
     {
         if (Name is not null && current.Name != Name.Before) return null;
         var assets = Apply(current.Assets, Assets, a => a.Id);
+        var fonts = Apply(current.Fonts, Fonts, f => f.Id);
         var pages = Apply(current.Pages, Pages, p => p.Id);
         var screens = Apply(current.Screens, Screens, s => s.Id);
         var nodes = Apply(current.Nodes, Nodes, n => n.Id);
@@ -89,10 +93,11 @@ public sealed record DocumentPatch(IReadOnlyList<EntityChange<PageStructure>> Pa
         var styles = Apply(current.Styles, Styles, s => s.Id);
         var instances = Apply(current.ComponentInstances, ComponentInstances, i => i.NodeId);
         var components = Apply(current.ComponentDefinitions, ComponentDefinitions, d => d.Id);
-        return assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || styles is null || pages is null || screens is null || nodes is null ? null : current with
+        return fonts is null || assets is null || scenarios is null || datasets is null || instances is null || components is null || tokens is null || styles is null || pages is null || screens is null || nodes is null ? null : current with
         {
             Name = Name?.After ?? current.Name,
             Assets = assets,
+            Fonts = fonts,
             Scenarios = scenarios,
             Datasets = datasets,
             Pages = pages,

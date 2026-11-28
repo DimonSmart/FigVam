@@ -6,6 +6,7 @@ export interface RenderModel {
   screen: string; nodes: ReadonlyMap<string, CanvasNode>; boxes: ReadonlyMap<string, LayoutBox>;
   overrides: ReadonlyMap<string, NodeProperties>; kinds: ReadonlyMap<string, CanvasKind>;
   tokens: TokenMap; theme: Theme; assets: ReadonlyMap<string, unknown>;
+  fontFamilies?: ReadonlyMap<string, string>;
 }
 interface RenderOptions {
   preview: boolean;
@@ -54,7 +55,7 @@ function color(property: ResolvableValue, tokens: TokenMap, theme: Theme) {
   return 'rgba(' + [value.red, value.green, value.blue, value.alpha / 255].join(', ') + ')';
 }
 
-function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, theme: Theme, bounds: Bounds, report: Reporter, definitions: PropertyDefinitions) {
+function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, theme: Theme, bounds: Bounds, report: Reporter, definitions: PropertyDefinitions, fontFamilies?: ReadonlyMap<string, string>) {
   function resolved(name: string) {
     const value = property(name);
     if (!value) return null;
@@ -85,7 +86,8 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
   const weight = scalar(resolved('fontWeight'));
   const weightValue = enumStyles.fontWeight[String(weight)] ?? (finite(weight) && Number.isInteger(weight) && weight >= 1 && weight <= 1000 ? String(weight) : null);
   if (weightValue) style.fontWeight = weightValue;
-  const family = string(scalar(resolved('fontFamily')));
+  const requestedFamily = string(scalar(resolved('fontFamily')));
+  const family = fontFamilies?.get(requestedFamily.toLowerCase()) ?? requestedFamily;
   const fallback = enumStyles.fontFallback[string(scalar(property('fontFallback')))];
   if (fallback) style.fontFamily = family && /^[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*$/u.test(family) ? `"${family}", ${fallback}` : fallback;
   const lineHeight = scalar(resolved('lineHeight'));
@@ -211,7 +213,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       } else surface.dataset.disabled = 'true';
     }
     if (!options.preview && surface.matches('input, textarea, button')) surface.tabIndex = -1;
-    appearance(surface, property, tokens, theme, box.bounds, report, kind.properties);
+    appearance(surface, property, tokens, theme, box.bounds, report, kind.properties, model.fontFamilies);
     const rawShadow = property('shadow');
     const shadowResult = rawShadow?.type === 'token' ? resolvePropertyToken(rawShadow, tokens, theme, kind.properties.shadow ?? {}) : { value: rawShadow, error: null };
     if (shadowResult.error) report('shadow', shadowResult.error);

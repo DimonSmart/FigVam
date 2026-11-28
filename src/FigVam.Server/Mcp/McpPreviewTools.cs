@@ -106,7 +106,8 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
             }
         }
         if (grant.CaptureRevoked.IsCancellationRequested ||
-            !await McpServiceRegistration.CanEditAsync(accessor.HttpContext!.RequestServices, grant.DocumentId, grant.UserId, ct))
+            !await McpServiceRegistration.CanEditAsync(accessor.HttpContext!.RequestServices, grant.DocumentId, grant.UserId, ct) ||
+            grant.CaptureRevoked.IsCancellationRequested)
             return McpReadTools.Result("ACCESS_DENIED", null);
         var render = new { status = !includeImage ? "NotRequested" : image is null ? "Skipped" : image.Png is null ? "Failed" : "Completed",
             code = image?.Code };
@@ -124,8 +125,7 @@ public sealed class McpPreviewTools(IHttpContextAccessor accessor, IDocumentStru
 
     private static string RenderMessage(string code) => code switch
     {
-        "RENDER_UNAVAILABLE" => "Configure Mcp:ChromiumExecutable with the absolute path of an installed Chromium executable on the server.",
-        "PREVIEW_OVERLAY_RENDER_UNSUPPORTED" => "Independent rendering of an overlay stack is not supported.",
+        "RENDER_UNAVAILABLE" => "Install the matching Playwright Chromium and system dependencies on the server.",
         "CAPTURE_TIMEOUT" => "The independent renderer exceeded its time limit.",
         "IMAGE_TOO_LARGE" => "The final screen exceeds the independent renderer's image limits.",
         _ => "The independent Preview renderer could not render the final state."
