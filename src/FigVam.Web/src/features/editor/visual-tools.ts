@@ -8,12 +8,29 @@ const num=(value:number)=>({type:'number' as const,value});
 const bool=(value:boolean)=>({type:'boolean' as const,value});
 const scalar=(model:CanvasModel,node:CanvasNode,name:string)=>{const v=node.properties[name]??model.kinds.get(node.kind)?.properties[name]?.defaultValue;return v&&'value' in v?v.value:undefined;};
 function free(model:CanvasModel,id:string){const parent=model.nodes.get(id);return !parent||scalar(model,parent,'layout')==='Free';}
-function bounds(model:CanvasModel,node:CanvasNode):Bounds|null{
+function rotation(model:CanvasModel,node:CanvasNode){return Number(scalar(model,node,'rotation')??0)*Math.PI/180;}
+function rotate(x:number,y:number,angle:number):[number,number]{
+  return [x*Math.cos(angle)-y*Math.sin(angle),x*Math.sin(angle)+y*Math.cos(angle)];
+}
+function bounds(model:CanvasModel,node:CanvasNode,screenSpace=false):Bounds|null{
   const b=model.boxes.get(node.id)?.bounds;if(!b)return null;
-  const r=Number(scalar(model,node,'rotation')??0)*Math.PI/180;
-  const xs=[0,b.width*Math.cos(r),-b.height*Math.sin(r),b.width*Math.cos(r)-b.height*Math.sin(r)];
-  const ys=[0,b.width*Math.sin(r),b.height*Math.cos(r),b.width*Math.sin(r)+b.height*Math.cos(r)];
-  return {x:b.x+Math.min(...xs),y:b.y+Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};
+  let corners:[[number,number],[number,number],[number,number],[number,number]]=[[b.x,b.y],[b.x+b.width,b.y],[b.x,b.y+b.height],[b.x+b.width,b.y+b.height]];
+  const visited=new Set<string>();
+  for(let current:CanvasNode|undefined=node;current&&!visited.has(current.id);current=screenSpace?model.nodes.get(current.parentId):undefined){
+    visited.add(current.id);
+    const pivot=model.boxes.get(current.id)?.bounds;if(!pivot)return null;
+    const angle=rotation(model,current);
+    corners=corners.map(([x,y])=>{const [dx,dy]=rotate(x-pivot.x,y-pivot.y,angle);return [pivot.x+dx,pivot.y+dy];}) as typeof corners;
+  }
+  const xs=corners.map(p=>p[0]),ys=corners.map(p=>p[1]);
+  return {x:Math.min(...xs),y:Math.min(...ys),width:Math.max(...xs)-Math.min(...xs),height:Math.max(...ys)-Math.min(...ys)};
+}
+function parentRotation(model:CanvasModel,node:CanvasNode){
+  let angle=0;const visited=new Set<string>();
+  for(let parent=model.nodes.get(node.parentId);parent&&!visited.has(parent.id);parent=model.nodes.get(parent.parentId)){
+    visited.add(parent.id);angle+=rotation(model,parent);
+  }
+  return angle;
 }
 function selection(model:CanvasModel,ids:readonly string[]):CanvasNode[]{
   const roots=new Set(selectionRoots(model,ids));
@@ -25,14 +42,27 @@ function eligible(model:CanvasModel,nodes:CanvasNode[]){
 }
 export function alignment(model:CanvasModel,ids:readonly string[],action:AlignAction):NodeEdit[]{
   const nodes=selection(model,ids);
-  if(!eligible(model,nodes))return [];
+  if(!nodes.length||nodes.some(n=>!free(model,n.parentId)||inheritedLock(model,n.id)||!model.boxes.get(n.id)))return [];
+  const screenSpace=nodes.length>1;
   const horizontal=['left','right','centerX','distributeX'].includes(action);
   const axis=horizontal?'x':'y',size=horizontal?'width':'height';
-  const items=nodes.flatMap(node=>{const b=bounds(model,node),value=scalar(model,node,axis);return b&&typeof value==='number'?[{node,b,value}]:[];});
+  const items=nodes.flatMap(node=>{const b=bounds(model,node,screenSpace),x=scalar(model,node,'x'),y=scalar(model,node,'y');return b&&typeof x==='number'&&typeof y==='number'?[{node,b,x,y}]:[];});
   if(items.length!==nodes.length||!items.length)return [];
   const first=items[0];if(!first)return [];
   const edits:NodeEdit[]=[];
-  const push=(item:typeof first,delta:number)=>{if(Math.abs(delta)>1e-7)edits.push({action:'set',nodeId:item.node.id,expectedParentId:item.node.parentId,properties:{[axis]:num(item.value+delta)}});};
+  let invalid=false;
+  const push=(item:typeof first,delta:number)=>{
+    if(Math.abs(delta)<=1e-7)return;
+    const [dx,dy]=rotate(horizontal?delta:0,horizontal?0:delta,screenSpace?-parentRotation(model,item.node):0);
+    const properties:NodeProperties={},defs=model.kinds.get(item.node.kind)?.properties;
+    for(const [name,change] of [['x',dx],['y',dy]] as const){
+      if(Math.abs(change)<=1e-7)continue;
+      const value=Math.round((item[name]+change)*1e6)/1e6;
+      if(value<(defs?.[name]?.minimum??-Infinity)||value>(defs?.[name]?.maximum??Infinity)){invalid=true;return;}
+      properties[name]=num(value);
+    }
+    if(Object.keys(properties).length)edits.push({action:'set',nodeId:item.node.id,expectedParentId:item.node.parentId,properties});
+  };
   if(action.startsWith('distribute')){
     if(items.length<3)return [];
     items.sort((a,b)=>a.b[axis]-b.b[axis]);
@@ -40,7 +70,7 @@ export function alignment(model:CanvasModel,ids:readonly string[],action:AlignAc
     const gap=(end.b[axis]+end.b[size]-start.b[axis]-items.reduce((sum,item)=>sum+item.b[size],0))/(items.length-1);
     let cursor=start.b[axis]+start.b[size]+gap;
     for(const item of items.slice(1,-1)){push(item,cursor-item.b[axis]);cursor+=item.b[size]+gap;}
-    return edits;
+    return invalid?[]:edits;
   }
   const parent=model.boxes.get(first.node.parentId)?.bounds;
   if(items.length===1&&!parent)return [];
@@ -48,7 +78,7 @@ export function alignment(model:CanvasModel,ids:readonly string[],action:AlignAc
   const high=items.length===1&&parent?parent[axis]+parent[size]:Math.max(...items.map(i=>i.b[axis]+i.b[size]));
   const fraction=action==='left'||action==='top'?0:action==='right'||action==='bottom'?1:0.5;
   for(const item of items)push(item,low+(high-low)*fraction-item.b[axis]-item.b[size]*fraction);
-  return edits;
+  return invalid?[]:edits;
 }
 const appearance=new Set(['backgroundColor','linearGradient','borderWidth','borderColor','borderPattern','borderStyle','cornerRadius','radiusTopLeft','radiusTopRight','radiusBottomRight','radiusBottomLeft','opacity','shadow','textStyle','typography','fontFamily','fontSize','fontWeight','fontStyle','fontFallback','lineHeight','letterSpacing','textColor','textAlignment','strokeColor','strokeWidth','focusBorderColor','focusBorderWidth','placeholderColor','startArrow','endArrow','imageClip','fit']);
 const textStyleFields=new Set(['textColor','fontFamily','fontSize','fontWeight','fontStyle','fontFallback','lineHeight','letterSpacing']);

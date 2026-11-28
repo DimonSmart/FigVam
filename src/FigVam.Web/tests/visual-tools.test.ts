@@ -32,6 +32,11 @@ describe('visual edit planning',()=>{
     expect(alignment(m,['a'],'left')[0]?.properties?.x).toEqual(number(20));
     expect(alignment(m,['a'],'centerY')[0]?.properties?.y).toEqual(number(130));
   });
+  it('aligns nodes across different rotated free parents in screen coordinates',()=>{
+    const m=model([make('p',100,100,100,100,'screen',{rotation:number(90)}),make('a',120,120,20,20,'p'),make('b',0,0,20,20)]);
+    // Child's transformed screen bounds begin at x=60, so left alignment changes its local y by +60.
+    expect(alignment(m,['a','b'],'left')).toEqual([{action:'set',nodeId:'a',expectedParentId:'p',properties:{y:number(180)}}]);
+  });
   it('groups contiguous siblings and keeps their ids and relative positions',()=>{
     const m=model([make('a',10,20,30,40),make('b',50,60,20,10),make('c',100,100,10,10)]);
     const ops=grouping(m,['a','b'],'group');
