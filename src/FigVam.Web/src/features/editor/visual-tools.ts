@@ -138,10 +138,10 @@ export function grouping(model:CanvasModel,ids:readonly string[],groupId:string)
   if(!first||nodes.length<2||!eligible(model,nodes))return [];
   const siblings=model.orderedNodes.filter(n=>n.parentId===first.parentId),index=siblings.findIndex(n=>n.id===first.id);
   if(index<0||nodes.some((n,i)=>siblings[index+i]?.id!==n.id))return [];
-  const entries=nodes.flatMap(node=>{const x=scalar(model,node,'x'),y=scalar(model,node,'y'),b=model.boxes.get(node.id)?.bounds;return typeof x==='number'&&typeof y==='number'&&b?[{node,x,y,b}]:[];});
+  const entries=nodes.flatMap(node=>{const x=scalar(model,node,'x'),y=scalar(model,node,'y'),b=model.boxes.get(node.id)?.bounds,visual=bounds(model,node);return typeof x==='number'&&typeof y==='number'&&b&&visual?[{node,x,y,visual:{x:x+visual.x-b.x,y:y+visual.y-b.y,width:visual.width,height:visual.height}}]:[];});
   if(entries.length!==nodes.length)return [];
-  const x=Math.min(...entries.map(e=>e.x)),y=Math.min(...entries.map(e=>e.y));
-  const w=Math.max(...entries.map(e=>e.x+e.b.width))-x,h=Math.max(...entries.map(e=>e.y+e.b.height))-y;
+  const x=Math.min(...entries.map(e=>e.visual.x)),y=Math.min(...entries.map(e=>e.visual.y));
+  const w=Math.max(...entries.map(e=>e.visual.x+e.visual.width))-x,h=Math.max(...entries.map(e=>e.visual.y+e.visual.height))-y;
   const ops:NodeEdit[]=[{action:'add',nodeId:groupId,parentId:first.parentId,kind:'Frame',name:'Group',properties:{editorGroup:bool(true),x:num(x),y:num(y),width:num(w),height:num(h)}},
     {action:'move',nodeId:groupId,expectedParentId:first.parentId,parentId:first.parentId,position:index}];
   entries.forEach((e,i)=>{ops.push({action:'move',nodeId:e.node.id,expectedParentId:first.parentId,parentId:groupId,position:i},{action:'set',nodeId:e.node.id,expectedParentId:groupId,properties:{x:num(e.x-x),y:num(e.y-y)}});});
@@ -149,9 +149,9 @@ export function grouping(model:CanvasModel,ids:readonly string[],groupId:string)
 }
 export function ungrouping(model:CanvasModel,id:string):NodeEdit[]{
   const group=model.nodes.get(id);
-  if(!group||group.kind!=='Frame'||scalar(model,group,'editorGroup')!==true||!eligible(model,[group])||!free(model,id)||scalar(model,group,'rotation')!==0)return [];
+  if(!group||group.kind!=='Frame'||scalar(model,group,'editorGroup')!==true||!eligible(model,[group])||!free(model,id))return [];
   if(Object.keys(group.properties).some(name=>!['editorGroup','x','y','width','height','layout','rotation'].includes(name)))return [];
-  const x=scalar(model,group,'x'),y=scalar(model,group,'y');
+  const x=scalar(model,group,'x'),y=scalar(model,group,'y'),angle=rotation(model,group);
   if(typeof x!=='number'||typeof y!=='number')return [];
   const siblings=model.orderedNodes.filter(n=>n.parentId===group.parentId),index=siblings.findIndex(n=>n.id===id);
   const children=model.orderedNodes.filter(n=>n.parentId===id),ops:NodeEdit[]=[];
@@ -159,7 +159,9 @@ export function ungrouping(model:CanvasModel,id:string):NodeEdit[]{
   for(const [i,raw] of children.entries()){
     const child=model.nodes.get(raw.id)??raw,cx=scalar(model,child,'x'),cy=scalar(model,child,'y');
     if(typeof cx!=='number'||typeof cy!=='number'||inheritedLock(model,child.id))return [];
-    ops.push({action:'move',nodeId:child.id,expectedParentId:id,parentId:group.parentId,position:index+i},{action:'set',nodeId:child.id,expectedParentId:group.parentId,properties:{x:num(x+cx),y:num(y+cy)}});
+    const [dx,dy]=rotate(cx,cy,angle),properties:NodeProperties={x:num(Math.round((x+dx)*1e6)/1e6),y:num(Math.round((y+dy)*1e6)/1e6)};
+    if(Math.abs(angle)>1e-8)properties.rotation=num(Math.round((rotation(model,child)+angle)*180/Math.PI*1e6)/1e6);
+    ops.push({action:'move',nodeId:child.id,expectedParentId:id,parentId:group.parentId,position:index+i},{action:'set',nodeId:child.id,expectedParentId:group.parentId,properties});
   }
   return [...ops,{action:'delete',nodeId:id}];
 }

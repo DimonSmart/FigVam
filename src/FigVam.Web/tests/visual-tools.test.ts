@@ -56,6 +56,12 @@ describe('visual edit planning',()=>{
     expect(ops[3]).toMatchObject({nodeId:'b',properties:{x:number(50),y:number(65)}});
     expect(ops[4]).toEqual({action:'delete',nodeId:'g'});
   });
+  it('uses rotated visual bounds for groups and preserves rotation on ungroup',()=>{
+    const m=model([make('a',10,20,40,20,'screen',{rotation:number(90)}),make('b',50,60,20,10)]);
+    expect(grouping(m,['a','b'],'group')[0]?.properties).toMatchObject({x:number(-10),y:number(20),width:number(80),height:number(50)});
+    const g=model([make('g',30,40,100,100,'screen',{editorGroup:bool(true),rotation:number(90)}),make('a',5,7,10,10,'g',{rotation:number(30)})]);
+    expect(ungrouping(g,'g')[1]?.properties).toEqual({x:number(23),y:number(45),rotation:number(120)});
+  });
   it('preserves token and style references but never transfers text or geometry',()=>{
     const token={type:'token' as const,tokenId:'color'},style={type:'style' as const,styleId:'border'};
     const m=model([make('a',10,10,10,10,'screen',{backgroundColor:token,borderStyle:style,text:{type:'string',value:'source'},strokeWidth:number(20)}),make('b',20,20,20,20),make('icon',30,30,10,10,'screen',{},'Icon')]);
