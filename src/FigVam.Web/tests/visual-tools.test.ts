@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {alignment,grouping,ungrouping,copyAppearance,pasteAppearance,commonPropertyEligible,commonPropertyEdit} from '../src/features/editor/visual-tools';
+import {alignment,grouping,ungrouping,copyAppearance,pasteAppearance,pasteVariantAppearance,commonPropertyEligible,commonPropertyEdit} from '../src/features/editor/visual-tools';
 import {selectionRoots,inheritedLock} from '../src/canvas/visual-geometry';
 import type {CanvasModel,CanvasNode,CanvasKind,LayoutBox,NodeProperties} from '../src/canvas/canvas-model';
 
@@ -75,5 +75,17 @@ describe('common geometry',()=>{
     expect(commonPropertyEdit(m,['a'],'width',number(200))).toEqual([]);
     expect(commonPropertyEdit(m,['a'],'x',number(10))).toEqual([]);
     const a=m.nodes.get('a');if(a)expect(commonPropertyEligible(m,a,'height')).toBe(true);
+  });
+});
+
+describe('variant appearance clipboard',()=>{
+  it('sets compatible overrides and only removes overrides which can inherit an absent base value',()=>{
+    const m=model([make('a',0,0,10,10,'screen',{backgroundColor:{type:'token',tokenId:'color'}}),make('b',20,20,20,20,'screen',{borderStyle:{type:'style',styleId:'base'}})]);
+    const b=m.nodes.get('b');if(!b)throw new Error('missing node');
+    const effective={...b,properties:{...b.properties,borderStyle:{type:'style' as const,styleId:'override'}}};
+    const variant={...m,nodes:new Map([...m.nodes,['b',effective]])};
+    const ops=pasteVariantAppearance(variant,['b'],copyAppearance(m,'a'),new Map([['b',new Set(['borderStyle'])]]),'screen','variant');
+    expect(ops.some(op=>op.action==='remove')).toBe(false);
+    expect(ops.find(op=>op.action==='set')).toMatchObject({screenId:'screen',variantId:'variant',properties:{backgroundColor:{type:'token',tokenId:'color'}}});
   });
 });

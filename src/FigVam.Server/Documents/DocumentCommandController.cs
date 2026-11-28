@@ -173,6 +173,15 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
             foreach (var op in request.Operations)
             {
                 if (op is null) return new BatchExecution("INVALID_REQUEST", marker);
+                if (op.Action == "remove" && op.ScreenId is Guid variantScreen && op.VariantId is Guid variantId && op.RemoveProperties is { Length: > 0 and <= 100 })
+                {
+                    foreach (var property in op.RemoveProperties)
+                    {
+                        var removed = await scope.Handler.HandleAsync(new RemoveScreenVariantOverrideCommand(documentId, Guid.NewGuid(), variantScreen, variantId, op.NodeId, property, scope.State.Revision), actor, ct);
+                        if (!removed.Accepted) return new BatchExecution(removed.Code, marker);
+                    }
+                    continue;
+                }
                 var id = Guid.NewGuid();
                 var revision = scope.State.Revision;
                 CommandResult? step = op.Action switch
@@ -181,7 +190,7 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
                         await scope.Handler.HandleAsync(new SetNodePropertiesCommand(documentId, id, op.NodeId, op.Properties, op.ExpectedParentId, revision), actor, ct),
                     "set" when op.Properties is { Count: > 0 } && op.VariantId is Guid variant && op.ScreenId is Guid screen =>
                         await scope.Handler.HandleAsync(new SetScreenVariantPropertiesCommand(documentId, id, screen, variant, op.NodeId, op.Properties, revision), actor, ct),
-                    "remove" when op.RemoveProperties is { Length: > 0 } => await scope.Handler.HandleAsync(new RemoveNodePropertiesCommand(documentId, id, op.NodeId, op.RemoveProperties, revision), actor, ct),
+                    "remove" when op.RemoveProperties is { Length: > 0 } && op.ScreenId is null && op.VariantId is null => await scope.Handler.HandleAsync(new RemoveNodePropertiesCommand(documentId, id, op.NodeId, op.RemoveProperties, revision), actor, ct),
                     "delete" => await scope.Handler.HandleAsync(new DeleteNodeCommand(documentId, id, op.NodeId), actor, ct),
                     "add" when op.ParentId is Guid parent && !string.IsNullOrWhiteSpace(op.Kind) =>
                         await scope.Handler.HandleAsync(new AddNodeCommand(documentId, id, parent, op.NodeId, op.Kind, op.Properties, op.Name), actor, ct),

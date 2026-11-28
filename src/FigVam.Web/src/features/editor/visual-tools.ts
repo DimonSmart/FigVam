@@ -83,6 +83,26 @@ export function pasteAppearance(model:CanvasModel,ids:readonly string[],source:A
     return ops;
   });
 }
+// A variant can override a value or inherit it; it cannot erase a base property.
+export function pasteVariantAppearance(model:CanvasModel,ids:readonly string[],source:AppearanceClipboard,overridden:ReadonlyMap<string,ReadonlySet<string>>,screenId:string,variantId:string):NodeEdit[]{
+  const baseNodes=new Map(model.orderedNodes.map(node=>[node.id,node]));
+  const result:NodeEdit[]=[];
+  for(const op of pasteAppearance(model,ids,source)){
+    if(op.action==='remove'){
+      const base=baseNodes.get(op.nodeId);
+      const removeProperties=(op.removeProperties??[]).filter(name=>base?.properties[name]===undefined&&overridden.get(op.nodeId)?.has(name));
+      if(removeProperties.length)result.push({...op,removeProperties,screenId,variantId});
+    }else if(op.action==='set'){
+      // Do not introduce a style reference that would be masked by unremovable base overrides.
+      const base=baseNodes.get(op.nodeId),properties={...op.properties};
+      const blocked=(names:Set<string>)=>[...names].some(name=>source.absent.includes(name)&&base?.properties[name]!==undefined);
+      if(blocked(textStyleFields)){delete properties.textStyle;delete properties.typography;}
+      if(blocked(borderStyleFields))delete properties.borderStyle;
+      if(Object.keys(properties).length)result.push({...op,properties,screenId,variantId});
+    }
+  }
+  return result;
+}
 export function grouping(model:CanvasModel,ids:readonly string[],groupId:string):NodeEdit[]{
   const nodes=selection(model,ids);const first=nodes[0];
   if(!first||nodes.length<2||!eligible(model,nodes))return [];

@@ -3,7 +3,7 @@ import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperati
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
-import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, commonPropertyEligible, commonPropertyEdit, type VisualAction, type AlignAction, type AppearanceClipboard } from './visual-tools';
+import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, pasteVariantAppearance, commonPropertyEligible, commonPropertyEdit, type VisualAction, type AlignAction, type AppearanceClipboard } from './visual-tools';
 import type { CommonField } from './visual-editor-views';
 import { proportionalSize, inheritedLock } from '../../canvas/visual-geometry';
 import type { CanvasModel, CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
@@ -570,8 +570,10 @@ export function createVisualNodeEditor({
       const outcome=await op.mutation.execute({request,isCurrent:current,
         validate:ack=>{if(op.command==='edit-nodes' ? ack.revision!==Number(op.body.expectedRevision)+1 : ack.nodeId!==op.body.nodeId)throw new TypeError('Некорректное подтверждение элемента');},
         synchronize:async ack=>{
-          const reveal=adding&&op.body.parentId&&op.body.parentId!==op.screen?[op.body.parentId]:[];
-          const selection=adding?{nodeId:op.body.nodeId,previousId:op.selectionId}:undefined;
+          const group=op.command==='edit-nodes'?op.body.operations?.find(item=>item.action==='add'&&item.properties?.editorGroup?.type==='boolean'&&item.properties.editorGroup.value):undefined;
+          const parentId=adding?op.body.parentId:group?.parentId;
+          const reveal=parentId&&parentId!==op.screen?[parentId]:[];
+          const selection=adding||group?{nodeId:group?.nodeId??op.body.nodeId,previousId:op.selectionId}:undefined;
           const view=getContext();
           const activeDocument=view.documentId===op.documentId&&canEdit(view.documentRole);
           const activeSync=()=>current()&&getContext().documentId===op.documentId&&getContext().navigationEpoch===view.navigationEpoch;
@@ -673,7 +675,12 @@ export function createVisualNodeEditor({
   const alignActions:AlignAction[]=['left','right','top','bottom','centerX','centerY','distributeX','distributeY'];
   function planAction(action:VisualAction,drawing:CanvasModel,ids:readonly string[]):NodeEdit[]{
     if(action==='copy')return [];
-    if(action==='paste')return !context.variantId&&appearanceClipboard?.documentId===context.documentId&&appearanceClipboard?pasteAppearance(drawing,ids,appearanceClipboard.properties):[];
+    if(action==='paste'){
+      if(!appearanceClipboard||appearanceClipboard.documentId!==context.documentId)return [];
+      return context.variantId&&context.screen
+        ?pasteVariantAppearance(drawing,ids,appearanceClipboard.properties,model?.overridden??new Map(),context.screen,context.variantId)
+        :pasteAppearance(drawing,ids,appearanceClipboard.properties);
+    }
     if(action==='group')return context.variantId||!canGroup()?[]:grouping(drawing,ids,crypto.randomUUID());
     if(action==='ungroup')return context.variantId||!canGroup()||ids.length!==1?[]:ungrouping(drawing,ids[0]??'');
     return alignment(drawing,ids,action);
