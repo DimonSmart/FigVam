@@ -44,7 +44,7 @@ async function openCanvas(page, request, extraNodes = 0) {
   await expect(page.locator(`#screen-boundary ${visual(child)}`)).toBeVisible();
   await page.locator('#actual-size').click();
   await expect(page.locator('#connection-status')).toContainText('Подключено', { timeout: 15000 });
-  return { frame, child, cover, stack, stackChild, layout, command, path: '**/commands/set-node-properties' };
+  return { frame, child, cover, stack, stackChild, layout, command, base, headers, path: '**/commands/set-node-properties' };
 }
 
 async function point(locator, fractionX = 0.5, fractionY = 0.5) {
@@ -311,4 +311,48 @@ test('moving one layer in a populated screen never recreates unrelated nodes', a
         `#screen-boundary [data-visual-node="${el.dataset.visualNode}"]`) !== el).length
     };
   })).toEqual({ count: 41, detached: 0 });
+});
+
+test('atomic node edit batch moves two nodes, rolls back on failure, and supports undo and redo', async ({ page, request }) => {
+  const { frame, child, cover, layout, command, base, headers } = await openCanvas(page, request);
+  const original = await layout();
+  const edits = [
+    { action: 'set', nodeId: child, expectedParentId: frame, properties: { x: number(35) } },
+    { action: 'set', nodeId: cover, expectedParentId: frame, properties: { x: number(45) } }
+  ];
+  await command('edit-nodes', { expectedRevision: original.revision, operations: edits });
+  const moved = await layout();
+  expect(moved.revision).toBe(original.revision + 1);
+  expect(nodeBounds(moved, child).x).toBe(nodeBounds(original, child).x + 15);
+  expect(nodeBounds(moved, cover).x).toBe(nodeBounds(original, cover).x + 25);
+  const rejected = await request.post(base + '/commands/edit-nodes', { headers, data: {
+    commandId: randomUUID(), expectedRevision: moved.revision, operations: [
+      { ...edits[0], properties: { x: number(99) } },
+      { ...edits[1], nodeId: randomUUID() }
+    ]
+  }});
+  expect(rejected.ok()).toBeFalsy();
+  expect(await layout()).toEqual(moved);
+  await command('undo', {});
+  const undone = await layout();
+  expect(nodeBounds(undone, child)).toEqual(nodeBounds(original, child));
+  expect(nodeBounds(undone, cover)).toEqual(nodeBounds(original, cover));
+  await command('redo', {});
+  const redone = await layout();
+  expect(nodeBounds(redone, child)).toEqual(nodeBounds(moved, child));
+  expect(nodeBounds(redone, cover)).toEqual(nodeBounds(moved, cover));
+});
+
+test('modifier selection on canvas is mirrored in the layer tree', async ({ page, request }) => {
+  const { child, cover } = await openCanvas(page, request);
+  const a = await point(page.locator(visual(child)), 0.75, 0.75);
+  const b = await point(page.locator(visual(cover)));
+  await page.mouse.click(a.x, a.y);
+  await page.keyboard.down('Control');
+  await page.mouse.click(b.x, b.y);
+  await page.keyboard.up('Control');
+  for (const id of [child, cover]) {
+    await expect(page.locator(visual(id))).toHaveAttribute('data-selected', 'true');
+    await expect(page.locator('#layers [data-id="' + id + '"]')).toHaveAttribute('aria-selected', 'true');
+  }
 });

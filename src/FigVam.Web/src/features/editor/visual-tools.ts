@@ -68,7 +68,13 @@ export function pasteAppearance(model:CanvasModel,ids:readonly string[],source:A
   return ids.flatMap(id=>{const node=model.nodes.get(id),defs=node&&model.kinds.get(node.kind)?.properties;
     if(!node||!defs||inheritedLock(model,id))return [];
     const compatible=(name:string)=>{const a=source.definitions[name],b=defs[name];return !!a&&!!b&&a.type===b.type&&a.tokenType===b.tokenType&&a.tokenCategory===b.tokenCategory&&a.styleType===b.styleType;};
-    const properties=Object.fromEntries(Object.entries(source.values).filter(([name,value])=>compatible(name)&&value!==undefined&&JSON.stringify(value)!==JSON.stringify(node.properties[name])));
+    const properties=Object.fromEntries(Object.entries(source.values).filter(([name,value])=>{
+      const def=defs[name];if(!compatible(name)||!value||!def)return false;
+      if(value.type==='number'&&(value.value<(def.minimum??-Infinity)||value.value>(def.maximum??Infinity)))return false;
+      if(value.type==='enum'&&def.enumValues&&!def.enumValues.includes(value.value))return false;
+      if(value.type==='string'&&def.maxLength!=null&&value.value.length>def.maxLength)return false;
+      return JSON.stringify(value)!==JSON.stringify(node.properties[name]);
+    }));
     const removeProperties=source.absent.filter(name=>compatible(name)&&node.properties[name]!==undefined&&!defs[name]?.required);
     const ops:NodeEdit[]=[];
     if(removeProperties.length)ops.push({action:'remove',nodeId:id,removeProperties});
