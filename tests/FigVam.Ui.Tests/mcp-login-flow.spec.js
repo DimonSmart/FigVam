@@ -218,9 +218,23 @@ async function compareNativePreview(page, image) {
     await document.fonts.ready;
     await Promise.all([...document.querySelectorAll('#preview-viewport img')].map(img => img.decode()));
   });
-  const interactive = await page.locator('#preview-viewport').screenshot({
+  const expected = Buffer.from(image.data, 'base64');
+  const width = expected.readUInt32BE(16), height = expected.readUInt32BE(20);
+  const viewport = page.locator('#preview-viewport');
+  // Align the interactive capture with the server's integer CSS-pixel origin.
+  // Locator screenshots may round fractional origins to a larger bounding rectangle.
+  await viewport.evaluate(el => {
+    const { x, y } = el.getBoundingClientRect();
+    el.style.translate = `${Math.round(x) - x}px ${Math.round(y) - y}px`;
+  });
+  const bounds = await viewport.boundingBox();
+  expect(Math.abs(bounds.width - width), JSON.stringify({ bounds, width, height })).toBeLessThan(1);
+  expect(Math.abs(bounds.height - height), JSON.stringify({ bounds, width, height })).toBeLessThan(1);
+  const interactive = await page.screenshot({
+    clip: { x: Math.round(bounds.x), y: Math.round(bounds.y), width, height },
     animations: 'disabled', caret: 'hide', scale: 'css'
   });
+  await viewport.evaluate(el => el.style.removeProperty('translate'));
   const difference = await page.evaluate(async ({ a, b }) => {
     async function pixels(data) {
       const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], {type:'image/png'}));
@@ -233,7 +247,7 @@ async function compareNativePreview(page, image) {
       return result;
     }
     const [one, two] = await Promise.all([pixels(a), pixels(b)]);
-    if (one.width !== two.width || one.height !== two.height) return { sizeMatches: false };
+    if (one.width !== two.width || one.height !== two.height) return { sizeMatches: false, interactive: [one.width, one.height], server: [two.width, two.height] };
     let changed = 0, sum = 0;
     for (let i = 0; i < one.data.length; i += 4) {
       let max = 0;
@@ -245,7 +259,7 @@ async function compareNativePreview(page, image) {
     }
     return { sizeMatches: true, changed: changed / (one.width * one.height), average: sum / one.data.length };
   }, { a: interactive.toString('base64'), b: image.data });
-  expect(difference.sizeMatches).toBe(true);
+  expect(difference.sizeMatches, JSON.stringify(difference)).toBe(true);
   expect(difference.changed).toBeLessThanOrEqual(0.005);
   expect(difference.average).toBeLessThanOrEqual(0.5);
 }
