@@ -62,6 +62,30 @@ public sealed class SetNodePropertiesRequest
     public long? ExpectedRevision { get; init; }
 }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class EditNodesRequest
+{
+    public required Guid CommandId { get; init; }
+    public required long ExpectedRevision { get; init; }
+    [Required, MinLength(1), MaxLength(128)] public required NodeEditOperation[] Operations { get; init; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed class NodeEditOperation
+{
+    public required string Action { get; init; }
+    public required Guid NodeId { get; init; }
+    public Guid? ExpectedParentId { get; init; }
+    public Guid? ParentId { get; init; }
+    public int? Position { get; init; }
+    public string? Kind { get; init; }
+    public string? Name { get; init; }
+    public IReadOnlyDictionary<string, NodePropertyValue>? Properties { get; init; }
+    public Guid? ScreenId { get; init; }
+    public Guid? VariantId { get; init; }
+    public string[]? RemoveProperties { get; init; }
+}
+
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class SaveDocumentRequest { public required Guid CommandId { get; init; } [StringLength(256)] public string? Name { get; init; } }
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class RestoreDocumentRequest { public required Guid CommandId { get; init; } public required Guid VersionId { get; init; } }

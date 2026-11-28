@@ -6,6 +6,7 @@ import type { ControlDefinition, PropertyModel, RawValue, TokenControlOptions } 
 import { rawArray, rawText } from './property-control-contract';
 
 const labels:Record<string,string> = {
+  editorLocked:'Заблокирован', aspectRatioLocked:'Сохранять пропорции', editorGroup:'Группа',
   x: 'X', y: 'Y', width: 'Ширина', height: 'Высота',
   widthMode: 'Режим ширины', heightMode: 'Режим высоты', visible: 'Видимость', opacity: 'Непрозрачность',
   layout: 'Компоновка', paddingTop: 'Отступ сверху', paddingRight: 'Отступ справа',

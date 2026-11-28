@@ -20,6 +20,7 @@ public sealed class McpBatchTools(IHttpContextAccessor accessor, DocumentBatchEx
     {
         "create_page", "rename_page", "create_screen", "rename_screen", "resize_screen", "duplicate_screen",
         "create_node", "rename_node", "move_node", "delete_node", "set_node_properties", "remove_node_properties",
+        "create_screen_variant", "set_screen_variant_properties", "remove_screen_variant_override",
         "create_token", "set_token_value", "rename_token", "delete_token", "create_scenario", "update_scenario", "delete_scenario"
     };
     private static readonly IReadOnlyDictionary<string, MethodInfo> Methods = typeof(McpWriteTools).GetMethods()
@@ -32,7 +33,7 @@ public sealed class McpBatchTools(IHttpContextAccessor accessor, DocumentBatchEx
     [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
     public sealed record Operation(string Id, string Command, JsonElement Arguments);
 
-    [McpServerTool(Name = "execute_batch"), Description("Execute 1–128 document mutations atomically at expectedRevision, maximum 1 MiB. Commands: create_page, rename_page, create_screen, rename_screen, resize_screen, duplicate_screen, create_node, rename_node, move_node, delete_node, set_node_properties, remove_node_properties, create_token, set_token_value, rename_token, delete_token, create_scenario, update_scenario, delete_scenario. Arguments match the standalone tool schemas except commandId and expectedRevision are supplied by the batch. Use a unique operation id and an object {\"$ref\":\"previousId.nodeId\"} anywhere an earlier result ID (pageId, screenId, nodeId, tokenId, scenarioId) is needed. One durable revision; failures roll back all mutations. Repeat commandId to retrieve the original outcome.")]
+    [McpServerTool(Name = "execute_batch"), Description("Execute 1–128 document mutations atomically at expectedRevision, maximum 1 MiB. Commands: create_page, rename_page, create_screen, rename_screen, resize_screen, duplicate_screen, create_node, rename_node, move_node, delete_node, set_node_properties, remove_node_properties, create_screen_variant, set_screen_variant_properties, remove_screen_variant_override, create_token, set_token_value, rename_token, delete_token, create_scenario, update_scenario, delete_scenario. Arguments match the standalone tool schemas except commandId and expectedRevision are supplied by the batch. Use a unique operation id and an object {\"$ref\":\"previousId.nodeId\"} anywhere an earlier result ID (pageId, screenId, nodeId, tokenId, scenarioId) is needed. One durable revision; failures roll back all mutations. Repeat commandId to retrieve the original outcome.")]
     public async Task<CallToolResult> ExecuteBatch(long expectedRevision, Operation[] operations, Guid? commandId = null, CancellationToken ct = default)
     {
         var id = commandId ?? Guid.NewGuid();

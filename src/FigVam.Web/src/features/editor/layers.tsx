@@ -11,7 +11,7 @@ import type { components } from '../../api/schema.generated';
 type Schema=components['schemas'];
 interface Workspace { isEditorVisible(): boolean; documentId:string|null;documentRole:string|null;selectedScreen:string|null;revision:number|null;navigationEpoch:number;token:string|null}
 type Work=(signal:AbortSignal,current:()=>boolean)=>Promise<unknown>;
-interface Options {setMoveEnabled(enabled:boolean):void;model:ReturnType<typeof createLayersModel>;element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
+interface Options {editLayerProperties(id:string,properties:Record<string,{type:'boolean';value:boolean}>):boolean;deleteMultiple(ids:string[]):boolean;setMoveEnabled(enabled:boolean):void;model:ReturnType<typeof createLayersModel>;element(id:string):HTMLElement;request:ApiClient;workspace:Workspace;refreshPages():Promise<unknown>;runPageRefresh(work:Work):Promise<unknown>;readCurrentPages(signal:AbortSignal,isCurrent:()=>boolean,reveal?:string[]):Promise<unknown>;closeInaccessibleDocument(status:number):void;message(status?:string,error?:string):void;onSelectionCleared():void;onLayerSelected():void;beforeSelectionChange?(next:()=>void):boolean}
 type State='ready'|'pending'|'uncertain'|'sync'|'rejected';
 interface Metadata {id?:string;name?:string|null;semanticKey?:string|null;error?:string}
 type MetadataOperation=({kind:'name';body:{commandId:string;nodeId:string;name:string};state:State}|{kind:'key';body:{commandId:string;nodeId:string;semanticKey:string|null};state:State}) & {mutation?:DocumentCommandOperation};
@@ -32,12 +32,13 @@ import { createLayerDrag, resolveLayerDrop } from '../../canvas/layer-drag';
 import { layerDisplayName } from '../../core/layer-caption';
 export { layerDisplayName };
 export function createLayers({
-  setMoveEnabled, model, element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
+  editLayerProperties,deleteMultiple,setMoveEnabled, model, element, request, workspace, refreshPages, runPageRefresh, readCurrentPages,
   closeInaccessibleDocument, message, onSelectionCleared, onLayerSelected, beforeSelectionChange = () => true
 }:Options) {
   let layerController:AbortController|null=null,layerGeneration=0,layerSelection:LayerItem|null=null;
   const setLayerStatus=(text:string)=>model.status.publish({text});
   const setCaption=(text:string)=>model.caption.publish({text});
+  let selectedIds=new Set<string>();
   let nodeReadGeneration=0,nodeMetadata:Metadata|null=null;
   const nodeOperations=new Map<string,MetadataOperation>();
   const metadataDrafts=new Map<string,Map<MetadataKind,string>>();
@@ -55,7 +56,7 @@ export function createLayers({
   function reset() {
     drag.cancel(); clearTimeout(metadataTimer);
     layerController?.abort(); layerController = null; layerGeneration++;
-    layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
+    layerSelection = null; selectedIds.clear(); interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
     renderLayers();
     setLayerStatus('Выберите экран.');
@@ -63,8 +64,9 @@ export function createLayers({
     nodeReadGeneration++; nodeMetadata = null; renderNodeMetadata();
   }
 
-  function selectLayer(item:LayerItem) {
-    const changed = layerSelection?.id !== item.id;
+  function selectLayer(item:LayerItem, preserve=false) {
+    const changed = layerSelection?.id !== item.id || (!preserve && selectedIds.size!==1);
+    if(!preserve)selectedIds=new Set([item.id]);else selectedIds.add(item.id);
     if (changed && layerSelection && nodeMetadata?.id === layerSelection.id) {
       const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id));
       if(drafts?.size===1){const kind=drafts.keys().next().value;if(kind)submitNodeMetadata(kind);}
@@ -78,7 +80,7 @@ export function createLayers({
       renderNodeMetadata();
     }
     const caption = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
-    setCaption(caption);
+    setCaption(selectedIds.size>1?'Выбрано слоёв: '+selectedIds.size:caption);
     renderNodeOrder();
     renderLayers();
   }
@@ -89,7 +91,7 @@ export function createLayers({
     let op = nodeDeletions.get(`${workspace.documentId}:${workspace.selectedScreen}`);
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     model.deletion.publish({hidden:!layerSelection||!editable,
-      disabled:!!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id))),
+      disabled:[...selectedIds].some(id=>locked(id)) || !!op && op.state !== 'rejected' || !!(layerSelection && nodeOperations.get(nodeOperationKey(workspace.documentId, layerSelection.id))),
       retryHidden:!editable || !retryable(op),
       status:op?.state === 'pending' ? 'Удаление слоя…' : op?.state === 'sync' ? 'Удаление подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? `Результат удаления слоя «${op.name}» неизвестен. Повторите ту же команду.` : op?.error || '',
       remove:deleteNode,retry:retryNodeDeletion});
@@ -97,13 +99,13 @@ export function createLayers({
   function renderNodeMetadata() {
     renderNodeDeletion();
     const selected=layerSelection,op=selected?nodeOperations.get(nodeOperationKey(workspace.documentId, selected.id)):undefined;
-    const visible = !!selected;
+    const visible = !!selected && selectedIds.size===1;
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     const ready = !!selected && nodeMetadata?.id === selected.id;
     const drafts = selected ? metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id)) : undefined;
     const name = (editable ? drafts?.get('name') : undefined) ?? (ready ? (editable && op?.kind === 'name' ? op.body.name : nodeMetadata?.name) : '') ?? '';
     const keyValue = (editable ? drafts?.get('key') : undefined) ?? (ready ? (editable && op?.kind === 'key' ? op.body.semanticKey : nodeMetadata?.semanticKey) : '') ?? '';
-    model.metadata.publish({visible,readOnly:!editable||!ready||!!op,name,keyValue,
+    model.metadata.publish({visible,readOnly:!editable||!ready||!!op||locked(selected?.id),name,keyValue,
       status:op?.state === 'pending' ? 'Ожидание подтверждения…' : (!ready && !nodeMetadata?.error ? 'Загрузка слоя…' : ''),
       error:op?.state === 'sync' ? 'Изменение подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? 'Результат неизвестен. Повторите ту же команду.' : (nodeMetadata?.error ?? ''),
       retryHidden:!editable||!retryable(op),change:changeNodeMetadata,submit:submitNodeMetadata,cancel:cancelNodeMetadata,retry:retryNodeMetadata});
@@ -205,7 +207,13 @@ export function createLayers({
     } finally { if (nodeOperations.get(key) === op && workspace.documentId === doc && workspace.selectedScreen === screen && layerSelection?.id === node && workspace.navigationEpoch === epoch && workspace.token === requestToken && workspace.isEditorVisible()) renderNodeMetadata(); }
   }
 
+  function locked(id:string|undefined,includeSelf=true):boolean {
+    if(!id)return false;const item=findLayer(id);if(!item)return false;
+    return (includeSelf&&item.properties?.editorLocked?.value===true)||locked(item.parentId);
+  }
   function deleteNode() {
+    if([...selectedIds].some(id=>locked(id)))return;
+    if(selectedIds.size>1){if(confirm('Удалить выбранные слои и их поддеревья?'))deleteMultiple([...selectedIds]);return;}
     const node = layerSelection, doc = workspace.documentId, screen = workspace.selectedScreen, key = `${doc}:${screen}`;
     if (!doc || !screen || !node || !['Owner', 'Editor'].includes(workspace.documentRole??'') || (nodeDeletions.has(key) && nodeDeletions.get(key)?.state !== 'rejected') || nodeOperations.has(nodeOperationKey(doc, node.id))) return;
     const name = node.name?.trim() || 'Без имени';
@@ -265,7 +273,9 @@ export function createLayers({
     const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     setMoveEnabled(editable && !op);
-    model.order.publish({retryHidden:!editable||!retryable(op),retry:retryNodeOrder,status:!editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'sync' ? 'Перемещение подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || ''});
+    const context=siblingContext(layerSelection?.id),free=!!context&&(context.parent===workspace.selectedScreen||(findLayer(context.parent)?.properties?.layout?.value??'Free')==='Free');
+    const enabled=editable&&!op&&free&&selectedIds.size===1&&!locked(layerSelection?.id);
+    model.order.publish({up:!!(enabled&&context&&context.index>0),down:!!(enabled&&context&&context.index<context.count-1),move:(delta,extreme)=>{if(enabled)beginNodeMove(delta,extreme);},retryHidden:!editable||!retryable(op),retry:retryNodeOrder,status:!editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'sync' ? 'Перемещение подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || ''});
   }
 
   const drag = createLayerDrag({
@@ -280,7 +290,7 @@ export function createLayers({
     },
     commit: (id, plan) => {
       const item = findLayer(id);
-      if (!item || !canMove()) return;
+      if (!item || !canMove()||locked(item.id)||locked(plan.targetParentId)) return;
       // A dirty inspector draft must be resolved before moving, never during a gesture.
       if (layerSelection?.id !== id && !beforeSelectionChange(() => selectLayer(item))) return;
       selectLayer(item);
@@ -289,11 +299,16 @@ export function createLayers({
     }
   });
 
-  function beginNodeMove(delta:number) {
+  function beginNodeMove(delta:number, extreme=false) {
     const context = siblingContext(layerSelection?.id);
-    if (!context||!layerSelection) return;
-    const position = context.index + delta;
-    if (position < 0 || position >= context.count) return;
+    if (!context||!layerSelection||selectedIds.size!==1||locked(layerSelection.id)) return;
+    // Extreme z-order operations apply only to a free parent; stack order is layout order.
+    if (extreme && context.parent !== workspace.selectedScreen) {
+      const parent=findLayer(context.parent);
+      if(!parent || (parent.properties?.layout?.value ?? 'Free')!=='Free')return;
+    }
+    const position = extreme ? (delta < 0 ? 0 : context.count-1) : context.index + delta;
+    if (position === context.index || position < 0 || position >= context.count) return;
     renderLayers(layerSelection.id);
     startNodeMove(context.parent, context.parent, position, context.ancestors);
   }
@@ -389,19 +404,27 @@ export function createLayers({
     }
     collect(layerRoots);
     const focus = [focusId, focusedId, layerSelection?.id, visible[0]].find(id => id && visible.includes(id));
-    const onSelect = (id:string, row:HTMLElement|null) => {
+    const onSelect = (id:string, row:HTMLElement|null, toggle=false) => {
       const latest = findLayer(id);
       if (!latest) return;
-      const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) void toggleLayer(latest); };
+      const select = () => { if(toggle)toggleSelection(latest);else selectLayer(latest); row?.focus(); if (!toggle && latest.childCount) void toggleLayer(latest); };
       if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
     };
     // Keyboard navigation and drag/drop read the committed tree geometry immediately.
     flushSync(() => model.publish({layerRoots, layerChildren: new Map(layerChildren),
-      layerExpanded: new Set(layerExpanded), interactiveNodes, selectedId: layerSelection?.id, focus, onSelect}));
+      layerExpanded: new Set(layerExpanded), interactiveNodes, selectedIds:new Set(selectedIds), focus, onSelect,editable:['Owner','Editor'].includes(workspace.documentRole??''),onProperty:(id,name,value)=>{if(name!=='editorLocked'&&locked(id)||locked(id,false))return;editLayerProperties(id,{[name]:{type:'boolean',value}});}}));
     if (focusId || (focusedId && focus)) {
       const row = [...tree.querySelectorAll<HTMLElement>('[role=treeitem]')].find(item => item.dataset.id === focus);
       if (row && document.activeElement !== row) row.focus({preventScroll: true});
     }
+  }
+
+  function toggleSelection(item:LayerItem){
+    if(!selectedIds.has(item.id)){selectLayer(item,true);return;}
+    selectedIds.delete(item.id);
+    const next=findLayer([...selectedIds].at(-1));
+    if(next){selectLayer(next,true);onLayerSelected();setCaption(selectedIds.size>1?'Выбрано слоёв: '+selectedIds.size:'Слой: '+(next.name??next.kind));}
+    else {layerSelection=null;nodeReadGeneration++;nodeMetadata=null;renderNodeMetadata();setCaption('Выберите слой.');onSelectionCleared();renderLayers();}
   }
 
   async function readLayerChildren(base:string,parentId:string,signal:AbortSignal,revision:number|null,isCurrent?:()=>boolean):Promise<LayerItem[]> {
@@ -458,12 +481,12 @@ export function createLayers({
 
   element('layers').addEventListener('keydown', event => {
     const row=event.target instanceof Element?event.target.closest<HTMLElement>('[role=treeitem]'):null;
-    if (!row) return;
+    if (!row || event.target instanceof Element&&event.target.closest('button')) return;
     const rows = [...element('layers').querySelectorAll<HTMLElement>('[role=treeitem]')], index = rows.indexOf(row);
     let target:HTMLElement|null|undefined;
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
       event.preventDefault(); event.stopPropagation();
-      if (canMove() && layerSelection) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1);
+      if (canMove() && layerSelection) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey);
       return;
     }
     if (event.key === 'ArrowDown') target = rows[index + 1];
@@ -479,7 +502,7 @@ export function createLayers({
       else if (item?.childCount && layerExpanded.has(item.id)) target = row.querySelector<HTMLElement>('[role=treeitem]');
     } else if (event.key === 'Enter' || event.key === ' ') {
       const item = findLayer(row.dataset.id);
-      if (item && (layerSelection?.id === item.id || beforeSelectionChange(() => selectLayer(item)))) selectLayer(item);
+      if (item) {const select=()=>event.ctrlKey||event.metaKey||event.shiftKey?toggleSelection(item):selectLayer(item);if(layerSelection?.id===item.id||beforeSelectionChange(select))select();}
     } else return;
     event.preventDefault();
     if (target) { row.tabIndex = -1; target.tabIndex = 0; target.focus(); }
@@ -514,9 +537,9 @@ export function createLayers({
     layerRoots = roots; layerChildren = children; layerExpanded = expanded;
     layerController = new AbortController();
     const selected = selection && findLayer(selection.id);
-    if (selected) selectLayer(selected);
+    if (selected) {selectedIds=new Set([...selectedIds].filter(id=>!!findLayer(id)));selectLayer(selected,selectedIds.has(selected.id));}
     else if (layerSelection) {
-      layerSelection = null;
+      layerSelection = null; selectedIds.clear();
       layerSelectionEpoch++;
       nodeReadGeneration++;
       nodeMetadata = null;
@@ -528,9 +551,9 @@ export function createLayers({
     setLayerStatus(screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.');
   }
 
-  function selectFromCanvas(rawItem:unknown,rawNodes:unknown[],confirmed=false) {
+  function selectFromCanvas(rawItem:unknown,rawNodes:unknown[],confirmed=false,mode:'replace'|'toggle'|'preserve'='replace') {
     const item=layer(rawItem),nodes=rawNodes.map(n=>layer(n));
-    if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true))) return false;
+    if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true,mode))) return false;
     drag.cancel();
     const byId = new Map(nodes.map(node => [node.id, node]));
     const branches=new Map<string,LayerItem[]>();
@@ -543,29 +566,41 @@ export function createLayers({
       layerChildren.set(parent.id,branches.get(parent.id)??[]);
     }
     layerRoots = branches.get(workspace.selectedScreen??'') ?? [];
-    selectLayer(item);
+    if(mode==='toggle')toggleSelection(item);else selectLayer(item,mode==='preserve');
     renderLayers();
     return true;
   }
 
+  function selectRegion(rawItems:unknown[],rawNodes:unknown[],add:boolean,confirmed=false){
+    if(!confirmed&&!beforeSelectionChange(()=>selectRegion(rawItems,rawNodes,add,true)))return;
+    const nodes=rawNodes.map(n=>layer(n)),items=rawItems.map(n=>layer(n));
+    if(!items.length){if(!add&&layerSelection){layerSelection=null;selectedIds.clear();nodeMetadata=null;nodeReadGeneration++;renderNodeMetadata();setCaption('Выберите слой.');onSelectionCleared();renderLayers();}return;}
+    const byId=new Map(nodes.map(n=>[n.id,n]));
+    layerChildren=new Map();for(const n of nodes){const branch=layerChildren.get(n.parentId)??[];branch.push(n);layerChildren.set(n.parentId,branch);}
+    layerRoots=layerChildren.get(workspace.selectedScreen??'')??[];
+    if(!add)selectedIds.clear();
+    for(const item of items){selectedIds.add(item.id);for(let p=byId.get(item.parentId);p;p=byId.get(p.parentId))layerExpanded.add(p.id);}
+    const item=items.at(-1);if(item){selectLayer(item,true);onLayerSelected();}
+  }
   function clearCommands() {
     clearTimeout(metadataTimer); metadataDrafts.clear(); nodeOperations.clear(); nodeDeletions.clear(); nodeMoves.clear(); nodeMoveNotices.clear();
   }
 
   return {
-    reset, clearCommands, discardDocument(doc:string){clearTimeout(metadataTimer);for(const map of [metadataDrafts,nodeOperations,nodeDeletions,nodeMoves,nodeMoveNotices])for(const key of map.keys())if(key.startsWith(doc+':'))map.delete(key);}, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    reset, clearCommands, discardDocument(doc:string){clearTimeout(metadataTimer);for(const map of [metadataDrafts,nodeOperations,nodeDeletions,nodeMoves,nodeMoveNotices])for(const key of map.keys())if(key.startsWith(doc+':'))map.delete(key);}, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,selectRegion,
     selectById(id:string){const item=findLayer(id);if(!item)return;const select=()=>{selectLayer(item);if(item.childCount)void toggleLayer(item);renderLayers(id);};if(layerSelection?.id===id||beforeSelectionChange(select))select();},
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },
     clearSelection() {
       if (!layerSelection) return;
-      layerSelection = null; layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
+      layerSelection = null; selectedIds.clear(); layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
       drag.cancel(); renderNodeMetadata(); renderNodeOrder(); renderLayers();
       setCaption('Выберите слой.');
       onSelectionCleared();
     },
     onScreenContextChanged: () => { drag.cancel(); screenContextEpoch++; },
     get selection() { return layerSelection; },
+    get selectedIds() { return [...selectedIds]; },
     get hasLayers() { return layerRoots.length > 0; }
   };
 }

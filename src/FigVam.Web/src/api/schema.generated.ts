@@ -4108,6 +4108,131 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/documents/{documentId}/commands/edit-nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically edit multiple nodes at one document revision */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    documentId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/*+json": components["schemas"]["EditNodesRequest"];
+                    "application/json": components["schemas"]["EditNodesRequest"];
+                    "text/json": components["schemas"]["EditNodesRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CommandResponse"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unauthorized */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Forbidden */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Payload Too Large */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Unsupported Media Type */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Too Many Requests */
+                429: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+                /** @description Internal Server Error */
+                500: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ApiError"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/documents/{documentId}/commands/import-design-tokens": {
         parameters: {
             query?: never;
@@ -13784,6 +13909,13 @@ export interface components {
             /** Format: uuid */
             screenId: string;
         };
+        EditNodesRequest: {
+            /** Format: uuid */
+            commandId: string;
+            /** Format: int64 */
+            expectedRevision: number | string;
+            operations: components["schemas"]["NodeEditOperation"][];
+        };
         EntityChangeOfComponentDefinition: {
             after: null | components["schemas"]["ComponentDefinition"];
             /** Format: int32 */
@@ -14028,6 +14160,27 @@ export interface components {
             binding: components["schemas"]["DataBinding"];
             /** Format: uuid */
             datasetId: string;
+        };
+        NodeEditOperation: {
+            action: string;
+            /** Format: uuid */
+            expectedParentId?: null | string;
+            kind?: null | string;
+            name?: null | string;
+            /** Format: uuid */
+            nodeId: string;
+            /** Format: uuid */
+            parentId?: null | string;
+            /** Format: int32 */
+            position?: null | number | string;
+            properties?: null | {
+                [key: string]: components["schemas"]["NodePropertyValue"];
+            };
+            removeProperties?: null | string[];
+            /** Format: uuid */
+            screenId?: null | string;
+            /** Format: uuid */
+            variantId?: null | string;
         };
         NodeGradientStop: {
             color?: null | components["schemas"]["NodeColorValue"];

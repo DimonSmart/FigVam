@@ -1,17 +1,20 @@
-import { prepareNodeOperation, type Command, type Body } from './node-command';
+import { prepareNodeOperation, type Command, type Body, type NodeEdit } from './node-command';
 import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperation, type AssetUploadOperation } from '../../api/document-commands';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
-import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
+import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, pasteVariantAppearance, commonPropertyEligible, commonPropertyEdit, type VisualAction, type AlignAction, type AppearanceClipboard } from './visual-tools';
+import type { CommonField } from './visual-editor-views';
+import { proportionalSize, inheritedLock } from '../../canvas/visual-geometry';
+import type { CanvasModel, CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
 
-interface Context {documentId:string|null;documentRole:string|null;revision:number|null;screen:string|null;variantId:string|null;selection?:{id:string;name?:string|null;kind:string}|null;navigationEpoch:number;token:string|null}
+interface Context {documentId:string|null;documentRole:string|null;revision:number|null;screen:string|null;variantId:string|null;selection?:{id:string;name?:string|null;kind:string}|null;selectedIds?:readonly string[];navigationEpoch:number;token:string|null}
 interface Target extends Context {documentId:string;screen:string;revision:number;nodeId:string}
 interface Model extends PropertyModel {nodes:ReadonlyMap<string,CanvasNode>;kinds:ReadonlyMap<string,CanvasKind & {kind:string}>;overridden?:ReadonlyMap<string,ReadonlySet<string>>}
 interface Selection {nodeId:string;previousId?:string}
-interface Options {models:ReturnType<typeof createPropertyFieldModels>;request:ApiClient;getContext():Context;readModel():Promise<Model>;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
+interface Options {models:ReturnType<typeof createPropertyFieldModels>;request:ApiClient;getContext():Context;readModel():Promise<Model>;getCanvasModel():CanvasModel|null;canGroup():boolean;refreshDocument(revision:number,isCurrent:()=>boolean,reveal:string[],selection?:Selection,resourcesChanged?:boolean):Promise<boolean>;closeInaccessibleDocument(status:number):void;stopLive():void;startLive():void;previewProperties?(target:Target,properties:NodeProperties):void;onDrawingToolsChanged?(kinds:readonly string[]):void}
 interface Draft {values:Map<string,RawValue>;error:string;status:string;coordinateParentId?:string}
 interface Palette extends Draft {kind:string;parent:string|null|undefined;selectionId?:string;uploadStatus?:string;uploadError?:string}
 interface Field extends ValueField {baseline:RawValue;signature:string;valueSignature?:string;hasValue?:boolean;lastRaw?:RawValue}
@@ -38,7 +41,7 @@ const scopeKey = (context:Context) => context.documentId && context.screen && Nu
   `${context.documentId}:${context.screen}` : null;
 
 export function createVisualNodeEditor({
-  models, request, getContext, readModel, refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
+  models, request, getContext, readModel, getCanvasModel,canGroup,refreshDocument, closeInaccessibleDocument, stopLive, startLive, previewProperties = () => {}, onDrawingToolsChanged = () => {}
 }:Options) {
   let assetFile:File|null=null,fileReset=0,optionalOpen=false,optionalHidden=true,addDisabled=true,paletteBlocked=true;
   function resetAssetFile(){assetFile=null;fileReset++;}
@@ -52,6 +55,8 @@ export function createVisualNodeEditor({
   let loadingFocus:{id:string;key:string|undefined}|null=null,uploadDocument:string|null|undefined;
   const uploads=new Map<string,Upload>();
   const automatic=new Map<Draft,Automatic>();
+  let commonFields:CommonField[]=[],commonKey='';
+  let appearanceClipboard:{documentId:string;properties:AppearanceClipboard}|null=null;
   let applyTimer:ReturnType<typeof setTimeout>|undefined;
 
   // Each entry owns a captured target and validated snapshots, not DOM references.
@@ -133,7 +138,7 @@ export function createVisualNodeEditor({
       const key = scope && `${scope}:${context.revision}:${context.variantId ?? "base"}:${context.navigationEpoch}`;
       const selectionId = context.selection?.id;
       // UI identity follows selection, not the document revision.
-      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.documentRole}:${context.navigationEpoch}`;
+      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.selectedIds?.join(',')}:${context.documentRole}:${context.navigationEpoch}`;
       if (modelKey !== key) load(key, scope);
       if (loadedKey !== renderKey) {
         loadedKey = renderKey;
@@ -240,7 +245,7 @@ export function createVisualNodeEditor({
         const spec=createNodeValueSpec(name,controlDefinition,model,values?.[name],prefix);
         field={...createValueField(spec,prefix+'-'+name,{onEdit:update,validateInitial:values?.[name]?.type==='token'}),baseline:spec.initial,signature,valueSignature};
         function update(kind:EditKind){
-          if(!state)return;
+          if(!state||prefix==='visual-property'&&model&&node&&inheritedLock(model,node.id)&&name!=='editorLocked')return;
           const raw = field.read();
           const automaticField = prefix === 'visual-property';
           const discrete = kind === 'discrete' || kind === 'commit';
@@ -267,6 +272,19 @@ export function createVisualNodeEditor({
             // A native color picker may emit many input events before its change event.
             if (kind === 'color-preview') {
               scheduleApply(state, name, field, false, true); updateControls(); return;
+            }
+            if((name==='width'||name==='height')&&node?.properties.aspectRatioLocked?.type==='boolean'&&node.properties.aspectRatioLocked.value&&model){
+              const otherName=name==='width'?'height':'width',other=inspectorFields.get(otherName),defs=model.kinds.get(node.kind)?.properties;
+              const width=node.properties.width??defs?.width?.defaultValue,height=node.properties.height??defs?.height?.defaultValue;
+              const changed=propertyValue(field.validate(false).value);
+              if(width?.type==='number'&&height?.type==='number'&&other&&changed?.type==='number'){
+                const range=(key:string)=>({min:defs?.[key]?.minimum??0,max:defs?.[key]?.maximum??Infinity});
+                const size=proportionalSize(width.value,height.value,name==='width'?changed.value-width.value:0,name==='height'?changed.value-height.value:0,range('width'),range('height'));
+                if(size&&Math.abs(size[name==='width'?0:1]-changed.value)<1e-6){
+                  const v={type:'number' as const,value:size[name==='width'?1:0]},otherDef=defs?.[otherName];
+                  if(otherDef?.type){const raw=createNodeValueSpec(otherName,{...otherDef,type:otherDef.type},model,v,prefix).initial;other.write(raw);other.lastRaw=raw;state.values.set(otherName,raw);scheduleApply(state,otherName,other,discrete);}
+                }else{state.error='Изменение нарушает ограничения пропорций.';updateControls();return;}
+              }else{state.error='Для сохранения пропорций оба размера должны быть числовыми, без привязок к токенам.';updateControls();return;}
             }
             scheduleApply(state, name, field, discrete);
           }
@@ -366,8 +384,8 @@ export function createVisualNodeEditor({
     paletteBlocked=blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
-    for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(op && !op.canvas && !op.auto));
-    for(const field of inspectorFields.values())field.setActionsDisabled(blocked);
+    for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(model&&node&&inheritedLock(model,node.id)&&name!=='editorLocked') || Boolean(op && !op.canvas && !op.auto));
+    for(const [name,field] of inspectorFields)field.setActionsDisabled(blocked||!!(model&&node&&inheritedLock(model,node.id)&&name!=='editorLocked'));
     const validParent = model?.kinds.size && eligibleParent();
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);
     const optionalReady = [...paletteOptionalFields].every(([name, field]) =>
@@ -390,10 +408,12 @@ export function createVisualNodeEditor({
       Required:models.required.Component,Optional:models.optional.Component,changeKind,changeParent,toggleOptional:open=>{optionalOpen=open;},submit:submitPalette,
       loadRetryHidden:!loadError,loadRetry:retryLoad,retryHidden:!editable||!adding||!retryable(op),retry:()=>retryOperation(false),
       error:loadError||palette?.error||'',status:adding?operationStatus(op,'Добавление элемента…'):loading||[palette?.status,paletteStatus].filter(Boolean).join(' ')});
-    models.inspectorPanel.publish({hidden:!scopeKey(context)||!context.selection,formHidden:!node||!model?.kinds.has(node.kind),blocked,resetHidden:!editable||!inspector?.values.size,
+    models.inspectorPanel.publish({hidden:!scopeKey(context)||!context.selection,formHidden:!node||!model?.kinds.has(node.kind)||(context.selectedIds?.length??0)>1,blocked,resetHidden:!editable||!inspector?.values.size,
       Fields:models.inspector.Component,submit:()=>finishApply(inspector),reset:resetInspector,loadRetryHidden:!loadError,loadRetry:retryLoad,
       retryHidden:!editable||!(editing&&retryable(op)||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
       status:editing?operationStatus(op,'Сохранение свойств…'):loading||(autoEntry?.fields.size&&!autoEntry.rejected?'Сохранение свойств…':inspector?.status||'')});
+    publishCommonProperties(blocked);
+    publishVisualActions(blocked);
     onDrawingToolsChanged(!hidden&&!formHidden&&!blocked?kinds:[]);
   }
 
@@ -548,10 +568,12 @@ export function createVisualNodeEditor({
         catch(error){operations.delete(op.key);op.draft.error=errorMessage(error);const entry=automatic.get(op.draft);if(entry)entry.rejected=true;return;}
       }
       const outcome=await op.mutation.execute({request,isCurrent:current,
-        validate:ack=>{if(ack.nodeId!==op.body.nodeId)throw new TypeError('Некорректное подтверждение элемента');},
+        validate:ack=>{if(op.command==='edit-nodes' ? ack.revision!==Number(op.body.expectedRevision)+1 : ack.nodeId!==op.body.nodeId)throw new TypeError('Некорректное подтверждение элемента');},
         synchronize:async ack=>{
-          const reveal=adding&&op.body.parentId&&op.body.parentId!==op.screen?[op.body.parentId]:[];
-          const selection=adding?{nodeId:op.body.nodeId,previousId:op.selectionId}:undefined;
+          const group=op.command==='edit-nodes'?op.body.operations?.find(item=>item.action==='add'&&item.properties?.editorGroup?.type==='boolean'&&item.properties.editorGroup.value):undefined;
+          const parentId=adding?op.body.parentId:group?.parentId;
+          const reveal=parentId&&parentId!==op.screen?[parentId]:[];
+          const selection=adding||group?{nodeId:group?.nodeId??op.body.nodeId,previousId:op.selectionId}:undefined;
           const view=getContext();
           const activeDocument=view.documentId===op.documentId&&canEdit(view.documentRole);
           const activeSync=()=>current()&&getContext().documentId===op.documentId&&getContext().navigationEpoch===view.navigationEpoch;
@@ -622,8 +644,74 @@ export function createVisualNodeEditor({
       canvasDrafts.get(key), settlePreview);
   }
 
+  function publishCommonProperties(blocked:boolean){
+    const ids=context.selectedIds??[],key=[context.documentId,context.revision,context.variantId,...ids].join(':');
+    const nodes=ids.flatMap(id=>{const n=model?.nodes.get(id);return n?[n]:[];});
+    const commonBlocked=blocked||key!==commonKey&&resolvedModelKey!==modelKey||!model||nodes.length!==ids.length||nodes.some(n=>!!model&&inheritedLock(model,n.id));
+    if(model&&resolvedModelKey===modelKey&&(key!==commonKey||(!commonFields.length&&nodes.length===ids.length&&ids.length>1))){
+      commonKey=key;commonFields=[];
+      const first=nodes[0],data=model;
+      if(first&&data&&ids.length>1&&nodes.length===ids.length){
+        for(const [name,def] of Object.entries(data.kinds.get(first.kind)?.properties??{})){
+          if(!def?.type||!nodes.every(n=>commonPropertyEligible(data,n,name)))continue;
+          const signature=(d:typeof def)=>{const {defaultValue,required,...rest}=d;return JSON.stringify(rest);};
+          if(!nodes.every(n=>{const other=data.kinds.get(n.kind)?.properties[name];return !!other&&signature(other)===signature(def);}))continue;
+          const values=nodes.map(n=>n.properties[name]??data.kinds.get(n.kind)?.properties[name]?.defaultValue);
+          const mixed=values.some(v=>JSON.stringify(v)!==JSON.stringify(values[0]));
+          const field=createValueField(createNodeValueSpec(name,{...def,type:def.type},data,values[0],'visual-common'),'visual-common-'+name);
+          commonFields.push({name,field,mixed,apply:()=>{
+            const current=getContext();if(current.revision!==context.revision||key!==commonKey||!current.screen||current.revision===null||JSON.stringify(current.selectedIds)!==JSON.stringify(ids))return;
+            const validation=field.validate(),value=propertyValue(validation.value);if(validation.error||!value)return;
+            const operations=commonPropertyEdit(data,ids,name,value);
+            if(!operations.length){const scope=scopeKey(current);if(scope){if(!canvasDrafts.has(scope))canvasDrafts.set(scope,draft());const feedback=canvasDrafts.get(scope);if(feedback)feedback.error='Изменение несовместимо с ограничениями выбранных элементов.';updateControls();}return;}
+            editBatch(operations.map(op=>({...op,...(current.variantId?{screenId:current.screen??undefined,variantId:current.variantId}:{})})),current.revision);
+          }});
+        }
+      }
+    }
+    for(const item of commonFields){item.field.setDisabled(commonBlocked);item.field.setActionsDisabled(commonBlocked);}
+    models.commonProperties.publish({keyValue:key,visible:ids.length>1,fields:commonFields,blocked:commonBlocked});
+  }
+  const alignActions:AlignAction[]=['left','right','top','bottom','centerX','centerY','distributeX','distributeY'];
+  function planAction(action:VisualAction,drawing:CanvasModel,ids:readonly string[]):NodeEdit[]{
+    if(action==='copy')return [];
+    if(action==='paste'){
+      if(!appearanceClipboard||appearanceClipboard.documentId!==context.documentId)return [];
+      return context.variantId&&context.screen
+        ?pasteVariantAppearance(drawing,ids,appearanceClipboard.properties,model?.overridden??new Map(),context.screen,context.variantId)
+        :pasteAppearance(drawing,ids,appearanceClipboard.properties);
+    }
+    if(action==='group')return context.variantId||!canGroup()?[]:grouping(drawing,ids,crypto.randomUUID());
+    if(action==='ungroup')return context.variantId||!canGroup()||ids.length!==1?[]:ungrouping(drawing,ids[0]??'');
+    return alignment(drawing,ids,action);
+  }
+  function publishVisualActions(blocked:boolean){
+    const ids=context.selectedIds??(context.selection?[context.selection.id]:[]),drawing=getCanvasModel(),available:VisualAction[]=[];
+    if(drawing&&drawing.revision===context.revision&&ids.length){
+      if(ids.length===1)available.push('copy');
+      if(!blocked&&!ids.some(id=>inheritedLock(drawing,id)))for(const action of [...alignActions,'group','ungroup','paste'] as VisualAction[]){
+        if(planAction(action,drawing,ids).length)available.push(action);
+      }
+    }
+    models.visualActions.publish({visible:ids.length>0,available,run:action=>{
+      const current=getContext(),drawing=getCanvasModel(),ids=current.selectedIds??[];
+      if(!drawing||drawing.revision!==current.revision||current.documentId!==context.documentId)return;
+      if(action==='copy'){if(ids.length===1&&current.documentId){appearanceClipboard={documentId:current.documentId,properties:copyAppearance(drawing,ids[0]??'')};updateControls();}return;}
+      if(ids.some(id=>inheritedLock(drawing,id)))return;
+      const ops=planAction(action,drawing,ids);
+      editBatch(ops.map(op=>current.variantId&&current.screen&&op.action==='set'?{...op,variantId:current.variantId,screenId:current.screen}:op),drawing.revision);
+    }});
+  }
+
+  function editBatch(operations:NodeEdit[], expectedRevision:number, settle:(confirmed:boolean)=>void=()=>{}) {
+    const current=getContext(),key=scopeKey(current);
+    if(!key||!canEdit(current.documentRole)||current.revision!==expectedRevision||operations.length===0||operations.length>128||!current.screen||[...automatic.values()].some(entry=>entry.fields.size>0)||uploads.has(current.documentId??''))return false;
+    if(!canvasDrafts.has(key))canvasDrafts.set(key,draft());
+    return begin('edit-nodes',{nodeId:current.selection?.id??current.screen,expectedRevision,operations},canvasDrafts.get(key),settle);
+  }
+
   return {
-    refresh, editGeometry, addFromToolbar,
+    refresh, editGeometry, editBatch, addFromToolbar,
     get editPending() { return operations.has(scopeKey(getContext())??''); },
     clearDocument(id:string) {
       for(const [state,entry] of automatic)if(entry.target.documentId===id)automatic.delete(state);

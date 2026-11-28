@@ -40,6 +40,7 @@ public sealed class VisualNodeProfile : INodeProfile
             .. Decoration(Transparent, 0, Transparent, 0),
             ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle)),
             ("layout", Options(LayoutFlow.Free, LayoutFlow.Horizontal, LayoutFlow.Vertical)),
+            ("editorGroup", Boolean(false)),
             ("paddingTop", Spacing()),
             ("paddingRight", Spacing()),
             ("paddingBottom", Spacing()),
@@ -188,6 +189,8 @@ public sealed class VisualNodeProfile : INodeProfile
             ("opacity", Number(1, 0, 1)),
             ("rotation", Number(0, -MaxGeometry, MaxGeometry)),
             ("visible", Boolean(true)),
+            ("editorLocked", Boolean(false)),
+            ("aspectRatioLocked", Boolean(false)),
             .. (role == NodeSemanticRole.Text ? Array.Empty<(string, NodePropertyDefinition)>() :
                 new (string, NodePropertyDefinition)[] { ("shadow", new(NodePropertyType.Shadow)) }),
             .. properties

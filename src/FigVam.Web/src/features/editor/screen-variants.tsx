@@ -92,5 +92,5 @@ export function createScreenVariants({model,element,request,refreshPages,onSelec
     const op:Operation={body,mutation:prepareDocumentCommand(doc,'add-screen-variant',body),selectionEpoch,state:'ready'};
     operations.set(k,op);await send(doc,screen,op);
   }
-  render();return{reset,load,clearCommands:()=>operations.clear(),discardDocument(doc:string){for(const id of operations.keys())if(id.startsWith(doc+'/'))operations.delete(id);},get selectedVariantId(){return selected;}};
+  render();return{reset,load,clearCommands:()=>operations.clear(),discardDocument(doc:string){for(const id of operations.keys())if(id.startsWith(doc+'/'))operations.delete(id);},get selectedVariantId(){return selected;},get canChangeStructure(){return state.hasBase&&state.total===0;}};
 }

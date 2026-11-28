@@ -1,3 +1,4 @@
+import { inheritedLock } from './visual-geometry';
 import { DocumentFontRegistry } from './document-font-registry';
 import { loadPreviewFonts } from './preview-fonts';
 import { previewSurface } from './preview-surface';
@@ -24,7 +25,7 @@ interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens
 interface Diagnostic {objectId:string;property:string;message:string;code:string}
 interface View {host:HTMLElement;feedback:RenderFeedback;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null}
 interface Screen {id:string;dimensions:{width:number;height:number}}
-interface InputContext {documentId:string|null;revision:number|null;screen?:Screen;selection?:{id:string}|null;tokens:unknown[];styles?:unknown[];variantId:string|null}
+interface InputContext {documentId:string|null;revision:number|null;screen?:Screen;selection?:{id:string}|null;selectedIds?:readonly string[];tokens:unknown[];styles?:unknown[];variantId:string|null}
 type Context=Omit<InputContext,'documentId'|'revision'|'screen'>&{documentId:string;revision:number;screen:Screen};
 interface Options {chrome:PreviewChrome;publishMode(next:boolean):void;element(id:string):HTMLElement;request:ApiClient;getContext():InputContext;closeInaccessibleDocument(status:number):void;onDesignChange():void}
 type Query=Record<string,string|number>;
@@ -142,9 +143,12 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
 
   function syncSelection() {
     const id = getContext().selection?.id;
-    design.selected?.removeAttribute('data-selected');
+    for(const wrapper of boundary.querySelectorAll<HTMLElement>('[data-visual-node]')){wrapper.removeAttribute('data-selected');wrapper.toggleAttribute('data-editor-locked',!!design.model&&inheritedLock(design.model,wrapper.dataset.visualNode??''));}
     design.selected = id ? boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`) : null;
-    if (design.selected) design.selected.dataset.selected = 'true';
+    for(const selectedId of getContext().selectedIds??(id?[id]:[])){
+      const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(selectedId)}"]`);
+      if(wrapper)wrapper.dataset.selected='true';
+    }
     onDesignChange();
   }
 

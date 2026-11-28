@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { PanelLeft, PanelRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { PanelLeft, PanelRight, ChevronLeft, ChevronRight, Grid3X3, Magnet, MoveHorizontal, MoveVertical } from 'lucide-react';
+import { IconButton } from '../../ui/IconButton';
+import type { GuideAxis, GridSettings } from '../../canvas/visual-geometry';
 import { createEditorMenu, type MenuId } from '../../app/editor-menu';
 import { createPanelStore } from '../../app/panel-store';
 import { canEditDocument, type DocumentShellModel, type DeletionViewModel } from '../../app/document-shell-state';
@@ -14,7 +16,7 @@ import { TextInput, NumberInput } from '../../ui/Inputs';
 
 interface ShellActions {
   previewChrome:PreviewChrome;
-  canvasChrome:CanvasChrome;zoomIn():void;zoomOut():void;fitCanvas():void;actualSize():void;
+  canvasChrome:CanvasChrome;zoomIn():void;zoomOut():void;fitCanvas():void;actualSize():void;setGrid(next:Partial<GridSettings>):void;addGuide(axis:GuideAxis):void;
   openPreview():void;closePreview():void;changePreviewTheme(theme:Theme):void;resetPreview():void;previewBack():void;retryRender():void;
   beforePrototypeLeave(resume:()=>void):boolean;
   addTool(kind:DrawingToolKind):boolean;
@@ -71,7 +73,13 @@ function CanvasCaption({shell}:{shell:EditorShellController}){const state=useSyn
 function CanvasHint({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <p id="canvas-edit-hint" role="status">{state.hint}</p>;}
 function CanvasToolbar({shell}:{shell:EditorShellController}){const state=useSyncExternalStore(shell.canvasChrome.subscribe,shell.canvasChrome.getSnapshot);return <div className="viewport-controls" role="group" aria-label="Управление холстом">
   <Button id="zoom-out" type="button" title="Уменьшить" disabled={!state.available} onClick={shell.zoomOut}>Уменьшить</Button><output id="zoom-level" aria-label="Масштаб" title="Текущий масштаб">{state.zoomPercent+'%'}</output>
-  <Button id="zoom-in" type="button" title="Увеличить" disabled={!state.available} onClick={shell.zoomIn}>Увеличить</Button><Button id="fit-screen" type="button" title="Вместить экран в холст" disabled={!state.available} onClick={shell.fitCanvas}>Вместить экран</Button><Button id="actual-size" type="button" disabled={!state.available} onClick={shell.actualSize}>100%</Button></div>;}
+  <Button id="zoom-in" type="button" title="Увеличить" disabled={!state.available} onClick={shell.zoomIn}>Увеличить</Button><Button id="fit-screen" type="button" title="Вместить экран в холст" disabled={!state.available} onClick={shell.fitCanvas}>Вместить экран</Button><Button id="actual-size" type="button" disabled={!state.available} onClick={shell.actualSize}>100%</Button>
+  <IconButton id="grid-visible" icon={Grid3X3} label="Показать сетку" aria-pressed={state.grid.visible} disabled={!state.available} onClick={()=>shell.setGrid({visible:!state.grid.visible})}/>
+  <label>Шаг сетки <select id="grid-step" aria-label="Шаг сетки" value={state.grid.step} disabled={!state.available} onChange={event=>shell.setGrid({step:Number(event.currentTarget.value)})}>{[5,10,20,25,50,100].map(step=><option key={step} value={step}>{step}</option>)}</select></label>
+  <IconButton id="snap-objects" icon={Magnet} label="Привязка к объектам и направляющим" aria-pressed={state.grid.snapObjects} disabled={!state.available} onClick={()=>shell.setGrid({snapObjects:!state.grid.snapObjects})}/>
+  <Button id="snap-grid" type="button" aria-pressed={state.grid.snap} disabled={!state.available} onClick={()=>shell.setGrid({snap:!state.grid.snap})}>К сетке</Button>
+  <IconButton id="guide-vertical" icon={MoveHorizontal} label="Добавить вертикальную направляющую" disabled={!state.available} onClick={()=>shell.addGuide('x')}/>
+  <IconButton id="guide-horizontal" icon={MoveVertical} label="Добавить горизонтальную направляющую" disabled={!state.available} onClick={()=>shell.addGuide('y')}/></div>;}
 export function EditorShell({shell,views}:{shell:EditorShellController;views:ApplicationViews}){
   const state=useSyncExternalStore(shell.document.subscribe,shell.document.getSnapshot);
   const activeMenu=useSyncExternalStore(shell.menu.subscribe,shell.menu.getSnapshot);
@@ -271,7 +279,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section aria-labelledby="layers-title" className="layer-tree-group">
                   <h2 id="layers-title">{state.layersTitle}</h2>
                   <views.layers.status.Component/>
-                  <div id="layers" className={state.layerMoveEnabled ? "layer-move-enabled" : undefined} role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
+                  <div id="layers" className={state.layerMoveEnabled ? "layer-move-enabled" : undefined} role="tree" aria-multiselectable="true" aria-label="Слои экрана"><views.layers.Component/></div>
                   <views.layers.order.Component/>
                 </section>
               </div>
@@ -302,7 +310,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           </div>
           <h2 id="canvas-title" className="visually-hidden">{"Холст"}</h2>
           <CanvasCaption shell={shell}/>
-          <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
+          <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб. Shift при изменении размера сохраняет пропорции. Ctrl или Command временно отключает привязку."}</p>
           <RenderFeedback model={shell.previewChrome.design} mode="design" retry={shell.retryRender}/>
           <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen || state.structureLoading}>
             <h2>{state.hasPage?"На странице нет экранов":"В документе нет страниц"}</h2>
@@ -310,7 +318,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <Button type="button" className="primary-action" aria-label="Открыть создание экрана" hidden={!canEdit} onClick={openCreateScreen}>{state.hasPage?"Создать экран":"Создать страницу"}</Button>
           </div>
           <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">
-            <div id="screen-boundary" hidden/>
+            <div id="screen-boundary" hidden/><div id="canvas-grid-overlay" hidden><div id="canvas-manual-guides"/><span id="canvas-snap-x" hidden/><span id="canvas-snap-y" hidden/></div>
             <div id="presence-markers" aria-hidden="true"><views.presence.markers.Component/></div>
           </div>
           <CanvasHint shell={shell}/>
@@ -323,8 +331,10 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <div className="inspector-page panel-page" id="shell-design" role="tabpanel" aria-labelledby="tab-design" hidden={rightTab!=="design"}>
               <h2 id="inspector-title">{"Инспектор"}</h2>
               <views.layers.caption.Component/>
+              <views.propertyFields.visualActions.Component/>
               <views.layers.deletion.Component/>
               <views.propertyFields.inspectorPanel.Component/>
+              <views.propertyFields.commonProperties.Component/>
               <views.layers.metadata.Component/>
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>
