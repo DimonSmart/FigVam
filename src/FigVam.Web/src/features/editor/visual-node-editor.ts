@@ -7,7 +7,7 @@ import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
 
-interface Context {documentId:string|null;documentRole:string|null;revision:number|null;screen:string|null;variantId:string|null;selection?:{id:string;name?:string|null;kind:string}|null;navigationEpoch:number;token:string|null}
+interface Context {documentId:string|null;documentRole:string|null;revision:number|null;screen:string|null;variantId:string|null;selection?:{id:string;name?:string|null;kind:string}|null;selectedIds?:readonly string[];navigationEpoch:number;token:string|null}
 interface Target extends Context {documentId:string;screen:string;revision:number;nodeId:string}
 interface Model extends PropertyModel {nodes:ReadonlyMap<string,CanvasNode>;kinds:ReadonlyMap<string,CanvasKind & {kind:string}>;overridden?:ReadonlyMap<string,ReadonlySet<string>>}
 interface Selection {nodeId:string;previousId?:string}
@@ -133,7 +133,7 @@ export function createVisualNodeEditor({
       const key = scope && `${scope}:${context.revision}:${context.variantId ?? "base"}:${context.navigationEpoch}`;
       const selectionId = context.selection?.id;
       // UI identity follows selection, not the document revision.
-      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.documentRole}:${context.navigationEpoch}`;
+      const renderKey = `${scope}:${context.variantId ?? "base"}:${selectionId}:${context.selectedIds?.join(',')}:${context.documentRole}:${context.navigationEpoch}`;
       if (modelKey !== key) load(key, scope);
       if (loadedKey !== renderKey) {
         loadedKey = renderKey;
@@ -390,7 +390,7 @@ export function createVisualNodeEditor({
       Required:models.required.Component,Optional:models.optional.Component,changeKind,changeParent,toggleOptional:open=>{optionalOpen=open;},submit:submitPalette,
       loadRetryHidden:!loadError,loadRetry:retryLoad,retryHidden:!editable||!adding||!retryable(op),retry:()=>retryOperation(false),
       error:loadError||palette?.error||'',status:adding?operationStatus(op,'Добавление элемента…'):loading||[palette?.status,paletteStatus].filter(Boolean).join(' ')});
-    models.inspectorPanel.publish({hidden:!scopeKey(context)||!context.selection,formHidden:!node||!model?.kinds.has(node.kind),blocked,resetHidden:!editable||!inspector?.values.size,
+    models.inspectorPanel.publish({hidden:!scopeKey(context)||!context.selection,formHidden:!node||!model?.kinds.has(node.kind)||(context.selectedIds?.length??0)>1,blocked,resetHidden:!editable||!inspector?.values.size,
       Fields:models.inspector.Component,submit:()=>finishApply(inspector),reset:resetInspector,loadRetryHidden:!loadError,loadRetry:retryLoad,
       retryHidden:!editable||!(editing&&retryable(op)||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
       status:editing?operationStatus(op,'Сохранение свойств…'):loading||(autoEntry?.fields.size&&!autoEntry.rejected?'Сохранение свойств…':inspector?.status||'')});

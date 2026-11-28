@@ -38,6 +38,7 @@ export function createLayers({
   let layerController:AbortController|null=null,layerGeneration=0,layerSelection:LayerItem|null=null;
   const setLayerStatus=(text:string)=>model.status.publish({text});
   const setCaption=(text:string)=>model.caption.publish({text});
+  let selectedIds=new Set<string>();
   let nodeReadGeneration=0,nodeMetadata:Metadata|null=null;
   const nodeOperations=new Map<string,MetadataOperation>();
   const metadataDrafts=new Map<string,Map<MetadataKind,string>>();
@@ -55,7 +56,7 @@ export function createLayers({
   function reset() {
     drag.cancel(); clearTimeout(metadataTimer);
     layerController?.abort(); layerController = null; layerGeneration++;
-    layerSelection = null; interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
+    layerSelection = null; selectedIds.clear(); interactiveNodes = new Set(); layerRoots = []; layerExpanded = new Set(); layerChildren = new Map();
     onSelectionCleared();
     renderLayers();
     setLayerStatus('Выберите экран.');
@@ -63,8 +64,9 @@ export function createLayers({
     nodeReadGeneration++; nodeMetadata = null; renderNodeMetadata();
   }
 
-  function selectLayer(item:LayerItem) {
-    const changed = layerSelection?.id !== item.id;
+  function selectLayer(item:LayerItem, preserve=false) {
+    const changed = layerSelection?.id !== item.id || (!preserve && selectedIds.size!==1);
+    if(!preserve)selectedIds=new Set([item.id]);else selectedIds.add(item.id);
     if (changed && layerSelection && nodeMetadata?.id === layerSelection.id) {
       const drafts = metadataDrafts.get(nodeOperationKey(workspace.documentId, layerSelection.id));
       if(drafts?.size===1){const kind=drafts.keys().next().value;if(kind)submitNodeMetadata(kind);}
@@ -78,7 +80,7 @@ export function createLayers({
       renderNodeMetadata();
     }
     const caption = `Слой: ${item.name?.trim() || 'Без имени'} · ${item.kind} · ID: ${item.id}`;
-    setCaption(caption);
+    setCaption(selectedIds.size>1?'Выбрано слоёв: '+selectedIds.size:caption);
     renderNodeOrder();
     renderLayers();
   }
@@ -97,7 +99,7 @@ export function createLayers({
   function renderNodeMetadata() {
     renderNodeDeletion();
     const selected=layerSelection,op=selected?nodeOperations.get(nodeOperationKey(workspace.documentId, selected.id)):undefined;
-    const visible = !!selected;
+    const visible = !!selected && selectedIds.size===1;
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     const ready = !!selected && nodeMetadata?.id === selected.id;
     const drafts = selected ? metadataDrafts.get(nodeOperationKey(workspace.documentId, selected.id)) : undefined;
@@ -394,19 +396,27 @@ export function createLayers({
     }
     collect(layerRoots);
     const focus = [focusId, focusedId, layerSelection?.id, visible[0]].find(id => id && visible.includes(id));
-    const onSelect = (id:string, row:HTMLElement|null) => {
+    const onSelect = (id:string, row:HTMLElement|null, toggle=false) => {
       const latest = findLayer(id);
       if (!latest) return;
-      const select = () => { selectLayer(latest); row?.focus(); if (latest.childCount) void toggleLayer(latest); };
+      const select = () => { if(toggle)toggleSelection(latest);else selectLayer(latest); row?.focus(); if (!toggle && latest.childCount) void toggleLayer(latest); };
       if (layerSelection?.id === latest.id || beforeSelectionChange(select)) select();
     };
     // Keyboard navigation and drag/drop read the committed tree geometry immediately.
     flushSync(() => model.publish({layerRoots, layerChildren: new Map(layerChildren),
-      layerExpanded: new Set(layerExpanded), interactiveNodes, selectedId: layerSelection?.id, focus, onSelect}));
+      layerExpanded: new Set(layerExpanded), interactiveNodes, selectedIds:new Set(selectedIds), focus, onSelect}));
     if (focusId || (focusedId && focus)) {
       const row = [...tree.querySelectorAll<HTMLElement>('[role=treeitem]')].find(item => item.dataset.id === focus);
       if (row && document.activeElement !== row) row.focus({preventScroll: true});
     }
+  }
+
+  function toggleSelection(item:LayerItem){
+    if(!selectedIds.has(item.id)){selectLayer(item,true);return;}
+    selectedIds.delete(item.id);
+    const next=findLayer([...selectedIds].at(-1));
+    if(next){selectLayer(next,true);onLayerSelected();setCaption(selectedIds.size>1?'Выбрано слоёв: '+selectedIds.size:'Слой: '+(next.name??next.kind));}
+    else {layerSelection=null;nodeReadGeneration++;nodeMetadata=null;renderNodeMetadata();setCaption('Выберите слой.');onSelectionCleared();renderLayers();}
   }
 
   async function readLayerChildren(base:string,parentId:string,signal:AbortSignal,revision:number|null,isCurrent?:()=>boolean):Promise<LayerItem[]> {
@@ -484,7 +494,7 @@ export function createLayers({
       else if (item?.childCount && layerExpanded.has(item.id)) target = row.querySelector<HTMLElement>('[role=treeitem]');
     } else if (event.key === 'Enter' || event.key === ' ') {
       const item = findLayer(row.dataset.id);
-      if (item && (layerSelection?.id === item.id || beforeSelectionChange(() => selectLayer(item)))) selectLayer(item);
+      if (item) {const select=()=>event.ctrlKey||event.metaKey||event.shiftKey?toggleSelection(item):selectLayer(item);if(layerSelection?.id===item.id||beforeSelectionChange(select))select();}
     } else return;
     event.preventDefault();
     if (target) { row.tabIndex = -1; target.tabIndex = 0; target.focus(); }
@@ -519,9 +529,9 @@ export function createLayers({
     layerRoots = roots; layerChildren = children; layerExpanded = expanded;
     layerController = new AbortController();
     const selected = selection && findLayer(selection.id);
-    if (selected) selectLayer(selected);
+    if (selected) {selectedIds=new Set([...selectedIds].filter(id=>!!findLayer(id)));selectLayer(selected,selectedIds.has(selected.id));}
     else if (layerSelection) {
-      layerSelection = null;
+      layerSelection = null; selectedIds.clear();
       layerSelectionEpoch++;
       nodeReadGeneration++;
       nodeMetadata = null;
@@ -533,9 +543,9 @@ export function createLayers({
     setLayerStatus(screen ? (roots.length ? 'Стрелки перемещают выбор, Enter выбирает слой.' : 'На экране нет слоёв.') : 'Выберите экран.');
   }
 
-  function selectFromCanvas(rawItem:unknown,rawNodes:unknown[],confirmed=false) {
+  function selectFromCanvas(rawItem:unknown,rawNodes:unknown[],confirmed=false,mode:'replace'|'toggle'|'preserve'='replace') {
     const item=layer(rawItem),nodes=rawNodes.map(n=>layer(n));
-    if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true))) return false;
+    if (!confirmed && layerSelection?.id !== item.id && !beforeSelectionChange(() => selectFromCanvas(item, nodes, true,mode))) return false;
     drag.cancel();
     const byId = new Map(nodes.map(node => [node.id, node]));
     const branches=new Map<string,LayerItem[]>();
@@ -548,7 +558,7 @@ export function createLayers({
       layerChildren.set(parent.id,branches.get(parent.id)??[]);
     }
     layerRoots = branches.get(workspace.selectedScreen??'') ?? [];
-    selectLayer(item);
+    if(mode==='toggle')toggleSelection(item);else selectLayer(item,mode==='preserve');
     renderLayers();
     return true;
   }
@@ -564,13 +574,14 @@ export function createLayers({
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },
     clearSelection() {
       if (!layerSelection) return;
-      layerSelection = null; layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
+      layerSelection = null; selectedIds.clear(); layerSelectionEpoch++; nodeReadGeneration++; nodeMetadata = null;
       drag.cancel(); renderNodeMetadata(); renderNodeOrder(); renderLayers();
       setCaption('Выберите слой.');
       onSelectionCleared();
     },
     onScreenContextChanged: () => { drag.cancel(); screenContextEpoch++; },
     get selection() { return layerSelection; },
+    get selectedIds() { return [...selectedIds]; },
     get hasLayers() { return layerRoots.length > 0; }
   };
 }

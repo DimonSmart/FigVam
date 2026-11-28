@@ -279,7 +279,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
                 <section aria-labelledby="layers-title" className="layer-tree-group">
                   <h2 id="layers-title">{state.layersTitle}</h2>
                   <views.layers.status.Component/>
-                  <div id="layers" className={state.layerMoveEnabled ? "layer-move-enabled" : undefined} role="tree" aria-label="Слои экрана"><views.layers.Component/></div>
+                  <div id="layers" className={state.layerMoveEnabled ? "layer-move-enabled" : undefined} role="tree" aria-multiselectable="true" aria-label="Слои экрана"><views.layers.Component/></div>
                   <views.layers.order.Component/>
                 </section>
               </div>

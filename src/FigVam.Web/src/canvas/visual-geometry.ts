@@ -35,3 +35,8 @@ export function proportionalSize(width: number, height: number, dx: number, dy: 
   const factor = Math.max(min, Math.min(max, 1 + change));
   return [width * factor, height * factor];
 }
+
+export function selectionRoots(model:{nodes:ReadonlyMap<string,{parentId:string}>},ids:readonly string[]):string[]{
+  const selected=new Set(ids);
+  return [...selected].filter(id=>{let parent=model.nodes.get(id)?.parentId;while(parent){if(selected.has(parent))return false;parent=model.nodes.get(parent)?.parentId;}return true;});
+}

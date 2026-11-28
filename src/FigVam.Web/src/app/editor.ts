@@ -426,7 +426,7 @@ const visualScreens: ReturnType<typeof createVisualScreens> = createVisualScreen
   chrome:previewChrome,publishMode:active=>{if(previewChrome.getSnapshot().active!==active)flushSync(()=>previewChrome.patch({active}));},
   element, request, closeInaccessibleDocument, onDesignChange: () => canvasNodes.sync(),
   getContext: () => ({ documentId, revision: revisions.revision, screen: selectionState.activeScreen,
-    selection: layers.selection, tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
+    selection: layers.selection, selectedIds:layers.selectedIds,tokens: tokens.items, styles: styles.items, variantId: screenVariants.selectedVariantId })
 });
 const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisualNodeEditor({
   models: views.propertyFields,
@@ -434,7 +434,7 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   previewProperties: visualScreens.setPropertyPreview,
   onDrawingToolsChanged: editorShell.setDrawingTools,
   getContext: () => ({ documentId, documentRole: getDocumentRole(), revision: revisions.revision, screen: selectionState.selectedScreen,
-    variantId: screenVariants.selectedVariantId, selection: layers.selection, navigationEpoch: sessionState.navigationEpoch, token: sessionState.token }),
+    variantId: screenVariants.selectedVariantId, selection: layers.selection, selectedIds:layers.selectedIds,navigationEpoch: sessionState.navigationEpoch, token: sessionState.token }),
   refreshDocument: async (newRevision, isCurrent, reveal, selection, resourcesChanged = false) => {
     let synced = false;
     await runSynchronization(async (signal,current)=>{
@@ -447,9 +447,10 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
   }
 });
 const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeEditor({
-  element, getContext: () => ({ documentRole: getDocumentRole(), revision: revisions.revision, selection: layers.selection }),
+  element, getContext: () => ({ documentRole: getDocumentRole(), revision: revisions.revision, selection: layers.selection,selectedIds:layers.selectedIds }),
   getModel: () => visualScreens.designModel, getScale: () => canvasViewport.scale,getGrid:()=>canvasViewport.grid,
-  selectLayer: layers.selectFromCanvas, editGeometry: visualNodeEditor.editGeometry,
+  selectLayer: (node,nodes,mode)=>layers.selectFromCanvas(node,nodes,false,mode), editGeometry: visualNodeEditor.editGeometry,
+  editBatch: (operations,revision,settle)=>visualNodeEditor.editBatch(operations,revision,settle),
   isEditPending: () => visualNodeEditor.editPending,
   setHint:hint=>canvasChrome.patch({hint}),deleteSelected:layers.deleteNode
 });

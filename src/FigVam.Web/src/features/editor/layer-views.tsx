@@ -13,12 +13,12 @@ interface LayerTreeProps {
   layerChildren: ReadonlyMap<string, LayerItem[]>;
   layerExpanded: ReadonlySet<string>;
   interactiveNodes: ReadonlySet<string>;
-  selectedId: string | undefined;
+  selectedIds: ReadonlySet<string>;
   focus: string | undefined;
-  onSelect(id: string, row: HTMLElement | null): void;
+  onSelect(id: string, row: HTMLElement | null, toggle?:boolean): void;
 }
 
-function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,selectedId,focus,onSelect}: LayerTreeProps) {
+function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,selectedIds,focus,onSelect}: LayerTreeProps) {
     function renderBranch(items: LayerItem[]): ReactElement[] {
       return items.map((item, index) => {
         const {text: name, source, origin} = layerDisplayName(item);
@@ -26,9 +26,9 @@ function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,sele
         const interactive = interactiveNodes.has(item.id);
         return <div key={item.id} role="treeitem" data-id={item.id} tabIndex={focus === item.id ? 0 : -1}
           aria-posinset={index + 1} aria-setsize={items.length}
-          aria-selected={selectedId === item.id} aria-expanded={item.childCount ? expanded : undefined}
+          aria-selected={selectedIds.has(item.id)} aria-expanded={item.childCount ? expanded : undefined}
           aria-label={name + ', ' + item.kind + (interactive ? ', есть взаимодействия' : '')}>
-          <span className="layer-label" title={name + ' · ' + item.kind + ' · ' + origin} onClick={event => onSelect(item.id, event.currentTarget.closest<HTMLElement>('[role=treeitem]'))}>
+          <span className="layer-label" title={name + ' · ' + item.kind + ' · ' + origin} onClick={event => onSelect(item.id, event.currentTarget.closest<HTMLElement>('[role=treeitem]'),event.ctrlKey||event.metaKey||event.shiftKey)}>
             <span className="layer-disclosure" aria-hidden="true">{item.childCount ? (expanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>) : ''}</span>
             <span className="layer-kind-icon" aria-hidden="true" title={item.kind}>{layerKindIcons[item.kind] ?? '◇'}</span>
             <span className="layer-name" data-label-source={source}>{name}</span>

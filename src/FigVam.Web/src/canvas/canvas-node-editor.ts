@@ -1,6 +1,6 @@
 import { resolvePropertyToken } from '../core/tokens/token-resolution.js';
 import type { CanvasModel, CanvasNode, Bounds, PropertyDefinitions } from './canvas-model';
-import { closestSnap, proportionalSize, type GridSettings } from './visual-geometry';
+import { closestSnap, proportionalSize, selectionRoots, type GridSettings } from './visual-geometry';
 
 type Axis = keyof Bounds;
 type Geometry = Partial<Record<Axis, { type: 'number'; value: number }>>;
@@ -8,11 +8,12 @@ type GeometryStyle = 'left' | 'top' | 'width' | 'height';
 interface GeometryCommand { nodeId: string; expectedParentId: string; expectedRevision: number; properties: Geometry }
 interface NodeEditorOptions {
   element(id: string): HTMLElement;
-  getContext(): { documentRole: string | null; revision: number | null; selection?: { id: string } | null };
+  getContext(): { documentRole: string | null; revision: number | null; selection?: { id: string } | null;selectedIds?:readonly string[] };
   getModel(): CanvasModel | null;
   getScale(): number;
   getGrid(): GridSettings;
-  selectLayer(node: CanvasNode, orderedNodes: CanvasNode[]): boolean | void;
+  selectLayer(node: CanvasNode, orderedNodes: CanvasNode[],mode?:'replace'|'toggle'|'preserve'): boolean | void;
+  editBatch(operations:({action:'set';nodeId:string;expectedParentId:string;properties:Geometry}|{action:'delete';nodeId:string})[],revision:number,settle:(confirmed:boolean)=>void):boolean;
   editGeometry(command: GeometryCommand, settle: (confirmed: boolean) => void): boolean;
   isEditPending(): boolean;
   setHint(hint:string):void;
@@ -23,7 +24,7 @@ interface Edit extends Target {
   wrapper: HTMLElement; names: Axis[]; initial: Partial<Record<Axis, number>>; revision: number;
   properties: Geometry; style: Partial<Record<GeometryStyle, string>>;
 }
-interface Gesture extends Edit { pointer: number; x: number; y: number; scale: number; moved: boolean }
+interface Gesture extends Edit { others:Edit[]; pointer: number; x: number; y: number; scale: number; moved: boolean }
 
 
 const arrows: Record<string, [number, number] | undefined> = {
@@ -32,7 +33,7 @@ const arrows: Record<string, [number, number] | undefined> = {
 const geometryStyles: Record<Axis, GeometryStyle> = { x: 'left', y: 'top', width: 'width', height: 'height' };
 
 export function createCanvasNodeEditor({
-  element, getContext, getModel, getScale, getGrid, selectLayer, editGeometry, isEditPending, setHint, deleteSelected
+  element, getContext, getModel, getScale, getGrid, selectLayer, editGeometry, editBatch, isEditPending, setHint, deleteSelected
 }: NodeEditorOptions) {
   const listeners = new AbortController();
   const signal = listeners.signal;
@@ -70,12 +71,12 @@ export function createCanvasNodeEditor({
 
   function sync() {
     const id = getContext().selection?.id, selected = target(id);
-    if (gesture && (gesture.node.id !== id || gesture.model !== selected?.model || !writable())) cancel();
+    if (gesture && (!getContext().selectedIds?.includes(gesture.node.id) || gesture.model !== selected?.model || !writable())) cancel();
     selectedWrapper?.removeAttribute('data-canvas-editable');
-    selectedWrapper = boundary.querySelector<HTMLElement>('[data-selected=true]');
+    selectedWrapper = id ? boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`) : null;
     const stack = writable() && selected?.inStack;
     setHint(stack ? 'Положение слоя задаёт стек. Изменить размер можно в инспекторе, порядок — в дереве слоёв.' : '');
-    if (!selectedWrapper || !selected || stack || !writable()) {
+    if (!selectedWrapper || !selected || stack || !writable() || (getContext().selectedIds?.length??0)>1) {
       resizeHandle.remove();
       return;
     }
@@ -191,7 +192,8 @@ export function createCanvasNodeEditor({
     Object.assign(edit.wrapper.style, edit.style);
   }
 
-  function commit(edit: Edit) {
+  function commit(edit: Edit,others:Edit[]=[]) {
+    if(others.length){const edits=[edit,...others];const operations=edits.filter(e=>Object.keys(e.properties).length).map(e=>({action:'set' as const,nodeId:e.node.id,expectedParentId:e.node.parentId,properties:e.properties}));if(!operations.length)return;const settle=(confirmed:boolean)=>{if(!confirmed)edits.forEach(restore);};if(!editBatch(operations,edit.revision,settle))settle(false);return;}
     if (!Object.keys(edit.properties).length) return;
     const accepted = editGeometry({
       nodeId: edit.node.id, expectedParentId: edit.node.parentId,
@@ -208,7 +210,7 @@ export function createCanvasNodeEditor({
   }
 
   function cancel() {
-    if (gesture) restore(release(gesture));
+    if (gesture) {const edit=release(gesture);[edit,...edit.others].forEach(restore);}
   }
 
   viewport.addEventListener('pointerdown', event => {
@@ -219,10 +221,17 @@ export function createCanvasNodeEditor({
     viewport.focus({ preventScroll: true });
     const id = wrapper.dataset.visualNode, selected = target(id);
     if (!selected || gesture) return;
-    if (getContext().selection?.id !== id && selectLayer(selected.node, selected.model.orderedNodes) === false) return;
-    const edit = begin(id, wrapper, event.target === resizeHandle);
+    const resize=event.target===resizeHandle;
+    if(!resize&&(event.shiftKey||event.ctrlKey||event.metaKey)){selectLayer(selected.node,selected.model.orderedNodes,'toggle');return;}
+    const ids=getContext().selectedIds??[];
+    if (getContext().selection?.id !== id && selectLayer(selected.node, selected.model.orderedNodes,ids.includes(selected.node.id)?'preserve':'replace') === false) return;
+    const roots=selectionRoots(selected.model,getContext().selectedIds??[selected.node.id]);
+    const edits=roots.map(nodeId=>{const el=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(nodeId)}"]`);return el?begin(nodeId,el,resize):null;});
+    if(edits.some(e=>!e))return;
+    const edit=edits.find(e=>e?.node.id===id)??edits[0];
     if (!edit) return;
-    gesture = { ...edit, pointer: event.pointerId, x: event.clientX, y: event.clientY, scale: getScale(), moved: false };
+    const others=edits.filter((e):e is Edit=>!!e&&e!==edit);
+    gesture = { ...edit, others, pointer: event.pointerId, x: event.clientX, y: event.clientY, scale: getScale(), moved: false };
     viewport.setPointerCapture(event.pointerId);
   }, { capture: true, signal });
 
@@ -235,13 +244,14 @@ export function createCanvasNodeEditor({
     const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
     if (!gesture.moved && Math.hypot(dx, dy) < 3) return;
     gesture.moved = true;
-    preview(gesture, dx / gesture.scale, dy / gesture.scale, event.shiftKey, !event.ctrlKey && !event.metaKey);
+    preview(gesture, dx / gesture.scale, dy / gesture.scale, event.shiftKey, !gesture.others.length&&!event.ctrlKey && !event.metaKey);
+    for(const edit of gesture.others)preview(edit,dx/gesture.scale,dy/gesture.scale);
   }
 
   viewport.addEventListener('pointermove', track, { signal });
   viewport.addEventListener('pointerup', event => {
     track(event);
-    if (gesture?.pointer === event.pointerId) commit(release(gesture));
+    if (gesture?.pointer === event.pointerId) {const edit=release(gesture);commit(edit,edit.others);}
   }, { signal });
   for (const type of ['pointercancel', 'lostpointercapture'] as const) {
     viewport.addEventListener(type, event => {
@@ -266,11 +276,12 @@ export function createCanvasNodeEditor({
     if (event.altKey || event.ctrlKey || event.metaKey || !selectedWrapper || !writable()) return;
     if (event.key === 'Delete') {
       event.preventDefault();
-      if (!gesture && !isEditPending()) deleteSelected();
+      if (!gesture && !isEditPending()) {const model=getModel(),ids=getContext().selectedIds??[];if(model&&ids.length>1)editBatch(selectionRoots(model,ids).map(nodeId=>({action:'delete',nodeId})),model.revision,()=>{});else deleteSelected();}
       return;
     }
     if (!delta) return;
     event.preventDefault();
+    if((getContext().selectedIds?.length??0)>1)return;
     const edit = begin(selectedWrapper.dataset.visualNode, selectedWrapper, event.shiftKey);
     if (!edit) return;
     preview(edit, ...delta);
