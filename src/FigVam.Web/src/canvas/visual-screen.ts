@@ -1,3 +1,4 @@
+import { previewSurface } from './preview-surface';
 import { reconcileScreen, renderScreen, type RenderModel } from './screen-renderer.js';
 import { resolvePropertyToken } from '../core/tokens/token-resolution';
 import { number, node, kind, box, properties, token, nodeProperty } from './render-model';
@@ -359,16 +360,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
           report: (node, property, message) => diagnostics.add(`${node.name || node.id} · ${property}: ${message}`)
         });
         if (previewMode) {
-          const surface = document.createElement('div');
-          const bounds = boxes.get(screen)?.bounds;
-          if(!bounds)continue;
-          surface.className = 'preview-screen';
-          surface.dataset.previewScreen = screen;
-          surface.style.width = `${bounds.width}px`;
-          surface.style.height = `${bounds.height}px`;
-          surface.inert = index !== models.length - 1;
-          surface.append(drawing.root);
-          content.append(surface);
+          content.append(previewSurface(model, drawing.root, index === models.length - 1));
         } else content.append(drawing.root);
         shown = true;
       }

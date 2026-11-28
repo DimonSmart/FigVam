@@ -56,7 +56,7 @@ public sealed class McpRenderTools(IHttpContextAccessor accessor, IDocumentStruc
     {
         var message = code switch
         {
-            "RENDER_UNAVAILABLE" => "No active renderer is available for this document. Keep its editor open.",
+            "RENDER_UNAVAILABLE" => "The server Chromium renderer is unavailable. Install the matching Playwright Chromium and system dependencies.",
             "INVALID_THEME" => "Theme must be Light or Dark.",
             "ACCESS_DENIED" => "Document access was revoked or is no longer authorized.",
             "SCREEN_NOT_FOUND" => "The screen does not exist in this document.",
