@@ -1,5 +1,6 @@
 import { resolvePropertyToken } from '../core/tokens/token-resolution.js';
 import type { CanvasModel, CanvasNode, Bounds, PropertyDefinitions } from './canvas-model';
+import { closestSnap, proportionalSize, type GridSettings } from './visual-geometry';
 
 type Axis = keyof Bounds;
 type Geometry = Partial<Record<Axis, { type: 'number'; value: number }>>;
@@ -10,6 +11,7 @@ interface NodeEditorOptions {
   getContext(): { documentRole: string | null; revision: number | null; selection?: { id: string } | null };
   getModel(): CanvasModel | null;
   getScale(): number;
+  getGrid(): GridSettings;
   selectLayer(node: CanvasNode, orderedNodes: CanvasNode[]): boolean | void;
   editGeometry(command: GeometryCommand, settle: (confirmed: boolean) => void): boolean;
   isEditPending(): boolean;
@@ -30,16 +32,23 @@ const arrows: Record<string, [number, number] | undefined> = {
 const geometryStyles: Record<Axis, GeometryStyle> = { x: 'left', y: 'top', width: 'width', height: 'height' };
 
 export function createCanvasNodeEditor({
-  element, getContext, getModel, getScale, selectLayer, editGeometry, isEditPending, setHint, deleteSelected
+  element, getContext, getModel, getScale, getGrid, selectLayer, editGeometry, isEditPending, setHint, deleteSelected
 }: NodeEditorOptions) {
   const listeners = new AbortController();
   const signal = listeners.signal;
   const viewport = element('viewport'), boundary = element('screen-boundary');
   const resizeHandle = document.createElement('span');
   resizeHandle.className = 'canvas-resize-handle';
-  resizeHandle.title = 'Изменить размер';
+  resizeHandle.title = 'Изменить размер (Shift — сохранить пропорции)';
   resizeHandle.setAttribute('aria-hidden', 'true');
   let gesture: Gesture | null = null, selectedWrapper: HTMLElement | null = null;
+  const guideX=element('canvas-snap-x'),guideY=element('canvas-snap-y');
+  function guides(x?:number,y?:number) {
+    guideX.hidden=x===undefined;guideY.hidden=y===undefined;
+    if(x!==undefined)guideX.style.left=x+'px';
+    if(y!==undefined)guideY.style.top=y+'px';
+    guideX.parentElement?.style.setProperty('--canvas-scale',String(getScale()));
+  }
 
   function target(id: string | undefined): Target | null {
     const model = getModel();
@@ -76,7 +85,7 @@ export function createCanvasNodeEditor({
       selected.node.properties[name]?.type === 'token');
     resizeHandle.title = tokenSized.length
       ? 'Изменить размер (отвязать токен: ' + tokenSized.join(', ') + ')'
-      : 'Изменить размер';
+      : 'Изменить размер (Shift — сохранить пропорции)';
   }
 
   function begin(id: string | undefined, wrapper: HTMLElement, resize: boolean): Edit | null {
@@ -117,8 +126,47 @@ export function createCanvasNodeEditor({
     return [local.x, local.y];
   }
 
-  function preview(edit: Edit, deltaX: number, deltaY: number) {
+  function preview(edit: Edit, deltaX: number, deltaY: number, keepRatio=false, snap=false) {
     [deltaX, deltaY] = localDelta(edit, deltaX, deltaY);
+    guides();
+    const resizing=edit.names.includes('width');
+    const grid=getGrid();
+    if (keepRatio && resizing) {
+      if (['width','height'].some(name=>edit.node.properties[name]?.type==='token')) {
+        restore(edit);edit.properties={};return;
+      }
+      const width=edit.initial.width??0,height=edit.initial.height??0;
+      const range=(name:Axis)=>({min:edit.definitions[name]?.minimum??0,max:edit.definitions[name]?.maximum??Infinity});
+      const size=proportionalSize(width,height,deltaX,deltaY,range('width'),range('height'));
+      if(size){deltaX=size[0]-width;deltaY=size[1]-height;}
+    } else if(snap && (grid.snap || grid.snapObjects)) {
+      // Layout boxes are screen-space and unrotated. Do not mix coordinate spaces in a rotated gesture.
+      let unrotated=true;
+      for(let wrapper:HTMLElement|null=edit.wrapper;wrapper&&wrapper!==boundary;wrapper=wrapper.parentElement) {
+        if(wrapper.hasAttribute('data-visual-node')&&getComputedStyle(wrapper).transform!=='none'){unrotated=false;break;}
+      }
+      if(unrotated){
+        const {x,y,width,height}=edit.bounds;
+        const origin=boundary.getBoundingClientRect(),scale=getScale();
+        const targetsX:number[]=[],targetsY:number[]=[];
+        const add=(bounds:Bounds)=>{targetsX.push(bounds.x,bounds.x+bounds.width/2,bounds.x+bounds.width);targetsY.push(bounds.y,bounds.y+bounds.height/2,bounds.y+bounds.height);};
+        if(grid.snapObjects){
+          add(edit.parentBounds);
+          for(const node of edit.model.orderedNodes){
+            if(node.id===edit.node.id||node.parentId!==edit.node.parentId)continue;
+            const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(node.id)}"]`);
+            if(!wrapper||getComputedStyle(wrapper).visibility==='hidden')continue;
+            const box=wrapper.getBoundingClientRect();
+            add({x:(box.left-origin.left)/scale,y:(box.top-origin.top)/scale,width:box.width/scale,height:box.height/scale});
+          }
+        }
+        const step=grid.snap?grid.step:null,tolerance=6/scale;
+        const sx=closestSnap(resizing?[x+width+deltaX]:[x+deltaX,x+width/2+deltaX,x+width+deltaX],targetsX,step,tolerance);
+        const sy=closestSnap(resizing?[y+height+deltaY]:[y+deltaY,y+height/2+deltaY,y+height+deltaY],targetsY,step,tolerance);
+        if(sx)deltaX+=sx.delta;if(sy)deltaY+=sy.delta;
+        guides(sx?.guide,sy?.guide);
+      }
+    }
     edit.properties = {};
     for (const [index, name] of edit.names.entries()) {
       const { minimum = -Infinity, maximum = Infinity } = edit.definitions[name] ?? {};
@@ -153,6 +201,7 @@ export function createCanvasNodeEditor({
 
   function release(edit: Gesture): Gesture {
     gesture = null;
+    guides();
     if (viewport.hasPointerCapture(edit.pointer)) viewport.releasePointerCapture(edit.pointer);
     return edit;
   }
@@ -185,7 +234,7 @@ export function createCanvasNodeEditor({
     const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
     if (!gesture.moved && Math.hypot(dx, dy) < 3) return;
     gesture.moved = true;
-    preview(gesture, dx / gesture.scale, dy / gesture.scale);
+    preview(gesture, dx / gesture.scale, dy / gesture.scale, event.shiftKey, !event.ctrlKey && !event.metaKey);
   }
 
   viewport.addEventListener('pointermove', track, { signal });

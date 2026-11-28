@@ -1,6 +1,7 @@
 interface Point { x: number; y: number }
 interface Screen { id: string; dimensions: { width: number; height: number } }
 import type { CanvasChromeSink as CanvasChrome } from './chrome-contracts';
+import { defaultGridSettings, validGridStep, type GridSettings } from './visual-geometry';
 interface ViewportOptions {
   chrome:CanvasChrome;
   element: (id: string) => HTMLElement | null;
@@ -21,6 +22,7 @@ export function createCanvasViewport({ chrome, element: lookup, getScreen, getSe
   let fitFrame = 0;
   let viewport = { scale: 1, x: 0, y: 0 };
   let displayedScreen: string | null = null;
+  let settings = {...defaultGridSettings};
 
   function paintViewport() {
     const boundary = element('screen-boundary');
@@ -28,9 +30,16 @@ export function createCanvasViewport({ chrome, element: lookup, getScreen, getSe
     boundary.style.setProperty('--canvas-scale', String(viewport.scale));
     chrome.patch({zoomPercent:Math.round(viewport.scale * 100)});
     const grid = element('viewport');
-    const spacing = 20 * viewport.scale;
+    const spacing = settings.step * viewport.scale;
     grid.style.backgroundSize = `${spacing}px ${spacing}px`;
     grid.style.backgroundPosition = `${viewport.x}px ${viewport.y}px`;
+    const overlay = element('canvas-grid-overlay');
+    overlay.hidden = !getScreen();
+    overlay.style.transform = boundary.style.transform;
+    overlay.style.width = boundary.style.width;
+    overlay.style.height = boundary.style.height;
+    overlay.style.backgroundSize = `${settings.step}px ${settings.step}px`;
+    overlay.dataset.gridVisible = String(settings.visible);
     onViewportChange();
   }
 
@@ -135,6 +144,13 @@ export function createCanvasViewport({ chrome, element: lookup, getScreen, getSe
     fit: fitScreen,
     zoomIn:()=>zoomCenter(viewport.scale*1.25),zoomOut:()=>zoomCenter(viewport.scale/1.25),actualSize:()=>zoomCenter(1),
     get scale() { return viewport.scale; },
+    get grid() { return settings; },
+    setGrid(next: Partial<GridSettings>) {
+      if (next.step !== undefined && !validGridStep(next.step)) return;
+      settings = {...settings, ...next};
+      chrome.patch({grid:settings});
+      paintViewport();
+    },
     toViewportPoint: (point: Point): Point => ({ x: viewport.x + point.x * viewport.scale, y: viewport.y + point.y * viewport.scale }),
     dispose() { lifetime.abort(); observer.disconnect(); cancelAnimationFrame(fitFrame); drag = null; }
   };

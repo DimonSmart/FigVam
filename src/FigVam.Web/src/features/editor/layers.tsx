@@ -289,11 +289,16 @@ export function createLayers({
     }
   });
 
-  function beginNodeMove(delta:number) {
+  function beginNodeMove(delta:number, extreme=false) {
     const context = siblingContext(layerSelection?.id);
     if (!context||!layerSelection) return;
-    const position = context.index + delta;
-    if (position < 0 || position >= context.count) return;
+    // Extreme z-order operations apply only to a free parent; stack order is layout order.
+    if (extreme && context.parent !== workspace.selectedScreen) {
+      const parent=findLayer(context.parent);
+      if(!parent || (parent.properties?.layout?.value ?? 'Free')!=='Free')return;
+    }
+    const position = extreme ? (delta < 0 ? 0 : context.count-1) : context.index + delta;
+    if (position === context.index || position < 0 || position >= context.count) return;
     renderLayers(layerSelection.id);
     startNodeMove(context.parent, context.parent, position, context.ancestors);
   }
@@ -461,9 +466,9 @@ export function createLayers({
     if (!row) return;
     const rows = [...element('layers').querySelectorAll<HTMLElement>('[role=treeitem]')], index = rows.indexOf(row);
     let target:HTMLElement|null|undefined;
-    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
       event.preventDefault(); event.stopPropagation();
-      if (canMove() && layerSelection) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1);
+      if (canMove() && layerSelection) beginNodeMove(event.key === 'ArrowUp' ? -1 : 1, event.shiftKey);
       return;
     }
     if (event.key === 'ArrowDown') target = rows[index + 1];

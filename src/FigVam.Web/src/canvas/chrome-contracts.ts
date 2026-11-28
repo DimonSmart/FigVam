@@ -1,6 +1,7 @@
 import type { Theme } from '../core/tokens/token-model';
 
-export interface CanvasChromeState {caption:string;zoomPercent:number;available:boolean;hint:string}
+import type { GridSettings } from './visual-geometry';
+export interface CanvasChromeState {caption:string;zoomPercent:number;available:boolean;hint:string;grid:GridSettings}
 export interface FeedbackState {status:string;diagnostics:readonly string[];canRetry:boolean}
 export interface PreviewChromeState {active:boolean;available:boolean;theme:Theme;canGoBack:boolean}
 export interface CanvasChromeSink {patch(next:Partial<CanvasChromeState>):void}
