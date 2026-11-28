@@ -588,6 +588,7 @@ test('MCP-uploaded resource renders in an already open editor, Preview and scree
   const preview = page.locator('#preview-viewport [data-visual-node="' + nodeId + '"] img');
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.evaluate(img => img.naturalWidth)).toBe(2);
+  await compareNativePreview(page, image);
 });
 
 
@@ -702,7 +703,7 @@ test('TextInput placeholders and values use the correct text, mask and theme col
   }
 });
 
-test('Server simulation matches the composed interactive overlay and final input state', async ({ page, request, server }) => {
+test('Server simulation matches variants, dataset bindings, overlays and multiline input', async ({ page, request, server }) => {
   test.setTimeout(120000);
   await page.setViewportSize({ width: 1500, height: 1000 });
   await signIn(page, server);
@@ -717,13 +718,30 @@ test('Server simulation matches the composed interactive overlay and final input
   const { nodeId: button } = await call('create_node', { parentId: base, kind: 'Button',
     properties: { x: 20, y: 20, width: 130, height: 40, text: 'Open overlay' } });
   const { nodeId: input } = await call('create_node', { parentId: overlay, kind: 'TextInput',
-    properties: { x: 100, y: 100, width: 200, height: 40, placeholder: 'Overlay value', backgroundColor: '#FFFFFF' } });
+    properties: { x: 100, y: 100, width: 200, height: 80, multiline: true, placeholder: 'Overlay value', backgroundColor: '#FFFFFF' } });
+  const { nodeId: label } = await call('create_node', { parentId: base, kind: 'Text',
+    properties: { x: 20, y: 65, width: 150, height: 30, text: 'Base label' } });
+  const { nodeId: bound } = await call('create_node', { parentId: overlay, kind: 'Text',
+    properties: { x: 100, y: 190, width: 200, height: 40, text: 'Unbound text' } });
+  const uuid = require('node:crypto').randomUUID;
+  const variantId = uuid(), datasetId = uuid();
+  const commands = '/api/v1' + new URL(page.url()).pathname + '/commands/';
+  async function command(name, data) {
+    const response = await request.post(commands + name, { headers: { Authorization: 'Bearer ' + bearer }, data: { commandId: uuid(), ...data } });
+    expect(response.ok(), await response.text()).toBeTruthy();
+  }
+  await command('add-screen-variant', { screenId: base, variantId, name: 'Alternate' });
+  await command('set-screen-variant-override', { screenId: base, variantId, nodeId: label, property: 'text', value: { type: 'string', value: 'Alternate label' } });
+  await command('add-dataset', { datasetId, name: 'Fixture', fixtureJson: '{"name":"Dataset text"}' });
+  await command('bind-node-data', { nodeId: bound, property: 'text', binding: {
+    datasetId, binding: { path: [{ type: 'property', name: 'name' }], operation: 0, expectedType: 1 }
+  } });
   // MCP create_scenario currently accepts only navigate; use the existing document command.
   const scenario = await request.post('/api/v1' + new URL(page.url()).pathname + '/commands/create-scenario', {
     headers: { Authorization: 'Bearer ' + bearer },
     data: { commandId: require('node:crypto').randomUUID(), scenario: {
       id: require('node:crypto').randomUUID(), screenId: base, nodeId: button, event: 0,
-      actions: [{ type: 'openOverlay', screenId: overlay }, { type: 'setDemoValue', nodeId: input, value: 'Final state' }]
+      actions: [{ type: 'showVariant', variantId }, { type: 'selectDataset', datasetId }, { type: 'openOverlay', screenId: overlay }, { type: 'setDemoValue', nodeId: input, value: 'Final state\nSecond line' }]
     } }
   });
   expect(scenario.ok(), await scenario.text()).toBeTruthy();
@@ -731,8 +749,10 @@ test('Server simulation matches the composed interactive overlay and final input
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   await page.locator('#preview-viewport [data-visual-node="' + button + '"] button').click();
   await expect(page.locator('#preview-viewport .preview-screen')).toHaveCount(2);
-  const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] input');
-  await expect(field).toHaveValue('Final state');
+  const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] textarea');
+  await expect(field).toHaveValue('Final state\nSecond line');
+  await expect(page.locator('#preview-viewport [data-visual-node="' + label + '"]')).toContainText('Alternate label');
+  await expect(page.locator('#preview-viewport [data-visual-node="' + bound + '"]')).toContainText('Dataset text');
   const result = await call.raw('simulate_preview', { screenId: base, theme: 'Light', includeImage: true,
     events: [{ nodeId: button, event: 'Click' }] });
   expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
