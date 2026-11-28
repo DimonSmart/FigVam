@@ -1,6 +1,5 @@
 import type { AuthPolicy } from '../../api/auth-client.js';
 import { ApiError } from '../../api/api-client.js';
-type CaptureEvent = Record<string, unknown> & { code: string };
 interface CollaborationOptions {
   auth: AuthPolicy;
   request(path: string, options: RequestInit, signal: AbortSignal): Promise<unknown>;
@@ -12,8 +11,6 @@ interface CollaborationOptions {
   readRole(id: string, signal: AbortSignal): Promise<string | null>;
   onRoleChanged(role: string): void;
   onUnauthorized(): void;
-  onCaptureEvent?(event: CaptureEvent, signal: AbortSignal): void;
-  onCaptureDisconnect?(signal: AbortSignal): void;
 }
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -23,7 +20,7 @@ function isRevision(value: unknown): value is number {
 }
 
 export function createDocumentCollaboration({
-  auth, request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, readRole, onRoleChanged, onUnauthorized, onCaptureEvent, onCaptureDisconnect
+  auth, request, workspace, isEditorVisible, readRevision, onConnectionStatus, onAccessLost, readRole, onRoleChanged, onUnauthorized
 }: CollaborationOptions) {
   let liveController: AbortController | null = null;
   function stop() {
@@ -55,7 +52,6 @@ export function createDocumentCollaboration({
       if (!data || !active()) return;
       const event: unknown = JSON.parse(data);
       if (!isRecord(event) || typeof event.code !== 'string') throw new Error('Некорректное событие');
-      if (event.code.startsWith('SCREEN_CAPTURE_')) { onCaptureEvent?.({ ...event, code: event.code }, signal); return; }
       if (event.code === 'FORBIDDEN') { throw new ApiError(403, {}); }
       if (event.code === 'RECONNECT_REQUIRED') throw new Error('Требуется восстановление');
       if (event.code === 'HEARTBEAT') { await reconcileRole(); return; }
@@ -80,7 +76,7 @@ export function createDocumentCollaboration({
         if (recovery.revision > workspace.revision) await readRevision(signal, recovery.revision);
         if (!active()) return;
         const response = await fetch(`${base}/events?lastSeenRevision=${workspace.revision}`, {
-          signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers: { ...auth.authHeaders(workspace.token ?? ''), ...(onCaptureEvent ? { 'X-FigVam-Screen-Capture': '1' } : {}) }
+          signal, cache: 'no-store', credentials: auth.credentialsMode(), redirect: 'error', headers: auth.authHeaders(workspace.token ?? '')
         });
         if (!active()) return;
         if (response.status === 401) { onUnauthorized(); return; }
@@ -107,7 +103,6 @@ export function createDocumentCollaboration({
         if (error instanceof ApiError && [403, 404].includes(error.status)) { onAccessLost(error.status); return; }
         if (error instanceof ApiError && error.status === 429) delay = 30000;
       } finally {
-        onCaptureDisconnect?.(signal);
         if (reader) await reader.cancel().catch(() => {});
       }
       if (!active()) return;

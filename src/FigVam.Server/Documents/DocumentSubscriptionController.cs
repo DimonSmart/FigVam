@@ -1,7 +1,6 @@
 using System.Text.Json;
 using FigVam.Application.Documents;
 using FigVam.Server.Authentication;
-using FigVam.Server.Mcp;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
@@ -53,93 +52,12 @@ public sealed class DocumentSubscriptionController(IDocumentReconnectReader read
         }
         try
         {
-            // This opt-in extension does not change the ordinary subscription
-            // contract. Capture control frames never enter the document journal.
-            if (Request.Headers["X-FigVam-Screen-Capture"] == "1")
-                await ReadWithCaptureAsync(documentId, lastSeenRevision.Value, actor, lifetime, Send);
-            else
-                await foreach (var message in subscriptions.ReadAsync(documentId, lastSeenRevision.Value, actor, lifetime.Token))
-                    await Send(message.Code, message, message.Code == "CHANGE" ? message.Revision : null);
+            await foreach (var message in subscriptions.ReadAsync(documentId, lastSeenRevision.Value, actor, lifetime.Token))
+                await Send(message.Code, message, message.Code == "CHANGE" ? message.Revision : null);
         }
         catch (OperationCanceledException) { HttpContext.Abort(); }
         catch (IOException) { HttpContext.Abort(); }
         return new EmptyResult();
     }
 
-    private async Task ReadWithCaptureAsync(Guid documentId, long revision, DocumentActor actor,
-        CancellationTokenSource lifetime, Func<string, object, long?, Task> send)
-    {
-        var ct = lifetime.Token;
-        var services = HttpContext.RequestServices;
-        var captures = services.GetRequiredService<ScreenCaptureService>();
-        var sessionId = User.FindFirst("figvam_session")?.Value;
-        var users = services.GetService<FigVamUserStore>();
-        bool SessionActive() => sessionId is null || users?.IsActiveSession(actor.Id, sessionId) == true;
-        ScreenCaptureService.Provider? provider = null;
-        if (SessionActive() && await McpServiceRegistration.CanEditAsync(services, documentId, actor.Id, ct))
-            provider = captures.Register(documentId, actor.Id, sessionId, ct, SessionActive, reconnectable: true);
-        await using var messages = subscriptions.ReadAsync(documentId, revision, actor, ct).GetAsyncEnumerator(ct);
-        Task<bool>? nextMessage = null;
-        Task<bool>? nextCapture = null;
-        try
-        {
-            if (provider is not null)
-                await send("SCREEN_CAPTURE_READY", new { code = "SCREEN_CAPTURE_READY", providerId = provider.Id }, null);
-            nextMessage = messages.MoveNextAsync().AsTask();
-            nextCapture = provider?.Reader.WaitToReadAsync(ct).AsTask();
-            while (!ct.IsCancellationRequested)
-            {
-                if (nextCapture is not null)
-                    await Task.WhenAny(nextMessage, nextCapture);
-                else
-                    await nextMessage;
-
-                if (nextMessage.IsCompleted)
-                {
-                    if (!await nextMessage) break;
-                    var message = messages.Current;
-                    await send(message.Code, message, message.Code == "CHANGE" ? message.Revision : null);
-                    if (message.Code is "FORBIDDEN" or "RECONNECT_REQUIRED") break;
-                    if (provider is not null && (!SessionActive() ||
-                        !await McpServiceRegistration.CanEditAsync(services, documentId, actor.Id, ct)))
-                    {
-                        captures.Disconnect(provider);
-                        provider = null;
-                        nextCapture = null;
-                    }
-                    nextMessage = messages.MoveNextAsync().AsTask();
-                }
-
-                if (provider is not null && nextCapture?.IsCompleted == true)
-                {
-                    if (!await nextCapture || !SessionActive() ||
-                        !await McpServiceRegistration.CanEditAsync(services, documentId, actor.Id, ct))
-                    {
-                        captures.Disconnect(provider);
-                        provider = null;
-                        nextCapture = null;
-                        continue;
-                    }
-                    if (provider.Reader.TryRead(out var capture))
-                    {
-                        var code = "SCREEN_CAPTURE_" + capture.Code;
-                        await send(code, new { code, request = capture.Request }, null);
-                    }
-                    nextCapture = provider.Reader.WaitToReadAsync(ct).AsTask();
-                }
-            }
-        }
-        finally
-        {
-            // Finish the outstanding MoveNext before disposing the async iterator.
-            lifetime.Cancel();
-            if (provider is not null) captures.Disconnect(provider);
-            if (nextMessage is not null)
-                try { await nextMessage; } catch (OperationCanceledException) { }
-            if (nextCapture is not null)
-                try { await nextCapture; } catch (OperationCanceledException) { }
-        }
-    }
-
 }
-

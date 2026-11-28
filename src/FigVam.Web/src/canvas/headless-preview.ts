@@ -7,7 +7,7 @@ const status = document.documentElement.dataset;
 status.renderStatus = 'loading';
 try {
   const node = document.getElementById('snapshot');
-  const host = document.getElementById('render-root');
+  const host = document.getElementById('preview-viewport');
   if (!node?.textContent || !host) throw new Error('Missing render snapshot');
   const snapshot = requiredRecord(JSON.parse(node.textContent));
   node.remove();

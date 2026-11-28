@@ -20,7 +20,7 @@ interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens
   screen:string;revision:number;scenarios:Scenario[];diagnostics:Diagnostic[];orderedNodes:CanvasNode[];
 }
 interface Diagnostic {objectId:string;property:string;message:string;code:string}
-interface View {host:HTMLElement;feedback:RenderFeedback;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null;captureStamp?:string|null}
+interface View {host:HTMLElement;feedback:RenderFeedback;controller:AbortController|null;key:string|null;model:DrawingModel|null;selected:HTMLElement|null}
 interface Screen {id:string;dimensions:{width:number;height:number}}
 interface InputContext {documentId:string|null;revision:number|null;screen?:Screen;selection?:{id:string}|null;tokens:unknown[];styles?:unknown[];variantId:string|null}
 type Context=Omit<InputContext,'documentId'|'revision'|'screen'>&{documentId:string;revision:number;screen:Screen};
@@ -408,7 +408,6 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
       if (!current() || aborted(error)) return;
       if (error instanceof ApiError && error.status === 403) { closeInaccessibleDocument(403); return; }
       view.key = null;
-      view.captureStamp = null;
       view.feedback.patch({ ...(!view.host.hasChildNodes() ? {diagnostics:[]} : {}),status:`Не удалось показать экран. ${errorMessage(error)}`,canRetry:true });
       if (previewMode) onDesignChange();
     }

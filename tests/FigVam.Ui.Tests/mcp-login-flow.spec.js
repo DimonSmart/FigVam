@@ -365,7 +365,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
     expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
     const image = result.content.find(block => block.type === 'image');
     expect(image?.mimeType).toBe('image/png');
-    expect(result.structuredContent).toEqual({ screenId, theme: theme ?? 'Dark', revision: expectedRevision, width: 800, height: 600 });
+    expect(result.structuredContent).toEqual({ screenId, theme: theme ?? 'Light', revision: expectedRevision, width: 800, height: 600 });
     await testInfo.attach(name, { body: Buffer.from(image.data, 'base64'), contentType: 'image/png' });
     await assertImage(image, expectedBackground, expectedError, expectedButton);
   }
@@ -438,7 +438,7 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await field.blur();
   const previewBefore = await editorState();
   await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false);
-  await inspect(login, null, 'current-dark', changedButton.revision, [16, 32, 48], false, [220, 38, 38]);
+  await inspect(login, null, 'default-light', changedButton.revision, [238, 242, 247], false);
   expect(await editorState()).toEqual(previewBefore);
   await page.locator('#preview-theme button[data-theme=Light]').click();
   await field.focus();
@@ -451,13 +451,16 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });
   await call('set_token_value', { tokenId: bg, theme: 'Dark', value: '#15243A' });
   await call('save_version', { name: 'P2 Login Prototype' });
-  // The document grant remains valid even when there is no editor capture provider.
+  // Both screenshot tools work without any editor tab.
   expect(await page.evaluate(() => window.displayMediaRequests)).toBe(0);
   await page.locator('#mcp-access-menu summary').click();
   await expect(page.getByRole('region', { name: 'Screen Capture' })).toHaveCount(0);
   const documentUrl = page.url();
   const documentPath = new URL(documentUrl).pathname;
   await page.close();
+  const standalone = await call.raw('render_screen', { screenId: login, theme: 'Dark' });
+  expect(standalone.isError, JSON.stringify(standalone.structuredContent)).not.toBe(true);
+  expect(standalone.content.some(block => block.type === 'image')).toBe(true);
   const detached = await call.raw('simulate_preview', { screenId: login, theme: 'Light', includeImage: true,
     events: [{ nodeId: button, event: 'Click' }] });
   expect(detached.isError, JSON.stringify(detached.structuredContent)).not.toBe(true);

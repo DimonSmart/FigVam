@@ -1,6 +1,5 @@
 import { createAuthContext } from '../api/auth-client';
 import { createDocumentCreation } from '../features/home/document-creation';
-import { createScreenCapture } from '../canvas/screen-capture';
 import { createApiClient, type ApiClient } from '../api/api-client';
 import { createDocumentQueries } from '../api/document-queries';
 import { createAuthenticationView, createDocumentListView, createHomeNavigation, createUserAdmin, createMcpAccess, createScreenDiagnostics, createComponents, createPresence, createMembers, createScreenVariants, createDatasets, createDocumentHistory, createEditorShell } from '../features/home/index';
@@ -121,7 +120,7 @@ const documentQueries = createDocumentQueries(request);
 const findRole = documentQueries.findRole;
 
 const mcpContext = () => ({ documentId, token: sessionState.token, navigationEpoch: sessionState.navigationEpoch, role: getDocumentRole(), title: documentShell.getSnapshot().title, theme: visualScreens.currentTheme });
-const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, menu: editorShell.menu, getContext: mcpContext, capture: createScreenCapture({ request, getContext: mcpContext }) });
+const mcpAccess: ReturnType<typeof createMcpAccess> = createMcpAccess({ model: views.mcp, request, menu: editorShell.menu, getContext: mcpContext });
 
 const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   auth,
@@ -136,8 +135,6 @@ const { start: startLive, stop: stopLive } = createDocumentCollaboration({
   onConnectionStatus: connectionStatus => documentShell.patch({ connectionStatus }),
   onAccessLost: closeInaccessibleDocument,
   readRole: documentQueries.findRole, onRoleChanged: setDocumentRole,
-  onCaptureEvent: mcpAccess.onCaptureEvent,
-  onCaptureDisconnect: mcpAccess.onCaptureDisconnect,
   onUnauthorized: () => {
     clearSession();
     message('', 'Сессия завершена. Войдите повторно.');

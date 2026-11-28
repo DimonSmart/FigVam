@@ -11,7 +11,7 @@ public sealed class McpRenderTools(IHttpContextAccessor accessor, IDocumentStruc
     IScreenCaptureService capture)
 {
     [McpServerTool(Name = "render_screen", ReadOnly = true),
-     Description("Render any screen of the authorized document at its design dimensions in Light or Dark theme, without opening Preview. If theme is omitted, use the current prototype theme. Returns PNG and revision metadata. Does not modify the document.")]
+     Description("Render any screen of the authorized document at its design dimensions in Light or Dark theme, without opening Preview. If theme is omitted, use Light. Returns PNG and revision metadata. Does not modify the document.")]
     public async Task<CallToolResult> RenderScreen(Guid screenId, long? revision = null, string? theme = null, CancellationToken ct = default)
     {
         if (theme is not null && theme is not ("Light" or "Dark")) return Error("INVALID_THEME");

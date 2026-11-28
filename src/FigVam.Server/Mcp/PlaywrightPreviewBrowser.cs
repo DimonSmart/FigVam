@@ -53,7 +53,7 @@ public sealed class PlaywrightPreviewBrowser : IAsyncDisposable
         {
             ViewportSize = new() { Width = width, Height = height },
             DeviceScaleFactor = 1,
-            ColorScheme = dark ? ColorScheme.Dark : ColorScheme.Light,
+            ColorScheme = ColorScheme.Light,
             ReducedMotion = ReducedMotion.Reduce,
             ServiceWorkers = ServiceWorkerPolicy.Block,
             AcceptDownloads = false
@@ -69,7 +69,7 @@ public sealed class PlaywrightPreviewBrowser : IAsyncDisposable
             <!doctype html><html><head><meta charset="utf-8">
             <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: blob:; font-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
             <link rel="stylesheet" href="editor.css"><link rel="stylesheet" href="editor-shell.css"><link rel="stylesheet" href="home.css">
-            </head><body><main id="render-root"></main><script id="snapshot" type="application/json">
+            </head><body><main id="preview-viewport" style="width:100vw;height:100vh"></main><script id="snapshot" type="application/json">
             """ + snapshot + """
             </script><script type="module" src="headless-preview.js"></script></body></html>
             """;
