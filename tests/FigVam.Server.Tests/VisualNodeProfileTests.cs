@@ -205,6 +205,41 @@ public sealed class VisualNodeProfileTests : IDisposable
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<NodePropertyValue>(json.ToJsonString(), options));
     }
 
+    [Fact]
+    public void GradientStopsAreTypedAndReferencesAreValidated()
+    {
+        var token = Token(TokenType.Color, new ColorValue(30, 60, 90));
+        var gradient = new NodeLinearGradientValue(35, [
+            new(0, new NodeColorValue(255, 0, 0, 128)),
+            new(.5, TokenId: token.Id),
+            new(1, new NodeColorValue(0, 0, 255))
+        ]);
+        foreach (var kind in new[] { "Frame", "Ellipse", "Button", "TextInput" })
+            Assert.Null(NodePropertyValidator.Validate(profile, kind, "linearGradient", gradient));
+        foreach (var invalid in new[] { gradient with { Angle = double.NaN },
+            gradient with { Stops = [new(0, new(0, 0, 0))] },
+            gradient with { Stops = [new(-1, new(0, 0, 0)), new(1, TokenId: token.Id)] },
+            gradient with { Stops = [new(0, new(0, 0, 0), token.Id), new(1, TokenId: token.Id)] } })
+            Assert.Equal("INVALID_PROPERTY_VALUE", NodePropertyValidator.Validate(profile, "Frame", "linearGradient", invalid)!.Code);
+
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var roundTrip = Assert.IsType<NodeLinearGradientValue>(
+            JsonSerializer.Deserialize<NodePropertyValue>(JsonSerializer.Serialize<NodePropertyValue>(gradient, options), options));
+        Assert.Equal(gradient.Angle, roundTrip.Angle);
+        Assert.Equal(gradient.Stops.ToArray(), roundTrip.Stops.ToArray());
+
+        var node = new NodeStructure(Guid.NewGuid(), "Ellipse", []);
+        node = node with { Properties = node.Properties.Add("linearGradient", gradient) };
+        var screen = new ScreenStructure(Guid.NewGuid(), [node.Id], new(800, 600));
+        var document = new DocumentStructure(Guid.NewGuid(), [new(Guid.NewGuid(), [screen.Id])], [screen], [node])
+        {
+            Profile = profile.Identity, Tokens = [token]
+        };
+        Assert.Empty(DocumentStructureValidator.Validate(document, profile));
+        Assert.Contains(DocumentStructureValidator.Validate(document with { Tokens = [] }, profile),
+            error => error.Code == "missing-reference" && error.ObjectId == node.Id && error.Property == "linearGradient");
+    }
+
     private static DesignToken Token(TokenType type, TokenValue value)
     {
         var literal = new LiteralTokenValue(value);

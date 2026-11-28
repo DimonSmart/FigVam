@@ -424,3 +424,35 @@ test('ancestor Overflow.Clip clips child shadow while Visible lets it paint outs
     [145, 94, [255, 0, 0, 255]], [155, 94, [255, 0, 0, 255]]
   ]);
 });
+
+
+test('basic graphics use the same visual surface in Design and Preview', async ({ page, request }) => {
+  const { documentId, screen, image, command } = await seed(request, true);
+  const ellipse = randomUUID(), line = randomUUID(), icon = randomUUID();
+  await command('add-node', { nodeId: ellipse, parentId: screen, kind: 'Ellipse', properties: {
+    ...geometry(40, 90, 100, 60), rotation: number(25), borderWidth: number(3),
+    borderPattern: option('Dashed'), borderColor: rgba(0, 0, 0),
+    linearGradient: { type: 'linearGradient', angle: 90, stops: [
+      { position: 0, color: { red: 255, green: 0, blue: 0, alpha: 255 } },
+      { position: 1, color: { red: 0, green: 0, blue: 255, alpha: 128 } }
+    ] }
+  } });
+  await command('add-node', { nodeId: line, parentId: screen, kind: 'Line', properties: {
+    ...geometry(160, 130, 100, 20), endArrow: option('Filled'), startArrow: option('Open'),
+    borderPattern: option('Dotted')
+  } });
+  await command('add-node', { nodeId: icon, parentId: screen, kind: 'Icon', properties: {
+    ...geometry(280, 140, 32, 32), iconName: text('circle')
+  } });
+  await command('set-node-property', { nodeId: image, property: 'imageClip', value: option('Ellipse') });
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await openScreen(page, documentId);
+  async function check(root) {
+    await expect(root.locator(visual(ellipse))).toHaveCSS('transform', /matrix/);
+    await expect(root.locator(visual(line)).locator('svg')).toBeVisible();
+    await expect(root.locator(visual(icon)).locator('svg')).toBeVisible();
+  }
+  await check(page.locator('#screen-boundary'));
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await check(page.locator(`#preview-viewport [data-preview-screen="${screen}"]`));
+});

@@ -186,7 +186,7 @@ public sealed class PortableUiProfileTests : IDisposable
         var metadata = (await client.GetFromJsonAsync<DocumentProfileResponse>(
             $"/api/v1/documents/{created}/profile"))!;
         Assert.Equal(PortableUiProfileReference.Current, metadata.Profile);
-        Assert.Equal(5, metadata.Kinds.Count);
+        Assert.Equal(8, metadata.Kinds.Count);
         var input = Assert.Single(metadata.Kinds, kind => kind.Kind == "TextInput");
         Assert.True(input.Properties.ContainsKey("inputType"));
     }
