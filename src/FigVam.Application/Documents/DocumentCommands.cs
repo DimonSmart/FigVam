@@ -1232,7 +1232,7 @@ public sealed partial class DocumentCommandHandler(IDocumentAuthorization author
 
     private INodeProfile ProfileFor(DocumentStructure document) => PortableUiProfileResolver.Require(document.Profile, profile);
 
-    private static Guid[] ChangedIds(DocumentPatch patch) => patch.Pages.Select(x => x.Id).Concat(patch.Assets.Select(x => x.Id))
+    private static Guid[] ChangedIds(DocumentPatch patch) => patch.Pages.Select(x => x.Id).Concat(patch.Assets.Select(x => x.Id)).Concat(patch.Fonts.Select(x => x.Id))
         .Concat(patch.Scenarios.Select(x => x.Id)).Concat(patch.ComponentDefinitions.Select(x => x.Id)).Concat(patch.ComponentInstances.Select(x => x.Id))
         .Concat(patch.Datasets.Select(x => x.Id)).Concat(patch.Tokens.Select(x => x.Id)).Concat(patch.Styles.Select(x => x.Id)).Concat(patch.Screens.Select(x => x.Id)).Concat(patch.Nodes.Select(x => x.Id)).Distinct().ToArray();
 

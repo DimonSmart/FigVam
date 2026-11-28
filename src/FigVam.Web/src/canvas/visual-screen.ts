@@ -225,7 +225,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
         if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         const fontFamilies = await loadPreviewFonts(fonts, ctx.documentId, manifest.fonts, manifest.assets, async (face, fontSignal) => {
           if (!request.readFont) throw new Error('Font asset loading unavailable');
-          return request.readFont(`/api/v1/documents/${ctx.documentId}/assets/${face.assetId}?revision=${ctx.revision}`, face.contentType, AbortSignal.any([signal, fontSignal]));
+          return request.readFont(`/api/v1/documents/${ctx.documentId}/assets/${face.assetId}?revision=${ctx.revision}`, face.contentType, fontSignal);
         });
         if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         const result = { fontFamilies, kinds: new Map(array(profile.kinds,kind).map(k=>[k.kind,k])),

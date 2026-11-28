@@ -24,7 +24,7 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
         var actor = User.GetDocumentActor();
         if (!await authorization.CanEditAsync(actor, documentId, ct)) return Error("FORBIDDEN");
         if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var contentType) ||
-            !DocumentAssetContentFormat.IsSupported(contentType.MediaType.ToString().ToLowerInvariant()))
+            contentType.MediaType.ToString().ToLowerInvariant() != "image/png")
         {
             await Request.Body.CopyToAsync(Stream.Null, ct);
             return StatusCode(415, ApiErrors.Create(415));
@@ -50,9 +50,9 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
         return result.Response is { } response ? Ok(response) : Error(result.Code);
     }
 
-    [HttpGet("{assetId}"), Produces("image/png", "application/json"), ProducesResponseType<FileContentResult>(200)]
-    [EndpointSummary("Read verified raster bytes from a document snapshot")]
-    [EndpointDescription("Requires current document read permission and asset membership in the selected draft revision or saved version. revision and versionId are mutually exclusive. Returns image/png with no-store, nosniff, sandbox CSP and SHA-256 ETag; no public storage URLs or redirects. At most 5 MiB.")]
+    [HttpGet("{assetId}"), Produces("image/png", "font/woff2", "font/woff", "font/ttf", "font/otf", "application/json"), ProducesResponseType<FileContentResult>(200)]
+    [EndpointSummary("Read verified image or font bytes from a document snapshot")]
+    [EndpointDescription("Requires current document read permission and asset membership in the selected draft revision or saved version. revision and versionId are mutually exclusive. Returns the asset MIME type with no-store, nosniff, sandbox CSP and SHA-256 ETag; no public storage URLs or redirects. At most 5 MiB.")]
     public async Task<IActionResult> Read(Guid documentId, Guid assetId, [FromQuery] long? revision, [FromQuery] Guid? versionId, CancellationToken ct)
     {
         var result = await assets.ReadAsync(documentId, assetId, User.GetDocumentActor(), revision, versionId, ct);

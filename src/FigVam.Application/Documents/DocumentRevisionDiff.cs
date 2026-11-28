@@ -59,6 +59,8 @@ public sealed class DocumentRevisionDiff(IDocumentAuthorization authorization, I
             result[("scenario", scenario.Id)] = new() { ["screenId"] = scenario.ScreenId, ["nodeId"] = scenario.NodeId, ["event"] = scenario.Event, ["actions"] = System.Text.Json.JsonSerializer.Serialize(scenario.Actions) };
         foreach (var asset in doc.Assets)
             result[("asset", asset.Id)] = new() { ["sha256"] = asset.Sha256, ["contentType"] = asset.ContentType, ["byteLength"] = asset.ByteLength, ["width"] = asset.Width, ["height"] = asset.Height };
+        foreach (var family in doc.Fonts)
+            result[("fontFamily", family.Id)] = new() { ["name"] = family.Name, ["faces"] = System.Text.Json.JsonSerializer.Serialize(family.Faces) };
         foreach (var dataset in doc.Datasets)
             result[("dataset", dataset.Id)] = new() { ["name"] = dataset.Name, ["fixtureJson"] = dataset.FixtureJson, ["connectorId"] = dataset.ConnectorId };
         foreach (var node in doc.Nodes)
