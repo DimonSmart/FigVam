@@ -676,3 +676,35 @@ test('TextInput placeholders and values use the correct text, mask and theme col
     expect(pixels.passwordHasInk).toBe(true);
   }
 });
+
+test('Server simulation matches the composed interactive overlay and final input state', async ({ page, request, server }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await signIn(page, server);
+  await page.getByLabel('Имя нового документа').fill('Overlay screenshot parity');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+  const { token, endpoint } = await grant(page);
+  const call = await connect(request, endpoint, token);
+  const { pageId } = await call('create_page');
+  const { screenId: base } = await call('create_screen', { pageId, width: 400, height: 300 });
+  const { screenId: overlay } = await call('create_screen', { pageId, width: 400, height: 300 });
+  const { nodeId: button } = await call('create_node', { parentId: base, kind: 'Button',
+    properties: { x: 20, y: 20, width: 130, height: 40, text: 'Open overlay' } });
+  const { nodeId: input } = await call('create_node', { parentId: overlay, kind: 'TextInput',
+    properties: { x: 100, y: 100, width: 200, height: 40, placeholder: 'Overlay value', backgroundColor: '#FFFFFF' } });
+  await call('create_scenario', { screenId: base, nodeId: button, event: 'Click',
+    actions: [{ type: 'openOverlay', screenId: overlay }] });
+  await page.locator('#screens .screen-select[data-screen-id="' + base + '"]').click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await page.locator('#preview-viewport [data-visual-node="' + button + '"] button').click();
+  await expect(page.locator('#preview-viewport .preview-screen')).toHaveCount(2);
+  const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] input');
+  await field.fill('Final state');
+  await field.blur();
+  const result = await call.raw('simulate_preview', { screenId: base, theme: 'Light', includeImage: true,
+    events: [{ nodeId: button, event: 'Click' }, { nodeId: input, event: 'Change', value: 'Final state' }] });
+  expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+  expect(result.structuredContent.overlays).toEqual([overlay]);
+  await compareNativePreview(page, result.content.find(block => block.type === 'image'));
+});
