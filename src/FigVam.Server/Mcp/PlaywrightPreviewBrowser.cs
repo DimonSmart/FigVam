@@ -13,7 +13,7 @@ public sealed class PlaywrightPreviewBrowser(ILogger<PlaywrightPreviewBrowser> l
     private IPlaywright? playwright;
     private IBrowser? browser;
 
-    private async Task<IBrowser> GetBrowserAsync(CancellationToken ct)
+    internal async Task<IBrowser> GetBrowserAsync(CancellationToken ct)
     {
         await lifecycle.WaitAsync(ct);
         try

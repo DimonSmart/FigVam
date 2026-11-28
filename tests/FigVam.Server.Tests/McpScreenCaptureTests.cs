@@ -1,4 +1,5 @@
 using FigVam.Server.Mcp;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FigVam.Server.Tests;
 
@@ -16,4 +17,25 @@ public sealed class McpScreenCaptureTests
         Assert.Equal("OK", ScreenCaptureResult.FromPng(browserPng).Code);
     }
 
+    [Fact]
+    public async Task BrowserIsReusedAndRecreatedAfterDisconnect()
+    {
+        await using var renderer = new PlaywrightPreviewBrowser(NullLogger<PlaywrightPreviewBrowser>.Instance);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var first = await renderer.GetBrowserAsync(cancellation.Token);
+        var second = await renderer.GetBrowserAsync(cancellation.Token);
+        Assert.Same(first, second);
+        await first.CloseAsync();
+        Assert.False(first.IsConnected);
+        var recovered = await renderer.GetBrowserAsync(cancellation.Token);
+        Assert.NotSame(first, recovered);
+        Assert.True(recovered.IsConnected);
+    }
+
+    [Fact]
+    public async Task CancelledRequestDoesNotLaunchBrowser()
+    {
+        await using var renderer = new PlaywrightPreviewBrowser(NullLogger<PlaywrightPreviewBrowser>.Instance);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => renderer.GetBrowserAsync(new CancellationToken(true)));
+    }
 }

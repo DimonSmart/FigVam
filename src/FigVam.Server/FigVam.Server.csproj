@@ -1,4 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <InternalsVisibleTo Include="FigVam.Server.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FigVam.Application\FigVam.Application.csproj" />
