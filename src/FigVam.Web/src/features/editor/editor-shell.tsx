@@ -334,6 +334,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
               <views.propertyFields.visualActions.Component/>
               <views.layers.deletion.Component/>
               <views.propertyFields.inspectorPanel.Component/>
+              <views.propertyFields.commonProperties.Component/>
               <views.layers.metadata.Component/>
               <section aria-labelledby="screen-size-title"><views.screenResize.Component/></section>
             </div>

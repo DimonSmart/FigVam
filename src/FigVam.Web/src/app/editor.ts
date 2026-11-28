@@ -451,7 +451,7 @@ const visualNodeEditor: ReturnType<typeof createVisualNodeEditor> = createVisual
 const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeEditor({
   element, getContext: () => ({ documentRole: getDocumentRole(), revision: revisions.revision, selection: layers.selection,selectedIds:layers.selectedIds }),
   getModel: () => visualScreens.designModel, getScale: () => canvasViewport.scale,getGrid:()=>canvasViewport.grid,
-  selectLayer: (node,nodes,mode)=>layers.selectFromCanvas(node,nodes,false,mode), editGeometry: visualNodeEditor.editGeometry,
+  selectLayer: (node,nodes,mode)=>layers.selectFromCanvas(node,nodes,false,mode),selectRegion:layers.selectRegion, editGeometry: visualNodeEditor.editGeometry,
   editBatch: (operations,revision,settle)=>visualNodeEditor.editBatch(operations,revision,settle),
   isEditPending: () => visualNodeEditor.editPending,
   setHint:hint=>canvasChrome.patch({hint}),deleteSelected:layers.deleteNode

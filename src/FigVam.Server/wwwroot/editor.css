@@ -141,3 +141,12 @@ p { line-height: 1.6; }
 .canvas-manual-guide[data-axis=y] { left:0;right:0;height:calc(7px / var(--canvas-scale,1));transform:translateY(-50%);cursor:ns-resize; }
 .canvas-manual-guide[data-axis=y]::after { top:50%;height:calc(1px / var(--canvas-scale,1)); }
 .canvas-manual-guide:focus-visible::after,.canvas-manual-guide:hover::after { opacity:1;box-shadow:0 0 2px 1px var(--ui-base-accent); }
+
+#viewport .canvas-marquee {position:absolute;pointer-events:none;z-index:4;border:1px solid var(--ui-base-accent);background:color-mix(in srgb,var(--ui-base-accent) 12%,transparent);}
+#viewport .canvas-marquee[hidden]{display:none;}
+#layers .layer-action {padding:2px;min-width:0;min-height:0;flex-shrink:0;display:inline-flex;align-items:center;}
+.visual-action-buttons {display:flex;gap:3px;flex-wrap:wrap;}
+.visual-action-buttons button {font-size:11px;padding:3px 6px;}
+.mixed-value {font-size:.85em;color:var(--ui-base-text);}
+#common-properties .node-property {margin-block:.4rem;}
+#canvas-grid-overlay button.canvas-manual-guide {min-width:0;min-height:0;margin:0;appearance:none;}

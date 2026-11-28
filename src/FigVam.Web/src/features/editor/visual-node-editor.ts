@@ -4,7 +4,8 @@ import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
 import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, type VisualAction, type AlignAction } from './visual-tools';
-import { inheritedLock } from '../../canvas/visual-geometry';
+import type { CommonField } from './visual-editor-views';
+import { proportionalSize, inheritedLock } from '../../canvas/visual-geometry';
 import type { CanvasModel, CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
@@ -54,6 +55,7 @@ export function createVisualNodeEditor({
   let loadingFocus:{id:string;key:string|undefined}|null=null,uploadDocument:string|null|undefined;
   const uploads=new Map<string,Upload>();
   const automatic=new Map<Draft,Automatic>();
+  let commonFields:CommonField[]=[],commonKey='';
   let appearanceClipboard:{documentId:string;properties:NodeProperties}|null=null;
   let applyTimer:ReturnType<typeof setTimeout>|undefined;
 
@@ -271,6 +273,19 @@ export function createVisualNodeEditor({
             if (kind === 'color-preview') {
               scheduleApply(state, name, field, false, true); updateControls(); return;
             }
+            if((name==='width'||name==='height')&&node?.properties.aspectRatioLocked?.type==='boolean'&&node.properties.aspectRatioLocked.value&&model){
+              const otherName=name==='width'?'height':'width',other=inspectorFields.get(otherName),defs=model.kinds.get(node.kind)?.properties;
+              const width=node.properties.width??defs?.width?.defaultValue,height=node.properties.height??defs?.height?.defaultValue;
+              const changed=propertyValue(field.validate(false).value);
+              if(width?.type==='number'&&height?.type==='number'&&other&&changed?.type==='number'){
+                const range=(key:string)=>({min:defs?.[key]?.minimum??0,max:defs?.[key]?.maximum??Infinity});
+                const size=proportionalSize(width.value,height.value,name==='width'?changed.value-width.value:0,name==='height'?changed.value-height.value:0,range('width'),range('height'));
+                if(size&&Math.abs(size[name==='width'?0:1]-changed.value)<1e-6){
+                  const v={type:'number' as const,value:size[name==='width'?1:0]},otherDef=defs?.[otherName];
+                  if(otherDef?.type){const raw=createNodeValueSpec(otherName,{...otherDef,type:otherDef.type},model,v,prefix).initial;other.write(raw);other.lastRaw=raw;state.values.set(otherName,raw);scheduleApply(state,otherName,other,discrete);}
+                }else{state.error='Изменение нарушает ограничения пропорций.';updateControls();return;}
+              }else{state.error='Для сохранения пропорций оба размера должны быть числовыми, без привязок к токенам.';updateControls();return;}
+            }
             scheduleApply(state, name, field, discrete);
           }
           updateControls();
@@ -397,6 +412,7 @@ export function createVisualNodeEditor({
       Fields:models.inspector.Component,submit:()=>finishApply(inspector),reset:resetInspector,loadRetryHidden:!loadError,loadRetry:retryLoad,
       retryHidden:!editable||!(editing&&retryable(op)||autoEntry?.rejected&&autoEntry.fields.size),retry:()=>retryOperation(true),error:loadError||inspector?.error||'',
       status:editing?operationStatus(op,'Сохранение свойств…'):loading||(autoEntry?.fields.size&&!autoEntry.rejected?'Сохранение свойств…':inspector?.status||'')});
+    publishCommonProperties(blocked);
     publishVisualActions(blocked);
     onDrawingToolsChanged(!hidden&&!formHidden&&!blocked?kinds:[]);
   }
@@ -626,6 +642,32 @@ export function createVisualNodeEditor({
       canvasDrafts.get(key), settlePreview);
   }
 
+  function publishCommonProperties(blocked:boolean){
+    const ids=context.selectedIds??[],key=[context.documentId,context.revision,context.variantId,...ids].join(':');
+    const nodes=ids.flatMap(id=>{const n=model?.nodes.get(id);return n?[n]:[];});
+    const commonBlocked=blocked||!model||nodes.length!==ids.length||nodes.some(n=>!!model&&inheritedLock(model,n.id));
+    if(key!==commonKey||(!commonFields.length&&nodes.length===ids.length&&ids.length>1)){
+      commonKey=key;commonFields=[];
+      const first=nodes[0],data=model;
+      if(first&&data&&ids.length>1&&nodes.length===ids.length){
+        for(const [name,def] of Object.entries(data.kinds.get(first.kind)?.properties??{})){
+          if(!def?.type||['editorGroup','editorLocked','aspectRatioLocked','x','y','width','height','widthMode','heightMode','layout'].includes(name))continue;
+          const signature=(d:typeof def)=>{const {defaultValue,required,...rest}=d;return JSON.stringify(rest);};
+          if(!nodes.every(n=>{const other=data.kinds.get(n.kind)?.properties[name];return !!other&&signature(other)===signature(def);}))continue;
+          const values=nodes.map(n=>n.properties[name]??data.kinds.get(n.kind)?.properties[name]?.defaultValue);
+          const mixed=values.some(v=>JSON.stringify(v)!==JSON.stringify(values[0]));
+          const field=createValueField(createNodeValueSpec(name,{...def,type:def.type},data,values[0],'visual-common'),'visual-common-'+name);
+          commonFields.push({name,field,mixed,apply:()=>{
+            const current=getContext();if(current.revision!==context.revision||key!==commonKey||!current.screen||current.revision===null)return;
+            const validation=field.validate(),value=propertyValue(validation.value);if(validation.error||!value)return;
+            editBatch(ids.map(nodeId=>({action:'set',nodeId,properties:{[name]:value},...(current.variantId?{screenId:current.screen??undefined,variantId:current.variantId}:{})})),current.revision);
+          }});
+        }
+      }
+    }
+    for(const item of commonFields){item.field.setDisabled(commonBlocked);item.field.setActionsDisabled(commonBlocked);}
+    models.commonProperties.publish({keyValue:key,visible:ids.length>1,fields:commonFields,blocked:commonBlocked});
+  }
   const alignActions:AlignAction[]=['left','right','top','bottom','centerX','centerY','distributeX','distributeY'];
   function planAction(action:VisualAction,drawing:CanvasModel,ids:readonly string[]):NodeEdit[]{
     if(action==='copy')return [];

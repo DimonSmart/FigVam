@@ -479,7 +479,7 @@ export function createLayers({
 
   element('layers').addEventListener('keydown', event => {
     const row=event.target instanceof Element?event.target.closest<HTMLElement>('[role=treeitem]'):null;
-    if (!row) return;
+    if (!row || event.target instanceof Element&&event.target.closest('button')) return;
     const rows = [...element('layers').querySelectorAll<HTMLElement>('[role=treeitem]')], index = rows.indexOf(row);
     let target:HTMLElement|null|undefined;
     if ((event.ctrlKey || event.metaKey) && !event.altKey && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
@@ -569,12 +569,23 @@ export function createLayers({
     return true;
   }
 
+  function selectRegion(rawItems:unknown[],rawNodes:unknown[],add:boolean,confirmed=false){
+    if(!confirmed&&!beforeSelectionChange(()=>selectRegion(rawItems,rawNodes,add,true)))return;
+    const nodes=rawNodes.map(n=>layer(n)),items=rawItems.map(n=>layer(n));
+    if(!items.length){if(!add&&layerSelection){layerSelection=null;selectedIds.clear();nodeMetadata=null;nodeReadGeneration++;renderNodeMetadata();setCaption('Выберите слой.');onSelectionCleared();renderLayers();}return;}
+    const byId=new Map(nodes.map(n=>[n.id,n]));
+    layerChildren=new Map();for(const n of nodes){const branch=layerChildren.get(n.parentId)??[];branch.push(n);layerChildren.set(n.parentId,branch);}
+    layerRoots=layerChildren.get(workspace.selectedScreen??'')??[];
+    if(!add)selectedIds.clear();
+    for(const item of items){selectedIds.add(item.id);for(let p=byId.get(item.parentId);p;p=byId.get(p.parentId))layerExpanded.add(p.id);}
+    const item=items.at(-1);if(item){selectLayer(item,true);onLayerSelected();}
+  }
   function clearCommands() {
     clearTimeout(metadataTimer); metadataDrafts.clear(); nodeOperations.clear(); nodeDeletions.clear(); nodeMoves.clear(); nodeMoveNotices.clear();
   }
 
   return {
-    reset, clearCommands, discardDocument(doc:string){clearTimeout(metadataTimer);for(const map of [metadataDrafts,nodeOperations,nodeDeletions,nodeMoves,nodeMoveNotices])for(const key of map.keys())if(key.startsWith(doc+':'))map.delete(key);}, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,
+    reset, clearCommands, discardDocument(doc:string){clearTimeout(metadataTimer);for(const map of [metadataDrafts,nodeOperations,nodeDeletions,nodeMoves,nodeMoveNotices])for(const key of map.keys())if(key.startsWith(doc+':'))map.delete(key);}, dispose(){lifetime.abort();drag.dispose();layerController?.abort();clearCommands();}, deleteNode, readSnapshot, isExpansionCurrent, applySnapshot, findLayer, selectFromCanvas,selectRegion,
     selectById(id:string){const item=findLayer(id);if(!item)return;const select=()=>{selectLayer(item);if(item.childCount)void toggleLayer(item);renderLayers(id);};if(layerSelection?.id===id||beforeSelectionChange(select))select();},
     refreshMoveAvailability() { if (!canMove()) drag.cancel(); renderNodeOrder(); },
     setInteractiveNodes(ids:string[]) { interactiveNodes = new Set(ids); renderLayers(); },

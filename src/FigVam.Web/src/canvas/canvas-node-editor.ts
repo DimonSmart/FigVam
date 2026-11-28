@@ -13,6 +13,7 @@ interface NodeEditorOptions {
   getScale(): number;
   getGrid(): GridSettings;
   selectLayer(node: CanvasNode, orderedNodes: CanvasNode[],mode?:'replace'|'toggle'|'preserve'): boolean | void;
+  selectRegion(nodes:CanvasNode[],orderedNodes:CanvasNode[],add:boolean):void;
   editBatch(operations:({action:'set';nodeId:string;expectedParentId:string;properties:Geometry}|{action:'delete';nodeId:string})[],revision:number,settle:(confirmed:boolean)=>void):boolean;
   editGeometry(command: GeometryCommand, settle: (confirmed: boolean) => void): boolean;
   isEditPending(): boolean;
@@ -33,7 +34,7 @@ const arrows: Record<string, [number, number] | undefined> = {
 const geometryStyles: Record<Axis, GeometryStyle> = { x: 'left', y: 'top', width: 'width', height: 'height' };
 
 export function createCanvasNodeEditor({
-  element, getContext, getModel, getScale, getGrid, selectLayer, editGeometry, editBatch, isEditPending, setHint, deleteSelected
+  element, getContext, getModel, getScale, getGrid, selectLayer, selectRegion, editGeometry, editBatch, isEditPending, setHint, deleteSelected
 }: NodeEditorOptions) {
   const listeners = new AbortController();
   const signal = listeners.signal;
@@ -43,6 +44,10 @@ export function createCanvasNodeEditor({
   resizeHandle.title = 'Изменить размер (Shift — сохранить пропорции)';
   resizeHandle.setAttribute('aria-hidden', 'true');
   let gesture: Gesture | null = null, selectedWrapper: HTMLElement | null = null;
+  const marquee=document.createElement('div');marquee.className='canvas-marquee';marquee.hidden=true;viewport.append(marquee);
+  let region:{pointer:number;x:number;y:number;model:CanvasModel;scale:number;add:boolean}|null=null;
+  function regionBounds(event:PointerEvent){if(!region)return null;return {left:Math.min(region.x,event.clientX),top:Math.min(region.y,event.clientY),right:Math.max(region.x,event.clientX),bottom:Math.max(region.y,event.clientY)};}
+  function cancelRegion(){const old=region;region=null;marquee.hidden=true;if(old&&viewport.hasPointerCapture(old.pointer))viewport.releasePointerCapture(old.pointer);}
   const guideX=element('canvas-snap-x'),guideY=element('canvas-snap-y');
   function guides(x?:number,y?:number) {
     guideX.hidden=x===undefined;guideY.hidden=y===undefined;
@@ -71,6 +76,7 @@ export function createCanvasNodeEditor({
 
   function sync() {
     const id = getContext().selection?.id, selected = target(id);
+    if(region&&(region.model!==getModel()||region.scale!==getScale()))cancelRegion();
     if (gesture && (!getContext().selectedIds?.includes(gesture.node.id) || gesture.model !== selected?.model || !writable())) cancel();
     selectedWrapper?.removeAttribute('data-canvas-editable');
     selectedWrapper = id ? boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`) : null;
@@ -217,7 +223,11 @@ export function createCanvasNodeEditor({
   viewport.addEventListener('pointerdown', event => {
     if (!event.isPrimary || event.button !== 0 || event.altKey) return;
     const wrapper = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-visual-node]') : null;
-    if (!wrapper || !boundary.contains(wrapper)) return;
+    if (!wrapper || !boundary.contains(wrapper)) {
+      const model=getModel();
+      if(model&&event.shiftKey&&!(event.target instanceof Element&&event.target.closest('[data-guide-id]'))){event.preventDefault();viewport.focus({preventScroll:true});region={pointer:event.pointerId,x:event.clientX,y:event.clientY,model,scale:getScale(),add:event.ctrlKey||event.metaKey};viewport.setPointerCapture(event.pointerId);}
+      return;
+    }
     event.preventDefault();
     viewport.focus({ preventScroll: true });
     const id = wrapper.dataset.visualNode, selected = target(id);
@@ -237,6 +247,7 @@ export function createCanvasNodeEditor({
   }, { capture: true, signal });
 
   function track(event: PointerEvent) {
+    if(region?.pointer===event.pointerId){const b=regionBounds(event),v=viewport.getBoundingClientRect();if(b){marquee.hidden=false;Object.assign(marquee.style,{left:b.left-v.left+'px',top:b.top-v.top+'px',width:b.right-b.left+'px',height:b.bottom-b.top+'px'});}return;}
     if (gesture?.pointer !== event.pointerId) return;
     if (gesture.scale !== getScale()) {
       cancel();
@@ -252,18 +263,21 @@ export function createCanvasNodeEditor({
   viewport.addEventListener('pointermove', track, { signal });
   viewport.addEventListener('pointerup', event => {
     track(event);
+    if(region?.pointer===event.pointerId){const current=region,b=regionBounds(event);cancelRegion();if(b&&current.model===getModel()&&current.scale===getScale()){const items=current.model.orderedNodes.filter(node=>{const el=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(node.id)}"]`);if(!el||inheritedLock(current.model,node.id)||getComputedStyle(el).visibility==='hidden'||!el.getClientRects().length)return false;const r=el.getBoundingClientRect();return r.left>=b.left&&r.right<=b.right&&r.top>=b.top&&r.bottom<=b.bottom;});selectRegion(items,current.model.orderedNodes,current.add);}return;}
     if (gesture?.pointer === event.pointerId) {const edit=release(gesture);commit(edit,edit.others);}
   }, { signal });
   for (const type of ['pointercancel', 'lostpointercapture'] as const) {
     viewport.addEventListener(type, event => {
+      if(region?.pointer===event.pointerId)cancelRegion();
       if (gesture?.pointer === event.pointerId) cancel();
     }, { signal });
   }
   viewport.addEventListener('wheel', event => {
-    if (gesture) event.preventDefault();
+    if (gesture||region) event.preventDefault();
   }, { capture: true, passive: false, signal });
   viewport.addEventListener('keydown', event => {
     if(event.target instanceof Element&&event.target.closest('[data-guide-id]'))return;
+    if(event.key==='Escape'&&region){event.preventDefault();cancelRegion();return;}
     if (event.key === 'Escape' && gesture) {
       event.preventDefault();
       cancel();
@@ -289,5 +303,5 @@ export function createCanvasNodeEditor({
     commit(edit);
   }, { capture: true, signal });
 
-  return { sync, dispose() { cancel(); listeners.abort(); resizeHandle.remove(); } };
+  return { sync, dispose() { cancel();cancelRegion(); listeners.abort(); resizeHandle.remove();marquee.remove(); } };
 }

@@ -1,4 +1,6 @@
-import type { ComponentType } from 'react';
+import { useState,useSyncExternalStore,type ComponentType } from 'react';
+import { FieldValue } from '../../ui/property-value-editor';
+import type { ValueField } from '../../ui/property-value';
 import { createViewModel } from '../../app/view-model';
 import type { VisualAction } from './visual-tools';
 import { Button } from '../../ui/Button';
@@ -58,4 +60,7 @@ function CanvasFeedback(p:Feedback){return <>          <p id="canvas-edit-status
 </>;}
 const actionLabels:Record<VisualAction,string>={left:'По левому краю',right:'По правому краю',top:'По верхнему краю',bottom:'По нижнему краю',centerX:'По центру горизонтали',centerY:'По центру вертикали',distributeX:'Распределить горизонтально',distributeY:'Распределить вертикально',group:'Сгруппировать',ungroup:'Разгруппировать',copy:'Копировать оформление',paste:'Вставить оформление'};
 function VisualActions(p:{visible:boolean;available:readonly VisualAction[];run(action:VisualAction):void}){return <section hidden={!p.visible} aria-label="Визуальное редактирование"><div className="visual-action-buttons">{(Object.keys(actionLabels) as VisualAction[]).map(action=><Button key={action} disabled={!p.available.includes(action)} onClick={()=>p.run(action)}>{actionLabels[action]}</Button>)}</div></section>;}
-export function createVisualEditorViews(){return {visualActions:createViewModel(VisualActions),asset:createViewModel(AssetView),palette:createViewModel(PaletteView),inspectorPanel:createViewModel(InspectorView),canvasFeedback:createViewModel(CanvasFeedback)};}
+export interface CommonField {name:string;field:ValueField;mixed:boolean;apply():void}
+function CommonProperty({entry,blocked}:{entry:CommonField;blocked:boolean}){const [open,setOpen]=useState(!entry.mixed);const state=useSyncExternalStore(entry.field.store.subscribe,entry.field.store.getSnapshot);return <div className="node-property"><div>{entry.mixed&&<span className="mixed-value">{entry.field.spec.label}: Mixed</span>}{!open&&<Button disabled={blocked} onClick={()=>setOpen(true)}>Изменить</Button>}</div>{open&&<><FieldValue field={entry.field}/><p role="alert" className="node-property-error">{state.validation.error??''}</p><Button disabled={blocked} onClick={entry.apply}>Применить</Button></>}</div>;}
+function CommonProperties(p:{keyValue:string;fields:CommonField[];visible:boolean;blocked:boolean}){return <section id="common-properties" hidden={!p.visible}><h3>Общие свойства</h3>{p.fields.map(entry=><CommonProperty key={p.keyValue+':'+entry.name} entry={entry} blocked={p.blocked}/>)}</section>;}
+export function createVisualEditorViews(){return {commonProperties:createViewModel(CommonProperties),visualActions:createViewModel(VisualActions),asset:createViewModel(AssetView),palette:createViewModel(PaletteView),inspectorPanel:createViewModel(InspectorView),canvasFeedback:createViewModel(CanvasFeedback)};}
