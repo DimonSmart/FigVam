@@ -44,7 +44,7 @@ public sealed class McpProtocolTests
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + token }
         }));
         var tools = await mcp.ListToolsAsync();
-        Assert.Equal(42, tools.Count);
+        Assert.Equal(45, tools.Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         var doc = await Call("get_document");
         Assert.Equal(documentId, doc.GetProperty("documentId").GetGuid());
@@ -153,6 +153,23 @@ public sealed class McpProtocolTests
         Assert.Equal(15, storedShadow.GetProperty("color").GetProperty("red").GetInt32());
         await Call("set_node_properties", new { nodeId, properties = new
             { shadow = new { offsetX = 0, offsetY = 3, blurRadius = 8, spreadRadius = 0, color = "#2563EB" } } });
+        var variantId = Guid.NewGuid();
+        var variantRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
+        var variantBatch = await Call("execute_batch", new { expectedRevision = variantRevision, operations = new object[]
+        {
+            new { id = "variant", command = "create_screen_variant", arguments = new { screenId, variantId, name = "Visual editing" } },
+            new { id = "size", command = "set_screen_variant_properties", arguments = new { screenId, variantId, nodeId, properties = new { width = 180, height = 60 } } },
+            new { id = "reset", command = "remove_screen_variant_override", arguments = new { screenId, variantId, nodeId, property = "height" } }
+        } });
+        Assert.Equal(variantRevision + 1, variantBatch.GetProperty("revision").GetInt64());
+        using (var response = await user.GetAsync($"/api/v1/documents/{documentId}/screens/{screenId}/variants?variantId={variantId}"))
+        {
+            response.EnsureSuccessStatusCode();
+            var overrides = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("items")[0].GetProperty("overrides");
+            Assert.Single(overrides.EnumerateArray());
+            Assert.Equal("width", overrides[0].GetProperty("property").GetString());
+            Assert.Equal(180, overrides[0].GetProperty("value").GetProperty("value").GetDouble());
+        }
         var colorTokenId = (await Call("create_token", new { name = "login.primary", type = "Color", light = "#2563EB", dark = "#60A5FA" })).GetProperty("tokenId").GetGuid();
         await Call("set_node_properties", new { nodeId, properties = new { backgroundColor = new { tokenId = colorTokenId } } });
         var useRevision = (await Call("get_document")).GetProperty("revision").GetInt64();
@@ -526,7 +543,7 @@ public sealed class McpProtocolTests
             TransportMode = HttpTransportMode.StreamableHttp,
             AdditionalHeaders = new Dictionary<string, string> { ["Authorization"] = "Bearer " + access.GetProperty("token").GetString() }
         }));
-        Assert.Equal(42, (await mcp.ListToolsAsync()).Count);
+        Assert.Equal(45, (await mcp.ListToolsAsync()).Count);
         Task<JsonElement> Call(string name, object? args = null, bool error = false) => CallAsync(mcp, name, args, error);
         static JsonElement Json(string json) => JsonSerializer.Deserialize<JsonElement>(json);
         static void Equivalent(JsonElement expected, JsonElement actual) =>

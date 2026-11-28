@@ -122,6 +122,25 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
             return await handler.HandleAsync(new SetNodePropertiesCommand(DocumentId, id, nodeId, values, expectedParentId, expectedRevision), Actor, ct);
         });
 
+    [McpServerTool(Name = "create_screen_variant"), Description("Create an empty variant inheriting the base screen properties.")]
+    public Task<CallToolResult> CreateScreenVariant(Guid screenId, Guid variantId, string name, Guid? commandId = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new AddScreenVariantCommand(DocumentId, id, screenId, variantId, name), Actor, ct));
+
+    [McpServerTool(Name = "set_screen_variant_properties"), Description("Atomically set typed property overrides for a node in a screen variant. Accepts the same property values as set_node_properties.")]
+    public Task<CallToolResult> SetScreenVariantProperties(Guid screenId, Guid variantId, Guid nodeId, Dictionary<string, JsonElement> properties, long expectedRevision, Guid? commandId = null, CancellationToken ct = default) =>
+        Run(commandId, async id =>
+        {
+            var state = await State(ct);
+            var node = state.Document.Nodes.FirstOrDefault(n => n.Id == nodeId) ??
+                throw new McpContractException("NODE_NOT_FOUND", "Node not found.");
+            var values = McpPropertyAdapter.ConvertProperties(Profile(state), node.Kind, properties);
+            return await handler.HandleAsync(new SetScreenVariantPropertiesCommand(DocumentId, id, screenId, variantId, nodeId, values, expectedRevision), Actor, ct);
+        });
+
+    [McpServerTool(Name = "remove_screen_variant_override"), Description("Remove a property override from a screen variant to inherit its base property.")]
+    public Task<CallToolResult> RemoveScreenVariantOverride(Guid screenId, Guid variantId, Guid nodeId, string property, long expectedRevision, Guid? commandId = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new RemoveScreenVariantOverrideCommand(DocumentId, id, screenId, variantId, nodeId, property, expectedRevision), Actor, ct));
+
     [McpServerTool(Name = "remove_node_properties"), Description("Remove explicitly stored properties at an expected revision.")]
     public Task<CallToolResult> RemoveNodeProperties(Guid nodeId, string[] properties, long expectedRevision, Guid? commandId = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new RemoveNodePropertiesCommand(DocumentId, id, nodeId, properties, expectedRevision), Actor, ct));
