@@ -1,5 +1,6 @@
+import type { NodePropertyValue } from '../../core/tokens/token-model';
 import type { CanvasModel, CanvasNode, Bounds, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
-import { inheritedLock, selectionRoots } from '../../canvas/visual-geometry';
+import { inheritedLock, selectionRoots, proportionalSize } from '../../canvas/visual-geometry';
 import type { NodeEdit } from './node-command';
 export type AlignAction='left'|'right'|'top'|'bottom'|'centerX'|'centerY'|'distributeX'|'distributeY';
 export type VisualAction=AlignAction|'group'|'ungroup'|'copy'|'paste';
@@ -111,4 +112,44 @@ export function ungrouping(model:CanvasModel,id:string):NodeEdit[]{
     ops.push({action:'move',nodeId:child.id,expectedParentId:id,parentId:group.parentId,position:index+i},{action:'set',nodeId:child.id,expectedParentId:group.parentId,properties:{x:num(x+cx),y:num(y+cy)}});
   }
   return [...ops,{action:'delete',nodeId:id}];
+}
+
+type PropertyModel = Pick<CanvasModel,'nodes'|'kinds'>;
+function effective(model:PropertyModel,node:CanvasNode,name:string){
+  return node.properties[name]??model.kinds.get(node.kind)?.properties[name]?.defaultValue;
+}
+export function commonPropertyEligible(model:PropertyModel,node:CanvasNode,name:string):boolean {
+  if(['editorGroup','editorLocked'].includes(name))return false;
+  if(name==='x'||name==='y'){
+    const parent=model.nodes.get(node.parentId);
+    if(parent){const layout=effective(model,parent,'layout');if(layout?.type!=='enum'||layout.value!=='Free')return false;}
+  }
+  if(['x','y','width','height'].includes(name)&&effective(model,node,name)?.type==='token')return false;
+  if(name==='width'||name==='height'){
+    const lock=effective(model,node,'aspectRatioLocked');
+    if(lock?.type==='boolean'&&lock.value){
+      const w=effective(model,node,'width'),h=effective(model,node,'height');
+      if(w?.type!=='number'||h?.type!=='number'||w.value<=0||h.value<=0)return false;
+    }
+  }
+  return true;
+}
+export function commonPropertyEdit(model:PropertyModel,ids:readonly string[],name:string,value:NodePropertyValue):NodeEdit[]{
+  const ops:NodeEdit[]=[];
+  for(const nodeId of ids){
+    const node=model.nodes.get(nodeId),defs=node&&model.kinds.get(node.kind)?.properties;
+    if(!node||!defs?.[name]||inheritedLock(model,nodeId)||!commonPropertyEligible(model,node,name))return [];
+    const properties:NodeProperties={[name]:value};
+    const lock=effective(model,node,'aspectRatioLocked');
+    if((name==='width'||name==='height')&&lock?.type==='boolean'&&lock.value){
+      const w=effective(model,node,'width'),h=effective(model,node,'height');
+      if(w?.type!=='number'||h?.type!=='number'||value.type!=='number')return [];
+      const range=(key:string)=>({min:defs[key]?.minimum??0,max:defs[key]?.maximum??Infinity});
+      const size=proportionalSize(w.value,h.value,name==='width'?value.value-w.value:0,name==='height'?value.value-h.value:0,range('width'),range('height'));
+      if(!size||Math.abs(size[name==='width'?0:1]-value.value)>1e-6)return [];
+      properties[name==='width'?'height':'width']=num(size[name==='width'?1:0]);
+    }
+    ops.push({action:'set',nodeId,properties,...(['x','y'].includes(name)?{expectedParentId:node.parentId}:{})});
+  }
+  return ops;
 }

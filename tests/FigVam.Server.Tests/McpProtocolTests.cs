@@ -170,6 +170,7 @@ public sealed class McpProtocolTests
             Assert.Equal("width", overrides[0].GetProperty("property").GetString());
             Assert.Equal(180, overrides[0].GetProperty("value").GetProperty("value").GetDouble());
         }
+        await Call("remove_screen_variant_override", new { screenId, variantId, nodeId, property = "width", expectedRevision = variantRevision + 1 });
         var colorTokenId = (await Call("create_token", new { name = "login.primary", type = "Color", light = "#2563EB", dark = "#60A5FA" })).GetProperty("tokenId").GetGuid();
         await Call("set_node_properties", new { nodeId, properties = new { backgroundColor = new { tokenId = colorTokenId } } });
         var useRevision = (await Call("get_document")).GetProperty("revision").GetInt64();

@@ -3,7 +3,7 @@ import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperati
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
-import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, type VisualAction, type AlignAction, type AppearanceClipboard } from './visual-tools';
+import { alignment, grouping, ungrouping, copyAppearance, pasteAppearance, commonPropertyEligible, commonPropertyEdit, type VisualAction, type AlignAction, type AppearanceClipboard } from './visual-tools';
 import type { CommonField } from './visual-editor-views';
 import { proportionalSize, inheritedLock } from '../../canvas/visual-geometry';
 import type { CanvasModel, CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
@@ -646,21 +646,23 @@ export function createVisualNodeEditor({
     const ids=context.selectedIds??[],key=[context.documentId,context.revision,context.variantId,...ids].join(':');
     const nodes=ids.flatMap(id=>{const n=model?.nodes.get(id);return n?[n]:[];});
     const commonBlocked=blocked||key!==commonKey&&resolvedModelKey!==modelKey||!model||nodes.length!==ids.length||nodes.some(n=>!!model&&inheritedLock(model,n.id));
-    if(!blocked&&(key!==commonKey||(!commonFields.length&&nodes.length===ids.length&&ids.length>1))){
+    if(model&&resolvedModelKey===modelKey&&(key!==commonKey||(!commonFields.length&&nodes.length===ids.length&&ids.length>1))){
       commonKey=key;commonFields=[];
       const first=nodes[0],data=model;
       if(first&&data&&ids.length>1&&nodes.length===ids.length){
         for(const [name,def] of Object.entries(data.kinds.get(first.kind)?.properties??{})){
-          if(!def?.type||['editorGroup','editorLocked','aspectRatioLocked','x','y','width','height','widthMode','heightMode','layout'].includes(name))continue;
+          if(!def?.type||!nodes.every(n=>commonPropertyEligible(data,n,name)))continue;
           const signature=(d:typeof def)=>{const {defaultValue,required,...rest}=d;return JSON.stringify(rest);};
           if(!nodes.every(n=>{const other=data.kinds.get(n.kind)?.properties[name];return !!other&&signature(other)===signature(def);}))continue;
           const values=nodes.map(n=>n.properties[name]??data.kinds.get(n.kind)?.properties[name]?.defaultValue);
           const mixed=values.some(v=>JSON.stringify(v)!==JSON.stringify(values[0]));
           const field=createValueField(createNodeValueSpec(name,{...def,type:def.type},data,values[0],'visual-common'),'visual-common-'+name);
           commonFields.push({name,field,mixed,apply:()=>{
-            const current=getContext();if(current.revision!==context.revision||key!==commonKey||!current.screen||current.revision===null)return;
+            const current=getContext();if(current.revision!==context.revision||key!==commonKey||!current.screen||current.revision===null||JSON.stringify(current.selectedIds)!==JSON.stringify(ids))return;
             const validation=field.validate(),value=propertyValue(validation.value);if(validation.error||!value)return;
-            editBatch(ids.map(nodeId=>({action:'set',nodeId,properties:{[name]:value},...(current.variantId?{screenId:current.screen??undefined,variantId:current.variantId}:{})})),current.revision);
+            const operations=commonPropertyEdit(data,ids,name,value);
+            if(!operations.length){const scope=scopeKey(current);if(scope){if(!canvasDrafts.has(scope))canvasDrafts.set(scope,draft());const feedback=canvasDrafts.get(scope);if(feedback)feedback.error='Изменение несовместимо с ограничениями выбранных элементов.';updateControls();}return;}
+            editBatch(operations.map(op=>({...op,...(current.variantId?{screenId:current.screen??undefined,variantId:current.variantId}:{})})),current.revision);
           }});
         }
       }

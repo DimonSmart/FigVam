@@ -1,5 +1,5 @@
 import {describe,expect,it} from 'vitest';
-import {alignment,grouping,ungrouping,copyAppearance,pasteAppearance} from '../src/features/editor/visual-tools';
+import {alignment,grouping,ungrouping,copyAppearance,pasteAppearance,commonPropertyEligible,commonPropertyEdit} from '../src/features/editor/visual-tools';
 import {selectionRoots,inheritedLock} from '../src/canvas/visual-geometry';
 import type {CanvasModel,CanvasNode,CanvasKind,LayoutBox,NodeProperties} from '../src/canvas/canvas-model';
 
@@ -9,6 +9,7 @@ const option=(value:string)=>({type:'enum' as const,value});
 const make=(id:string,x:number,y:number,w:number,h:number,parentId='screen',properties:NodeProperties={},kind='Frame'):CanvasNode=>({id,parentId,kind,properties:{x:number(x),y:number(y),width:number(w),height:number(h),...properties}});
 function model(nodes:CanvasNode[]):CanvasModel {
   const kinds=new Map<string,CanvasKind>([['Frame',{semanticRole:'Container',canContainChildren:true,previewEvents:[],properties:{
+    width:{type:'number',minimum:1,maximum:1000},height:{type:'number',minimum:1,maximum:1000},x:{type:'number'},y:{type:'number'},
     layout:{type:'enum',defaultValue:option('Free')},rotation:{type:'number',defaultValue:number(0)},opacity:{type:'number',defaultValue:number(1)},
     backgroundColor:{type:'color',tokenType:'Color'},borderStyle:{type:'style'},text:{type:'string'},strokeWidth:{type:'number',maximum:100}
   }}],['Icon',{semanticRole:'Icon',canContainChildren:false,previewEvents:[],properties:{strokeWidth:{type:'number',maximum:8}}}]]);
@@ -58,5 +59,21 @@ describe('visual edit planning',()=>{
     const ops=pasteAppearance(m,['b','icon'],clipboard);
     expect(ops.find(op=>op.nodeId==='b'&&op.action==='set')?.properties).toMatchObject({backgroundColor:token,borderStyle:style});
     expect(ops.some(op=>op.nodeId==='icon')).toBe(false);
+  });
+});
+
+describe('common geometry',()=>{
+  it('applies width independently, honoring each element ratio',()=>{
+    const m=model([make('a',0,0,100,50,'screen',{aspectRatioLocked:bool(true)}),make('b',0,0,40,80)]);
+    expect(commonPropertyEdit(m,['a','b'],'width',number(200))).toEqual([
+      {action:'set',nodeId:'a',properties:{width:number(200),height:number(100)}},
+      {action:'set',nodeId:'b',properties:{width:number(200)}}
+    ]);
+  });
+  it('does not replace token sizes or edit coordinates in a stack',()=>{
+    const m=model([make('p',0,0,200,100,'screen',{layout:option('Vertical')}),make('a',0,0,50,50,'p',{width:{type:'token',tokenId:'size'}})]);
+    expect(commonPropertyEdit(m,['a'],'width',number(200))).toEqual([]);
+    expect(commonPropertyEdit(m,['a'],'x',number(10))).toEqual([]);
+    const a=m.nodes.get('a');if(a)expect(commonPropertyEligible(m,a,'height')).toBe(true);
   });
 });
