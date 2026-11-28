@@ -1,3 +1,5 @@
+import { DocumentFontRegistry } from './document-font-registry';
+import { loadPreviewFonts } from './preview-fonts';
 import { renderScreen } from './screen-renderer';
 import { previewSurface } from './preview-surface';
 import { readRenderModel } from './render-model';
@@ -15,10 +17,14 @@ try {
   const data = requiredRecord(snapshot.assetData), values = requiredRecord(snapshot.values);
   const surfaces = array(snapshot.surfaces, requiredRecord);
   const images: Promise<void>[] = [];
+  phase = 'FONTS';
+  const fonts = new DocumentFontRegistry(async () => { throw new Error('No font asset loader'); });
+  const fontFamilies = await loadPreviewFonts(fonts, text(snapshot.documentId), snapshot.fonts, snapshot.assets, async face =>
+    Uint8Array.from(atob(text(data[face.assetId])), c => c.charCodeAt(0)).buffer);
   phase = 'DOM';
   for (const [index, surface] of surfaces.entries()) {
     const model = readRenderModel({ ...surface, assets: snapshot.assets, tokens: snapshot.tokens, kinds: snapshot.kinds });
-    const drawing = renderScreen(model, {
+    const drawing = renderScreen({ ...model, fontFamilies }, {
       preview: true, report() {},
       getInput: (id, fallback) => Object.hasOwn(values, id) ? (values[id] == null ? '' : text(values[id])) : fallback
     });

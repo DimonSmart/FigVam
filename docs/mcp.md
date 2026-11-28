@@ -210,3 +210,7 @@ Shadow принимает прежний прямой RGBA или вложенн
 ### Полный Login Prototype
 
 Готовый JSON: [examples/login-prototype-batch.json](examples/login-prototype-batch.json). Перед вызовом `execute_batch` замените `expectedRevision` на ревизию из `get_document`. Пример используется непосредственно в Playwright-сценарии автономного MCP-рендеринга. Повторный вызов с тем же `commandId` возвращает исходные идентификаторы.
+
+### Пользовательские шрифты
+
+`upload_asset` принимает `font/woff2`, `font/woff`, `font/ttf`, `font/otf` с дополнительным объектом `font`: `familyId`, `familyName`, `faceId`, `faceName`, `weightFrom`, `weightTo`, `style` (0 — normal, 1 — italic). Одинаковый familyId используется для непересекающихся начертаний одного семейства. Например, переменный шрифт имеет weightFrom=100, weightTo=900. Используйте familyName в существующем свойстве fontFamily или в типографическом токене. Каталог и байты принадлежат ревизии документа, а не системе. Обе версии Preview регистрируют шрифты через FontFace; ошибки загрузки не маскируются системным fallback. Пока загрузка с метаданными доступна через MCP, отдельный UI импорта шрифтов не входит в задачу.

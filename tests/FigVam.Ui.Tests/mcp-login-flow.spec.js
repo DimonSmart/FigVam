@@ -739,3 +739,54 @@ test('Server simulation matches the composed interactive overlay and final input
   expect(result.structuredContent.overlays).toEqual([overlay]);
   await compareNativePreview(page, result.content.find(block => block.type === 'image'));
 });
+
+test('Uploaded variable font is loaded for native Preview and detached screenshots', async ({ page, request, server }) => {
+  test.setTimeout(120000);
+  const uuid = require('node:crypto').randomUUID;
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await signIn(page, server);
+  await page.getByLabel('Имя нового документа').fill('Variable font parity');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+  const access = await grant(page);
+  const call = await connect(request, access.endpoint, access.token);
+  const { pageId } = await call('create_page');
+  const { screenId } = await call('create_screen', { pageId, width: 320, height: 180 });
+  const familyId = uuid(), familyName = 'FigVamProbe';
+  await call('upload_asset', { contentType: 'font/woff2',
+    contentBase64: 'd09GMgABAAAAAAHIAA4AAAAABGgAAAFuAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP0hWQVIqBmA/U1RBVBwANC8kChg2MC4BNgIkAwYLBgAEIAWCfQcmG4QDIC4ObDrPQjtGVGhWnI3Qu774EM9TS/f+7iaUWoyFU/EIW4XE1vF04ZGa8Zxx8Xmu+a/E755HYYVVYPSqgIcbjWwNA2BUv2LS8h9Yzc/d820nHj2ggFJtJW0HlElL4zyBAsnDM8sw/STw3cZmHsFRiEN+31DAKgAgmBUsIlBArb0bjAYmoIsrgo5T83FQr/wAAIcgYlKwCqA83G9PAqCgYhUlWEU7BE0TdGO0LLBbRIpVMBn3OzCBG6ivEKCAhqBhAGiAtMxMTPs5/AGCgG0k2AZMP8a0yUeX8Njlm7fXNwTh9/My2y7on6y1h3+jARV+6mFQFRAKk740NzapPUgpYqQQk9kADTGDgGLCzIpqwTKaFRwNWVOEoRFK2pRYF60o5l2j2ndDc+5DQ/6fw6y/Xev+lN4vw/wtqzyOPNBiTfEaXmA9CUI7q1rvJHV3MZjlZquXo96dc3gyiWToZ8XUjLkxz4LNE0nekk4BAAAA',
+    font: { familyId, familyName, faceId: uuid(), faceName: 'Variable', weightFrom: 100, weightTo: 900, style: 0 } });
+  const ids = [];
+  for (const [index, weight] of [100, 900].entries()) {
+    const { nodeId } = await call('create_node', { parentId: screenId, kind: 'Text',
+      properties: { x: 10, y: 10 + index * 80, width: 300, height: 75, text: 'AAAA', fontFamily: familyName,
+        fontSize: 40, fontWeight: weight, textColor: '#000000' } });
+    ids.push(nodeId);
+  }
+  await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  for (const id of ids) {
+    const surface = page.locator('#preview-viewport [data-visual-node="' + id + '"] .visual-surface');
+    await expect(surface).toHaveCSS('font-family', /figvam-font-/);
+  }
+  const result = await call.raw('render_screen', { screenId });
+  expect(result.isError, JSON.stringify(result.structuredContent)).not.toBe(true);
+  const image = result.content.find(block => block.type === 'image');
+  await compareNativePreview(page, image);
+  const ink = await page.evaluate(async data => {
+    const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
+    const canvas = document.createElement('canvas'); canvas.width = bmp.width; canvas.height = bmp.height;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(bmp,0,0);
+    return [0,80].map(y => {
+      const pixels = ctx.getImageData(10, 10+y, 300, 75).data;
+      let count = 0; for (let i=0;i<pixels.length;i+=4) if (pixels[i]<100 && pixels[i+1]<100 && pixels[i+2]<100) count++;
+      return count;
+    });
+  }, image.data);
+  expect(ink[0]).toBeGreaterThan(0);
+  expect(ink[1]).toBeGreaterThan(ink[0] * 2);
+  await page.close();
+  const detached = await call.raw('render_screen', { screenId });
+  expect(detached.isError, JSON.stringify(detached.structuredContent)).not.toBe(true);
+  expect(detached.content.find(block => block.type === 'image').data).toBe(image.data);
+});

@@ -95,7 +95,7 @@ public sealed partial class DocumentCommandHandler
                 if (existing is not null && existing.Name != font.FamilyName)
                     return new(Result("INVALID_FONT_MANIFEST"), null);
                 var face = new DocumentFontFace(font.FaceId, asset.Id, font.FaceName, font.WeightFrom, font.WeightTo, font.Style);
-                family = new(font.FamilyId, font.FamilyName, [.. existing?.Faces ?? [], face]);
+                family = new(font.FamilyId, font.FamilyName, [.. (existing?.Faces ?? []), face]);
             }
             var added = new AssetAdded(asset, family);
             var document = added.Apply(state.Document);
