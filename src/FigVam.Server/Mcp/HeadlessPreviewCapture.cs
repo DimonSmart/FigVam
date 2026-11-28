@@ -117,7 +117,7 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
             return new(grant.CaptureRevoked.IsCancellationRequested ? "ACCESS_DENIED" : "CAPTURE_TIMEOUT");
         }
         catch (PreviewBrowserUnavailableException) { return new("RENDER_UNAVAILABLE"); }
-        catch (Microsoft.Playwright.TimeoutException) { return new("CAPTURE_TIMEOUT"); }
+        catch (System.TimeoutException) { return new("CAPTURE_TIMEOUT"); }
         catch (Exception error) when (error is IOException or UnauthorizedAccessException or Microsoft.Playwright.PlaywrightException or InvalidOperationException or FormatException)
         {
             return new("CAPTURE_FAILED");

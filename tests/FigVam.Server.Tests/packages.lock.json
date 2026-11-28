@@ -84,6 +84,11 @@
           "Microsoft.OpenApi": "[2.13.0, 3.0.0)"
         }
       },
+      "Microsoft.Bcl.AsyncInterfaces": {
+        "type": "Transitive",
+        "resolved": "6.0.0",
+        "contentHash": "UcSjPsst+DfAdJGVDsu346FX0ci0ah+lw3WRtn18NUwEqRt70HaOQ7lI72vy3+1LxtqI3T5GWwV39rQSrCzAeg=="
+      },
       "Microsoft.Bcl.Cryptography": {
         "type": "Transitive",
         "resolved": "10.0.2",
@@ -314,6 +319,15 @@
         "resolved": "2.13.0",
         "contentHash": "wavlgBYnn7uU/ZGhFHNl0UlDOlwz+6KRduKkqdCCbfxxANaQ1rmBpETVGdwXanAM6twQOxsvI3CBEGF4OScbeQ=="
       },
+      "Microsoft.Playwright": {
+        "type": "Transitive",
+        "resolved": "1.65.1",
+        "contentHash": "xJ9Imv5+05KULm2wQPS2w4gVAHg5eByo0P8KixryyE7XpVL8xmuQcvzCqQTYPpJoQLLgpRwe7LibfF1mIBHL1g==",
+        "dependencies": {
+          "Microsoft.Bcl.AsyncInterfaces": "6.0.0",
+          "System.ComponentModel.Annotations": "5.0.0"
+        }
+      },
       "Microsoft.TestPlatform.ObjectModel": {
         "type": "Transitive",
         "resolved": "17.14.1",
@@ -456,6 +470,11 @@
           "SQLitePCLRaw.core": "3.0.5"
         }
       },
+      "System.ComponentModel.Annotations": {
+        "type": "Transitive",
+        "resolved": "5.0.0",
+        "contentHash": "dMkqfy2el8A8/I76n2Hi1oBFEbG1SfxD2l5nhwXV3XjlnOmwxJlQbYpJH4W51odnU9sARCSAgv7S3CyAFMkpYg=="
+      },
       "System.Diagnostics.DiagnosticSource": {
         "type": "Transitive",
         "resolved": "11.0.0",
@@ -537,6 +556,7 @@
           "Microsoft.AspNetCore.Authentication.Google": "[10.0.15, )",
           "Microsoft.AspNetCore.Authentication.JwtBearer": "[10.0.15, )",
           "Microsoft.AspNetCore.OpenApi": "[10.0.15, )",
+          "Microsoft.Playwright": "[1.65.1, 1.65.1]",
           "ModelContextProtocol.AspNetCore": "[2.4.0, )"
         }
       },

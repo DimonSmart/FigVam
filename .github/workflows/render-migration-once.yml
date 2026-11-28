@@ -1,7 +1,7 @@
 name: Render migration validation (one-time)
 on:
   pull_request:
-    types: [opened]
+    types: [opened, synchronize]
     branches: [main]
 permissions:
   contents: read
@@ -21,7 +21,7 @@ jobs:
       - run: npm install --global npm@11
       - name: Regenerate NuGet locks
         run: |
-          dotnet restore FigVam.sln --force-evaluate
+          dotnet restore FigVam.sln --locked-mode
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff -- ':(glob)**/packages.lock.json'
       - name: Build
