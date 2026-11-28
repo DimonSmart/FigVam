@@ -584,11 +584,29 @@ test('MCP-uploaded resource renders in an already open editor, Preview and scree
   expect(pixels.left[1]).toBeLessThan(55);
   expect(pixels.right[1]).toBeGreaterThan(200);
   expect(pixels.right[0]).toBeLessThan(55);
+  // Compare an image under a translucent, clipping frame and wrapped text.
+  // The child extends beyond the frame and its text needs several lines.
+  const { nodeId: frame } = await call('create_node', { parentId: screenId, kind: 'Frame',
+    properties: { x: 50, y: 10, width: 100, height: 80, overflow: 'Clip', backgroundColor: '#FFFFFF80',
+      borderWidth: 1, borderColor: '#202020', opacity: 0.8 } });
+  const { nodeId: wrapped } = await call('create_node', { parentId: frame, kind: 'Text',
+    properties: { x: 5, y: 5, width: 120, height: 110, text: 'Long text wraps onto several lines and extends beyond the frame.',
+      fontSize: 14, wrap: true, textColor: '#000000' } });
+  const layered = await call.raw('render_screen', { screenId });
+  expect(layered.isError, JSON.stringify(layered.structuredContent)).not.toBe(true);
+  const layeredImage = layered.content.find(block => block.type === 'image');
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   const preview = page.locator('#preview-viewport [data-visual-node="' + nodeId + '"] img');
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.evaluate(img => img.naturalWidth)).toBe(2);
-  await compareNativePreview(page, image);
+  const text = page.locator('#preview-viewport [data-visual-node="' + wrapped + '"] .visual-surface');
+  await expect(text).toContainText('Long text wraps');
+  expect(await text.evaluate(el => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    return new Set([...range.getClientRects()].map(rect => rect.top)).size;
+  })).toBeGreaterThan(1);
+  await compareNativePreview(page, layeredImage);
 });
 
 
