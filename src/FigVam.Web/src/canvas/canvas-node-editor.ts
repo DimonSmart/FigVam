@@ -1,6 +1,6 @@
 import { resolvePropertyToken } from '../core/tokens/token-resolution.js';
 import type { CanvasModel, CanvasNode, Bounds, PropertyDefinitions } from './canvas-model';
-import { closestSnap, proportionalSize, selectionRoots, type GridSettings } from './visual-geometry';
+import { closestSnap, proportionalSize, selectionRoots, inheritedLock, type GridSettings } from './visual-geometry';
 
 type Axis = keyof Bounds;
 type Geometry = Partial<Record<Axis, { type: 'number'; value: number }>>;
@@ -55,7 +55,7 @@ export function createCanvasNodeEditor({
     const model = getModel();
     if (!id || !model) return null;
     const node = model.nodes.get(id);
-    if (!node) return null;
+    if (!node || inheritedLock(model,id)) return null;
     const parent = model.nodes.get(node.parentId);
     const layout = parent && (parent.properties.layout ?? model.kinds.get(parent.kind)?.properties.layout?.defaultValue);
     const parentLayout = layout && 'value' in layout ? layout.value : undefined;
@@ -85,7 +85,7 @@ export function createCanvasNodeEditor({
     const tokenSized = ['width', 'height'].filter(name =>
       selected.node.properties[name]?.type === 'token');
     resizeHandle.title = tokenSized.length
-      ? 'Изменить размер (отвязать токен: ' + tokenSized.join(', ') + ')'
+      ? 'Размер связан с токеном: ' + tokenSized.join(', ')
       : 'Изменить размер (Shift — сохранить пропорции)';
   }
 
@@ -100,6 +100,7 @@ export function createCanvasNodeEditor({
       const definition = selected.definitions[name];
       if (!definition) return null;
       const value = selected.node.properties[name] ?? definition.defaultValue;
+      if(resize&&value?.type==='token')return null;
       const resolved = value?.type === 'token'
         ? resolvePropertyToken(value, selected.model.tokens, 'Light', definition)
         : { value, error: null };
@@ -132,7 +133,7 @@ export function createCanvasNodeEditor({
     guides();
     const resizing=edit.names.includes('width');
     const grid=getGrid();
-    if (keepRatio && resizing) {
+    if ((keepRatio || edit.node.properties.aspectRatioLocked?.type==='boolean'&&edit.node.properties.aspectRatioLocked.value) && resizing) {
       if (['width','height'].some(name=>(edit.node.properties[name]??edit.definitions[name]?.defaultValue)?.type==='token')) {
         restore(edit);edit.properties={};return;
       }
@@ -276,7 +277,7 @@ export function createCanvasNodeEditor({
     if (event.altKey || event.ctrlKey || event.metaKey || !selectedWrapper || !writable()) return;
     if (event.key === 'Delete') {
       event.preventDefault();
-      if (!gesture && !isEditPending()) {const model=getModel(),ids=getContext().selectedIds??[];if(model&&ids.length>1)editBatch(selectionRoots(model,ids).map(nodeId=>({action:'delete',nodeId})),model.revision,()=>{});else deleteSelected();}
+      if (!gesture && !isEditPending()) {const model=getModel(),ids=getContext().selectedIds??[];if(model&&ids.length>1){if(ids.some(id=>inheritedLock(model,id)))return;if(confirm('Удалить выбранные слои и их поддеревья?'))editBatch(selectionRoots(model,ids).map(nodeId=>({action:'delete',nodeId})),model.revision,()=>{});}else deleteSelected();}
       return;
     }
     if (!delta) return;

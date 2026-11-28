@@ -40,3 +40,12 @@ export function selectionRoots(model:{nodes:ReadonlyMap<string,{parentId:string}
   const selected=new Set(ids);
   return [...selected].filter(id=>{let parent=model.nodes.get(id)?.parentId;while(parent){if(selected.has(parent))return false;parent=model.nodes.get(parent)?.parentId;}return true;});
 }
+
+export function inheritedLock(model:{nodes:ReadonlyMap<string,{parentId:string;properties:Record<string,{type:string;value?:unknown}|undefined>}>},id:string):boolean {
+  const visited=new Set<string>();
+  for(let node=model.nodes.get(id);node&&!visited.has(node.parentId);node=model.nodes.get(node.parentId)){
+    visited.add(node.parentId);
+    if(node.properties.editorLocked?.value===true)return true;
+  }
+  return false;
+}

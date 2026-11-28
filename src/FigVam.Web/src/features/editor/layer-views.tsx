@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import { Button } from '../../ui/Button';
 import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
-import { ChevronDown, ChevronRight, ArrowUpRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, ArrowUpRight, Lock, LockOpen, Eye, EyeOff } from 'lucide-react';
 import { layerDisplayName, type LayerCaptionSource } from '../../core/layer-caption';
 export interface LayerItem extends LayerCaptionSource {id:string;parentId:string;childCount:number;canContainChildren?:boolean}
 export type MetadataKind='name'|'key';
@@ -15,15 +15,17 @@ interface LayerTreeProps {
   interactiveNodes: ReadonlySet<string>;
   selectedIds: ReadonlySet<string>;
   focus: string | undefined;
+  editable:boolean;onProperty(id:string,name:'editorLocked'|'visible',value:boolean):void;
   onSelect(id: string, row: HTMLElement | null, toggle?:boolean): void;
 }
 
-function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,selectedIds,focus,onSelect}: LayerTreeProps) {
+function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,selectedIds,focus,onSelect,editable,onProperty}: LayerTreeProps) {
     function renderBranch(items: LayerItem[]): ReactElement[] {
       return items.map((item, index) => {
         const {text: name, source, origin} = layerDisplayName(item);
         const expanded = layerExpanded.has(item.id);
         const interactive = interactiveNodes.has(item.id);
+        const locked=item.properties?.editorLocked?.value===true,visible=item.properties?.visible?.value!==false;
         return <div key={item.id} role="treeitem" data-id={item.id} tabIndex={focus === item.id ? 0 : -1}
           aria-posinset={index + 1} aria-setsize={items.length}
           aria-selected={selectedIds.has(item.id)} aria-expanded={item.childCount ? expanded : undefined}
@@ -32,6 +34,8 @@ function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,sele
             <span className="layer-disclosure" aria-hidden="true">{item.childCount ? (expanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>) : ''}</span>
             <span className="layer-kind-icon" aria-hidden="true" title={item.kind}>{layerKindIcons[item.kind] ?? '◇'}</span>
             <span className="layer-name" data-label-source={source}>{name}</span>
+            <button type="button" className="layer-action" disabled={!editable} title={locked?'Разблокировать':'Заблокировать'} aria-label={locked?'Разблокировать':'Заблокировать'} onClick={event=>{event.stopPropagation();onProperty(item.id,'editorLocked',!locked);}}>{locked?<Lock size={13}/>:<LockOpen size={13}/>}</button>
+            <button type="button" className="layer-action" disabled={!editable||locked} title={visible?'Скрыть':'Показать'} aria-label={visible?'Скрыть':'Показать'} onClick={event=>{event.stopPropagation();onProperty(item.id,'visible',!visible);}}>{visible?<Eye size={13}/>:<EyeOff size={13}/>}</button>
             {interactive && <span className="layer-interaction" title="Есть взаимодействия" aria-hidden="true"><ArrowUpRight size={12}/></span>}
           </span>
           {item.childCount > 0 && expanded && <div role="group">{renderBranch(layerChildren.get(item.id) ?? [])}</div>}

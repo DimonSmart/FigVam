@@ -1,3 +1,4 @@
+import { inheritedLock } from './visual-geometry';
 import { DocumentFontRegistry } from './document-font-registry';
 import { loadPreviewFonts } from './preview-fonts';
 import { previewSurface } from './preview-surface';
@@ -142,7 +143,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
 
   function syncSelection() {
     const id = getContext().selection?.id;
-    for(const wrapper of boundary.querySelectorAll('[data-selected=true]'))wrapper.removeAttribute('data-selected');
+    for(const wrapper of boundary.querySelectorAll<HTMLElement>('[data-visual-node]')){wrapper.removeAttribute('data-selected');wrapper.toggleAttribute('data-editor-locked',!!design.model&&inheritedLock(design.model,wrapper.dataset.visualNode??''));}
     design.selected = id ? boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`) : null;
     for(const selectedId of getContext().selectedIds??(id?[id]:[])){
       const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(selectedId)}"]`);

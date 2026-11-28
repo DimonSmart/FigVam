@@ -3,6 +3,7 @@ import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperati
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
 import { aborted, errorMessage } from '../../api/decode';
+import { inheritedLock } from '../../canvas/visual-geometry';
 import type { CanvasNode, CanvasKind, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import type { NodePropertyValue, ResolvableValue } from '../../core/tokens/token-model';
 import type { RawValue, PropertyModel, ControlDefinition } from '../../ui/property-control-contract';
@@ -366,7 +367,7 @@ export function createVisualNodeEditor({
     paletteBlocked=blocked;
     for (const field of paletteFields.values()) field.setDisabled(blocked);
     for (const field of paletteOptionalFields.values()) field.setDisabled(blocked);
-    for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(op && !op.canvas && !op.auto));
+    for (const [name, field] of inspectorFields) field.setDisabled(!editable || Boolean(model&&node&&inheritedLock(model,node.id)&&name!=='editorLocked') || Boolean(op && !op.canvas && !op.auto));
     for(const field of inspectorFields.values())field.setActionsDisabled(blocked);
     const validParent = model?.kinds.size && eligibleParent();
     const requiredReady = [...paletteFields.values()].every(field => field.validate(false).value !== undefined);

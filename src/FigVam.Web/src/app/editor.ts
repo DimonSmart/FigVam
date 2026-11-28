@@ -294,6 +294,8 @@ const documentHistory: ReturnType<typeof createDocumentHistory> = createDocument
 });
 
 const layers: ReturnType<typeof createLayers> = createLayers({
+  editLayerProperties:(id,properties)=>revisions.revision!==null&&visualNodeEditor.editBatch([{action:'set',nodeId:id,properties}],revisions.revision),
+  deleteMultiple:ids=>{const model=visualScreens.designModel;if(!model)return false;const selected=new Set(ids);return visualNodeEditor.editBatch(ids.filter(id=>{for(let p=model.nodes.get(id)?.parentId;p;p=model.nodes.get(p)?.parentId)if(selected.has(p))return false;return true;}).map(nodeId=>({action:'delete',nodeId})),model.revision);},
   model: views.layers, setMoveEnabled:layerMoveEnabled=>documentShell.patch({layerMoveEnabled}), element, request, refreshPages:synchronizeWorkspace, closeInaccessibleDocument, message,
   workspace: {
     isEditorVisible,
