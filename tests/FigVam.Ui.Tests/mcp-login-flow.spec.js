@@ -571,7 +571,7 @@ test('TextInput placeholders and values use the correct text, mask and theme col
       await expect.poll(() => input.evaluate(el => getComputedStyle(el, '::placeholder').color))
         .toBe(rgb(colors[theme].placeholder));
       await expect.poll(() => input.evaluate(el => el.matches(':placeholder-shown')))
-        .toBe(!expected.value && !!expected.placeholder);
+        .toBe(!expected.value); // Chromium matches even an explicitly empty placeholder.
     }
   }
   await assertFields('#screen-boundary', 'Light');
