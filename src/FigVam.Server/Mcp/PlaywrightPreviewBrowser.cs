@@ -79,6 +79,7 @@ public sealed class PlaywrightPreviewBrowser(ILogger<PlaywrightPreviewBrowser> l
             else await route.AbortAsync();
         }).WaitAsync(ct);
         var page = await context.NewPageAsync().WaitAsync(ct);
+        await page.Mouse.MoveAsync(-1, -1).WaitAsync(ct);
         await page.GotoAsync(Origin + "render.html").WaitAsync(ct);
         await page.WaitForFunctionAsync("() => document.documentElement.dataset.renderStatus === 'ready' || document.documentElement.dataset.renderStatus === 'failed'").WaitAsync(ct);
         if (await page.Locator("html").GetAttributeAsync("data-render-status").WaitAsync(ct) != "ready")

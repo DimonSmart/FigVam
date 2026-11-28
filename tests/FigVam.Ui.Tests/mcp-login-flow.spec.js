@@ -221,20 +221,27 @@ async function compareNativePreview(page, image) {
   const expected = Buffer.from(image.data, 'base64');
   const width = expected.readUInt32BE(16), height = expected.readUInt32BE(20);
   const viewport = page.locator('#preview-viewport');
-  // Align the interactive capture with the server's integer CSS-pixel origin.
-  // Locator screenshots may round fractional origins to a larger bounding rectangle.
-  await viewport.evaluate(el => {
-    const { x, y } = el.getBoundingClientRect();
-    el.style.translate = `${Math.round(x) - x}px ${Math.round(y) - y}px`;
-  });
+  // Compare the actual Preview DOM at the same integer origin as the server.
+  // Do not use CSS transforms: they change Chromium's text rasterization.
   const bounds = await viewport.boundingBox();
   expect(Math.abs(bounds.width - width), JSON.stringify({ bounds, width, height })).toBeLessThan(1);
   expect(Math.abs(bounds.height - height), JSON.stringify({ bounds, width, height })).toBeLessThan(1);
-  const interactive = await page.screenshot({
-    clip: { x: Math.round(bounds.x), y: Math.round(bounds.y), width, height },
-    animations: 'disabled', caret: 'hide', scale: 'css'
-  });
-  await viewport.evaluate(el => el.style.removeProperty('translate'));
+  const original = await viewport.getAttribute('style');
+  let interactive;
+  try {
+    await viewport.evaluate((el, size) => {
+      Object.assign(el.style, { position: 'fixed', left: '0px', top: '0px',
+        margin: '0', width: size.width + 'px', height: size.height + 'px', zIndex: '1000' });
+    }, { width, height });
+    await page.mouse.move(width + 5, height + 5);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    interactive = await page.screenshot({
+      clip: { x: 0, y: 0, width, height },
+      animations: 'disabled', caret: 'hide', scale: 'css'
+    });
+  } finally {
+    await viewport.evaluate((el, style) => style === null ? el.removeAttribute('style') : el.setAttribute('style', style), original);
+  }
   const difference = await page.evaluate(async ({ a, b }) => {
     async function pixels(data) {
       const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], {type:'image/png'}));
@@ -248,19 +255,23 @@ async function compareNativePreview(page, image) {
     }
     const [one, two] = await Promise.all([pixels(a), pixels(b)]);
     if (one.width !== two.width || one.height !== two.height) return { sizeMatches: false, interactive: [one.width, one.height], server: [two.width, two.height] };
-    let changed = 0, sum = 0;
+    let changed = 0, sum = 0, minX = one.width, minY = one.height, maxX = -1, maxY = -1;
     for (let i = 0; i < one.data.length; i += 4) {
       let max = 0;
       for (let channel = 0; channel < 4; channel++) {
         const delta = Math.abs(one.data[i + channel] - two.data[i + channel]);
         max = Math.max(max, delta); sum += delta;
       }
-      if (max > 16) changed++;
+      if (max > 16) { changed++; const x = (i / 4) % one.width, y = Math.floor(i / 4 / one.width); minX = Math.min(minX,x); maxX = Math.max(maxX,x); minY = Math.min(minY,y); maxY = Math.max(maxY,y); }
     }
-    return { sizeMatches: true, changed: changed / (one.width * one.height), average: sum / one.data.length };
+    return { sizeMatches: true, changed: changed / (one.width * one.height), average: sum / one.data.length, region: [minX, minY, maxX, maxY] };
   }, { a: interactive.toString('base64'), b: image.data });
   expect(difference.sizeMatches, JSON.stringify(difference)).toBe(true);
-  expect(difference.changed).toBeLessThanOrEqual(0.005);
+  if (!difference.sizeMatches || difference.changed > 0.005 || difference.average > 0.5) {
+    await test.info().attach('interactive-preview', { body: interactive, contentType: 'image/png' });
+    await test.info().attach('server-preview', { body: expected, contentType: 'image/png' });
+  }
+  expect(difference.changed, JSON.stringify(difference)).toBeLessThanOrEqual(0.005);
   expect(difference.average).toBeLessThanOrEqual(0.5);
 }
 

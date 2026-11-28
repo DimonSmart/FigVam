@@ -1,0 +1,203 @@
+name: Render migration validation
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: figvam-render-migration-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    if: github.event.pull_request.head.ref == 'feature/server-playwright-rendering' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/FigVam.Web/package-lock.json
+      - name: Configure npm 11
+        run: npm install --global npm@11
+      - name: Install frontend dependencies
+        working-directory: src/FigVam.Web
+        run: npm ci
+      - name: Typecheck and build
+        working-directory: src/FigVam.Web
+        run: npm run build
+      - name: Frontend unit tests
+        working-directory: src/FigVam.Web
+        run: npm test
+
+  server:
+    if: github.event.pull_request.head.ref == 'feature/server-playwright-rendering' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Configure npm 11
+        run: npm install --global npm@11
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build solution
+        run: dotnet build FigVam.sln --no-restore
+      - name: Install server Chromium
+        run: pwsh src/FigVam.Server/bin/Debug/net10.0/playwright.ps1 install chromium
+      - name: Verify generated OpenAPI contracts
+        working-directory: src/FigVam.Web
+        run: npm run generate:api -- --no-build --check
+      - name: Verify production publish
+        run: |
+          dotnet publish src/FigVam.Server --no-restore -c Release -o "$env:RUNNER_TEMP/figvam-publish"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $published = "$env:RUNNER_TEMP/figvam-publish/wwwroot"
+          if (!(Test-Path (Join-Path $published 'render.html'))) { throw 'Missing published render page' }
+          if (!(Test-Path (Join-Path $published 'index.html'))) { throw 'Missing published editor shell' }
+          $bundles = @(Get-ChildItem src/FigVam.Web/dist -Filter '*.js' -File)
+          if (!$bundles.Count) { throw 'No generated frontend assets' }
+          foreach ($bundle in $bundles) {
+            $target = Join-Path $published $bundle.Name
+            if (!(Test-Path $target -PathType Leaf)) { throw "Missing published frontend asset: $($bundle.Name)" }
+            if ((Get-FileHash $bundle.FullName).Hash -ne (Get-FileHash $target).Hash) { throw "Published asset differs: $($bundle.Name)" }
+          }
+      - name: Verify editor asset routes
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~EditorUiTests
+      - name: MCP protocol smoke
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --filter FullyQualifiedName~Mcp
+      - name: Server tests
+        run: dotnet test tests/FigVam.Server.Tests/FigVam.Server.Tests.csproj --no-build --logger "trx;LogFileName=server-tests.trx" --results-directory TestResults
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-test-diagnostics
+          path: TestResults/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  playwright:
+    if: github.event.pull_request.head.ref == 'feature/server-playwright-rendering' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/FigVam.Ui.Tests/package-lock.json
+      - name: Configure npm 11
+        run: npm install --global npm@11
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build solution
+        run: dotnet build FigVam.sln --no-restore
+      - name: Install server Chromium
+        run: pwsh src/FigVam.Server/bin/Debug/net10.0/playwright.ps1 install chromium
+      - name: Install UI dependencies
+        working-directory: tests/FigVam.Ui.Tests
+        run: npm ci
+      - name: Install Chromium
+        id: chromium
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright install chromium
+      - name: UI test launcher catalog smoke
+        run: pwsh -NoProfile -File ./run-ui-tests.ps1 -List
+      - name: Frontend bootstrap smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test frontend-bootstrap.spec.js --workers=1 --trace retain-on-failure
+      - name: MCP Login Flow smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test mcp-login-flow.spec.js mcp-tunnel.spec.js --workers=1 --trace off
+      - name: Home dashboard smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test home.spec.js --trace retain-on-failure
+      - name: Editor shell smoke
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test editor-shell.spec.js --trace retain-on-failure
+      - name: Upload home dashboard screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: home-dashboard-screenshots
+          path: tests/FigVam.Ui.Tests/test-results/**/home-desktop.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload editor shell screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-shell-screenshots
+          path: tests/FigVam.Ui.Tests/test-results/**/editor-shell-*.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Login prototype E2E
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test login-flow.spec.js --workers=1 --trace retain-on-failure
+      - name: Upload login padding screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-padding-editor
+          path: tests/FigVam.Ui.Tests/test-results/**/login-padding-editor.png
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Playwright tests
+        # A smoke failure must not hide independent regression failures or overwrite its trace.
+        if: ${{ !cancelled() && steps.chromium.outcome == 'success' }}
+        working-directory: tests/FigVam.Ui.Tests
+        run: npx playwright test --max-failures=5 --trace retain-on-failure --output=test-results/full-suite
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-diagnostics
+          path: tests/FigVam.Ui.Tests/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  aspire-tunnel:
+    if: github.event.pull_request.head.ref == 'feature/server-playwright-rendering' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Configure npm 11
+        run: npm install --global npm@11
+      - name: Restore dependencies
+        run: dotnet restore FigVam.sln --locked-mode
+      - name: Build AppHost
+        run: dotnet build src/FigVam.AppHost --no-restore
+      - name: Install matching Aspire CLI
+        run: |
+          $toolDir = Join-Path $env:RUNNER_TEMP 'figvam-aspire'
+          dotnet tool install Aspire.Cli --version 13.6.5 --tool-path $toolDir
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $toolDir | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Aspire MCP tunnel resource lifecycle
+        run: |
+          $aspire = (Get-Command aspire -CommandType Application -ErrorAction Stop).Source
+          & $aspire --version
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tests/FigVam.Ui.Tests/aspire-tunnel-smoke.ps1 -AspireExecutable $aspire
