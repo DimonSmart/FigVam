@@ -1,7 +1,7 @@
 import { prepareDocumentCommand, type DocumentCommandOperation } from '../../api/document-commands';
 import { toApiNodeProperties } from '../../api/command-value-contracts';
 import type { NodeProperties } from '../../canvas/canvas-model';
-export interface NodeEdit {action:'set'|'add'|'move'|'delete';nodeId:string;expectedParentId?:string;parentId?:string;position?:number;kind?:string;name?:string;properties?:NodeProperties;screenId?:string;variantId?:string}
+export interface NodeEdit {action:'set'|'add'|'move'|'delete'|'remove';nodeId:string;expectedParentId?:string;parentId?:string;position?:number;kind?:string;name?:string;properties?:NodeProperties;removeProperties?:string[];screenId?:string;variantId?:string}
 export type Command='edit-nodes'|'add-node'|'set-node-properties'|'set-screen-variant-properties'|'remove-screen-variant-override'|'remove-node-properties';
 export interface Body {nodeId:string;operations?:NodeEdit[];parentId?:string;kind?:string;properties?:NodeProperties|string[];expectedParentId?:string;expectedRevision?:number|null;screenId?:string|null;variantId?:string|null;property?:string}
 export function prepareNodeOperation(op:{documentId:string;command:Command;body:Body & {commandId:string}}):DocumentCommandOperation {

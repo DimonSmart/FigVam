@@ -74,7 +74,7 @@ export function createCanvasViewport({ chrome, element: lookup, getScreen, getSe
     const guide=guideFromEvent(event);if(!guide)return;
     const delta=guide.axis==='x'?(event.key==='ArrowLeft'?-1:event.key==='ArrowRight'?1:0):(event.key==='ArrowUp'?-1:event.key==='ArrowDown'?1:0);
     if(event.key==='Delete'||event.key==='Backspace'){event.preventDefault();event.stopPropagation();publishGuides(settings.guides.filter(item=>item.id!==guide.id));element('viewport').focus({preventScroll:true});}
-    else if(delta){event.preventDefault();event.stopPropagation();updateGuide(guide.id,guide.position+delta*(event.shiftKey?10:1));}
+    else if(event.key.startsWith('Arrow')){event.preventDefault();event.stopPropagation();if(delta)updateGuide(guide.id,guide.position+delta*(event.shiftKey?10:1));}
     else if(event.key==='Escape'&&guideDrag){event.preventDefault();event.stopPropagation();const current=guideDrag;guideDrag=null;updateGuide(current.id,current.original,false);const line=guideElements.get(current.id);if(line?.hasPointerCapture(current.pointer))line.releasePointerCapture(current.pointer);}
   },{signal});
 

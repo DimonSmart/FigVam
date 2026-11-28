@@ -273,7 +273,9 @@ export function createLayers({
     const op = nodeMoves.get(moveKey());
     const editable = ['Owner', 'Editor'].includes(workspace.documentRole??'');
     setMoveEnabled(editable && !op);
-    model.order.publish({retryHidden:!editable||!retryable(op),retry:retryNodeOrder,status:!editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'sync' ? 'Перемещение подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || ''});
+    const context=siblingContext(layerSelection?.id),free=!!context&&(context.parent===workspace.selectedScreen||(findLayer(context.parent)?.properties?.layout?.value??'Free')==='Free');
+    const enabled=editable&&!op&&free&&selectedIds.size===1&&!locked(layerSelection?.id);
+    model.order.publish({up:!!(enabled&&context&&context.index>0),down:!!(enabled&&context&&context.index<context.count-1),move:(delta,extreme)=>{if(enabled)beginNodeMove(delta,extreme);},retryHidden:!editable||!retryable(op),retry:retryNodeOrder,status:!editable ? '' : op?.state === 'pending' ? 'Перемещение слоя…' : op?.state === 'sync' ? 'Перемещение подтверждено. Повторите обновление.' : op?.state === 'uncertain' ? `Результат перемещения неизвестен. Повторите ту же команду для слоя «${op.name}».` : nodeMoveNotices.get(moveKey()) || ''});
   }
 
   const drag = createLayerDrag({

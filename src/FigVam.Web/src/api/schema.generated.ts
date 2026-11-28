@@ -14176,6 +14176,7 @@ export interface components {
             properties?: null | {
                 [key: string]: components["schemas"]["NodePropertyValue"];
             };
+            removeProperties?: null | string[];
             /** Format: uuid */
             screenId?: null | string;
             /** Format: uuid */

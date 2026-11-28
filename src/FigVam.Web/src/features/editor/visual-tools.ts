@@ -1,4 +1,4 @@
-import type { CanvasModel, CanvasNode, Bounds, NodeProperties } from '../../canvas/canvas-model';
+import type { CanvasModel, CanvasNode, Bounds, NodeProperties, PropertyDefinitions } from '../../canvas/canvas-model';
 import { inheritedLock, selectionRoots } from '../../canvas/visual-geometry';
 import type { NodeEdit } from './node-command';
 export type AlignAction='left'|'right'|'top'|'bottom'|'centerX'|'centerY'|'distributeX'|'distributeY';
@@ -50,15 +50,30 @@ export function alignment(model:CanvasModel,ids:readonly string[],action:AlignAc
   return edits;
 }
 const appearance=new Set(['backgroundColor','linearGradient','borderWidth','borderColor','borderPattern','borderStyle','cornerRadius','radiusTopLeft','radiusTopRight','radiusBottomRight','radiusBottomLeft','opacity','shadow','textStyle','typography','fontFamily','fontSize','fontWeight','fontStyle','fontFallback','lineHeight','letterSpacing','textColor','textAlignment','strokeColor','strokeWidth','focusBorderColor','focusBorderWidth','placeholderColor','startArrow','endArrow','imageClip','fit']);
-export function copyAppearance(model:CanvasModel,id:string):NodeProperties {
-  const node=model.nodes.get(id);if(!node)return {};
-  return Object.fromEntries(Object.entries(node.properties).filter(([name,value])=>appearance.has(name)&&value!==undefined));
+const textStyleFields=new Set(['textColor','fontFamily','fontSize','fontWeight','fontStyle','fontFallback','lineHeight','letterSpacing']);
+const borderStyleFields=new Set(['borderColor','borderWidth','cornerRadius','borderPattern','radiusTopLeft','radiusTopRight','radiusBottomRight','radiusBottomLeft']);
+export interface AppearanceClipboard {values:NodeProperties;absent:string[];definitions:PropertyDefinitions}
+export function copyAppearance(model:CanvasModel,id:string):AppearanceClipboard {
+  const node=model.nodes.get(id),defs=node&&model.kinds.get(node.kind)?.properties;
+  const values:NodeProperties={},absent:string[]=[];
+  if(node&&defs)for(const name of appearance){
+    const def=defs[name];if(!def)continue;
+    const styled=textStyleFields.has(name)&&(node.properties.textStyle?.type==='style'||(name!=='textColor'&&node.properties.typography?.type==='token'))||borderStyleFields.has(name)&&node.properties.borderStyle?.type==='style';
+    const value=node.properties[name]??(styled?undefined:def.defaultValue);
+    if(value)values[name]=value;else absent.push(name);
+  }
+  return {values,absent,definitions:defs??{}};
 }
-export function pasteAppearance(model:CanvasModel,ids:readonly string[],source:NodeProperties):NodeEdit[]{
+export function pasteAppearance(model:CanvasModel,ids:readonly string[],source:AppearanceClipboard):NodeEdit[]{
   return ids.flatMap(id=>{const node=model.nodes.get(id),defs=node&&model.kinds.get(node.kind)?.properties;
     if(!node||!defs||inheritedLock(model,id))return [];
-    const properties=Object.fromEntries(Object.entries(source).filter(([name,value])=>appearance.has(name)&&defs[name]&&value!==undefined));
-    return Object.keys(properties).length?[{action:'set' as const,nodeId:id,properties}]:[];
+    const compatible=(name:string)=>{const a=source.definitions[name],b=defs[name];return !!a&&!!b&&a.type===b.type&&a.tokenType===b.tokenType&&a.tokenCategory===b.tokenCategory&&a.styleType===b.styleType;};
+    const properties=Object.fromEntries(Object.entries(source.values).filter(([name,value])=>compatible(name)&&value!==undefined&&JSON.stringify(value)!==JSON.stringify(node.properties[name])));
+    const removeProperties=source.absent.filter(name=>compatible(name)&&node.properties[name]!==undefined&&!defs[name]?.required);
+    const ops:NodeEdit[]=[];
+    if(removeProperties.length)ops.push({action:'remove',nodeId:id,removeProperties});
+    if(Object.keys(properties).length)ops.push({action:'set',nodeId:id,properties});
+    return ops;
   });
 }
 export function grouping(model:CanvasModel,ids:readonly string[],groupId:string):NodeEdit[]{

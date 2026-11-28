@@ -103,6 +103,7 @@ public static class DocumentSchemas
         [nameof(QueryOptions)] = typeof(QueryOptions),
         [nameof(SetNodePropertyRequest)] = typeof(SetNodePropertyRequest),
         [nameof(SetNodePropertiesRequest)] = typeof(SetNodePropertiesRequest),
+        [nameof(EditNodesRequest)] = typeof(EditNodesRequest),
         [nameof(SaveDocumentRequest)] = typeof(SaveDocumentRequest),
         [nameof(RestoreDocumentRequest)] = typeof(RestoreDocumentRequest),
         [nameof(HistoryCommandRequest)] = typeof(HistoryCommandRequest),

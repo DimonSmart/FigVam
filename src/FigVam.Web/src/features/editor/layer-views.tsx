@@ -1,8 +1,9 @@
 import type { ReactElement } from 'react';
 import { Button } from '../../ui/Button';
+import { IconButton } from '../../ui/IconButton';
 import { TextInput } from '../../ui/Inputs';
 import { createViewModel } from '../../app/view-model';
-import { ChevronDown, ChevronRight, ArrowUpRight, Lock, LockOpen, Eye, EyeOff } from 'lucide-react';
+import { ChevronDown, ChevronRight, ArrowUpRight, Lock, LockOpen, Eye, EyeOff, ArrowUp, ArrowDown, ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
 import { layerDisplayName, type LayerCaptionSource } from '../../core/layer-caption';
 export interface LayerItem extends LayerCaptionSource {id:string;parentId:string;childCount:number;canContainChildren?:boolean}
 export type MetadataKind='name'|'key';
@@ -68,8 +69,8 @@ function LayerDeletion(p:{hidden:boolean;disabled:boolean;retryHidden:boolean;st
   return <><Button id="node-delete" type="button" hidden={p.hidden} disabled={p.disabled} onClick={p.remove}>Удалить слой</Button>
     <p id="node-delete-status" role="alert">{p.status}</p><Button id="node-delete-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>Повторить удаление слоя</Button></>;
 }
-function LayerOrder(p:{retryHidden:boolean;status:string;retry():void}) {
-  return <><p id="node-order-status" role="status" tabIndex={-1}>{p.status}</p>
+function LayerOrder(p:{retryHidden:boolean;status:string;retry():void;up:boolean;down:boolean;move(delta:number,extreme:boolean):void}) {
+  return <><div className="visual-action-buttons"><IconButton icon={ArrowUp} label="На один слой назад" disabled={!p.up} onClick={()=>p.move(-1,false)}/><IconButton icon={ArrowDown} label="На один слой вперёд" disabled={!p.down} onClick={()=>p.move(1,false)}/><IconButton icon={ArrowUpToLine} label="На задний план" disabled={!p.up} onClick={()=>p.move(-1,true)}/><IconButton icon={ArrowDownToLine} label="На передний план" disabled={!p.down} onClick={()=>p.move(1,true)}/></div><p id="node-order-status" role="status" tabIndex={-1}>{p.status}</p>
     <Button id="node-order-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>Повторить перемещение слоя</Button></>;
 }
 export function createLayersModel() {

@@ -181,6 +181,7 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
                         await scope.Handler.HandleAsync(new SetNodePropertiesCommand(documentId, id, op.NodeId, op.Properties, op.ExpectedParentId, revision), actor, ct),
                     "set" when op.Properties is { Count: > 0 } && op.VariantId is Guid variant && op.ScreenId is Guid screen =>
                         await scope.Handler.HandleAsync(new SetScreenVariantPropertiesCommand(documentId, id, screen, variant, op.NodeId, op.Properties, revision), actor, ct),
+                    "remove" when op.RemoveProperties is { Length: > 0 } => await scope.Handler.HandleAsync(new RemoveNodePropertiesCommand(documentId, id, op.NodeId, op.RemoveProperties, revision), actor, ct),
                     "delete" => await scope.Handler.HandleAsync(new DeleteNodeCommand(documentId, id, op.NodeId), actor, ct),
                     "add" when op.ParentId is Guid parent && !string.IsNullOrWhiteSpace(op.Kind) =>
                         await scope.Handler.HandleAsync(new AddNodeCommand(documentId, id, parent, op.NodeId, op.Kind, op.Properties, op.Name), actor, ct),

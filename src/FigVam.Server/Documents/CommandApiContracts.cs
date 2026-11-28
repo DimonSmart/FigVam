@@ -82,6 +82,7 @@ public sealed class NodeEditOperation
     public IReadOnlyDictionary<string, NodePropertyValue>? Properties { get; init; }
     public Guid? ScreenId { get; init; }
     public Guid? VariantId { get; init; }
+    public string[]? RemoveProperties { get; init; }
 }
 
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
