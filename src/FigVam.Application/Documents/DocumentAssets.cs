@@ -2,14 +2,27 @@ using FigVam.Domain.Documents;
 
 namespace FigVam.Application.Documents;
 
-public sealed record UploadDocumentAssetCommand(Guid DocumentId, Guid CommandId, Guid AssetId, string ContentType, byte[] Content);
-public sealed record AssetAdded(DocumentAsset Asset) : DocumentEvent;
+public sealed record FontUploadMetadata(Guid FamilyId, string FamilyName, Guid FaceId, string FaceName, int WeightFrom, int WeightTo, DocumentFontStyle Style);
+public sealed record UploadDocumentAssetCommand(Guid DocumentId, Guid CommandId, Guid AssetId, string ContentType, byte[] Content, FontUploadMetadata? Font = null);
+public sealed record AssetAdded(DocumentAsset Asset, DocumentFontFamily? FontFamily = null) : DocumentEvent
+{
+    public DocumentStructure Apply(DocumentStructure document) => document with
+    {
+        Assets = [.. document.Assets, Asset],
+        Fonts = FontFamily is null ? document.Fonts : document.Fonts.Any(f => f.Id == FontFamily.Id)
+            ? document.Fonts.Select(f => f.Id == FontFamily.Id ? FontFamily : f).ToArray()
+            : [.. document.Fonts, FontFamily]
+    };
+}
 public sealed record DocumentAssetContent(DocumentAsset Asset, byte[] Content);
 public interface IDocumentAssetStore
 {
     Task<byte[]?> ReadAssetContentAsync(Guid documentId, DocumentAsset asset, CancellationToken cancellationToken = default);
 }
-public sealed record DocumentAssetsResponse(Guid DocumentId, long Revision, IReadOnlyList<DocumentAsset> Assets);
+public sealed record DocumentAssetsResponse(Guid DocumentId, long Revision, IReadOnlyList<DocumentAsset> Assets)
+{
+    public IReadOnlyList<DocumentFontFamily> Fonts { get; init; } = [];
+}
 public sealed record DocumentAssetsResult(string Code, DocumentAssetsResponse? Response = null);
 public sealed record DocumentAssetReadResult(string Code, long? Revision = null, DocumentAssetContent? Content = null);
 public interface IDocumentAssets
@@ -40,7 +53,7 @@ public sealed class DocumentAssets(IDocumentAuthorization authorization, IDocume
             if (current.State is null) return new(current.Code);
             state = current.State;
         }
-        return new("OK", new(documentId, state.Revision, state.Document.Assets));
+        return new("OK", new(documentId, state.Revision, state.Document.Assets) { Fonts = state.Document.Fonts });
     }
 
     public async Task<DocumentAssetReadResult> ReadAsync(Guid documentId, Guid assetId, DocumentActor actor, long? revision = null, Guid? versionId = null, CancellationToken cancellationToken = default)
@@ -73,12 +86,25 @@ public sealed partial class DocumentCommandHandler
             if (command.AssetId == Guid.Empty) return new(Result("INVALID_ID"), null);
             if (content is null) return new(Result(command.Content is null ? "INVALID_ASSET" : "ASSET_TOO_LARGE"), null);
             if (DocumentAssetContentFormat.Inspect(command.AssetId, command.ContentType, content) is not { } asset) return new(Result("INVALID_ASSET"), null);
-            var document = state.Document with { Assets = [.. state.Document.Assets, asset] };
+            if (DocumentFontValidator.IsFontContentType(asset.ContentType) != (command.Font is not null))
+                return new(Result("INVALID_FONT_MANIFEST"), null);
+            DocumentFontFamily? family = null;
+            if (command.Font is { } font)
+            {
+                var existing = state.Document.Fonts.FirstOrDefault(f => f.Id == font.FamilyId);
+                if (existing is not null && existing.Name != font.FamilyName)
+                    return new(Result("INVALID_FONT_MANIFEST"), null);
+                var face = new DocumentFontFace(font.FaceId, asset.Id, font.FaceName, font.WeightFrom, font.WeightTo, font.Style);
+                family = new(font.FamilyId, font.FamilyName, [.. existing?.Faces ?? [], face]);
+            }
+            var added = new AssetAdded(asset, family);
+            var document = added.Apply(state.Document);
             if (!DocumentAssetValidator.IsValid(document.Assets)) return new(Result(state.Document.Assets.Any(a => a.Id == asset.Id) ? "DUPLICATE_ID" : "ASSET_LIMIT_EXCEEDED"), null);
+            if (!DocumentFontValidator.IsValid(document.Fonts, document.Assets)) return new(Result("INVALID_FONT_MANIFEST"), null);
             var errors = DocumentStructureValidator.Validate(document, profile);
             if (errors.Count != 0) return new(Result(errors.Any(e => e.Code == "duplicate-id") ? "DUPLICATE_ID" : "INVALID_ASSET_MANIFEST"), null);
             var next = new DocumentState(document, checked(state.Revision + 1));
-            return new(Result("ACCEPTED", next.Revision), next, new AssetAdded(asset), AssetContent: new(asset, content));
+            return new(Result("ACCEPTED", next.Revision), next, added, AssetContent: new(asset, content));
         }, cancellationToken, authorize: async () => await authorization.CanEditAsync(actor, command.DocumentId, cancellationToken) ? null : Result("FORBIDDEN"));
     }
 }

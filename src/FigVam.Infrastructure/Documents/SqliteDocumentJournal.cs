@@ -692,7 +692,7 @@ public sealed partial class SqliteDocumentJournal
                 switch (ReadEvent(reader))
                 {
                     case AssetAdded asset:
-                        document = document with { Assets = [.. document.Assets, asset.Asset] };
+                        document = asset.Apply(document);
                         break;
                     case BatchApplied batch:
                         document = batch.Patch.Apply(document)

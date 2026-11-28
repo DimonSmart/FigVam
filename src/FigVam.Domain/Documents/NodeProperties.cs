@@ -211,7 +211,7 @@ public static class NodePropertyValidator
             if (definition?.Type != NodePropertyType.StyleReference || definition.StyleType != target.Type)
                 return ("type-mismatch", style.StyleId, "Design style type does not match the property.");
         }
-        if (value is NodeAssetValue asset && !document.Assets.Any(a => a.Id == asset.AssetId))
+        if (value is NodeAssetValue asset && !document.Assets.Any(a => a.Id == asset.AssetId && a.ContentType == "image/png"))
             return ("missing-reference", asset.AssetId, "Referenced asset does not exist in this document snapshot.");
         return null;
     }

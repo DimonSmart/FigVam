@@ -33,7 +33,7 @@ public static class DocumentFormatSchemas
          "type":"object","additionalProperties":false,"required":["schemaVersion","files"],
          "properties":{"schemaVersion":{"const":1},"files":{"type":"array","minItems":1,"maxItems":257,
            "items":{"type":"object","additionalProperties":false,"required":["path","size","sha256"],
-             "properties":{"path":{"type":"string","pattern":"^(document\\.json|assets/[0-9a-f]{32}\\.png)$"},"size":{"type":"integer","minimum":0,"maximum":16777216},
+             "properties":{"path":{"type":"string","pattern":"^(document\\.json|assets/[0-9a-f]{32}\\.(png|woff2|woff|ttf|otf))$"},"size":{"type":"integer","minimum":0,"maximum":16777216},
                "sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}}}
         """)!;
 

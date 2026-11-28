@@ -96,6 +96,7 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
                     .Concat(overrides.SelectMany(o => o.Properties.Values)).OfType<NodeAssetValue>().Select(v => v.AssetId));
                 surfaces.Add(new { screen = id, theme = theme.ToString(), nodes, boxes, overrides });
             }
+            referenced.UnionWith(manifest.Response.Fonts.SelectMany(f => f.Faces).Select(f => f.AssetId));
             var assetData = new Dictionary<Guid, string>();
             foreach (var id in referenced)
             {
@@ -104,7 +105,8 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
                 assetData[id] = Convert.ToBase64String(asset.Content.Content);
             }
 
-            var snapshot = JsonSerializer.Serialize(new { revision, width, height, theme = theme.ToString(), surfaces,
+            var snapshot = JsonSerializer.Serialize(new { documentId = grant.DocumentId, revision, width, height, theme = theme.ToString(), surfaces,
+                fonts = manifest.Response.Fonts,
                 kinds = profile.Response.Kinds, tokens = tokenItems, assets = manifest.Response.Assets, assetData, values }, Json);
             var png = await browser.ScreenshotAsync(snapshot, width, height, token);
             token.ThrowIfCancellationRequested();

@@ -28,11 +28,13 @@ public static class DocumentFontValidator
         var ids = new HashSet<Guid>(byId.Keys);
         var usedAssets = new HashSet<Guid>();
         var hashes = new HashSet<string>(StringComparer.Ordinal);
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var count = 0;
         long bytes = 0;
         foreach (var family in families)
         {
-            if (family is null || family.Id == Guid.Empty || !ids.Add(family.Id) || !ValidName(family.Name) ||
+            if (family is null || family.Id == Guid.Empty || !ids.Add(family.Id) || !ValidName(family.Name) || family.Name.Length > 128 || !names.Add(family.Name) ||
+                !System.Text.RegularExpressions.Regex.IsMatch(family.Name, @"\A[\p{L}\p{N}][\p{L}\p{M}\p{N} _-]*\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant) ||
                 family.Faces is null || family.Faces.Count is 0 or > MaxFaces)
                 return false;
             var ranges = new List<DocumentFontFace>();
