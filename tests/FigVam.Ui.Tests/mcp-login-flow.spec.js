@@ -515,3 +515,114 @@ test('MCP-uploaded resource renders in an already open editor, Preview and scree
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.evaluate(img => img.naturalWidth)).toBe(2);
 });
+
+
+test('TextInput placeholders and values use the correct text, mask and theme color in Design, Preview and MCP capture', async ({ page, request, server }) => {
+  test.setTimeout(120000);
+  await page.setViewportSize({ width: 1500, height: 1000 });
+  await signIn(page, server);
+  await page.getByLabel('Имя нового документа').fill('TextInput regression');
+  await page.getByRole('button', { name: 'Создать документ', exact: true }).click();
+  await expect(page).toHaveURL(/\/documents\/[0-9a-f-]+$/);
+  const { token, endpoint } = await grant(page);
+  const call = await connect(request, endpoint, token);
+  const { pageId } = await call('create_page');
+  const { screenId } = await call('create_screen', { pageId, width: 280, height: 370 });
+  const { tokenId: placeholderToken } = await call('create_token', {
+    name: 'input.placeholder', type: 'Color', light: '#CC2200', dark: '#007700'
+  });
+  const { tokenId: textToken } = await call('create_token', {
+    name: 'input.text', type: 'Color', light: '#0044CC', dark: '#AA00AA'
+  });
+  const cases = [
+    { inputType: 'Text', value: '', placeholder: 'Enter username' },
+    { inputType: 'Text', value: 'admin', placeholder: 'Enter username' },
+    { inputType: 'Password', value: '', placeholder: 'Enter password' },
+    { inputType: 'Password', value: 'secret', placeholder: 'Enter password' },
+    { inputType: 'Password', value: '', placeholder: '' },
+    // Independent native text controls provide glyph references for the PNG.
+    { inputType: 'Text', value: '', placeholder: 'Enter password' },
+    { inputType: 'Text', value: '••••••', placeholder: '' }
+  ];
+  const ids = [];
+  for (const [index, properties] of cases.entries()) {
+    const { nodeId } = await call('create_node', { parentId: screenId, kind: 'TextInput',
+      properties: { x: 10, y: 10 + index * 50, width: 260, height: 40,
+        backgroundColor: '#FFFFFF', borderWidth: 0, cornerRadius: 0, fontSize: 20, fontFamily: 'Arial',
+        textColor: { tokenId: textToken }, placeholderColor: { tokenId: placeholderToken }, ...properties } });
+    ids.push(nodeId);
+  }
+  await page.locator('#screens .screen-select[data-screen-id="' + screenId + '"]').click();
+
+  const colors = {
+    Light: { placeholder: [204, 34, 0], value: [0, 68, 204] },
+    Dark: { placeholder: [0, 119, 0], value: [170, 0, 170] }
+  };
+  const rgb = color => 'rgb(' + color.join(', ') + ')';
+  const field = (root, id) => page.locator(root + ' [data-visual-node="' + id + '"] > input');
+  async function assertFields(root, theme) {
+    for (const [index, expected] of cases.entries()) {
+      const input = field(root, ids[index]);
+      await expect(input).toBeVisible();
+      await expect(input).toHaveAttribute('type', expected.inputType.toLowerCase());
+      await expect(input).toHaveAttribute('placeholder', expected.placeholder);
+      await expect(input).toHaveValue(expected.value);
+      await expect(input).toHaveCSS('color', rgb(colors[theme].value));
+      await expect.poll(() => input.evaluate(el => getComputedStyle(el, '::placeholder').color))
+        .toBe(rgb(colors[theme].placeholder));
+      await expect.poll(() => input.evaluate(el => el.matches(':placeholder-shown')))
+        .toBe(!expected.value); // Chromium matches even an explicitly empty placeholder.
+    }
+  }
+  await assertFields('#screen-boundary', 'Light');
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  for (const theme of ['Light', 'Dark']) {
+    await page.locator('#preview-theme button[data-theme=' + theme + ']').click();
+    await assertFields('#preview-viewport', theme);
+    const password = field('#preview-viewport', ids[2]);
+    await password.fill('secret');
+    await expect(password).toHaveValue('secret');
+    await expect.poll(() => password.evaluate(el => el.matches(':placeholder-shown'))).toBe(false);
+    await password.fill('');
+    await expect.poll(() => password.evaluate(el => el.matches(':placeholder-shown'))).toBe(true);
+
+    const capture = await call.raw('render_screen', { screenId, theme });
+    expect(capture.isError, JSON.stringify(capture.structuredContent)).not.toBe(true);
+    const image = capture.content.find(block => block.type === 'image');
+    expect(image?.mimeType).toBe('image/png');
+    const pixels = await page.evaluate(async ({ data, colors }) => {
+      const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
+      const canvas = document.createElement('canvas');
+      canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const ctx = canvas.getContext('2d'); ctx.drawImage(bitmap, 0, 0);
+      const rows = Array.from({ length: 7 }, (_, i) => ctx.getImageData(14, 14 + i * 50, 248, 32).data);
+      const count = (row, color) => {
+        let n = 0;
+        for (let i = 0; i < row.length; i += 4)
+          if (Math.abs(row[i] - color[0]) + Math.abs(row[i + 1] - color[1]) + Math.abs(row[i + 2] - color[2]) < 45) n++;
+        return n;
+      };
+      const same = (a, b) => a.every((channel, i) => channel === b[i]);
+      bitmap.close();
+      return {
+        width: canvas.width, height: canvas.height,
+        counts: rows.map(row => ({ placeholder: count(row, colors.placeholder), value: count(row, colors.value) })),
+        empty: rows[4].every(channel => channel === 255),
+        placeholderMatchesText: same(rows[2], rows[5]),
+        passwordMatchesBullets: same(rows[3], rows[6])
+      };
+    }, { data: image.data, colors: colors[theme] });
+    expect([pixels.width, pixels.height]).toEqual([280, 370]);
+    for (const index of [0, 2]) {
+      expect(pixels.counts[index].placeholder).toBeGreaterThan(10);
+      expect(pixels.counts[index].value).toBe(0);
+    }
+    for (const index of [1, 3]) {
+      expect(pixels.counts[index].value).toBeGreaterThan(10);
+      expect(pixels.counts[index].placeholder).toBe(0);
+    }
+    expect(pixels.empty).toBe(true);
+    expect(pixels.placeholderMatchesText).toBe(true);
+    expect(pixels.passwordMatchesBullets).toBe(true);
+  }
+});
