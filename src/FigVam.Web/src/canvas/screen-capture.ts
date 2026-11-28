@@ -128,6 +128,10 @@ export async function renderModelPng(model:RenderModel, width:number, height:num
           text.style.color = placeholder.color;
           text.style.opacity = placeholder.opacity;
         }
+        // The text is already masked when necessary. Native input styles copied
+        // above must not mask the placeholder or override the span's text color.
+        field.style.setProperty('-webkit-text-security', 'none');
+        text.style.setProperty('-webkit-text-fill-color', 'currentColor');
         Object.assign(field.style, { appearance: 'none', overflow: 'hidden', display: multiline ? 'block' : 'flex',
           alignItems: 'center', boxSizing: 'border-box' });
         Object.assign(text.style, { display: 'block', minWidth: '0', width: '100%', overflow: 'hidden',
