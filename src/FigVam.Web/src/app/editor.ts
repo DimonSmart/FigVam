@@ -576,7 +576,7 @@ const workspaceNavigation = createWorkspaceNavigation({
   },
   readPages:signal=>readPages(signal,0),
   showDocument:()=>{
-    shellState.patch({view:'editor'});presence.start();layers.refreshMoveAvailability();documentHistory.load();
+    shellState.patch({view:'editor'});diagnostics.refresh();presence.start();layers.refreshMoveAvailability();documentHistory.load();
     if(selectionState.selectedScreen)requestAnimationFrame(fitScreen);
     message();pageCommands.resume();
   },

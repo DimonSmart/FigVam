@@ -74,7 +74,10 @@ export function createScreenDiagnostics({model, request, getContext, pageSize}: 
     }
   }
   function refresh() {
-    const {documentId, screen, revision} = getContext();
+    const {documentId, screen, revision, isEditorVisible} = getContext();
+    // Opening the document can select a screen before the editor is visible.
+    // Do not consume the request or its key until that context is active.
+    if (!isEditorVisible) { if (key !== null) reset(); return; }
     const next = screen ? documentId + ':' + screen + ':' + revision : null;
     if (key !== next) {reset(); if (screen) void load();}
   }
