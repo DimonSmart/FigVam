@@ -84,7 +84,7 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
             var binaryContent = FigVam.Application.Documents.DocumentAssetContentFormat.SupportedContentTypes.ToDictionary(
                 type => type, _ => new OpenApiMediaType { Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary", MaxLength = FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes } });
             if (method.ToString().Equals("PUT", StringComparison.OrdinalIgnoreCase))
-                operation.RequestBody = new OpenApiRequestBody { Required = true, Content = new Dictionary<string, OpenApiMediaType> { ["image/png"] = binaryContent["image/png"] } };
+                operation.RequestBody = new OpenApiRequestBody { Required = true, Content = new Dictionary<string, OpenApiMediaType> { ["image/png"] = binaryContent["image/png"], ["image/svg+xml"] = binaryContent["image/svg+xml"] } };
             if (method.ToString().Equals("GET", StringComparison.OrdinalIgnoreCase) && operation.Responses?.TryGetValue("200", out var success) == true)
                 operation.Responses!["200"] = new OpenApiResponse { Description = success.Description, Content = binaryContent };
         }

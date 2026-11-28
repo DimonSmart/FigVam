@@ -1,3 +1,4 @@
+import catalog from 'virtual:figvam-lucide';
 import type { ColorChannels, DesignToken, NodePropertyValue, Resolution, ResolvableValue, ShadowValue, Theme, TokenMap } from '../core/tokens/token-model';
 import { compatibleToken, resolvePropertyToken, tokenColorHex, tokenValueText } from '../core/tokens/token-resolution';
 import { createPanelStore } from '../app/panel-store';
@@ -38,7 +39,7 @@ interface BaseSpec {
   resolvedRaw?(result:Resolution):RawValue;
 }
 export interface ScalarSpec extends BaseSpec {
-  kind:'scalar'; type:'text'|'textarea'|'number'|'checkbox'|'select'; choices?:Choice[];
+  kind:'scalar'; type:'text'|'textarea'|'number'|'checkbox'|'select'|'catalog'; choices?:Choice[];
   placeholder?:string;required?:boolean;minimum?:number;maximum?:number;maxLength?:number;round?:boolean;
 }
 export interface ColorSpec extends BaseSpec {kind:'color';compact:boolean}
@@ -120,13 +121,14 @@ function scalarSpec(name:string,definition:ControlDefinition,model:PropertyModel
     case 'StyleReference':choices=[...(model.styles?.values()??[])].filter(s=>s.type===definition.styleType).map(s=>[s.id,s.name]);placeholder=choices.length?'Выберите стиль':'Нет стилей данного типа';break;
     case 'Enum':choices=(definition.enumValues??[]).map(v=>[v,v]);break;
   }
+  if (name === 'iconName') choices = Object.keys(catalog).sort().map(name => [name, name]);
   const reference=['Asset','TokenReference','StyleReference'].includes(type);
   const raw=initial?.type==='asset'?initial.assetId:initial?.type==='token'?initial.tokenId:initial?.type==='style'?initial.styleId:
     initial&&'value' in initial&&['string','number','boolean'].includes(typeof initial.value)?String(initial.value):'';
   const initialRaw=type==='Boolean'?initial?.type==='boolean'&&initial.value:
     compactGeometry&&raw&&Number.isFinite(Number(raw))?String(Number(Number(raw).toFixed(2))):raw;
   const pattern=definition.pattern?new RegExp(definition.pattern,'u'):null;
-  return {kind:'scalar',type:choices?'select':type==='Number'?'number':type==='Boolean'?'checkbox':type==='String'&&!pattern?'textarea':'text',
+  return {kind:'scalar',type:name==='iconName'?'catalog':choices?'select':type==='Number'?'number':type==='Boolean'?'checkbox':type==='String'&&!pattern?'textarea':'text',
     label,count:1,initial:initialRaw,choices,placeholder,required:type==='Number'||Boolean(reference&&definition.required),minimum:definition.minimum??undefined,maximum:definition.maximum??undefined,maxLength:definition.maxLength??undefined,round:compactGeometry,
     validate(raw){
       if(type==='Number'){

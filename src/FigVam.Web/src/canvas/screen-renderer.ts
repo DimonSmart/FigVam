@@ -1,3 +1,4 @@
+import { renderLine, renderIcon } from './graphics';
 import { resolveTokenValue, resolvePropertyToken } from '../core/tokens/token-resolution.js';
 import type { NodePropertyValue, ResolvableValue, Theme, TokenMap } from '../core/tokens/token-model';
 import type { Bounds, CanvasNode, CanvasKind, LayoutBox, NodeProperties, PropertyDefinitions } from './canvas-model';
@@ -67,6 +68,13 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
     return result.error ? null : result.value;
   }
   const style = surface.style;
+  const pattern = scalar(property('borderPattern'));
+  if (pattern === 'Solid' || pattern === 'Dashed' || pattern === 'Dotted') style.borderStyle = pattern.toLowerCase();
+  const applyCorners = () => { for (const [name, key] of Object.entries({ radiusTopLeft: 'borderTopLeftRadius', radiusTopRight: 'borderTopRightRadius', radiusBottomRight: 'borderBottomRightRadius', radiusBottomLeft: 'borderBottomLeftRadius' } as const)) {
+    const radius = resolved(name);
+    const value = radius?.type === 'geometry' ? radius.radius : scalar(radius);
+    if (finite(value)) style[key] = px(value);
+  } };
   for (const [name, key] of Object.entries({ backgroundColor: 'backgroundColor', textColor: 'color', borderColor: 'borderColor' } as const)) {
     const value = property(name);
     if (!value) continue;
@@ -79,6 +87,7 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
     const value = propertyValue?.type === 'geometry' ? propertyValue.radius : scalar(propertyValue);
     if (finite(value)) style[key] = px(name === 'borderWidth' ? Math.min(value, bounds.width / 2, bounds.height / 2) : value);
   }
+  applyCorners();
   for (const name of ['fontStyle', 'textAlignment'] as const) {
     const value = enumStyles[name][string(scalar(property(name)))];
     if (value) style[name === 'textAlignment' ? 'textAlign' : name] = value;
@@ -124,6 +133,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
   const root = document.createDocumentFragment();
   const elements = new Map<string, DocumentFragment | HTMLElement>([[screen, root]]);
   const images: RenderImage[] = [];
+  const rotated = new Set<string>();
   for (const [id, node] of nodes) {
     const kind = kinds.get(node.kind);
     const box = boxes.get(id);
@@ -144,7 +154,14 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
     const parentBox = boxes.get(node.parentId);
     if (!parentBox) throw new Error('Отсутствует геометрия родительского слоя.');
     // A node's own clip is for descendants; only the inherited clip may clip its effect.
-    place(wrapper, { bounds: box.bounds, clip: options.preview ? parentBox.clip : null }, parentBox.bounds);
+    const rotation = value('rotation');
+    if (finite(rotation) && rotation % 360 !== 0) {
+      wrapper.style.transformOrigin = '0 0';
+      wrapper.style.transform = `rotate(${rotation}deg)`;
+      rotated.add(id);
+    }
+    if (rotated.has(node.parentId)) rotated.add(id);
+    place(wrapper, { bounds: box.bounds, clip: options.preview && !rotated.has(id) ? parentBox.clip : null }, parentBox.bounds);
     if (value('visible') === false) wrapper.style.visibility = 'hidden';
     const opacityValue = property('opacity');
     const resolvedOpacity = opacityValue?.type === 'token'
@@ -206,7 +223,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       if (role === 'Text') surface.textContent = string(value('text'));
     }
     surface.className = 'visual-surface';
-    if (options.preview && !intersects(box)) surface.inert = true;
+    if (options.preview && !rotated.has(id) && !intersects(box)) surface.inert = true;
     if (value('enabled') === false) {
       if (options.preview) {
         if (isInput(surface) || surface instanceof HTMLButtonElement) surface.disabled = true;
@@ -214,6 +231,22 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
     }
     if (!options.preview && surface.matches('input, textarea, button')) surface.tabIndex = -1;
     appearance(surface, property, tokens, theme, box.bounds, report, kind.properties, model.fontFamilies);
+    if (role === 'Ellipse' || role === 'Image' && value('imageClip') === 'Ellipse') surface.style.borderRadius = '50%';
+    else if (role === 'Image' && value('imageClip') !== 'RoundedRectangle') surface.style.borderRadius = '0';
+    if (role === 'Icon' || role === 'Line') {
+      const strokeColor = property('strokeColor');
+      const stroke = strokeColor ? color(strokeColor, tokens, theme) : null;
+      const raw = property('strokeWidth');
+      const resolved = raw?.type === 'token' ? resolvePropertyToken(raw, tokens, theme, kind.properties.strokeWidth ?? {}).value : raw;
+      const width = scalar(resolved);
+      const thickness = finite(width) ? width : 2;
+      if (role === 'Icon') {
+        const icon = renderIcon(string(value('iconName')), stroke ?? 'currentColor', thickness);
+        if (icon) surface.append(icon);
+        else report('iconName', 'Иконка отсутствует в каталоге Lucide.');
+      } else surface.append(renderLine(box.bounds, string(value('lineDirection')), stroke ?? 'currentColor', thickness,
+        string(value('borderPattern')), string(value('startArrow')), string(value('endArrow'))));
+    }
     const rawShadow = property('shadow');
     const shadowResult = rawShadow?.type === 'token' ? resolvePropertyToken(rawShadow, tokens, theme, kind.properties.shadow ?? {}) : { value: rawShadow, error: null };
     if (shadowResult.error) report('shadow', shadowResult.error);
@@ -221,7 +254,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
     if (shadow?.type === 'shadow') {
       const { offsetX, offsetY, blurRadius, spreadRadius, color: rgba } = shadow;
       if ([offsetX, offsetY, blurRadius, spreadRadius].every(Number.isFinite) && rgba) {
-        wrapper.style.borderRadius = role === 'Image' ? '0px' : surface.style.borderRadius;
+        wrapper.style.borderRadius = surface.style.borderRadius;
         wrapper.style.boxShadow = [offsetX, offsetY, blurRadius, spreadRadius].map(px).join(' ') +
           ' rgba(' + [rgba.red, rgba.green, rgba.blue, rgba.alpha / 255].join(', ') + ')';
       }
@@ -286,6 +319,8 @@ export function reconcileScreen(host: HTMLElement, next: DocumentFragment) {
       }
       if (isInput(before) && isInput(after)) {
         if (before.value !== after.value) before.value = after.value;
+      } else if (after.firstElementChild instanceof SVGElement || before.firstElementChild instanceof SVGElement) {
+        if (!before.firstElementChild?.isEqualNode(after.firstElementChild)) before.replaceChildren(...after.childNodes);
       } else if (before.tagName !== 'IMG' && before.textContent !== after.textContent)
         before.textContent = after.textContent;
     }

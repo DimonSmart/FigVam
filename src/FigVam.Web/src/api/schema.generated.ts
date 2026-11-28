@@ -14133,7 +14133,7 @@ export interface components {
             templateNodeId: string;
         };
         /** @enum {unknown} */
-        NodeSemanticRole: "Container" | "Text" | "Button" | "TextInput" | "Image";
+        NodeSemanticRole: "Container" | "Text" | "Button" | "TextInput" | "Image" | "Ellipse" | "Line" | "Icon";
         NodeStructure: {
             childIds: string[];
             dataBindings: {

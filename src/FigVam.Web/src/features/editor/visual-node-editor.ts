@@ -44,7 +44,7 @@ export function createVisualNodeEditor({
   function resetAssetFile(){assetFile=null;fileReset++;}
   const textStyledFields = new Set(['textColor', 'fontFamily', 'fontSize', 'fontWeight',
     'lineHeight', 'letterSpacing', 'fontStyle', 'fontFallback']);
-  const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius']);
+  const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius', 'borderPattern', 'radiusTopLeft', 'radiusTopRight', 'radiusBottomRight', 'radiusBottomLeft']);
   const operations=new Map<string,Operation>(),paletteDrafts=new Map<string,Palette>(),inspectorDrafts=new Map<string,Draft>(),canvasDrafts=new Map<string,Draft>();
   let context:Context=getContext(),model:Model|null=null,modelKey:string|null=null,resolvedModelKey:string|null=null,modelScope:string|null=null,loadedKey:string|undefined,loadError='',queued=false;
   let palette:Palette|undefined,inspector:Draft|undefined,node:CanvasNode|undefined,paletteFields=new Map<string,Field>(),paletteOptionalFields=new Map<string,Field>(),inspectorFields=new Map<string,Field>();
@@ -312,7 +312,7 @@ export function createVisualNodeEditor({
           begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
         };
         if(!context.variantId&&state&&node?.kind==='TextInput'&&node.properties[name]!==undefined&&!localOverride&&
-          ['paddingTop','paddingRight','paddingBottom','paddingLeft','placeholderColor','focusBorderColor','focusBorderWidth','lineHeight'].includes(name))entry.resetLocal=()=>{
+          ['paddingTop','paddingRight','paddingBottom','paddingLeft','placeholderColor','focusBorderColor','focusBorderWidth','lineHeight','radiusTopLeft','radiusTopRight','radiusBottomRight','radiusBottomLeft'].includes(name))entry.resetLocal=()=>{
           const current=getContext();if(current.variantId||!node||!canEdit(current.documentRole))return;
           begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
         };
@@ -456,7 +456,7 @@ export function createVisualNodeEditor({
           if(error.code==='DOCUMENT_NOT_FOUND'){if(visible())closeInaccessibleDocument(error.status);return;}
           op.draft.uploadError=error.code==='ASSET_LIMIT_EXCEEDED'?'Достигнут лимит ассетов документа.':
             error.status===413?'Файл превышает 5 МиБ.':
-            error.status===400||error.status===415?'Сервер отклонил изображение. Выберите допустимый PNG.':error.message;
+            error.status===400||error.status===415?'Сервер отклонил изображение. Выберите допустимый PNG или SVG.':error.message;
         }else op.draft.uploadError=errorMessage(error);
       }
     }finally{

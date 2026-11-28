@@ -17,14 +17,14 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
     // The application still rejects every asset above MaxAssetBytes.
     [HttpPut("{assetId}"), RequestSizeLimit(DocumentAssetValidator.MaxAssetBytes + 1)]
     [ProducesResponseType<CommandResponse>(200)]
-    [EndpointSummary("Upload a safe raster asset through the document command stream")]
-    [EndpointDescription("Raw image/png body, at most 5 MiB; commandId and assetId must be nonempty UUIDs. Static noninterlaced 8-bit grayscale, RGB, gray-alpha or RGBA PNG only. IHDR, consecutive IDAT and IEND chunks only; CRC, zlib/Adler, scanline lengths and filters validated. Metadata, palettes, animation, SVG, external links, trailing bytes and other formats are rejected. Maximum dimension 4096, 4194304 pixels, 256 assets and 64 MiB per document. Editor or Owner required. Content, SHA-256, manifest, revision and event commit atomically. commandId retries return the original result; undo removes an asset only if references remain valid. Retained blobs are never collected in this version.")]
+    [EndpointSummary("Upload a safe image asset through the document command stream")]
+    [EndpointDescription("Raw image/png or image/svg+xml body, at most 5 MiB; commandId and assetId must be nonempty UUIDs. PNG must be static and pass the bounded raster decoder. SVG must contain only allowed static vector elements and local fragment references; scripts, stylesheets, external resources and DTDs are rejected. Maximum dimension 4096, 4194304 pixels, 256 assets and 64 MiB per document. Editor or Owner required. Content, SHA-256, manifest, revision and event commit atomically. commandId retries return the original result; undo removes an asset only if references remain valid. Retained blobs are never collected in this version.")]
     public async Task<IActionResult> Upload(Guid documentId, Guid assetId, [FromQuery] Guid commandId, CancellationToken ct)
     {
         var actor = User.GetDocumentActor();
         if (!await authorization.CanEditAsync(actor, documentId, ct)) return Error("FORBIDDEN");
         if (!MediaTypeHeaderValue.TryParse(Request.ContentType, out var contentType) ||
-            contentType.MediaType.ToString().ToLowerInvariant() != "image/png")
+            !DocumentAssetValidator.IsImageContentType(contentType.MediaType.ToString().ToLowerInvariant()))
         {
             await Request.Body.CopyToAsync(Stream.Null, ct);
             return StatusCode(415, ApiErrors.Create(415));
@@ -50,7 +50,7 @@ public sealed class DocumentAssetController(IDocumentCommandHandler handler, IDo
         return result.Response is { } response ? Ok(response) : Error(result.Code);
     }
 
-    [HttpGet("{assetId}"), Produces("image/png", "font/woff2", "font/woff", "font/ttf", "font/otf", "application/json"), ProducesResponseType<FileContentResult>(200)]
+    [HttpGet("{assetId}"), Produces("image/png", "image/svg+xml", "font/woff2", "font/woff", "font/ttf", "font/otf", "application/json"), ProducesResponseType<FileContentResult>(200)]
     [EndpointSummary("Read verified image or font bytes from a document snapshot")]
     [EndpointDescription("Requires current document read permission and asset membership in the selected draft revision or saved version. revision and versionId are mutually exclusive. Returns the asset MIME type with no-store, nosniff, sandbox CSP and SHA-256 ETag; no public storage URLs or redirects. At most 5 MiB.")]
     public async Task<IActionResult> Read(Guid documentId, Guid assetId, [FromQuery] long? revision, [FromQuery] Guid? versionId, CancellationToken ct)

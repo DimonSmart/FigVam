@@ -22,7 +22,7 @@ public static class DesignStyleValidator
     private static readonly IReadOnlySet<string> TextFields =
         new HashSet<string>(["typography", "textColor", "fontStyle", "fontFallback"], StringComparer.Ordinal);
     private static readonly IReadOnlySet<string> BorderFields =
-        new HashSet<string>(["borderColor", "borderWidth", "cornerRadius"], StringComparer.Ordinal);
+        new HashSet<string>(["borderColor", "borderWidth", "cornerRadius", "borderPattern", "radiusTopLeft", "radiusTopRight", "radiusBottomRight", "radiusBottomLeft"], StringComparer.Ordinal);
 
     public static IReadOnlyList<StructureError> Validate(DocumentStructure document, INodeProfile profile)
     {

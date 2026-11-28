@@ -19,9 +19,12 @@ public sealed class VisualNodeProfileTests : IDisposable
     [InlineData("Button", NodeSemanticRole.Button, false, PreviewEvent.Click)]
     [InlineData("TextInput", NodeSemanticRole.TextInput, false, PreviewEvent.Change)]
     [InlineData("Image", NodeSemanticRole.Image, false, null)]
+    [InlineData("Ellipse", NodeSemanticRole.Ellipse, false, null)]
+    [InlineData("Line", NodeSemanticRole.Line, false, null)]
+    [InlineData("Icon", NodeSemanticRole.Icon, false, null)]
     public void RegistryDescribesEachKindAndItsEffectiveDefaults(string kind, NodeSemanticRole role, bool children, PreviewEvent? previewEvent)
     {
-        Assert.Equal(5, profile.Kinds.Count);
+        Assert.Equal(8, profile.Kinds.Count);
         var definition = Assert.Single(profile.Kinds, item => item.Kind == kind);
         Assert.Equal(role, definition.SemanticRole);
         Assert.Equal(children, profile.CanContainChildren(kind));
@@ -135,7 +138,7 @@ public sealed class VisualNodeProfileTests : IDisposable
     {
         var content = DocumentAssetTests.Png();
         var asset = SafeRasterImage.Inspect(Guid.NewGuid(), "image/png", content)!;
-        var children = new[] { "Text", "Button", "TextInput", "Image" }
+        var children = new[] { "Text", "Button", "TextInput", "Ellipse", "Line", "Icon", "Image" }
             .Select(kind => new NodeStructure(Guid.NewGuid(), kind, [])).ToArray();
         var image = children[^1];
         children[^1] = image with { Properties = image.Properties.Add("asset", new NodeAssetValue(asset.Id)) };

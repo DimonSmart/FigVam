@@ -11,7 +11,12 @@ export const definitions:Record<StyleType,Record<string,[string,TokenType|null,T
   BorderStyle: {
     borderColor: ['Цвет рамки', 'Color', null],
     borderWidth: ['Толщина рамки', 'Dimension', 'BorderWidth'],
-    cornerRadius: ['Радиус углов', 'Dimension', 'Radius']
+    cornerRadius: ['Радиус углов', 'Dimension', 'Radius'],
+    radiusTopLeft: ['Верхний левый угол', 'Dimension', 'Radius'],
+    radiusTopRight: ['Верхний правый угол', 'Dimension', 'Radius'],
+    radiusBottomRight: ['Нижний правый угол', 'Dimension', 'Radius'],
+    radiusBottomLeft: ['Нижний левый угол', 'Dimension', 'Radius'],
+    borderPattern: ['Тип линии', null, null]
   }
 };
 export const typographyParts:Record<TypographyField,[string,TokenType,TokenCategory|null,string]> = {
@@ -23,7 +28,8 @@ export const typographyParts:Record<TypographyField,[string,TokenType,TokenCateg
 };
 export const palette:Record<string,string[]> = {
   fontStyle: ['Normal', 'Italic'],
-  fontFallback: ['SansSerif', 'Serif', 'Monospace']
+  fontFallback: ['SansSerif', 'Serif', 'Monospace'],
+  borderPattern: ['Solid', 'Dashed', 'Dotted']
 };
 export const styleType = (style:DesignStyle|null|undefined):StyleType => !style || style.type === 0 || style.type === 'TextStyle' ? 'TextStyle' : 'BorderStyle';
 

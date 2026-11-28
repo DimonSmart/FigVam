@@ -14,9 +14,11 @@ public static partial class DocumentAssetValidator
     public static bool IsValid(IReadOnlyList<DocumentAsset>? assets) => assets is not null && assets.Count <= MaxAssets &&
         assets.All(a => a is not null && a.Id != Guid.Empty &&
             a.Sha256 is not null && HashPattern().IsMatch(a.Sha256) && a.ByteLength is > 0 and <= MaxAssetBytes &&
-            (a.ContentType == "image/png" && a.Width is > 0 and <= MaxDimension && a.Height is > 0 and <= MaxDimension && (long)a.Width * a.Height <= MaxPixels ||
+            (IsImageContentType(a.ContentType) && a.Width is > 0 and <= MaxDimension && a.Height is > 0 and <= MaxDimension && (long)a.Width * a.Height <= MaxPixels ||
              DocumentFontValidator.IsFontContentType(a.ContentType) && a.Width == 0 && a.Height == 0)) &&
         assets.Select(a => a.Id).Distinct().Count() == assets.Count && assets.Sum(a => (long)a.ByteLength) <= MaxDocumentBytes;
+
+    public static bool IsImageContentType(string? contentType) => contentType is "image/png" or "image/svg+xml";
 
     [GeneratedRegex("\\A[0-9a-f]{64}\\z", RegexOptions.CultureInvariant)]
     private static partial Regex HashPattern();

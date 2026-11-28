@@ -11,6 +11,7 @@ public static class DocumentAssetContentFormat
         new Dictionary<string, Format>(StringComparer.Ordinal)
         {
             ["image/png"] = new(".png", SafeRasterImage.Inspect),
+            ["image/svg+xml"] = new(".svg", SafeSvgImage.Inspect),
             ["font/woff2"] = new(".woff2", SafeFontAsset.Inspect),
             ["font/woff"] = new(".woff", SafeFontAsset.Inspect),
             ["font/ttf"] = new(".ttf", SafeFontAsset.Inspect),

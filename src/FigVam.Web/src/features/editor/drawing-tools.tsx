@@ -1,4 +1,4 @@
-import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image } from 'lucide-react';
+import { MousePointer2, Frame, Type, RectangleHorizontal, TextCursorInput, Image, Circle, Minus, Shapes } from 'lucide-react';
 import { Button } from '../../ui/Button';
 
 const tools = [
@@ -7,6 +7,9 @@ const tools = [
   ['Button', 'Кнопка', RectangleHorizontal],
   ['TextInput', 'Поле ввода', TextCursorInput],
   ['Image', 'Изображение', Image],
+  ['Ellipse', 'Эллипс', Circle],
+  ['Line', 'Линия', Minus],
+  ['Icon', 'Иконка', Shapes],
 ] as const;
 export type DrawingToolKind = typeof tools[number][0];
 

@@ -7,12 +7,12 @@ interface PaletteViewProps extends Feedback {hidden:boolean;formHidden:boolean;b
 interface InspectorViewProps extends Feedback {hidden:boolean;formHidden:boolean;blocked:boolean;resetHidden:boolean;loadRetryHidden:boolean;Fields:ComponentType;submit():void;reset():void;loadRetry():void}
 function AssetView(p:AssetViewProps){return <>                <form id="asset-upload-form" onSubmit={event=>{event.preventDefault();p.submit();}}>
                   <label>
-                    {"Изображение PNG "}
-                    <input key={p.fileReset} id="asset-upload-file" disabled={p.disabled} onChange={event=>p.choose(event.currentTarget.files?.[0]??null)} type="file" accept="image/png" required/>
+                    {"Изображение PNG / SVG "}
+                    <input key={p.fileReset} id="asset-upload-file" disabled={p.disabled} onChange={event=>p.choose(event.currentTarget.files?.[0]??null)} type="file" accept="image/png,image/svg+xml" required/>
                   </label>
                   <Button id="asset-upload" type="submit" disabled={p.disabled}>{"Загрузить изображение"}</Button>
                 </form>
-                <p>{"PNG до 5 МиБ; сервер проверяет формат и размеры изображения."}</p>
+                <p>{"PNG или безопасный SVG до 5 МиБ; сервер проверяет формат и размеры изображения."}</p>
                 <p id="asset-upload-status" role="status">{p.status}</p>
                 <p id="asset-upload-error" role="alert">{p.error}</p>
                 <Button id="asset-upload-retry" type="button" hidden={p.retryHidden} onClick={p.retry}>{"Повторить загрузку изображения"}</Button>

@@ -128,7 +128,7 @@ export function createApiClient({ auth = createAuthContext(), getToken, getSessi
   };
   request.readPng = async (...args: RequestArgs): Promise<Blob> => {
     const { response, assertCurrent } = await readResponse(...args);
-    if (response.headers.get('Content-Type') !== 'image/png')
+    if (!['image/png', 'image/svg+xml'].includes(response.headers.get('Content-Type') ?? ''))
       throw new TypeError('Получен неподдерживаемый формат изображения.');
     const png = await response.blob();
     assertCurrent();

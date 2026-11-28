@@ -22,7 +22,10 @@ function ScalarEditor(p:EditorProps&{spec:ScalarSpec}){
   const {spec,raw,onEdit}=p,value=rawText(raw),common=propsFor(p);
   const label=p.displayLabel??spec.label,ariaLabel=spec.label;
   let control:ReactNode;
-  if(spec.type==='select')control=<select {...common} aria-label={ariaLabel} required={spec.required} value={value} onChange={e=>onEdit(e.currentTarget.value,'discrete')}>
+  if(spec.type==='catalog')control=<><input {...common} list={common.id+'-catalog'} aria-label={ariaLabel}
+    value={value} autoComplete="off" onChange={e=>onEdit(e.currentTarget.value,'input')} onBlur={e=>onEdit(e.currentTarget.value,'commit')}/>
+    <datalist id={common.id+'-catalog'}>{spec.choices?.map(([id,name])=><option key={id} value={id}>{name}</option>)}</datalist></>;
+  else if(spec.type==='select')control=<select {...common} aria-label={ariaLabel} required={spec.required} value={value} onChange={e=>onEdit(e.currentTarget.value,'discrete')}>
     {spec.placeholder&&<option value="">{spec.placeholder}</option>}
     {spec.choices?.map(([id,name])=><option key={id} value={id}>{name}</option>)}
     {value&&!spec.choices?.some(([id])=>id===value)&&<option value={value} disabled>{'Недоступен · '+value}</option>}

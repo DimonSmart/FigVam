@@ -102,7 +102,23 @@ export function createCanvasNodeEditor({
     };
   }
 
+  function localDelta(edit: Edit, dx: number, dy: number): [number, number] {
+    // The selected element's own rotation affects resize but not translation.
+    let matrix = new DOMMatrixReadOnly();
+    let wrapper: HTMLElement | null = edit.names.includes('width') ? edit.wrapper : edit.wrapper.parentElement;
+    while (wrapper && wrapper !== boundary) {
+      if (wrapper.hasAttribute('data-visual-node')) {
+        const transform = getComputedStyle(wrapper).transform;
+        if (transform !== 'none') matrix = new DOMMatrixReadOnly(transform).multiply(matrix);
+      }
+      wrapper = wrapper.parentElement;
+    }
+    const local = matrix.inverse().transformPoint(new DOMPoint(dx, dy, 0, 0));
+    return [local.x, local.y];
+  }
+
   function preview(edit: Edit, deltaX: number, deltaY: number) {
+    [deltaX, deltaY] = localDelta(edit, deltaX, deltaY);
     edit.properties = {};
     for (const [index, name] of edit.names.entries()) {
       const { minimum = -Infinity, maximum = Infinity } = edit.definitions[name] ?? {};
