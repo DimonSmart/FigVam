@@ -370,7 +370,9 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
           report: (node, property, message) => diagnostics.add(`${node.name || node.id} · ${property}: ${message}`)
         });
         if (previewMode) {
-          content.append(previewSurface(model, drawing.root, index === models.length - 1));
+          const surface = previewSurface(model, drawing.root, index === models.length - 1);
+          surface.dataset.revision = String(model.revision);
+          content.append(surface);
         } else content.append(drawing.root);
         shown = true;
       }
@@ -393,6 +395,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
             root.style.width = fresh.style.width;
             root.style.height = fresh.style.height;
             root.inert = fresh.inert;
+            root.setAttribute('data-revision', fresh.getAttribute('data-revision') ?? '');
             reconcileScreen(root, fresh);
           }
         } else view.host.replaceChildren(content);

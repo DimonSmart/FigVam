@@ -47,6 +47,13 @@ async function signIn(page, server) {
   await page.getByRole('button', { name: 'Продолжить', exact: true }).click();
 }
 
+// Live updates are revision-pinned and can queue while a series of MCP/REST
+// edits is in flight. Wait for the committed revision, not for a fixed delay
+// or merely for a screen from an earlier revision to appear.
+async function waitForRevision(page, revision) {
+  await expect(page.locator('#revision')).toHaveText('Общий черновик · ревизия ' + revision, { timeout: 45000 });
+}
+
 async function grant(page) {
   await page.locator('#mcp-access-menu summary').click();
   await page.getByRole('button', { name: 'Разрешить', exact: true }).click();
@@ -156,9 +163,9 @@ test('MCP builds the login prototype, both editors see changes and restart inval
     const snapshot = await read();
     expect(snapshot.screens).toHaveLength(2);
     expect(snapshot.scenarios).toHaveLength(2);
+    await Promise.all([page, second].map(editor => waitForRevision(editor, finalRevision)));
     for (const editor of [page, second]) {
       await show(editor, 'layers');
-      await expect(editor.locator('#revision')).toHaveText('Общий черновик · ревизия ' + finalRevision);
       await expect(editor.locator('#screens .screen-select')).toHaveCount(2);
       await editor.locator('#screens .screen-select[data-screen-id="' + loginScreen + '"]').click();
       await expect(editor.locator('#screen-boundary')).toContainText('Sign in');
@@ -166,9 +173,11 @@ test('MCP builds the login prototype, both editors see changes and restart inval
     }
 
     async function preview(editor, visual) {
+      await waitForRevision(editor, finalRevision);
       await editor.getByRole('button', { name: 'Preview', exact: true }).click();
       const login = editor.locator('#preview-viewport [data-preview-screen="' + loginScreen + '"]');
       const error = editor.locator('#preview-viewport [data-preview-screen="' + errorScreen + '"]');
+      await expect(login).toHaveAttribute('data-revision', String(finalRevision));
       await expect(login.locator('[data-visual-node="' + frame + '"]')).toHaveCSS('box-shadow', /rgba\(15, 23, 42, 0\.16/);
       if (visual) await verifyLoginVisual(editor, login, 'MCP Login Preview');
       await login.locator('[data-visual-node="' + username + '"] input').fill('demo-user');
@@ -765,9 +774,13 @@ test('Server simulation matches variants, dataset bindings, overlays and multili
     } }
   });
   expect(scenario.ok(), await scenario.text()).toBeTruthy();
+  const finalRevision = (await call('get_document')).revision;
+  await waitForRevision(page, finalRevision);
   await page.locator('#screens .screen-select[data-screen-id="' + base + '"]').click();
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
-  await page.locator('#preview-viewport [data-visual-node="' + button + '"] button').click();
+  const basePreview = page.locator('#preview-viewport [data-preview-screen="' + base + '"]');
+  await expect(basePreview).toHaveAttribute('data-revision', String(finalRevision));
+  await basePreview.locator('[data-visual-node="' + button + '"] button').click();
   await expect(page.locator('#preview-viewport .preview-screen')).toHaveCount(2);
   const field = page.locator('#preview-viewport [data-visual-node="' + input + '"] textarea');
   await expect(field).toHaveValue('Final state\nSecond line');
