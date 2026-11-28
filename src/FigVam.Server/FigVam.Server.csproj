@@ -45,7 +45,7 @@
   <Target Name="CollectFigVamFrontend" BeforeTargets="AssignTargetPaths"
           DependsOnTargets="BuildFigVamFrontend" Condition="'$(DesignTimeBuild)' != 'true'">
     <ItemGroup>
-      <_FigVamBundle Include="$(FigVamWebRoot)dist/*.js" />
+      <_FigVamBundle Include="$(FigVamWebRoot)dist/*.js;$(FigVamWebRoot)dist/render.html" />
       <!-- Batch explicitly on the source item so metadata is not evaluated
            against unrelated Content/None items in the server project. -->
       <None Include="%(_FigVamBundle.Identity)">

@@ -6,7 +6,7 @@ internal sealed class PreviewBrowserUnavailableException : Exception { }
 
 // No HTTP server, file URLs, live document endpoints or credentials are exposed to
 // Chromium. Every permitted request is fulfilled from server-owned bytes in memory.
-public sealed class PlaywrightPreviewBrowser : IAsyncDisposable
+public sealed class PlaywrightPreviewBrowser(ILogger<PlaywrightPreviewBrowser> logger) : IAsyncDisposable
 {
     private const string Origin = "https://figvam-render.invalid/";
     private readonly SemaphoreSlim lifecycle = new(1);
@@ -45,7 +45,7 @@ public sealed class PlaywrightPreviewBrowser : IAsyncDisposable
         finally { lifecycle.Release(); }
     }
 
-    public async Task<byte[]> ScreenshotAsync(string snapshot, int width, int height, bool dark, CancellationToken ct)
+    public async Task<byte[]> ScreenshotAsync(string snapshot, int width, int height, CancellationToken ct)
     {
         var instance = await GetBrowserAsync(ct);
         ct.ThrowIfCancellationRequested();
@@ -65,14 +65,11 @@ public sealed class PlaywrightPreviewBrowser : IAsyncDisposable
             files.Add(Origin + name, (Path.Combine(root, name), name.EndsWith(".css") ? "text/css" : "text/javascript"));
         foreach (var chunk in FigVam.Server.Editor.FrontendAssets.Chunks())
             files.Add(Origin + Path.GetFileName(chunk), (chunk, "text/javascript"));
-        var html = """
-            <!doctype html><html><head><meta charset="utf-8">
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src data: blob:; font-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
-            <link rel="stylesheet" href="editor.css"><link rel="stylesheet" href="editor-shell.css"><link rel="stylesheet" href="home.css">
-            </head><body><main id="preview-viewport" style="width:100vw;height:100vh"></main><script id="snapshot" type="application/json">
-            """ + snapshot + """
-            </script><script type="module" src="headless-preview.js"></script></body></html>
-            """;
+        var template = await File.ReadAllTextAsync(Path.Combine(root, "render.html"), ct);
+        const string marker = "<!-- FIGVAM_RENDER_SNAPSHOT -->";
+        if (!template.Contains(marker, StringComparison.Ordinal)) throw new InvalidOperationException("Missing render snapshot marker.");
+        // System.Text.Json's default encoder escapes HTML-sensitive characters.
+        var html = template.Replace(marker, snapshot, StringComparison.Ordinal);
         await context.RouteAsync("**/*", async route =>
         {
             if (route.Request.Method == "GET" && route.Request.Url == Origin + "render.html")
@@ -85,7 +82,11 @@ public sealed class PlaywrightPreviewBrowser : IAsyncDisposable
         await page.GotoAsync(Origin + "render.html").WaitAsync(ct);
         await page.WaitForFunctionAsync("() => document.documentElement.dataset.renderStatus === 'ready' || document.documentElement.dataset.renderStatus === 'failed'").WaitAsync(ct);
         if (await page.Locator("html").GetAttributeAsync("data-render-status").WaitAsync(ct) != "ready")
+        {
+            var code = await page.Locator("html").GetAttributeAsync("data-render-error").WaitAsync(ct);
+            logger.LogWarning("Render page failed in phase {Phase}.", code is "SNAPSHOT" or "DOM" or "IMAGES" or "FONTS" or "LAYOUT" ? code : "UNKNOWN");
             throw new InvalidOperationException("Render page preparation failed.");
+        }
         return await page.ScreenshotAsync(new()
         {
             Type = ScreenshotType.Png, Scale = ScreenshotScale.Css,

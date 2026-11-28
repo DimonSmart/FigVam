@@ -689,3 +689,7 @@ Server logs are attached to each result. Browser tests use one worker and no ret
 ### Frontend architecture verification
 
 The web client owns authentication per application instance and uses prepared document commands, revision-aware synchronization and React-owned shell state. See [frontend architecture and verification](src/FigVam.Web/README.md) for ownership and the browser comparison procedure.
+
+### Server-side Preview screenshots
+
+The MCP image tools use the pinned Microsoft.Playwright package. After building the server, install its matching Chromium once: `pwsh src/FigVam.Server/bin/Debug/net10.0/playwright.ps1 install chromium`. The same browser installation is used by Aspire. On Linux use `install --with-deps chromium` and run the application as an unprivileged user with Chromium sandbox support. See [MCP rendering configuration](docs/mcp.md).

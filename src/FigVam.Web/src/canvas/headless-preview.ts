@@ -5,6 +5,7 @@ import { requiredRecord, text, array } from '../api/decode';
 
 const status = document.documentElement.dataset;
 status.renderStatus = 'loading';
+let phase = 'SNAPSHOT';
 try {
   const node = document.getElementById('snapshot');
   const host = document.getElementById('preview-viewport');
@@ -14,6 +15,7 @@ try {
   const data = requiredRecord(snapshot.assetData), values = requiredRecord(snapshot.values);
   const surfaces = array(snapshot.surfaces, requiredRecord);
   const images: Promise<void>[] = [];
+  phase = 'DOM';
   for (const [index, surface] of surfaces.entries()) {
     const model = readRenderModel({ ...surface, assets: snapshot.assets, tokens: snapshot.tokens, kinds: snapshot.kinds });
     const drawing = renderScreen(model, {
@@ -28,11 +30,15 @@ try {
       images.push(surface.decode());
     }
   }
+  phase = 'IMAGES';
   await Promise.all(images);
+  phase = 'FONTS';
   await document.fonts.ready;
+  phase = 'LAYOUT';
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   status.renderStatus = 'ready';
 } catch {
   // A fixed diagnostic code is safe to return; do not expose document values.
+  status.renderError = phase;
   status.renderStatus = 'failed';
 }

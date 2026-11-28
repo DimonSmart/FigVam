@@ -106,7 +106,7 @@ public sealed class HeadlessPreviewCapture(IConfiguration configuration,
 
             var snapshot = JsonSerializer.Serialize(new { revision, width, height, theme = theme.ToString(), surfaces,
                 kinds = profile.Response.Kinds, tokens = tokenItems, assets = manifest.Response.Assets, assetData, values }, Json);
-            var png = await browser.ScreenshotAsync(snapshot, width, height, theme == TokenTheme.Dark, token);
+            var png = await browser.ScreenshotAsync(snapshot, width, height, token);
             token.ThrowIfCancellationRequested();
             var result = ScreenCaptureResult.FromPng(png) with { Theme = theme.ToString() };
             if (result.Png is null) return result;

@@ -18,7 +18,7 @@ public sealed class McpProtocolTests
         var config = ServerTestIdentity.Production(key);
         var directory = Path.Combine(Path.GetTempPath(), "figvam-mcp-" + Guid.NewGuid().ToString("N"));
         config["Storage__Directory"] = directory;
-        config["Mcp__ChromiumExecutable"] = Path.Combine(directory, "missing-chromium");
+        config["PLAYWRIGHT_BROWSERS_PATH"] = Path.Combine(directory, "missing-chromium");
         await using var server = new ServerProcess(config);
         await server.WaitUntilReadyAsync();
         using var user = server.CreateClient();

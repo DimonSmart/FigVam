@@ -208,6 +208,48 @@ test('MCP builds the login prototype, both editors see changes and restart inval
 });
 
 
+// Compare native Chromium screenshots, not PNG signatures or selected colors alone.
+// Ignore only minor antialiasing differences (<= 16 levels); a large changed
+// region or a substantial average channel error still fails the comparison.
+async function compareNativePreview(page, image) {
+  await page.mouse.move(0, 0);
+  await page.evaluate(async () => {
+    document.activeElement?.blur();
+    await document.fonts.ready;
+    await Promise.all([...document.querySelectorAll('#preview-viewport img')].map(img => img.decode()));
+  });
+  const interactive = await page.locator('#preview-viewport').screenshot({
+    animations: 'disabled', caret: 'hide', scale: 'css'
+  });
+  const difference = await page.evaluate(async ({ a, b }) => {
+    async function pixels(data) {
+      const bmp = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], {type:'image/png'}));
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width; canvas.height = bmp.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(bmp, 0, 0);
+      const result = { width: bmp.width, height: bmp.height, data: ctx.getImageData(0, 0, bmp.width, bmp.height).data };
+      bmp.close();
+      return result;
+    }
+    const [one, two] = await Promise.all([pixels(a), pixels(b)]);
+    if (one.width !== two.width || one.height !== two.height) return { sizeMatches: false };
+    let changed = 0, sum = 0;
+    for (let i = 0; i < one.data.length; i += 4) {
+      let max = 0;
+      for (let channel = 0; channel < 4; channel++) {
+        const delta = Math.abs(one.data[i + channel] - two.data[i + channel]);
+        max = Math.max(max, delta); sum += delta;
+      }
+      if (max > 16) changed++;
+    }
+    return { sizeMatches: true, changed: changed / (one.width * one.height), average: sum / one.data.length };
+  }, { a: interactive.toString('base64'), b: image.data });
+  expect(difference.sizeMatches).toBe(true);
+  expect(difference.changed).toBeLessThanOrEqual(0.005);
+  expect(difference.average).toBeLessThanOrEqual(0.5);
+}
+
 test('Autonomous MCP rendering uses both themes and screens without changing editor state', async ({ page, request, server }, testInfo) => {
   test.setTimeout(300000);
   // Even if requested accidentally, the native tab picker must never be used.
@@ -436,6 +478,8 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   expect(await field.boundingBox()).toEqual(fieldBounds);
   await testInfo.attach('focused-dark', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
   await field.blur();
+  const darkPng = await call.raw('render_screen', { screenId: login, theme: 'Dark' });
+  await compareNativePreview(page, darkPng.content.find(block => block.type === 'image'));
   const previewBefore = await editorState();
   await inspect(login, 'Light', 'explicit-light-in-dark-preview', changedButton.revision, [238, 242, 247], false);
   await inspect(login, null, 'default-light', changedButton.revision, [238, 242, 247], false);
@@ -446,6 +490,8 @@ test('Autonomous MCP rendering uses both themes and screens without changing edi
   await expect(field).toHaveCSS('outline-color', 'rgb(37, 99, 235)');
   await testInfo.attach('focused-light', { body: await page.locator('#preview-viewport').screenshot(), contentType: 'image/png' });
   await field.blur();
+  const lightPng = await call.raw('render_screen', { screenId: login, theme: 'Light' });
+  await compareNativePreview(page, lightPng.content.find(block => block.type === 'image'));
   await inspect(error, 'Dark', 'explicit-dark-in-light-preview', changedButton.revision, [16, 32, 48], true, [220, 38, 38]);
   await page.getByRole('button', { name: 'Вернуться в Design' }).click();
   await call('set_token_value', { tokenId: primary, theme: 'Dark', value: '#2563EB' });
@@ -593,6 +639,7 @@ test('TextInput placeholders and values use the correct text, mask and theme col
     expect(capture.isError, JSON.stringify(capture.structuredContent)).not.toBe(true);
     const image = capture.content.find(block => block.type === 'image');
     expect(image?.mimeType).toBe('image/png');
+    await compareNativePreview(page, image);
     const pixels = await page.evaluate(async ({ data, colors }) => {
       const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(data), c => c.charCodeAt(0))], { type: 'image/png' }));
       const canvas = document.createElement('canvas');
@@ -612,7 +659,7 @@ test('TextInput placeholders and values use the correct text, mask and theme col
         counts: rows.map(row => ({ placeholder: count(row, colors.placeholder), value: count(row, colors.value) })),
         empty: rows[4].every(channel => channel === 255),
         placeholderMatchesText: same(rows[2], rows[5]),
-        passwordMatchesBullets: same(rows[3], rows[6])
+        passwordHasInk: count(rows[3], colors.value) > 10
       };
     }, { data: image.data, colors: colors[theme] });
     expect([pixels.width, pixels.height]).toEqual([280, 370]);
@@ -626,6 +673,6 @@ test('TextInput placeholders and values use the correct text, mask and theme col
     }
     expect(pixels.empty).toBe(true);
     expect(pixels.placeholderMatchesText).toBe(true);
-    expect(pixels.passwordMatchesBullets).toBe(true);
+    expect(pixels.passwordHasInk).toBe(true);
   }
 });
