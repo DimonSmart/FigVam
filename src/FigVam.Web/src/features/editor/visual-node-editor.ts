@@ -23,11 +23,11 @@ interface Upload {documentId:string;assetId:string;mutation:AssetUploadOperation
 interface GeometryCommand {nodeId:string;expectedParentId:string;expectedRevision:number;properties:NodeProperties}
 function propertyValue(value:ResolvableValue|undefined):NodePropertyValue|undefined{
   if(!value)return undefined;
-  switch(value.type){case 'color':case 'shadow':case 'string':case 'enum':case 'boolean':case 'asset':case 'style':case 'token':return value;case 'number':return {type:'number',value:value.value};case 'typography':if('value' in value)return value;}
+  switch(value.type){case 'color':case 'shadow':case 'linearGradient':case 'string':case 'enum':case 'boolean':case 'asset':case 'style':case 'token':return value;case 'number':return {type:'number',value:value.value};case 'typography':if('value' in value)return value;}
   return undefined;
 }
 function definitionValue(value:unknown):unknown{return value&&typeof value==='object'&&'value' in value?value.value:undefined;}
-import { createNodeValueSpec, createValueField, propertyLabel, shadowPreset, type ValueField, type EditKind } from '../../ui/property-value';
+import { createNodeValueSpec, createValueField, propertyLabel, shadowPreset, gradientPreset, type ValueField, type EditKind } from '../../ui/property-value';
 import { createPropertyFieldModels, type FieldPresentation } from '../../ui/property-layout';
 
 const canEdit = (role:string|null) => role === 'Owner' || role === 'Editor';
@@ -44,7 +44,7 @@ export function createVisualNodeEditor({
   function resetAssetFile(){assetFile=null;fileReset++;}
   const textStyledFields = new Set(['textColor', 'fontFamily', 'fontSize', 'fontWeight',
     'lineHeight', 'letterSpacing', 'fontStyle', 'fontFallback']);
-  const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius']);
+  const borderStyledFields = new Set(['borderColor', 'borderWidth', 'cornerRadius', 'borderPattern', 'radiusTopLeft', 'radiusTopRight', 'radiusBottomRight', 'radiusBottomLeft']);
   const operations=new Map<string,Operation>(),paletteDrafts=new Map<string,Palette>(),inspectorDrafts=new Map<string,Draft>(),canvasDrafts=new Map<string,Draft>();
   let context:Context=getContext(),model:Model|null=null,modelKey:string|null=null,resolvedModelKey:string|null=null,modelScope:string|null=null,loadedKey:string|undefined,loadError='',queued=false;
   let palette:Palette|undefined,inspector:Draft|undefined,node:CanvasNode|undefined,paletteFields=new Map<string,Field>(),paletteOptionalFields=new Map<string,Field>(),inspectorFields=new Map<string,Field>();
@@ -231,7 +231,7 @@ export function createVisualNodeEditor({
     for(const [name,definition] of Object.entries(definitions??{})){
       if(!model||!definition||!definition.type)continue;
       const controlDefinition:ControlDefinition={...definition,type:definition.type};
-      const choices=definition.type==='Asset'?[...model.assets.values()]:definition.type==='TokenReference'||definition.tokenType!=null?[...model.tokens.values()]:null;
+      const choices=definition.type==='Asset'?[...model.assets.values()]:definition.type==='TokenReference'||definition.type==='LinearGradient'||definition.tokenType!=null?[...model.tokens.values()]:null;
       const signature=JSON.stringify([definition,choices,Boolean(state)]);
       const valueSignature=JSON.stringify(values?.[name]??definition.defaultValue);
       const previous=existing.get(name);
@@ -255,7 +255,7 @@ export function createVisualNodeEditor({
           }
           field.lastRaw = raw;
           const inFlight = [...operations.values()].find(op => op.auto && op.draft === state)?.sent.has(name);
-          if (sameRaw(field.baseline, raw) && !inFlight && !(name === 'shadow' && !field.hasValue && state.values.has(name))) state.values.delete(name);
+          if (sameRaw(field.baseline, raw) && !inFlight && !((name === 'shadow' || name === 'linearGradient') && !field.hasValue && state.values.has(name))) state.values.delete(name);
           else state.values.set(name, raw);
           if (state === inspector && (name === 'x' || name === 'y')) {
             if (state.values.has('x') || state.values.has('y')) state.coordinateParentId??=node?.parentId;
@@ -311,8 +311,9 @@ export function createVisualNodeEditor({
           const current=getContext();if(current.variantId||!node||!canEdit(current.documentRole))return;
           begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
         };
-        if(!context.variantId&&state&&node?.kind==='TextInput'&&node.properties[name]!==undefined&&!localOverride&&
-          ['paddingTop','paddingRight','paddingBottom','paddingLeft','placeholderColor','focusBorderColor','focusBorderWidth','lineHeight'].includes(name))entry.resetLocal=()=>{
+        if(!context.variantId&&state&&node&&node.properties[name]!==undefined&&!localOverride&&
+          (['radiusTopLeft','radiusTopRight','radiusBottomRight','radiusBottomLeft'].includes(name) ||
+            node.kind==='TextInput'&&['paddingTop','paddingRight','paddingBottom','paddingLeft','placeholderColor','focusBorderColor','focusBorderWidth','lineHeight'].includes(name)))entry.resetLocal=()=>{
           const current=getContext();if(current.variantId||!node||!canEdit(current.documentRole))return;
           begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},inspector);
         };
@@ -320,19 +321,19 @@ export function createVisualNodeEditor({
           const current=getContext();if(!current.variantId||!node||!canEdit(current.documentRole))return;
           begin('remove-screen-variant-override',{screenId:current.screen,variantId:current.variantId,nodeId:node.id,property:name,expectedRevision:current.revision},inspector);
         };
-        if(name==='shadow'){
-          const active=values?.shadow!==undefined||Boolean(state?.values.has(name));
-          const inherited=active&&context.variantId&&values?.shadow!==undefined&&!overridden&&!state?.values.has(name);
-          entry.shadow={active,toggle:!state||inherited?undefined:()=>{
+        if(name==='shadow'||name==='linearGradient'){
+          const active=values?.[name]!==undefined||Boolean(state?.values.has(name));
+          const inherited=active&&context.variantId&&values?.[name]!==undefined&&!overridden&&!state?.values.has(name);
+          entry[name==='shadow'?'shadow':'gradient']={active,toggle:!state||inherited?undefined:()=>{
             const current=getContext();
             if(!node||!model||!canEdit(current.documentRole)||operations.has(scopeKey(current)??'')||resolvedModelKey!==modelKey)return;
             if(!active){
-              const preset=createNodeValueSpec(name,controlDefinition,model,shadowPreset,prefix).initial;
+              const preset=createNodeValueSpec(name,controlDefinition,model,name==='shadow'?shadowPreset:gradientPreset,prefix).initial;
               state.values.set(name,preset);render();scheduleApply(state,name,inspectorFields.get(name),true);
             }else if(current.variantId){
               if(model?.overridden?.get(node?.id??'')?.has(name))begin('remove-screen-variant-override',{screenId:current.screen,variantId:current.variantId,nodeId:node.id,property:name,expectedRevision:current.revision},state);
               else if(state.values.has(name)){state.values.delete(name);render();}
-            }else if(values?.shadow!==undefined)begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},state);
+            }else if(values?.[name]!==undefined)begin('remove-node-properties',{nodeId:node.id,properties:[name],expectedRevision:current.revision},state);
             else{state.values.delete(name);render();}
           }};
         }
@@ -456,7 +457,7 @@ export function createVisualNodeEditor({
           if(error.code==='DOCUMENT_NOT_FOUND'){if(visible())closeInaccessibleDocument(error.status);return;}
           op.draft.uploadError=error.code==='ASSET_LIMIT_EXCEEDED'?'Достигнут лимит ассетов документа.':
             error.status===413?'Файл превышает 5 МиБ.':
-            error.status===400||error.status===415?'Сервер отклонил изображение. Выберите допустимый PNG.':error.message;
+            error.status===400||error.status===415?'Сервер отклонил изображение. Выберите допустимый PNG или SVG.':error.message;
         }else op.draft.uploadError=errorMessage(error);
       }
     }finally{

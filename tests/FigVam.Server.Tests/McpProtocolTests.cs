@@ -19,6 +19,7 @@ public sealed class McpProtocolTests
         var directory = Path.Combine(Path.GetTempPath(), "figvam-mcp-" + Guid.NewGuid().ToString("N"));
         config["Storage__Directory"] = directory;
         config["PLAYWRIGHT_BROWSERS_PATH"] = Path.Combine(directory, "missing-chromium");
+        config["RateLimiting__McpPermitLimit"] = "300";
         await using var server = new ServerProcess(config);
         await server.WaitUntilReadyAsync();
         using var user = server.CreateClient();

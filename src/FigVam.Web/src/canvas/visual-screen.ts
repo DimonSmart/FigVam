@@ -15,7 +15,7 @@ type PreviewTrigger=Schema['PreviewTrigger'];
 type PreviewAction={type:'setDemoValue';nodeId:string}|{type:'resetPreview'}|{type:'other'};
 interface Scenario {nodeId:string;event:number;actions:PreviewAction[]}
 interface Playback {selection:{screenId:string;datasetId:string|null;variantId:string|null};overlays:string[];values:Record<string,string|null>;canGoBack:boolean}
-interface Asset {id:string;width:number;height:number}
+interface Asset {id:string;width:number;height:number;contentType?:string}
 interface Style {id:string;name:string;type:number|string}
 interface Resources {fontFamilies?: ReadonlyMap<string,string>;kinds:Map<string,CanvasKind & {kind:string}>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
 interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens'>, Resources {
@@ -32,7 +32,7 @@ interface Page<T>{items:T[];diagnostics:Diagnostic[];overrides:{nodeId:string;pr
 function diagnostic(value:unknown):Diagnostic{const d=requiredRecord(value);return{objectId:text(d.objectId),property:text(d.property),message:text(d.message),code:text(d.code)};}
 function scenario(value:unknown):Scenario{const v=requiredRecord(value);return{nodeId:text(v.nodeId),event:number(v.event),actions:array(v.actions,a=>{const x=requiredRecord(a);return x.type==='setDemoValue'?{type:'setDemoValue',nodeId:text(x.nodeId)}:x.type==='resetPreview'?{type:'resetPreview'}:{type:'other'};})};}
 function playbackValue(value:unknown):Playback{const p=requiredRecord(value),selection=requiredRecord(p.selection);return{selection:{screenId:text(selection.screenId),datasetId:selection.datasetId==null?null:text(selection.datasetId),variantId:selection.variantId==null?null:text(selection.variantId)},overlays:array(p.overlays,text),values:Object.fromEntries(Object.entries(requiredRecord(p.values)).map(([id,v])=>[id,v==null?null:text(v)])),canGoBack:p.canGoBack===true};}
-function asset(value:unknown):Asset{const a=requiredRecord(value);return{id:text(a.id),width:number(a.width),height:number(a.height)};}
+function asset(value:unknown):Asset{const a=requiredRecord(value);return{id:text(a.id),width:number(a.width),height:number(a.height),contentType:typeof a.contentType==='string'?a.contentType:undefined};}
 function style(value:unknown):Style{const a=requiredRecord(value);return{id:text(a.id),name:text(a.name),type:typeof a.type==='number'?a.type:text(a.type)};}
 function scalar(value:ResolvableValue|null|undefined):unknown{return value&&'value' in value?value.value:undefined;}
 function newView(host:HTMLElement,feedback:RenderFeedback):View{return{host,feedback,controller:null,key:null,model:null,selected:null};}
@@ -61,7 +61,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
   function documentSignal():AbortSignal{if(!controller)throw new Error('No active screen request');return controller.signal;}
   let previewFrame = 0;
   const previewKey = (documentId:string|null, screen:string, variantId:string|null|undefined) => JSON.stringify([documentId, screen, variantId ?? null]);
-  const visualProperties = new Set(['visible', 'opacity', 'text', 'textColor', 'textAlignment', 'fontSize', 'fontFamily', 'fontFallback', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wrap', 'enabled', 'placeholder', 'value', 'multiline', 'inputType', 'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius', 'shadow', 'altText', 'fit', 'overflow']);
+  const visualProperties = new Set(['visible', 'opacity', 'text', 'textColor', 'textAlignment', 'fontSize', 'fontFamily', 'fontFallback', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wrap', 'enabled', 'placeholder', 'value', 'multiline', 'inputType', 'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius', 'shadow', 'altText', 'fit', 'overflow', 'rotation', 'iconName', 'strokeColor', 'strokeWidth', 'lineDirection', 'startArrow', 'endArrow', 'borderPattern', 'imageClip', 'linearGradient', 'radiusTopLeft', 'radiusTopRight', 'radiusBottomRight', 'radiusBottomLeft']);
 
   function projected(model:DrawingModel):DrawingModel {
     if (!context || !model) return model;
@@ -370,7 +370,9 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
           report: (node, property, message) => diagnostics.add(`${node.name || node.id} · ${property}: ${message}`)
         });
         if (previewMode) {
-          content.append(previewSurface(model, drawing.root, index === models.length - 1));
+          const surface = previewSurface(model, drawing.root, index === models.length - 1);
+          surface.dataset.revision = String(model.revision);
+          content.append(surface);
         } else content.append(drawing.root);
         shown = true;
       }
@@ -378,7 +380,26 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
       const focusedNode = focus?.closest<HTMLElement>('[data-visual-node]')?.dataset.visualNode;
       const selection = inputControl(focus) ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] as const : null;
       if (!previewMode && view.host.hasChildNodes()) reconcileScreen(view.host, content);
-      else view.host.replaceChildren(content);
+      else if (previewMode) {
+        // Reuse screen roots when only size, theme, or revision changes.
+        // Replacing them can detach a focused input or an in-flight screenshot.
+        const previous = [...view.host.children];
+        const next = [...content.children];
+        const sameStack = previous.length === next.length && previous.every((root, index) =>
+          root instanceof HTMLElement && next[index] instanceof HTMLElement &&
+          root.dataset.previewScreen === next[index].dataset.previewScreen);
+        if (sameStack) {
+          for (let index = 0; index < previous.length; index++) {
+            const root = previous[index], fresh = next[index];
+            if (!(root instanceof HTMLElement) || !(fresh instanceof HTMLElement)) continue;
+            root.style.width = fresh.style.width;
+            root.style.height = fresh.style.height;
+            root.inert = fresh.inert;
+            root.setAttribute('data-revision', fresh.getAttribute('data-revision') ?? '');
+            reconcileScreen(root, fresh);
+          }
+        } else view.host.replaceChildren(content);
+      } else view.host.replaceChildren(content);
       view.feedback.patch({diagnostics:[...diagnostics],status:shown ? '' : 'Геометрию экрана не удалось рассчитать.'});
       if (previewMode) {
         activeScenarios = models.at(-1)?.scenarios??[];
@@ -392,7 +413,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
         const control = (previewMode ? view.host.lastElementChild : view.host)
           ?.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(focusedNode)}"] > .visual-surface`);
         if (control && !control.inert && !(('disabled' in control)&&control.disabled)) {
-          control.focus({ preventScroll: true });
+          if (document.activeElement !== control) control.focus({ preventScroll: true });
           if (selection && inputControl(control)) control.setSelectionRange(selection[0],selection[1],selection[2]??undefined);
         } else if (previewMode) document.getElementById('close-preview')?.focus({ preventScroll: true });
       }

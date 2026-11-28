@@ -14,9 +14,14 @@ const cache = new Map();
 function bundle(name) {
   if (!Object.hasOwn(entries, name)) throw new Error('Unknown frontend test module: ' + name);
   if (!cache.has(name)) cache.set(name, (async () => {
-    const { build } = await import(pathToFileURL(require.resolve('vite', { paths: [frontend] })).href);
+    const { build, loadConfigFromFile } = await import(pathToFileURL(require.resolve('vite', { paths: [frontend] })).href);
+    // Reuse production plugins (including the Lucide virtual catalog), while
+    // keeping the isolated test entry point and output configuration.
+    const loaded = await loadConfigFromFile({ command: 'build', mode: 'production' },
+      resolve(frontend, 'vite.config.ts'), frontend, 'error');
+    if (!loaded) throw new Error('Missing frontend Vite configuration');
     const result = await build({
-      root: frontend, configFile: false, logLevel: 'error',
+      root: frontend, configFile: false, logLevel: 'error', plugins: loaded.config.plugins,
       // Library mode does not replace NODE_ENV automatically. Match the production
       // frontend config so React's runtime can execute in Chromium without Node globals.
       define: { 'process.env.NODE_ENV': JSON.stringify('production') },

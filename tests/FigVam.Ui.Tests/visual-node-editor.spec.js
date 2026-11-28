@@ -53,7 +53,7 @@ async function readNodes(request, base, screenId) {
   return (await response.json()).items;
 }
 
-test('palette uploads an image, rejects invalid content, and creates all five kinds', async ({ page, request }) => {
+test('palette uploads an image, rejects invalid content, and creates the original kinds and lists new primitives', async ({ page, request }) => {
   await page.goto('/');
   await login(page);
   await page.getByLabel('Имя нового документа').fill('Palette');
@@ -81,7 +81,7 @@ test('palette uploads an image, rejects invalid content, and creates all five ki
   await expect(page.locator('#asset-upload-status')).toContainText('Изображение загружено');
   await show(page, 'palette');
   const kindPicker = page.getByLabel('Вид элемента');
-  await expect(kindPicker.locator('option')).toHaveText(['Frame', 'Text', 'Button', 'TextInput', 'Image']);
+  await expect(kindPicker.locator('option')).toHaveText(['Frame', 'Text', 'Button', 'TextInput', 'Image', 'Ellipse', 'Line', 'Icon']);
   await expect(page.locator('#visual-palette-status')).toContainText('240 × 160');
   const frame = await addFromPalette(page, 'Frame');
   const screenId = frame.body.parentId;

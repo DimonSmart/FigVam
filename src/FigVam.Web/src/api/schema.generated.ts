@@ -695,6 +695,7 @@ export interface paths {
                         "font/woff": string;
                         "font/woff2": string;
                         "image/png": string;
+                        "image/svg+xml": string;
                     };
                 };
                 /** @description Bad Request */
@@ -709,6 +710,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Unauthorized */
@@ -723,6 +725,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Forbidden */
@@ -737,6 +740,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Not Found */
@@ -751,6 +755,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Conflict */
@@ -765,6 +770,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Payload Too Large */
@@ -779,6 +785,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Unsupported Media Type */
@@ -793,6 +800,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Too Many Requests */
@@ -807,6 +815,7 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
                 /** @description Internal Server Error */
@@ -821,13 +830,14 @@ export interface paths {
                         "font/woff": components["schemas"]["ApiError"];
                         "font/woff2": components["schemas"]["ApiError"];
                         "image/png": components["schemas"]["ApiError"];
+                        "image/svg+xml": components["schemas"]["ApiError"];
                     };
                 };
             };
         };
         /**
-         * Upload a safe raster asset through the document command stream
-         * @description Raw image/png body, at most 5 MiB; commandId and assetId must be nonempty UUIDs. Static noninterlaced 8-bit grayscale, RGB, gray-alpha or RGBA PNG only. IHDR, consecutive IDAT and IEND chunks only; CRC, zlib/Adler, scanline lengths and filters validated. Metadata, palettes, animation, SVG, external links, trailing bytes and other formats are rejected. Maximum dimension 4096, 4194304 pixels, 256 assets and 64 MiB per document. Editor or Owner required. Content, SHA-256, manifest, revision and event commit atomically. commandId retries return the original result; undo removes an asset only if references remain valid. Retained blobs are never collected in this version.
+         * Upload a safe image asset through the document command stream
+         * @description Raw image/png or image/svg+xml body, at most 5 MiB; commandId and assetId must be nonempty UUIDs. PNG must be static and pass the bounded raster decoder. SVG must contain only allowed static vector elements and local fragment references; scripts, stylesheets, external resources and DTDs are rejected. Maximum dimension 4096, 4194304 pixels, 256 assets and 64 MiB per document. Editor or Owner required. Content, SHA-256, manifest, revision and event commit atomically. commandId retries return the original result; undo removes an asset only if references remain valid. Retained blobs are never collected in this version.
          */
         put: {
             parameters: {
@@ -844,6 +854,7 @@ export interface paths {
             requestBody: {
                 content: {
                     "image/png": string;
+                    "image/svg+xml": string;
                 };
             };
             responses: {
@@ -14018,6 +14029,13 @@ export interface components {
             /** Format: uuid */
             datasetId: string;
         };
+        NodeGradientStop: {
+            color?: null | components["schemas"]["NodeColorValue"];
+            /** Format: double */
+            position: number | string;
+            /** Format: uuid */
+            tokenId?: null | string;
+        };
         NodeKindDefinition: {
             canContainChildren: boolean;
             kind: string;
@@ -14048,8 +14066,8 @@ export interface components {
             type: components["schemas"]["NodePropertyType"];
         };
         /** @enum {unknown} */
-        NodePropertyType: "String" | "Number" | "Boolean" | "Asset" | "TokenReference" | "Enum" | "Color" | "StyleReference" | "Shadow";
-        NodePropertyValue: components["schemas"]["NodePropertyValueNodeStringValue"] | components["schemas"]["NodePropertyValueNodeNumberValue"] | components["schemas"]["NodePropertyValueNodeBooleanValue"] | components["schemas"]["NodePropertyValueNodeAssetValue"] | components["schemas"]["NodePropertyValueNodeTokenValue"] | components["schemas"]["NodePropertyValueNodeStyleValue"] | components["schemas"]["NodePropertyValueNodeTypographyValue"] | components["schemas"]["NodePropertyValueNodeEnumValue"] | components["schemas"]["NodePropertyValueNodeColorValue"] | components["schemas"]["NodePropertyValueNodeShadowValue"];
+        NodePropertyType: "String" | "Number" | "Boolean" | "Asset" | "TokenReference" | "Enum" | "Color" | "StyleReference" | "Shadow" | "LinearGradient";
+        NodePropertyValue: components["schemas"]["NodePropertyValueNodeStringValue"] | components["schemas"]["NodePropertyValueNodeNumberValue"] | components["schemas"]["NodePropertyValueNodeBooleanValue"] | components["schemas"]["NodePropertyValueNodeAssetValue"] | components["schemas"]["NodePropertyValueNodeTokenValue"] | components["schemas"]["NodePropertyValueNodeStyleValue"] | components["schemas"]["NodePropertyValueNodeTypographyValue"] | components["schemas"]["NodePropertyValueNodeEnumValue"] | components["schemas"]["NodePropertyValueNodeColorValue"] | components["schemas"]["NodePropertyValueNodeShadowValue"] | components["schemas"]["NodePropertyValueNodeLinearGradientValue"];
         NodePropertyValueNodeAssetValue: {
             /** Format: uuid */
             assetId: string;
@@ -14080,6 +14098,13 @@ export interface components {
             /** @enum {string} */
             type?: "enum";
             value: string;
+        };
+        NodePropertyValueNodeLinearGradientValue: {
+            /** Format: double */
+            angle: number | string;
+            stops: components["schemas"]["NodeGradientStop"][];
+            /** @enum {string} */
+            type?: "linearGradient";
         };
         NodePropertyValueNodeNumberValue: {
             /** @enum {string} */
@@ -14133,7 +14158,7 @@ export interface components {
             templateNodeId: string;
         };
         /** @enum {unknown} */
-        NodeSemanticRole: "Container" | "Text" | "Button" | "TextInput" | "Image";
+        NodeSemanticRole: "Container" | "Text" | "Button" | "TextInput" | "Image" | "Ellipse" | "Line" | "Icon";
         NodeStructure: {
             childIds: string[];
             dataBindings: {

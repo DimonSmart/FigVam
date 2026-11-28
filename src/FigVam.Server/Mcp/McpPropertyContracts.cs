@@ -268,10 +268,35 @@ internal static class McpPropertyContracts
         return Choice(CompactTokenLiteral(TokenType.Dimension, TokenCategory.Spacing), ReferenceSchema<McpTokenReferenceInput>());
     }
 
+    private static JsonObject GradientSchema()
+    {
+        var color = Schema<McpRgbaInput>();
+        var required = color["required"]!.AsArray();
+        required.Remove(required.Single(v => v!.GetValue<string>() == "alpha"));
+        color["properties"]!["alpha"]!["default"] = 255;
+        var position = Schema<double>();
+        position["minimum"] = 0;
+        position["maximum"] = 1;
+        var stop = ObjectSchema(new JsonObject
+        {
+            ["position"] = position,
+            ["color"] = Choice(color, new JsonObject { ["type"] = "null" }),
+            ["tokenId"] = Choice(Schema<Guid>(), new JsonObject { ["type"] = "null" })
+        }, "position");
+        stop["description"] = "Exactly one non-null color or color tokenId is required.";
+        var schema = ObjectSchema(new JsonObject
+        {
+            ["angle"] = Schema<double>(),
+            ["stops"] = new JsonObject { ["type"] = "array", ["minItems"] = 2, ["items"] = stop }
+        }, "angle", "stops");
+        return WithTag(schema, "linearGradient");
+    }
+
     internal static JsonObject CompactLiteralSchema(NodePropertyDefinition definition) => definition.Type switch
     {
         NodePropertyType.Color => ColorSchema(),
         NodePropertyType.Shadow => ShadowSchema(),
+        NodePropertyType.LinearGradient => GradientSchema(),
         _ => throw new ArgumentOutOfRangeException(nameof(definition))
     };
 
@@ -292,6 +317,7 @@ internal static class McpPropertyContracts
             NodePropertyType.StyleReference => ReferenceSchema<McpStyleReferenceInput>("style"),
             NodePropertyType.TokenReference => ReferenceSchema<McpTokenReferenceInput>("token"),
             NodePropertyType.Shadow => ShadowSchema(),
+            NodePropertyType.LinearGradient => GradientSchema(),
             _ => throw new ArgumentOutOfRangeException(nameof(definition))
         };
 

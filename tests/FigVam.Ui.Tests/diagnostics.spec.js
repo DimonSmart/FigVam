@@ -33,9 +33,11 @@ test('reads selected screen and revision, paginates, retries and renders fields 
     return response(route, Array.from({ length: offset ? 1 : 20 }, (_, i) => ({ code: `CODE-${offset + i}`, path: '/nodes/<img>', message: 'Message', referenceId: 'ref', property: 'color' })), 21);
   });
   await open(page, id);
-  await expect(page.locator('#diagnostics-status')).toHaveText('Выберите экран.');
-  await page.locator('#screens button.screen-select').first().click();
+  // The workspace automatically selects its first screen after opening.
+  // Do not race its initial diagnostics request with another selection.
+  await expect(page.locator('#screens button.screen-select').first()).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#diagnostics-error')).toContainText('Нет доступа');
+  expect(calls[0].searchParams.get('screenId')).toBe(screens[0]);
   await page.getByRole('button', { name: 'Повторить загрузку диагностики' }).click();
   await expect(page.locator('#diagnostics-number')).toHaveText('1–20 из 21');
   await expect(page.locator('#diagnostics-list').locator('li').first()).toContainText('CODE-0 — /nodes/<img> — Message — ID ссылки: ref — Свойство: color');

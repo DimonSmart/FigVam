@@ -1,3 +1,4 @@
+import { renderLine, renderIcon } from './graphics';
 import { resolveTokenValue, resolvePropertyToken } from '../core/tokens/token-resolution.js';
 import type { NodePropertyValue, ResolvableValue, Theme, TokenMap } from '../core/tokens/token-model';
 import type { Bounds, CanvasNode, CanvasKind, LayoutBox, NodeProperties, PropertyDefinitions } from './canvas-model';
@@ -25,6 +26,34 @@ function string(value: unknown): string { return typeof value === 'string' ? val
 function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
 function isInput(element: HTMLElement): element is HTMLInputElement | HTMLTextAreaElement {
   return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+}
+
+// Reconciled Preview surfaces keep their DOM identity. Dispatch through the
+// latest render's interaction context instead of retaining an obsolete closure.
+interface Interaction { id: string; events: readonly number[]; options: RenderOptions }
+const interactions = new WeakMap<HTMLElement, Interaction | undefined>();
+function bindInteraction(surface: HTMLElement, interaction: Interaction | undefined) {
+  const bound = interactions.has(surface);
+  interactions.set(surface, interaction);
+  if (bound || !interaction) return;
+  const trigger = (event: number) => {
+    const current = interactions.get(surface);
+    if (current?.events.includes(event)) current.options.trigger?.(current.id, event);
+  };
+  if (surface instanceof HTMLButtonElement) surface.addEventListener('click', () => trigger(0));
+  if (isInput(surface)) {
+    surface.addEventListener('input', () => {
+      const current = interactions.get(surface);
+      if (current) current.options.setInput?.(current.id, surface.value);
+    });
+    surface.addEventListener('change', () => trigger(1));
+    if (surface instanceof HTMLInputElement) surface.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing && interactions.get(surface)?.events.includes(4)) {
+        event.preventDefault();
+        trigger(4);
+      }
+    });
+  }
 }
 
 const enumStyles: Record<'fontFallback' | 'fontWeight' | 'fontStyle' | 'textAlignment' | 'fit', Record<string, string | undefined>> = {
@@ -67,6 +96,13 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
     return result.error ? null : result.value;
   }
   const style = surface.style;
+  const pattern = scalar(property('borderPattern'));
+  if (pattern === 'Solid' || pattern === 'Dashed' || pattern === 'Dotted') style.borderStyle = pattern.toLowerCase();
+  const applyCorners = () => { for (const [name, key] of Object.entries({ radiusTopLeft: 'borderTopLeftRadius', radiusTopRight: 'borderTopRightRadius', radiusBottomRight: 'borderBottomRightRadius', radiusBottomLeft: 'borderBottomLeftRadius' } as const)) {
+    const radius = resolved(name);
+    const value = radius?.type === 'geometry' ? radius.radius : scalar(radius);
+    if (finite(value)) style[key] = px(value);
+  } };
   for (const [name, key] of Object.entries({ backgroundColor: 'backgroundColor', textColor: 'color', borderColor: 'borderColor' } as const)) {
     const value = property(name);
     if (!value) continue;
@@ -78,6 +114,18 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
     const propertyValue = resolved(name);
     const value = propertyValue?.type === 'geometry' ? propertyValue.radius : scalar(propertyValue);
     if (finite(value)) style[key] = px(name === 'borderWidth' ? Math.min(value, bounds.width / 2, bounds.height / 2) : value);
+  }
+  applyCorners();
+  const gradient = property('linearGradient');
+  if (gradient?.type === 'linearGradient') {
+    const stops = [...gradient.stops].sort((a,b)=>a.position-b.position).map(stop => {
+      const rgba = stop.tokenId ? color({type:'token',tokenId:stop.tokenId}, tokens, theme) :
+        stop.color ? color({type:'color',...stop.color}, tokens, theme) : null;
+      return rgba && `${rgba} ${stop.position*100}%`;
+    });
+    if (stops.length >= 2 && stops.every(Boolean))
+      style.backgroundImage = `linear-gradient(${gradient.angle % 360}deg, ${stops.join(', ')})`;
+    else report('linearGradient', 'Не удалось разрешить цветовые точки градиента.');
   }
   for (const name of ['fontStyle', 'textAlignment'] as const) {
     const value = enumStyles[name][string(scalar(property(name)))];
@@ -124,6 +172,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
   const root = document.createDocumentFragment();
   const elements = new Map<string, DocumentFragment | HTMLElement>([[screen, root]]);
   const images: RenderImage[] = [];
+  const rotated = new Set<string>();
   for (const [id, node] of nodes) {
     const kind = kinds.get(node.kind);
     const box = boxes.get(id);
@@ -144,7 +193,14 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
     const parentBox = boxes.get(node.parentId);
     if (!parentBox) throw new Error('Отсутствует геометрия родительского слоя.');
     // A node's own clip is for descendants; only the inherited clip may clip its effect.
-    place(wrapper, { bounds: box.bounds, clip: options.preview ? parentBox.clip : null }, parentBox.bounds);
+    const rotation = value('rotation');
+    if (finite(rotation) && rotation % 360 !== 0) {
+      wrapper.style.transformOrigin = '0 0';
+      wrapper.style.transform = `rotate(${rotation}deg)`;
+      rotated.add(id);
+    }
+    if (rotated.has(node.parentId)) rotated.add(id);
+    place(wrapper, { bounds: box.bounds, clip: options.preview && !rotated.has(id) ? parentBox.clip : null }, parentBox.bounds);
     if (value('visible') === false) wrapper.style.visibility = 'hidden';
     const opacityValue = property('opacity');
     const resolvedOpacity = opacityValue?.type === 'token'
@@ -162,7 +218,6 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       surface = button;
       surface.textContent = string(value('text'));
       if (!surface.textContent) surface.setAttribute('aria-label', node.name || 'Кнопка');
-      if (options.preview && kind.previewEvents.includes(0)) surface.addEventListener('click', () => options.trigger?.(id, 0));
     } else if (role === 'TextInput') {
       const input = value('multiline') ? document.createElement('textarea') : document.createElement('input');
       surface = input;
@@ -173,17 +228,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       const maxLength = kind.properties.value?.maxLength;
       if (finite(maxLength) && Number.isInteger(maxLength)) input.maxLength = maxLength;
       input.setAttribute('aria-label', node.name || input.placeholder || 'Поле ввода');
-      if (options.preview) {
-        input.addEventListener('input', () => options.setInput?.(id, input.value));
-        if (kind.previewEvents.includes(1)) input.addEventListener('change', () => options.trigger?.(id, 1));
-        if (input instanceof HTMLInputElement && kind.previewEvents.includes(4))
-          input.addEventListener('keydown', event => {
-            if (event.key === 'Enter' && !event.isComposing) {
-              event.preventDefault();
-              options.trigger?.(id, 4);
-            }
-          });
-      } else input.readOnly = true;
+      if (!options.preview) input.readOnly = true;
     } else if (role === 'Image') {
       const asset = property('asset');
       const assetId = asset?.type === 'asset' ? asset.assetId : undefined;
@@ -205,8 +250,10 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       surface = document.createElement('div');
       if (role === 'Text') surface.textContent = string(value('text'));
     }
+    if (options.preview && (isInput(surface) || surface instanceof HTMLButtonElement))
+      bindInteraction(surface, { id, events: kind.previewEvents, options });
     surface.className = 'visual-surface';
-    if (options.preview && !intersects(box)) surface.inert = true;
+    if (options.preview && !rotated.has(id) && !intersects(box)) surface.inert = true;
     if (value('enabled') === false) {
       if (options.preview) {
         if (isInput(surface) || surface instanceof HTMLButtonElement) surface.disabled = true;
@@ -214,6 +261,22 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
     }
     if (!options.preview && surface.matches('input, textarea, button')) surface.tabIndex = -1;
     appearance(surface, property, tokens, theme, box.bounds, report, kind.properties, model.fontFamilies);
+    if (role === 'Ellipse' || role === 'Image' && value('imageClip') === 'Ellipse') surface.style.borderRadius = '50%';
+    else if (role === 'Image' && value('imageClip') !== 'RoundedRectangle') surface.style.borderRadius = '0';
+    if (role === 'Icon' || role === 'Line') {
+      const strokeColor = property('strokeColor');
+      const stroke = strokeColor ? color(strokeColor, tokens, theme) : null;
+      const raw = property('strokeWidth');
+      const resolved = raw?.type === 'token' ? resolvePropertyToken(raw, tokens, theme, kind.properties.strokeWidth ?? {}).value : raw;
+      const width = scalar(resolved);
+      const thickness = finite(width) ? width : 2;
+      if (role === 'Icon') {
+        const icon = renderIcon(string(value('iconName')), stroke ?? 'currentColor', thickness);
+        if (icon) surface.append(icon);
+        else report('iconName', 'Иконка отсутствует в каталоге Lucide.');
+      } else surface.append(renderLine(box.bounds, string(value('lineDirection')), stroke ?? 'currentColor', thickness,
+        string(value('borderPattern')), string(value('startArrow')), string(value('endArrow'))));
+    }
     const rawShadow = property('shadow');
     const shadowResult = rawShadow?.type === 'token' ? resolvePropertyToken(rawShadow, tokens, theme, kind.properties.shadow ?? {}) : { value: rawShadow, error: null };
     if (shadowResult.error) report('shadow', shadowResult.error);
@@ -221,7 +284,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
     if (shadow?.type === 'shadow') {
       const { offsetX, offsetY, blurRadius, spreadRadius, color: rgba } = shadow;
       if ([offsetX, offsetY, blurRadius, spreadRadius].every(Number.isFinite) && rgba) {
-        wrapper.style.borderRadius = role === 'Image' ? '0px' : surface.style.borderRadius;
+        wrapper.style.borderRadius = surface.style.borderRadius;
         wrapper.style.boxShadow = [offsetX, offsetY, blurRadius, spreadRadius].map(px).join(' ') +
           ' rgba(' + [rgba.red, rgba.green, rgba.blue, rgba.alpha / 255].join(', ') + ')';
       }
@@ -240,7 +303,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
 
 // Patch a Design view by stable node IDs. The renderer remains the source of
 // appearance and layout; only the DOM reconciliation is incremental.
-export function reconcileScreen(host: HTMLElement, next: DocumentFragment) {
+export function reconcileScreen(host: HTMLElement, next: DocumentFragment | HTMLElement) {
   const existing = new Map([...host.querySelectorAll<HTMLElement>('[data-visual-node]')]
     .map(node => [node.dataset.visualNode, node] as const));
 
@@ -278,6 +341,7 @@ export function reconcileScreen(host: HTMLElement, next: DocumentFragment) {
       else if (before) before.remove();
       else if (after) current.prepend(after);
     } else {
+      if (interactions.has(after)) bindInteraction(before, interactions.get(after));
       const assetChanged = before.dataset.assetId !== after.dataset.assetId;
       attributes(before, after, before.tagName === 'IMG' ? new Set(['src', 'data-loaded-asset']) : new Set());
       if (assetChanged && before.tagName === 'IMG') {
@@ -286,6 +350,8 @@ export function reconcileScreen(host: HTMLElement, next: DocumentFragment) {
       }
       if (isInput(before) && isInput(after)) {
         if (before.value !== after.value) before.value = after.value;
+      } else if (after.firstElementChild instanceof SVGElement || before.firstElementChild instanceof SVGElement) {
+        if (!before.firstElementChild?.isEqualNode(after.firstElementChild)) before.replaceChildren(...after.childNodes);
       } else if (before.tagName !== 'IMG' && before.textContent !== after.textContent)
         before.textContent = after.textContent;
     }

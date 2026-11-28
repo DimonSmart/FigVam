@@ -216,3 +216,22 @@ Shadow принимает прежний прямой RGBA или вложенн
 ### Пользовательские шрифты
 
 `upload_asset` принимает `font/woff2`, `font/woff`, `font/ttf`, `font/otf` с дополнительным объектом `font`: `familyId`, `familyName`, `faceId`, `faceName`, `weightFrom`, `weightTo`, `style` (0 — normal, 1 — italic). Одинаковый familyId используется для непересекающихся начертаний одного семейства. Например, переменный шрифт имеет weightFrom=100, weightTo=900. Используйте familyName в существующем свойстве fontFamily или в типографическом токене. Каталог и байты принадлежат ревизии документа, а не системе. Обе версии Preview регистрируют шрифты через FontFace; ошибки загрузки не маскируются системным fallback. Пока загрузка с метаданными доступна через MCP, отдельный UI импорта шрифтов не входит в задачу.
+
+
+## Графические элементы
+
+Типы Ellipse, Line и Icon доступны через существующие команды создания и изменения узлов. Используйте профиль документа для получения актуальных типов, допустимых значений и метаданных свойств. Примеры словарей свойств (типизированная форма HTTP API):
+
+```json
+{"iconName":{"type":"string","value":"circle"},"strokeWidth":{"type":"number","value":2}}
+```
+
+```json
+{"lineDirection":{"type":"enum","value":"Horizontal"},"endArrow":{"type":"enum","value":"Filled"},"borderPattern":{"type":"enum","value":"Dashed"},"rotation":{"type":"number","value":30}}
+```
+
+```json
+{"linearGradient":{"type":"linearGradient","angle":90,"stops":[{"position":0,"color":{"red":255,"green":0,"blue":0,"alpha":255}},{"position":1,"color":{"red":0,"green":0,"blue":255,"alpha":128}}]}}
+```
+
+Вместо поля color у точки можно передать tokenId существующего цветового токена. Позиции нормализованы от 0 до 1; угол соответствует CSS linear-gradient. Наконечники: None, Open, Filled. Типы границы: Solid, Dashed, Dotted. SVG загружается через upload_asset с contentType image/svg+xml и используется как обычный ресурс Image. Допустимо только безопасное статическое подмножество SVG.

@@ -140,6 +140,9 @@ internal sealed class CssResourceWriter(DocumentStructure document)
     {
         "textColor" => "color", "borderColor" => "border-color", "borderWidth" => "border-width",
         "cornerRadius" => "border-radius", "fontStyle" => "font-style",
+        "radiusTopLeft" => "border-top-left-radius", "radiusTopRight" => "border-top-right-radius",
+        "radiusBottomRight" => "border-bottom-right-radius", "radiusBottomLeft" => "border-bottom-left-radius",
+        "borderPattern" => "border-style",
         "fontFallback" => "font-family", _ => name
     };
 
@@ -149,7 +152,8 @@ internal sealed class CssResourceWriter(DocumentStructure document)
         return (name, value) switch
         {
             ("textColor" or "borderColor", NodeColorValue c) => CssColor(c.Red, c.Green, c.Blue, c.Alpha),
-            ("borderWidth" or "cornerRadius", NodeNumberValue n) => Number(n.Value) + "px",
+            ("borderWidth" or "cornerRadius" or "radiusTopLeft" or "radiusTopRight" or "radiusBottomRight" or "radiusBottomLeft", NodeNumberValue n) => Number(n.Value) + "px",
+            ("borderPattern", NodeEnumValue e) => e.Value switch { "Dashed" => "dashed", "Dotted" => "dotted", _ => "solid" },
             ("fontStyle", NodeEnumValue e) => e.Value == "Italic" ? "italic" : "normal",
             ("fontFallback", NodeEnumValue e) => e.Value switch
             {

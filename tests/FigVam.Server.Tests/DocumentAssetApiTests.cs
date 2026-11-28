@@ -64,7 +64,7 @@ public sealed class DocumentAssetApiTests
                 }
                 using var tooLarge = await Put(client, path + "?commandId=" + Guid.NewGuid(), new byte[DocumentAssetValidator.MaxAssetBytes + 1]);
                 Assert.Equal(413, (int)tooLarge.StatusCode);
-                using var wrongType = await Put(client, path + "?commandId=" + Guid.NewGuid(), imageBytes, "image/svg+xml"); Assert.Equal(415, (int)wrongType.StatusCode);
+                using var wrongType = await Put(client, path + "?commandId=" + Guid.NewGuid(), imageBytes, "image/svg+xml"); Assert.Equal(400, (int)wrongType.StatusCode);
                 Assert.Equal(415, (int)(await Put(client, path + "?commandId=" + Guid.NewGuid(), imageBytes, "image/jpeg")).StatusCode);
                 Assert.Equal(413, (int)(await Put(client, path + "?commandId=" + Guid.NewGuid(), new byte[DocumentAssetValidator.MaxAssetBytes + 1])).StatusCode);
                 var openapi = JsonNode.Parse(await client.GetStringAsync("/openapi/v1.json"))!;

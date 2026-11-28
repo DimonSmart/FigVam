@@ -7,7 +7,7 @@ using FigVam.Domain.Tokens;
 namespace FigVam.Domain.Documents;
 
 [JsonConverter(typeof(JsonStringEnumConverter<NodeSemanticRole>))]
-public enum NodeSemanticRole { Container, Text, Button, TextInput, Image }
+public enum NodeSemanticRole { Container, Text, Button, TextInput, Image, Ellipse, Line, Icon }
 
 public sealed record NodeKindDefinition(string Kind, NodeSemanticRole SemanticRole, bool CanContainChildren,
     IReadOnlyDictionary<string, NodePropertyDefinition> Properties, IReadOnlyList<PreviewEvent> PreviewEvents,
@@ -95,7 +95,33 @@ public sealed class VisualNodeProfile : INodeProfile
         [
             ("asset", new(NodePropertyType.Asset) { Required = true }),
             ("fit", Options("Contain", "Cover", "Stretch")),
-            ("altText", String(""))
+            ("altText", String("")),
+            ("imageClip", Options("Rectangle", "RoundedRectangle", "Ellipse")),
+            .. Corners(0)
+        ]),
+        Kind("Ellipse", NodeSemanticRole.Ellipse, 100, 100, properties:
+        [
+            ("backgroundColor", Color(new(47, 87, 191))),
+            ("linearGradient", new(NodePropertyType.LinearGradient)),
+            ("borderWidth", Length(0)),
+            ("borderColor", Color(Outline)),
+            ("borderPattern", Options("Solid", "Dashed", "Dotted")),
+            ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle))
+        ]),
+        Kind("Line", NodeSemanticRole.Line, 120, 12, properties:
+        [
+            ("strokeColor", Color(Ink)),
+            ("strokeWidth", Number(2, 0.1, 1024)),
+            ("lineDirection", Options("Horizontal", "Vertical", "Descending", "Ascending")),
+            ("borderPattern", Options("Solid", "Dashed", "Dotted")),
+            ("startArrow", Options("None", "Open", "Filled")),
+            ("endArrow", Options("None", "Open", "Filled"))
+        ]),
+        Kind("Icon", NodeSemanticRole.Icon, 24, 24, properties:
+        [
+            ("iconName", String("circle") with { MaxLength = 100, Pattern = "^[a-z0-9]+(?:-[a-z0-9]+)*$" }),
+            ("strokeColor", Color(Ink)),
+            ("strokeWidth", Number(2, 0.1, 8))
         ])
     }.Select(kind => kind with
     {
@@ -109,9 +135,9 @@ public sealed class VisualNodeProfile : INodeProfile
         "opacity" => old with { TokenType = TokenType.Number, TokenCategory = TokenCategory.Opacity },
         "paddingTop" or "paddingRight" or "paddingBottom" or "paddingLeft" or "gap" => old with
         { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Spacing, LegacyTokenType = TokenType.Spacing },
-        "cornerRadius" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Radius,
+        "cornerRadius" or "radiusTopLeft" or "radiusTopRight" or "radiusBottomRight" or "radiusBottomLeft" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.Radius,
             LegacyTokenType = TokenType.Geometry },
-        "borderWidth" or "focusBorderWidth" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.BorderWidth },
+        "borderWidth" or "focusBorderWidth" or "strokeWidth" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.BorderWidth },
         "fontSize" => old with { TokenType = TokenType.Dimension, TokenCategory = TokenCategory.FontSize },
         "fontFamily" => old with { TokenType = TokenType.FontFamily },
         "fontWeight" => old with { TokenType = TokenType.FontWeight, NumericFontWeight = true,
@@ -160,6 +186,7 @@ public sealed class VisualNodeProfile : INodeProfile
             ("widthMode", Options(LayoutSizeMode.Fixed)),
             ("heightMode", Options(LayoutSizeMode.Fixed)),
             ("opacity", Number(1, 0, 1)),
+            ("rotation", Number(0, -MaxGeometry, MaxGeometry)),
             ("visible", Boolean(true)),
             .. (role == NodeSemanticRole.Text ? Array.Empty<(string, NodePropertyDefinition)>() :
                 new (string, NodePropertyDefinition)[] { ("shadow", new(NodePropertyType.Shadow)) }),
@@ -173,9 +200,20 @@ public sealed class VisualNodeProfile : INodeProfile
         NodeColorValue border, double radius) =>
     [
         ("backgroundColor", Color(background)),
+        ("linearGradient", new(NodePropertyType.LinearGradient)),
         ("borderWidth", Length(borderWidth)),
         ("borderColor", Color(border)),
-        ("cornerRadius", Length(radius))
+        ("borderPattern", Options("Solid", "Dashed", "Dotted")),
+        .. Corners(radius)
+    ];
+
+    private static (string, NodePropertyDefinition)[] Corners(double radius) =>
+    [
+        ("cornerRadius", Length(radius)),
+        ("radiusTopLeft", Length(0) with { DefaultValue = null }),
+        ("radiusTopRight", Length(0) with { DefaultValue = null }),
+        ("radiusBottomRight", Length(0) with { DefaultValue = null }),
+        ("radiusBottomLeft", Length(0) with { DefaultValue = null })
     ];
 
     private static (string, NodePropertyDefinition)[] Typography(double size, NodeColorValue color) =>

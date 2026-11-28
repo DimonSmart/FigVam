@@ -84,7 +84,7 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
             var binaryContent = FigVam.Application.Documents.DocumentAssetContentFormat.SupportedContentTypes.ToDictionary(
                 type => type, _ => new OpenApiMediaType { Schema = new OpenApiSchema { Type = JsonSchemaType.String, Format = "binary", MaxLength = FigVam.Domain.Documents.DocumentAssetValidator.MaxAssetBytes } });
             if (method.ToString().Equals("PUT", StringComparison.OrdinalIgnoreCase))
-                operation.RequestBody = new OpenApiRequestBody { Required = true, Content = new Dictionary<string, OpenApiMediaType> { ["image/png"] = binaryContent["image/png"] } };
+                operation.RequestBody = new OpenApiRequestBody { Required = true, Content = new Dictionary<string, OpenApiMediaType> { ["image/png"] = binaryContent["image/png"], ["image/svg+xml"] = binaryContent["image/svg+xml"] } };
             if (method.ToString().Equals("GET", StringComparison.OrdinalIgnoreCase) && operation.Responses?.TryGetValue("200", out var success) == true)
                 operation.Responses!["200"] = new OpenApiResponse { Description = success.Description, Content = binaryContent };
         }
@@ -94,6 +94,11 @@ builder.Services.AddOpenApi("v1", options => options.AddDocumentTransformer((doc
 var readPermitLimit = builder.Environment.IsDevelopment()
     ? Math.Clamp(builder.Configuration.GetValue("RateLimiting:ReadPermitLimit", 300), 300, 10_000)
     : 300;
+// The long protocol acceptance test intentionally exercises more than 120 calls
+// in a minute. Only the explicit test authentication environment may opt in.
+var mcpPermitLimit = builder.Environment.IsEnvironment("Testing") && builder.Configuration["Authentication:Mode"] == "Test"
+    ? Math.Clamp(builder.Configuration.GetValue("RateLimiting:McpPermitLimit", 120), 120, 10_000)
+    : 120;
 builder.Services.AddRateLimiter(options =>
 {
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, (string Identity, bool Authenticated, bool Read, bool Mcp)>(context =>
@@ -102,7 +107,7 @@ builder.Services.AddRateLimiter(options =>
         var read = actor is not null && (HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method));
         var identity = actor ?? context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         return RateLimitPartition.GetFixedWindowLimiter((Identity: identity, Authenticated: actor is not null, Read: read, Mcp: context.Request.Path.StartsWithSegments("/mcp")),
-            key => new FixedWindowRateLimiterOptions { PermitLimit = key.Read ? readPermitLimit : 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
+            key => new FixedWindowRateLimiterOptions { PermitLimit = key.Read ? readPermitLimit : key.Mcp && key.Authenticated ? mcpPermitLimit : 120, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 });
     });
     options.RejectionStatusCode = 429;
 });

@@ -3,7 +3,7 @@ import type { DesignToken, PropertyDefinition, ResolvableValue, Resolution, Them
 export type RawValue = string | number | boolean | null | RawValue[];
 export interface PropertyModel {
   tokens:TokenMap;
-  assets:ReadonlyMap<string,{id:string;width:number;height:number}>;
+  assets:ReadonlyMap<string,{id:string;width:number;height:number;contentType?:string}>;
   styles?:ReadonlyMap<string,{id:string;name:string;type:string|number}>;
   theme?:Theme;
 }

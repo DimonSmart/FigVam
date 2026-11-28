@@ -45,6 +45,10 @@ function tokenValue(value:unknown):TokenValue {
 export function nodeProperty(value:unknown):NodePropertyValue {
   const v=requiredRecord(value);
   switch(v.type){
+    case 'linearGradient': return {type:'linearGradient',angle:number(v.angle),stops:array(v.stops, item=>{
+      const stop=requiredRecord(item);
+      return {position:number(stop.position),color:stop.color==null?null:color(stop.color),tokenId:stop.tokenId==null?null:text(stop.tokenId)};
+    })};
     case 'color':return {type:'color',...color(v)};
     case 'shadow':return shadow(v);
     case 'string':case 'enum':return {type:v.type,value:text(v.value)};
