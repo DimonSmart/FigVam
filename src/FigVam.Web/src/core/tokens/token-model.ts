@@ -39,7 +39,9 @@ export interface DesignToken {
   values?: Partial<Record<Theme, TokenExpression>>;
 }
 export type TokenReference = { type: 'token'; tokenId: string };
-export type NodePropertyValue = TokenReference | ColorValue | ShadowValue
+export interface GradientStop { position: number; color?: ColorChannels | null; tokenId?: string | null }
+export interface LinearGradientValue { type: 'linearGradient'; angle: number; stops: GradientStop[] }
+export type NodePropertyValue = TokenReference | ColorValue | ShadowValue | LinearGradientValue
   | { type: 'string' | 'enum'; value: string }
   | { type: 'number'; value: number }
   | { type: 'boolean'; value: boolean }

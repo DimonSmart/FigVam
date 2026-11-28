@@ -4,7 +4,7 @@ import { Button } from './Button';
 import { NumberInput, TextInput } from './Inputs';
 import type { RawValue } from './property-control-contract';
 import { rawArray, rawText } from './property-control-contract';
-import type { ValueSpec, ValueField, EditKind, ReferenceSpec, ScalarSpec, ColorSpec } from './property-value';
+import type { ValueSpec, ValueField, EditKind, ReferenceSpec, ScalarSpec, ColorSpec, GradientSpec } from './property-value';
 import { shadowDimensions, weightPresets } from './property-value';
 import { tokenValueText } from '../core/tokens/token-resolution';
 
@@ -100,9 +100,33 @@ function ReferenceEditor(p:EditorProps&{spec:ReferenceSpec}){
     </div>
   </div>;
 }
-export function ValueEditor(p:EditorProps){
+export function GradientEditor(p:EditorProps&{spec:GradientSpec}){
+  const {spec,raw,onEdit,disabled}=p,values=rawArray(raw),rows=values.slice(1);
+  function update(row:number,index:number,next:RawValue,kind:EditKind){
+    onEdit(replace(raw,row+1,replace(rows[row]??null,index,next)),kind);
+  }
+  return <section className="gradient-editor">
+    <Labeled label="Угол (°)"><NumberInput {...propsFor(p)} step="any" value={rawText(values[0])}
+      onChange={e=>onEdit(replace(raw,0,e.currentTarget.value),'input')} onBlur={e=>onEdit(replace(raw,0,e.currentTarget.value),'commit')}/></Labeled>
+    {rows.map((row,index)=>{const [position,tokenId,hex,alpha]=rawArray(row);return <fieldset key={index} disabled={disabled}>
+      <legend>{'Точка '+(index+1)}</legend>
+      <Labeled label="Позиция (0–1)"><NumberInput min={0} max={1} step="any" value={rawText(position)}
+        onChange={e=>update(index,0,e.currentTarget.value,'input')} onBlur={e=>update(index,0,e.currentTarget.value,'commit')}/></Labeled>
+      <Labeled label="Источник цвета"><select value={rawText(tokenId)} onChange={e=>update(index,1,e.currentTarget.value,'discrete')}>
+        <option value="">Цвет</option>{spec.tokens.map(([id,name])=><option key={id} value={id}>{name}</option>)}
+      </select></Labeled>
+      {!tokenId&&<><Labeled label="Цвет"><input type="color" value={rawText(hex)} onChange={e=>update(index,2,e.currentTarget.value,nativeColorEvent(e))}/></Labeled>
+        <Labeled label="Alpha (0–255)"><NumberInput min={0} max={255} step={1} value={rawText(alpha)}
+          onChange={e=>update(index,3,e.currentTarget.value,'input')} onBlur={e=>update(index,3,e.currentTarget.value,'commit')}/></Labeled></>}
+      <Button type="button" disabled={disabled||rows.length<=2} onClick={()=>onEdit(values.filter((_,i)=>i!==index+1),'discrete')}>Удалить точку</Button>
+    </fieldset>;})}
+    <Button type="button" disabled={disabled} onClick={()=>onEdit([...values,['0.5','','#ffffff','255']],'discrete')}>Добавить точку</Button>
+  </section>;
+}
+function ValueEditor(p:EditorProps){
   const {spec,raw,onEdit}=p,values=rawArray(raw);
   switch(spec.kind){
+    case 'gradient':return <GradientEditor {...p} spec={spec}/>;
     case 'scalar':return <ScalarEditor {...p} spec={spec}/>;
     case 'color':return <ColorEditor {...p} spec={spec}/>;
     case 'reference':return <ReferenceEditor {...p} spec={spec}/>;

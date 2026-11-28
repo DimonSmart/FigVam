@@ -1,6 +1,6 @@
 import catalog from 'virtual:figvam-lucide';
-import type { ColorChannels, DesignToken, NodePropertyValue, Resolution, ResolvableValue, ShadowValue, Theme, TokenMap } from '../core/tokens/token-model';
-import { compatibleToken, resolvePropertyToken, tokenColorHex, tokenValueText } from '../core/tokens/token-resolution';
+import type { ColorChannels, DesignToken, GradientStop, LinearGradientValue, NodePropertyValue, Resolution, ResolvableValue, ShadowValue, Theme, TokenMap } from '../core/tokens/token-model';
+import { compatibleToken, resolvePropertyToken, resolveTokenValue, tokenColorHex, tokenValueText } from '../core/tokens/token-resolution';
 import { createPanelStore } from '../app/panel-store';
 import type { ControlDefinition, PropertyModel, RawValue, TokenControlOptions } from './property-control-contract';
 import { rawArray, rawText } from './property-control-contract';
@@ -44,6 +44,7 @@ export interface ScalarSpec extends BaseSpec {
 }
 export interface ColorSpec extends BaseSpec {kind:'color';compact:boolean}
 export interface WeightSpec extends BaseSpec {kind:'weight'}
+export interface GradientSpec extends BaseSpec {kind:'gradient';tokens:Choice[]}
 export interface ShadowSpec extends BaseSpec {kind:'shadow';color:ValueSpec;nestedColor?:boolean}
 export interface TokenScalarSpec extends BaseSpec {kind:'token-scalar';color:boolean;weight:boolean;inputId:string}
 export interface CompositeSpec extends BaseSpec {kind:'composite';children:ValueSpec[];id:string}
@@ -51,7 +52,7 @@ export interface ReferenceSpec extends BaseSpec {
   kind:'reference';direct:ValueSpec;displayLabel:string;mode:string;theme:Theme;customDirect:boolean;
   getCompatible():DesignToken[];getToken(id:string):DesignToken|undefined;resolve(id:string):Resolution;validateChoices:boolean;
 }
-export type ValueSpec=ScalarSpec|ColorSpec|WeightSpec|ShadowSpec|TokenScalarSpec|CompositeSpec|ReferenceSpec;
+export type ValueSpec=ScalarSpec|ColorSpec|WeightSpec|ShadowSpec|TokenScalarSpec|CompositeSpec|ReferenceSpec|GradientSpec;
 const invalid=(error:string,index=0):ValueValidation=>({error,index});
 const finite=(raw:RawValue|undefined,min=-Infinity,max=Infinity,integer=false):number|null=>{
   if(raw==null||typeof raw==='boolean'||Array.isArray(raw)||!String(raw).trim())return null;
@@ -59,6 +60,36 @@ const finite=(raw:RawValue|undefined,min=-Infinity,max=Infinity,integer=false):n
 };
 const rgb=(c:ColorChannels|null|undefined)=>'#'+[c?.red,c?.green,c?.blue].map(v=>(v??0).toString(16).padStart(2,'0')).join('');
 export const weightPresets:Record<string,number>={Normal:400,Medium:500,Semibold:600,Bold:700};
+export const gradientPreset:LinearGradientValue={type:'linearGradient',angle:90,stops:[
+  {position:0,color:{red:47,green:87,blue:191,alpha:255}},
+  {position:1,color:{red:122,green:130,blue:142,alpha:255}}
+]};
+function gradientSpec(initial:LinearGradientValue,model:PropertyModel):GradientSpec {
+  const tokens:Choice[]=[...model.tokens.values()].filter(t=>compatibleToken(t,{type:'Color',tokenType:'Color'})).map(t=>[t.id,t.name]);
+  return {kind:'gradient',label:propertyLabel('linearGradient'),count:1,tokens,
+    initial:[String(initial.angle),...initial.stops.map(stop=>[String(stop.position),stop.tokenId??'',rgb(stop.color),String(stop.color?.alpha??255)])],
+    validate(raw){
+      const [a,...rows]=rawArray(raw),angle=finite(a);
+      if(angle===null||rows.length<2)return invalid('Укажите угол и минимум две цветовые точки.');
+      const stops:GradientStop[]=[];
+      for(const row of rows){
+        const [p,id,hex,alpha]=rawArray(row),position=finite(p,0,1),tokenId=rawText(id);
+        if(position===null)return invalid('Позиция точки должна быть от 0 до 1.');
+        if(tokenId){
+          if(!tokens.some(([id])=>id===tokenId)||resolveTokenValue({type:'token',tokenId},model.tokens,model.theme??'Light','Color').error)
+            return invalid('Выберите действительный цветовой токен.');
+          stops.push({position,tokenId});
+        }else{
+          const result=colorSpec('',null).validate([hex??'',alpha??'']);
+          if(result.value?.type!=='color')return invalid(result.error??'Некорректный цвет.');
+          const {red,green,blue,alpha:a}=result.value;
+          stops.push({position,color:{red,green,blue,alpha:a}});
+        }
+      }
+      return {value:{type:'linearGradient',angle,stops}};
+    }
+  };
+}
 export const shadowPreset:ShadowValue={type:'shadow',offsetX:0,offsetY:4,blurRadius:8,spreadRadius:0,color:{red:0,green:0,blue:0,alpha:38}};
 export const shadowDimensions=[['offsetX','X',-1024,1024],['offsetY','Y',-1024,1024],['blurRadius','Blur',0,256],['spreadRadius','Spread',-256,256]] as const;
 
@@ -116,7 +147,7 @@ function scalarSpec(name:string,definition:ControlDefinition,model:PropertyModel
   const type=definition.type,assets=[...model.assets.values()];
   let choices:Choice[]|undefined,placeholder:string|undefined;
   switch(type){
-    case 'Asset':choices=assets.map(a=>[a.id,`PNG ${a.width} × ${a.height} · ${a.id}`]);placeholder=assets.length?'Выберите ассет':'В документе нет ассетов';break;
+    case 'Asset':choices=assets.map(a=>[a.id,`${a.contentType === 'image/svg+xml' ? 'SVG' : 'PNG'} ${a.width} × ${a.height} · ${a.id}`]);placeholder=assets.length?'Выберите ассет':'В документе нет ассетов';break;
     case 'TokenReference':choices=[...model.tokens.values()].filter(t=>definition.tokenType==null||t.type===definition.tokenType).map(t=>[t.id,t.name]);placeholder=choices.length?'Выберите токен':'Нет доступных токенов';break;
     case 'StyleReference':choices=[...(model.styles?.values()??[])].filter(s=>s.type===definition.styleType).map(s=>[s.id,s.name]);placeholder=choices.length?'Выберите стиль':'Нет стилей данного типа';break;
     case 'Enum':choices=(definition.enumValues??[]).map(v=>[v,v]);break;
@@ -177,6 +208,7 @@ export function createReferenceSpec(definition:ControlDefinition,model:{tokens:T
 
 export function createNodeValueSpec(name:string,definition:ControlDefinition,model:PropertyModel,value:NodePropertyValue|null|undefined,prefix:string):ValueSpec {
   const initial=value??definition.defaultValue;
+  if(definition.type==='LinearGradient')return gradientSpec(initial?.type==='linearGradient'?initial:gradientPreset,model);
   const hasTokenChoice=definition.tokenType!=null&&definition.type!=='TokenReference';
   const directValue=hasTokenChoice&&initial?.type==='token'?definition.defaultValue:initial;
   const compactGeometry=prefix==='visual-property'&&geometryProperties.has(name)&&definition.type==='Number';

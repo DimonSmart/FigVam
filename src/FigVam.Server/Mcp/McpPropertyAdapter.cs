@@ -40,6 +40,7 @@ public static class McpPropertyAdapter
                     NodePropertyType.Asset => new NodeAssetValue(Reference(value, "assetId") ?? throw new FormatException()),
                     NodePropertyType.StyleReference => new NodeStyleValue(Reference(value, "styleId") ?? throw new FormatException()),
                     NodePropertyType.Shadow => Shadow(value),
+                    NodePropertyType.LinearGradient => McpPropertyContracts.Read<NodeLinearGradientValue>(Untag(value, "linearGradient")),
                     _ => throw new FormatException()
                 };
             }

@@ -15,7 +15,7 @@ type PreviewTrigger=Schema['PreviewTrigger'];
 type PreviewAction={type:'setDemoValue';nodeId:string}|{type:'resetPreview'}|{type:'other'};
 interface Scenario {nodeId:string;event:number;actions:PreviewAction[]}
 interface Playback {selection:{screenId:string;datasetId:string|null;variantId:string|null};overlays:string[];values:Record<string,string|null>;canGoBack:boolean}
-interface Asset {id:string;width:number;height:number}
+interface Asset {id:string;width:number;height:number;contentType?:string}
 interface Style {id:string;name:string;type:number|string}
 interface Resources {fontFamilies?: ReadonlyMap<string,string>;kinds:Map<string,CanvasKind & {kind:string}>;assets:Map<string,Asset>;tokens:Map<string,DesignToken>;styles:Map<string,Style>}
 interface DrawingModel extends Omit<RenderModel,'theme'|'assets'|'kinds'|'tokens'>, Resources {
@@ -32,7 +32,7 @@ interface Page<T>{items:T[];diagnostics:Diagnostic[];overrides:{nodeId:string;pr
 function diagnostic(value:unknown):Diagnostic{const d=requiredRecord(value);return{objectId:text(d.objectId),property:text(d.property),message:text(d.message),code:text(d.code)};}
 function scenario(value:unknown):Scenario{const v=requiredRecord(value);return{nodeId:text(v.nodeId),event:number(v.event),actions:array(v.actions,a=>{const x=requiredRecord(a);return x.type==='setDemoValue'?{type:'setDemoValue',nodeId:text(x.nodeId)}:x.type==='resetPreview'?{type:'resetPreview'}:{type:'other'};})};}
 function playbackValue(value:unknown):Playback{const p=requiredRecord(value),selection=requiredRecord(p.selection);return{selection:{screenId:text(selection.screenId),datasetId:selection.datasetId==null?null:text(selection.datasetId),variantId:selection.variantId==null?null:text(selection.variantId)},overlays:array(p.overlays,text),values:Object.fromEntries(Object.entries(requiredRecord(p.values)).map(([id,v])=>[id,v==null?null:text(v)])),canGoBack:p.canGoBack===true};}
-function asset(value:unknown):Asset{const a=requiredRecord(value);return{id:text(a.id),width:number(a.width),height:number(a.height)};}
+function asset(value:unknown):Asset{const a=requiredRecord(value);return{id:text(a.id),width:number(a.width),height:number(a.height),contentType:typeof a.contentType==='string'?a.contentType:undefined};}
 function style(value:unknown):Style{const a=requiredRecord(value);return{id:text(a.id),name:text(a.name),type:typeof a.type==='number'?a.type:text(a.type)};}
 function scalar(value:ResolvableValue|null|undefined):unknown{return value&&'value' in value?value.value:undefined;}
 function newView(host:HTMLElement,feedback:RenderFeedback):View{return{host,feedback,controller:null,key:null,model:null,selected:null};}

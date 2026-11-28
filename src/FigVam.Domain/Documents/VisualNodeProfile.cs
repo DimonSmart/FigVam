@@ -102,6 +102,7 @@ public sealed class VisualNodeProfile : INodeProfile
         Kind("Ellipse", NodeSemanticRole.Ellipse, 100, 100, properties:
         [
             ("backgroundColor", Color(new(47, 87, 191))),
+            ("linearGradient", new(NodePropertyType.LinearGradient)),
             ("borderWidth", Length(0)),
             ("borderColor", Color(Outline)),
             ("borderPattern", Options("Solid", "Dashed", "Dotted"))
@@ -198,6 +199,7 @@ public sealed class VisualNodeProfile : INodeProfile
         NodeColorValue border, double radius) =>
     [
         ("backgroundColor", Color(background)),
+        ("linearGradient", new(NodePropertyType.LinearGradient)),
         ("borderWidth", Length(borderWidth)),
         ("borderColor", Color(border)),
         ("borderPattern", Options("Solid", "Dashed", "Dotted")),

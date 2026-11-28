@@ -104,7 +104,7 @@ public sealed class McpReadTools(IHttpContextAccessor accessor, IDocumentStructu
             var formats = new JsonObject();
             foreach (var (name, property) in definition.Properties)
             {
-                if (property.Type is FigVam.Domain.Documents.NodePropertyType.Color or FigVam.Domain.Documents.NodePropertyType.Shadow)
+                if (property.Type is FigVam.Domain.Documents.NodePropertyType.Color or FigVam.Domain.Documents.NodePropertyType.Shadow or FigVam.Domain.Documents.NodePropertyType.LinearGradient)
                 {
                     var key = property.Type.ToString();
                     if (!formats.ContainsKey(key))

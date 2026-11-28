@@ -88,6 +88,10 @@ public sealed class DesignResourceDependencies
             Add("token", token.TokenId, kind, ownerId, property, theme, parameter, nextKind, nextId);
         if (value is NodeStyleValue style)
             Add("style", style.StyleId, kind, ownerId, property, theme, parameter, nextKind, nextId);
+        if (value is NodeLinearGradientValue gradient)
+            for (var i = 0; i < gradient.Stops.Count; i++)
+                if (gradient.Stops[i].TokenId is { } id)
+                    Add("token", id, kind, ownerId, property + ".stops." + i, theme, parameter, nextKind, nextId);
         if (value is NodeTypographyValue { Value: TypographyFieldsValue fields })
             Fields(fields, kind, ownerId, property, theme, parameter, nextKind, nextId);
     }

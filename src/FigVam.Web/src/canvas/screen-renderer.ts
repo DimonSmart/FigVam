@@ -88,6 +88,17 @@ function appearance(surface: HTMLElement, property: Property, tokens: TokenMap, 
     if (finite(value)) style[key] = px(name === 'borderWidth' ? Math.min(value, bounds.width / 2, bounds.height / 2) : value);
   }
   applyCorners();
+  const gradient = property('linearGradient');
+  if (gradient?.type === 'linearGradient') {
+    const stops = [...gradient.stops].sort((a,b)=>a.position-b.position).map(stop => {
+      const rgba = stop.tokenId ? color({type:'token',tokenId:stop.tokenId}, tokens, theme) :
+        stop.color ? color({type:'color',...stop.color}, tokens, theme) : null;
+      return rgba && `${rgba} ${stop.position*100}%`;
+    });
+    if (stops.length >= 2 && stops.every(Boolean))
+      style.backgroundImage = `linear-gradient(${gradient.angle % 360}deg, ${stops.join(', ')})`;
+    else report('linearGradient', 'Не удалось разрешить цветовые точки градиента.');
+  }
   for (const name of ['fontStyle', 'textAlignment'] as const) {
     const value = enumStyles[name][string(scalar(property(name)))];
     if (value) style[name === 'textAlignment' ? 'textAlign' : name] = value;

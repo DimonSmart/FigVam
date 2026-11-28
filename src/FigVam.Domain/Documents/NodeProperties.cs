@@ -15,6 +15,7 @@ namespace FigVam.Domain.Documents;
 [JsonDerivedType(typeof(NodeEnumValue), "enum")]
 [JsonDerivedType(typeof(NodeColorValue), "color")]
 [JsonDerivedType(typeof(NodeShadowValue), "shadow")]
+[JsonDerivedType(typeof(NodeLinearGradientValue), "linearGradient")]
 public abstract record NodePropertyValue;
 public sealed record NodeStringValue(string Value) : NodePropertyValue;
 public sealed record NodeNumberValue(double Value) : NodePropertyValue;
@@ -39,7 +40,13 @@ public sealed record NodeShadowValue(
     public const double MaxBlurRadius = 256;
     public const double MaxSpreadRadius = 256;
 }
-public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color, StyleReference, Shadow }
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record NodeGradientStop([property: JsonRequired] double Position,
+    NodeColorValue? Color = null, Guid? TokenId = null);
+[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
+public sealed record NodeLinearGradientValue([property: JsonRequired] double Angle,
+    [property: JsonRequired] IReadOnlyList<NodeGradientStop> Stops) : NodePropertyValue;
+public enum NodePropertyType { String, Number, Boolean, Asset, TokenReference, Enum, Color, StyleReference, Shadow, LinearGradient }
 
 // The profile supplies target-specific restrictions and their diagnostic reasons.
 public sealed record NodePropertyDefinition(
@@ -82,6 +89,7 @@ public static class NodePropertyValidator
             (NodePropertyType.Enum, NodeEnumValue) => true,
             (NodePropertyType.Color, NodeColorValue) => true,
             (NodePropertyType.Shadow, NodeShadowValue) => true,
+            (NodePropertyType.LinearGradient, NodeLinearGradientValue) => true,
             (NodePropertyType.Number or NodePropertyType.Color or NodePropertyType.String or NodePropertyType.Enum or NodePropertyType.Shadow, NodeTokenValue)
                 => definition.TokenType is not null,
             (NodePropertyType.Enum, NodeNumberValue) => definition.NumericFontWeight,
@@ -93,6 +101,11 @@ public static class NodePropertyValidator
                 ? $"{definition.Type} or a {tokenType} token" : definition.Type.ToString();
             return new("INVALID_PROPERTY_TYPE", $"Property '{property}' requires {expected}.");
         }
+        if (value is NodeLinearGradientValue gradient &&
+            (!double.IsFinite(gradient.Angle) || gradient.Stops is null || gradient.Stops.Count < 2 ||
+             gradient.Stops.Any(stop => stop is null || !InRange(stop.Position, 0, 1) ||
+                 (stop.Color is null) == (stop.TokenId is null) || stop.TokenId == Guid.Empty)))
+            return new("INVALID_PROPERTY_VALUE", "Gradient requires a finite angle and at least two stops with positions in [0, 1] and exactly one color or color token.");
         if (value is NodeShadowValue shadow && !IsValidShadow(shadow))
             return new("INVALID_PROPERTY_VALUE", "Shadow requires finite offsets in [-1024, 1024], blur in [0, 256], spread in [-256, 256] and a color.");
         if (value is NodeEnumValue item && definition.EnumValues?.Contains(item.Value) != true)
@@ -202,6 +215,14 @@ public static class NodePropertyValidator
         DocumentStructure document, DesignTokenResolver tokens, NodePropertyDefinition? definition,
         string property, NodePropertyValue value, TokenTheme? theme = null)
     {
+        if (value is NodeLinearGradientValue gradient)
+        {
+            foreach (var stop in gradient.Stops)
+                if (stop.TokenId is { } tokenId &&
+                    ValidateTokenReference(tokens, new(NodePropertyType.Color, TokenType: TokenType.Color),
+                        property, new NodeTokenValue(tokenId), theme) is { } invalid)
+                    return invalid;
+        }
         if (value is NodeTokenValue reference)
             return ValidateTokenReference(tokens, definition, property, reference, theme);
         if (value is NodeStyleValue style)

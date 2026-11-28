@@ -11,6 +11,7 @@ export interface FieldPresentation {
   name:string;field:ValueField;variantOverride?:boolean;styleOverride?:boolean;
   resetVariant?():void;resetStyle?():void;resetLocal?():void;onLeave?():void;onKey?(event:KeyboardEvent<HTMLDivElement>):void;
   shadow?:{active:boolean;toggle?:()=>void};
+  gradient?:{active:boolean;toggle?:()=>void};
 }
 function PropertyRow({entry,displayLabel}:{entry:FieldPresentation;displayLabel?:string}){
   const {field,name}=entry,state=useSyncExternalStore(field.store.subscribe,field.store.getSnapshot);
@@ -18,7 +19,7 @@ function PropertyRow({entry,displayLabel}:{entry:FieldPresentation;displayLabel?
   const row=<div className={'node-property'+(field.spec.kind==='reference'?' node-property--token':'')+(isGeometryField(name,field.spec)?' node-property--geometry':'')}
       data-variant-override={entry.variantOverride===undefined?undefined:String(entry.variantOverride)}
       data-style-override={entry.styleOverride===undefined?undefined:String(entry.styleOverride)}
-      hidden={entry.shadow?!entry.shadow.active:undefined}
+      hidden={entry.shadow?!entry.shadow.active:entry.gradient?!entry.gradient.active:undefined}
       onBlur={event=>{if(!(event.relatedTarget instanceof Node)||!event.currentTarget.contains(event.relatedTarget))entry.onLeave?.();}}
       onKeyDown={entry.onKey}>
     <FieldValue field={field} displayLabel={displayLabel} describedBy={feedbackId}/>
@@ -27,6 +28,7 @@ function PropertyRow({entry,displayLabel}:{entry:FieldPresentation;displayLabel?
     {entry.resetLocal&&<Button className="style-override-reset" aria-label={'Сбросить свойство: '+propertyLabel(name)} disabled={state.actionsDisabled} onClick={entry.resetLocal}>Сбросить</Button>}
     {entry.resetVariant&&<Button className="variant-override-reset" disabled={state.actionsDisabled} onClick={entry.resetVariant}>Reset Override</Button>}
   </div>;
+  if(entry.gradient)return <section className="gradient-effects"><strong>Заливка</strong>{row}<Button type="button" hidden={!entry.gradient.toggle} disabled={state.actionsDisabled} onClick={entry.gradient.toggle}>{entry.gradient.active?'Удалить градиент':'Добавить градиент'}</Button></section>;
   return entry.shadow?<section className="shadow-effects"><strong>Effects</strong>{row}<Button className="shadow-action" hidden={!entry.shadow.toggle} disabled={state.actionsDisabled} onClick={entry.shadow.toggle}>{entry.shadow.active?'Remove drop shadow':'Add drop shadow'}</Button></section>:row;
 }
 export function PaddingEditor({fields}:{fields:ReadonlyMap<string,FieldPresentation>}){

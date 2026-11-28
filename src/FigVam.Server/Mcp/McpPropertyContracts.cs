@@ -272,6 +272,7 @@ internal static class McpPropertyContracts
     {
         NodePropertyType.Color => ColorSchema(),
         NodePropertyType.Shadow => ShadowSchema(),
+        NodePropertyType.LinearGradient => WithTag(Schema<NodeLinearGradientValue>(), "linearGradient"),
         _ => throw new ArgumentOutOfRangeException(nameof(definition))
     };
 
@@ -292,6 +293,7 @@ internal static class McpPropertyContracts
             NodePropertyType.StyleReference => ReferenceSchema<McpStyleReferenceInput>("style"),
             NodePropertyType.TokenReference => ReferenceSchema<McpTokenReferenceInput>("token"),
             NodePropertyType.Shadow => ShadowSchema(),
+        NodePropertyType.LinearGradient => WithTag(Schema<NodeLinearGradientValue>(), "linearGradient"),
             _ => throw new ArgumentOutOfRangeException(nameof(definition))
         };
 
