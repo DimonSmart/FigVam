@@ -60,7 +60,7 @@ const requestRunner = createRequestRunner(sessionState, {
 function run(...args: Parameters<typeof requestRunner.run>) { return requestRunner.run(...args); }
 
 const previewChrome=createPreviewChrome(),canvasChrome=createCanvasChrome();
-const editorShell = createEditorShell({ canvasChrome, zoomIn:()=>canvasViewport.zoomIn(),zoomOut:()=>canvasViewport.zoomOut(),fitCanvas:()=>canvasViewport.fit(),actualSize:()=>canvasViewport.actualSize(),setGrid:next=>canvasViewport.setGrid(next), previewChrome, openPreview:()=>visualScreens.openPreview(), closePreview:()=>visualScreens.closePreview(), changePreviewTheme:theme=>visualScreens.changeTheme(theme), resetPreview:()=>visualScreens.resetPreview(), previewBack:()=>visualScreens.goBack(), retryRender:()=>visualScreens.retry(), beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage, document: documentShell, deletion: deletionView, renameDocument, deleteDocument, retryDeletion, createScreen, refreshPages: () => { void refreshPages(); } });
+const editorShell = createEditorShell({ canvasChrome, zoomIn:()=>canvasViewport.zoomIn(),zoomOut:()=>canvasViewport.zoomOut(),fitCanvas:()=>canvasViewport.fit(),actualSize:()=>canvasViewport.actualSize(),setGrid:next=>canvasViewport.setGrid(next),addGuide:axis=>canvasViewport.addGuide(axis), previewChrome, openPreview:()=>visualScreens.openPreview(), closePreview:()=>visualScreens.closePreview(), changePreviewTheme:theme=>visualScreens.changeTheme(theme), resetPreview:()=>visualScreens.resetPreview(), previewBack:()=>visualScreens.goBack(), retryRender:()=>visualScreens.retry(), beforePrototypeLeave: next => scenarios.requestLeave(next), addTool: kind => visualNodeEditor.addFromToolbar(kind), signOut: () => { void signOut(); }, createPage, document: documentShell, deletion: deletionView, renameDocument, deleteDocument, retryDeletion, createScreen, refreshPages: () => { void refreshPages(); } });
 const views = createApplicationViews();
 mountApplicationRoot(createElement(ApplicationShell, { shell: editorShell, views, model: shellState, actions: {
   createDocument: () => { void documentCreation.createDocument(); }, changeDocumentName: documentName => shellState.patch({ documentName }),
@@ -418,6 +418,7 @@ const canvasViewport: ReturnType<typeof createCanvasViewport> = createCanvasView
   chrome:canvasChrome,element,
   getScreen: () => selectionState.activeScreen,
   getSelectedScreen: () => selectionState.selectedScreen,
+  getDocumentId:()=>documentId,
   onViewportChange: presence.render,
   setPresenceCursor: presence.setCursor
 });

@@ -132,7 +132,7 @@ export function createCanvasNodeEditor({
     const resizing=edit.names.includes('width');
     const grid=getGrid();
     if (keepRatio && resizing) {
-      if (['width','height'].some(name=>edit.node.properties[name]?.type==='token')) {
+      if (['width','height'].some(name=>(edit.node.properties[name]??edit.definitions[name]?.defaultValue)?.type==='token')) {
         restore(edit);edit.properties={};return;
       }
       const width=edit.initial.width??0,height=edit.initial.height??0;
@@ -152,6 +152,7 @@ export function createCanvasNodeEditor({
         const add=(bounds:Bounds)=>{targetsX.push(bounds.x,bounds.x+bounds.width/2,bounds.x+bounds.width);targetsY.push(bounds.y,bounds.y+bounds.height/2,bounds.y+bounds.height);};
         if(grid.snapObjects){
           add(edit.parentBounds);
+          for(const guide of grid.guides){const limit=edit.model.boxes.get(edit.model.screen)?.bounds[guide.axis==='x'?'width':'height'];if(limit!==undefined&&guide.position<=limit)(guide.axis==='x'?targetsX:targetsY).push(guide.position);}
           for(const node of edit.model.orderedNodes){
             if(node.id===edit.node.id||node.parentId!==edit.node.parentId)continue;
             const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(node.id)}"]`);

@@ -1,5 +1,15 @@
-export interface GridSettings { visible: boolean; step: number; snap: boolean; snapObjects: boolean }
-export const defaultGridSettings: GridSettings = { visible: false, step: 20, snap: false, snapObjects: false };
+export type GuideAxis = 'x' | 'y';
+export interface Guide { id: string; axis: GuideAxis; position: number }
+export interface GridSettings { visible: boolean; step: number; snap: boolean; snapObjects: boolean; guides: readonly Guide[] }
+export const defaultGridSettings: GridSettings = { visible: false, step: 20, snap: false, snapObjects: false, guides: [] };
+export function clampGuide(position:number, limit:number) { return Math.max(0,Math.min(limit,Math.round(position*1000)/1000)); }
+export function decodeGuides(value:unknown): Guide[] {
+  if(!Array.isArray(value))return [];
+  return value.flatMap((item:unknown)=>{
+    if(typeof item!=='object'||item===null||!('id' in item)||typeof item.id!=='string'||!('axis' in item)||(item.axis!=='x'&&item.axis!=='y')||!('position' in item)||typeof item.position!=='number'||!Number.isFinite(item.position)||item.position<0)return [];
+    return [{id:item.id,axis:item.axis,position:item.position}];
+  }).filter((guide,index,all)=>all.findIndex(item=>item.id===guide.id)===index).slice(0,128);
+}
 export function validGridStep(step: number): boolean {
   return Number.isInteger(step) && step >= 2 && step <= 500;
 }
