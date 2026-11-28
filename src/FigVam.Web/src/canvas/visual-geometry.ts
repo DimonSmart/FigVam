@@ -38,7 +38,7 @@ export function proportionalSize(width: number, height: number, dx: number, dy: 
 
 export function selectionRoots(model:{nodes:ReadonlyMap<string,{parentId:string}>},ids:readonly string[]):string[]{
   const selected=new Set(ids);
-  return [...selected].filter(id=>{let parent=model.nodes.get(id)?.parentId;while(parent){if(selected.has(parent))return false;parent=model.nodes.get(parent)?.parentId;}return true;});
+  return [...selected].filter(id=>{let parent=model.nodes.get(id)?.parentId;const visited=new Set<string>();while(parent&&!visited.has(parent)){if(selected.has(parent))return false;visited.add(parent);parent=model.nodes.get(parent)?.parentId;}return true;});
 }
 
 export function inheritedLock(model:{nodes:ReadonlyMap<string,{parentId:string;properties:Record<string,{type:string;value?:unknown}|undefined>}>},id:string):boolean {

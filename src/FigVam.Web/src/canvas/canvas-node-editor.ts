@@ -22,7 +22,7 @@ interface NodeEditorOptions {
 }
 interface Target { model: CanvasModel; node: CanvasNode; bounds: Bounds; parentBounds: Bounds; definitions: PropertyDefinitions; inStack: boolean }
 interface Edit extends Target {
-  wrapper: HTMLElement; names: Axis[]; initial: Partial<Record<Axis, number>>; revision: number;
+  wrapper: HTMLElement; screenBounds:Bounds; matrix:DOMMatrixReadOnly; names: Axis[]; initial: Partial<Record<Axis, number>>; revision: number;
   properties: Geometry; style: Partial<Record<GeometryStyle, string>>;
 }
 interface Gesture extends Edit { others:Edit[]; pointer: number; x: number; y: number; scale: number; moved: boolean }
@@ -77,7 +77,7 @@ export function createCanvasNodeEditor({
   function sync() {
     const id = getContext().selection?.id, selected = target(id);
     if(region&&(region.model!==getModel()||region.scale!==getScale()))cancelRegion();
-    if (gesture && (!getContext().selectedIds?.includes(gesture.node.id) || gesture.model !== selected?.model || !writable())) cancel();
+    if (gesture && (!(getContext().selectedIds??(id?[id]:[])).includes(gesture.node.id) || gesture.model !== selected?.model || !writable())) cancel();
     selectedWrapper?.removeAttribute('data-canvas-editable');
     selectedWrapper = id ? boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`) : null;
     const stack = writable() && selected?.inStack;
@@ -114,65 +114,80 @@ export function createCanvasNodeEditor({
       initial[name] = resolved.value.value;
     }
     return {
-      ...selected, wrapper, names, initial, revision, properties: {},
+      ...selected, wrapper,screenBounds:screenBounds(wrapper),matrix:localMatrix(wrapper,resize), names, initial, revision, properties: {},
       style: Object.fromEntries(names.map(name => [geometryStyles[name], wrapper.style[geometryStyles[name]]]))
     };
   }
 
-  function localDelta(edit: Edit, dx: number, dy: number): [number, number] {
-    // The selected element's own rotation affects resize but not translation.
-    let matrix = new DOMMatrixReadOnly();
-    let wrapper: HTMLElement | null = edit.names.includes('width') ? edit.wrapper : edit.wrapper.parentElement;
-    while (wrapper && wrapper !== boundary) {
-      if (wrapper.hasAttribute('data-visual-node')) {
-        const transform = getComputedStyle(wrapper).transform;
-        if (transform !== 'none') matrix = new DOMMatrixReadOnly(transform).multiply(matrix);
-      }
-      wrapper = wrapper.parentElement;
-    }
-    const local = matrix.inverse().transformPoint(new DOMPoint(dx, dy, 0, 0));
-    return [local.x, local.y];
+  function screenBounds(wrapper:HTMLElement):Bounds{
+    const rect=wrapper.getBoundingClientRect(),origin=boundary.getBoundingClientRect(),scale=getScale();
+    return {x:(rect.left-origin.left)/scale,y:(rect.top-origin.top)/scale,width:rect.width/scale,height:rect.height/scale};
   }
-
+  function localMatrix(element:HTMLElement,resize:boolean){
+    let matrix=new DOMMatrixReadOnly(),wrapper:HTMLElement|null=resize?element:element.parentElement;
+    while(wrapper&&wrapper!==boundary){
+      if(wrapper.hasAttribute('data-visual-node')){
+        const transform=getComputedStyle(wrapper).transform;
+        if(transform!=='none')matrix=new DOMMatrixReadOnly(transform).multiply(matrix);
+      }
+      wrapper=wrapper.parentElement;
+    }
+    return matrix;
+  }
+  function transform(matrix:DOMMatrixReadOnly,x:number,y:number):[number,number]{
+    const result=matrix.transformPoint(new DOMPoint(x,y,0,0));return [result.x,result.y];
+  }
+  function snapTargets(edits:Edit[]){
+    const grid=getGrid(),x:number[]=[],y:number[]=[];
+    const excluded=new Set(edits.map(e=>e.node.id)),parents=new Set(edits.map(e=>e.node.parentId));
+    const first=edits[0];if(!first)return {x,y,step:null,tolerance:0};
+    const add=(b:Bounds)=>{x.push(b.x,b.x+b.width/2,b.x+b.width);y.push(b.y,b.y+b.height/2,b.y+b.height);};
+    if(grid.snapObjects){
+      for(const parent of parents){const wrapper=parent===first.model.screen?boundary:boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(parent)}"]`);if(wrapper)add(screenBounds(wrapper));}
+      for(const guide of grid.guides){const limit=first.model.boxes.get(first.model.screen)?.bounds[guide.axis==='x'?'width':'height'];if(limit!==undefined&&guide.position<=limit)(guide.axis==='x'?x:y).push(guide.position);}
+      for(const node of first.model.orderedNodes){if(excluded.has(node.id)||!parents.has(node.parentId))continue;
+        const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(node.id)}"]`);
+        if(wrapper&&wrapper.getClientRects().length&&getComputedStyle(wrapper).visibility!=='hidden')add(screenBounds(wrapper));
+      }
+    }
+    return {x,y,step:grid.snap?grid.step:null,tolerance:6/getScale()};
+  }
+  function snapTranslation(edits:Edit[],dx:number,dy:number):[number,number]{
+    const targets=snapTargets(edits),bounds=edits.map(e=>e.screenBounds);
+    const x=Math.min(...bounds.map(b=>b.x)),right=Math.max(...bounds.map(b=>b.x+b.width));
+    const y=Math.min(...bounds.map(b=>b.y)),bottom=Math.max(...bounds.map(b=>b.y+b.height));
+    const sx=closestSnap([x+dx,(x+right)/2+dx,right+dx],targets.x,targets.step,targets.tolerance);
+    const sy=closestSnap([y+dy,(y+bottom)/2+dy,bottom+dy],targets.y,targets.step,targets.tolerance);
+    guides(sx?.guide,sy?.guide);
+    return [dx+(sx?.delta??0),dy+(sy?.delta??0)];
+  }
   function preview(edit: Edit, deltaX: number, deltaY: number, keepRatio=false, snap=false) {
-    [deltaX, deltaY] = localDelta(edit, deltaX, deltaY);
-    guides();
     const resizing=edit.names.includes('width');
-    const grid=getGrid();
-    if ((keepRatio || edit.node.properties.aspectRatioLocked?.type==='boolean'&&edit.node.properties.aspectRatioLocked.value) && resizing) {
-      if (['width','height'].some(name=>(edit.node.properties[name]??edit.definitions[name]?.defaultValue)?.type==='token')) {
-        restore(edit);edit.properties={};return;
-      }
-      const width=edit.initial.width??0,height=edit.initial.height??0;
-      const range=(name:Axis)=>({min:edit.definitions[name]?.minimum??0,max:edit.definitions[name]?.maximum??Infinity});
+    const ratio=resizing&&(keepRatio||edit.node.properties.aspectRatioLocked?.type==='boolean'&&edit.node.properties.aspectRatioLocked.value);
+    [deltaX,deltaY]=transform(edit.matrix.inverse(),deltaX,deltaY);
+    const width=edit.initial.width??0,height=edit.initial.height??0;
+    const range=(name:Axis)=>({min:edit.definitions[name]?.minimum??0,max:edit.definitions[name]?.maximum??Infinity});
+    if(ratio){
       const size=proportionalSize(width,height,deltaX,deltaY,range('width'),range('height'));
-      if(size){deltaX=size[0]-width;deltaY=size[1]-height;}
-    } else if(snap && (grid.snap || grid.snapObjects)) {
-      // Layout boxes are screen-space and unrotated. Do not mix coordinate spaces in a rotated gesture.
-      let unrotated=true;
-      for(let wrapper:HTMLElement|null=edit.wrapper;wrapper&&wrapper!==boundary;wrapper=wrapper.parentElement) {
-        if(wrapper.hasAttribute('data-visual-node')&&getComputedStyle(wrapper).transform!=='none'){unrotated=false;break;}
-      }
-      if(unrotated){
-        const {x,y,width,height}=edit.bounds;
-        const origin=boundary.getBoundingClientRect(),scale=getScale();
-        const targetsX:number[]=[],targetsY:number[]=[];
-        const add=(bounds:Bounds)=>{targetsX.push(bounds.x,bounds.x+bounds.width/2,bounds.x+bounds.width);targetsY.push(bounds.y,bounds.y+bounds.height/2,bounds.y+bounds.height);};
-        if(grid.snapObjects){
-          add(edit.parentBounds);
-          for(const guide of grid.guides){const limit=edit.model.boxes.get(edit.model.screen)?.bounds[guide.axis==='x'?'width':'height'];if(limit!==undefined&&guide.position<=limit)(guide.axis==='x'?targetsX:targetsY).push(guide.position);}
-          for(const node of edit.model.orderedNodes){
-            if(node.id===edit.node.id||node.parentId!==edit.node.parentId)continue;
-            const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(node.id)}"]`);
-            if(!wrapper||getComputedStyle(wrapper).visibility==='hidden')continue;
-            const box=wrapper.getBoundingClientRect();
-            add({x:(box.left-origin.left)/scale,y:(box.top-origin.top)/scale,width:box.width/scale,height:box.height/scale});
-          }
+      if(!size){restore(edit);edit.properties={};return;}
+      deltaX=size[0]-width;deltaY=size[1]-height;
+    }
+    if(snap&&resizing){
+      const targets=snapTargets([edit]),b=edit.screenBounds;
+      const [wx,wy]=transform(edit.matrix,width,0),[hx,hy]=transform(edit.matrix,0,height);
+      const anchorX=b.x-Math.min(0,wx,hx,wx+hx)+wx+hx,anchorY=b.y-Math.min(0,wy,hy,wy+hy)+wy+hy;
+      const [dx,dy]=transform(edit.matrix,deltaX,deltaY);
+      const sx=closestSnap([anchorX+dx],targets.x,targets.step,targets.tolerance),sy=closestSnap([anchorY+dy],targets.y,targets.step,targets.tolerance);
+      if(ratio){
+        const [vx,vy]=transform(edit.matrix,width,height);
+        const fx=sx&&Math.abs(vx)>1e-8?sx.delta/vx:null,fy=sy&&Math.abs(vy)>1e-8?sy.delta/vy:null;
+        const useX=fx!==null&&(fy===null||Math.abs(fx)<=Math.abs(fy)),f=useX?fx:fy;
+        if(f!==null&&Math.hypot(vx*f,vy*f)<=targets.tolerance){
+          const size=proportionalSize(width,height,deltaX+width*f,deltaY+height*f,range('width'),range('height'));
+          if(size&&Math.abs(size[0]-width-deltaX-width*f)<1e-6){deltaX=size[0]-width;deltaY=size[1]-height;guides(useX?sx?.guide:undefined,useX?undefined:sy?.guide);}
         }
-        const step=grid.snap?grid.step:null,tolerance=6/scale;
-        const sx=closestSnap(resizing?[x+width+deltaX]:[x+deltaX,x+width/2+deltaX,x+width+deltaX],targetsX,step,tolerance);
-        const sy=closestSnap(resizing?[y+height+deltaY]:[y+deltaY,y+height/2+deltaY,y+height+deltaY],targetsY,step,tolerance);
-        if(sx)deltaX+=sx.delta;if(sy)deltaY+=sy.delta;
+      }else{
+        [deltaX,deltaY]=transform(edit.matrix.inverse(),dx+(sx?.delta??0),dy+(sy?.delta??0));
         guides(sx?.guide,sy?.guide);
       }
     }
@@ -200,7 +215,7 @@ export function createCanvasNodeEditor({
   }
 
   function commit(edit: Edit,others:Edit[]=[]) {
-    if(others.length){const edits=[edit,...others];const operations=edits.filter(e=>Object.keys(e.properties).length).map(e=>({action:'set' as const,nodeId:e.node.id,expectedParentId:e.node.parentId,properties:e.properties}));if(!operations.length)return;const settle=(confirmed:boolean)=>{if(!confirmed)edits.forEach(restore);};if(!editBatch(operations,edit.revision,settle))settle(false);return;}
+    if(others.length||(getContext().selectedIds?.length??0)>1){const edits=[edit,...others];const operations=edits.filter(e=>Object.keys(e.properties).length).map(e=>({action:'set' as const,nodeId:e.node.id,expectedParentId:e.node.parentId,properties:e.properties}));if(!operations.length)return;const settle=(confirmed:boolean)=>{if(!confirmed)edits.forEach(restore);};if(!editBatch(operations,edit.revision,settle))settle(false);return;}
     if (!Object.keys(edit.properties).length) return;
     const accepted = editGeometry({
       nodeId: edit.node.id, expectedParentId: edit.node.parentId,
@@ -256,8 +271,12 @@ export function createCanvasNodeEditor({
     const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y;
     if (!gesture.moved && Math.hypot(dx, dy) < 3) return;
     gesture.moved = true;
-    preview(gesture, dx / gesture.scale, dy / gesture.scale, event.shiftKey, !gesture.others.length&&!event.ctrlKey && !event.metaKey);
-    for(const edit of gesture.others)preview(edit,dx/gesture.scale,dy/gesture.scale);
+    guides();
+    let deltaX=dx/gesture.scale,deltaY=dy/gesture.scale;
+    const grid=getGrid(),snap=(grid.snap||grid.snapObjects)&&!event.ctrlKey&&!event.metaKey;
+    if(snap&&!gesture.names.includes('width'))[deltaX,deltaY]=snapTranslation([gesture,...gesture.others],deltaX,deltaY);
+    preview(gesture,deltaX,deltaY,event.shiftKey,snap);
+    for(const edit of gesture.others)preview(edit,deltaX,deltaY);
   }
 
   viewport.addEventListener('pointermove', track, { signal });
@@ -296,7 +315,12 @@ export function createCanvasNodeEditor({
     }
     if (!delta) return;
     event.preventDefault();
-    if((getContext().selectedIds?.length??0)>1)return;
+    const ids=getContext().selectedIds??[],model=getModel();
+    if(model&&ids.length>1){
+      if(event.shiftKey)return;
+      const edits=selectionRoots(model,ids).map(id=>{const wrapper=boundary.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(id)}"]`);return wrapper?begin(id,wrapper,false):null;});
+      if(edits.some(e=>!e))return;const valid=edits.filter((e):e is Edit=>!!e);const first=valid[0];if(first){valid.forEach(e=>preview(e,...delta));commit(first,valid.slice(1));}return;
+    }
     const edit = begin(selectedWrapper.dataset.visualNode, selectedWrapper, event.shiftKey);
     if (!edit) return;
     preview(edit, ...delta);

@@ -645,8 +645,8 @@ export function createVisualNodeEditor({
   function publishCommonProperties(blocked:boolean){
     const ids=context.selectedIds??[],key=[context.documentId,context.revision,context.variantId,...ids].join(':');
     const nodes=ids.flatMap(id=>{const n=model?.nodes.get(id);return n?[n]:[];});
-    const commonBlocked=blocked||!model||nodes.length!==ids.length||nodes.some(n=>!!model&&inheritedLock(model,n.id));
-    if(key!==commonKey||(!commonFields.length&&nodes.length===ids.length&&ids.length>1)){
+    const commonBlocked=blocked||key!==commonKey&&resolvedModelKey!==modelKey||!model||nodes.length!==ids.length||nodes.some(n=>!!model&&inheritedLock(model,n.id));
+    if(!blocked&&(key!==commonKey||(!commonFields.length&&nodes.length===ids.length&&ids.length>1))){
       commonKey=key;commonFields=[];
       const first=nodes[0],data=model;
       if(first&&data&&ids.length>1&&nodes.length===ids.length){
