@@ -252,6 +252,7 @@ export function createCanvasNodeEditor({
     if (gesture) event.preventDefault();
   }, { capture: true, passive: false, signal });
   viewport.addEventListener('keydown', event => {
+    if(event.target instanceof Element&&event.target.closest('[data-guide-id]'))return;
     if (event.key === 'Escape' && gesture) {
       event.preventDefault();
       cancel();

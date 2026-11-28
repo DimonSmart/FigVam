@@ -318,7 +318,7 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
             <Button type="button" className="primary-action" aria-label="Открыть создание экрана" hidden={!canEdit} onClick={openCreateScreen}>{state.hasPage?"Создать экран":"Создать страницу"}</Button>
           </div>
           <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">
-            <div id="screen-boundary" hidden/><div id="canvas-grid-overlay" aria-hidden="true" hidden><div id="canvas-manual-guides"/><span id="canvas-snap-x" hidden/><span id="canvas-snap-y" hidden/></div>
+            <div id="screen-boundary" hidden/><div id="canvas-grid-overlay" hidden><div id="canvas-manual-guides"/><span id="canvas-snap-x" hidden/><span id="canvas-snap-y" hidden/></div>
             <div id="presence-markers" aria-hidden="true"><views.presence.markers.Component/></div>
           </div>
           <CanvasHint shell={shell}/>

@@ -1,4 +1,4 @@
-import { prepareNodeOperation, type Command, type Body } from './node-command';
+import { prepareNodeOperation, type Command, type Body, type NodeEdit } from './node-command';
 import { prepareAssetUpload, classifyCommandFailure, type DocumentCommandOperation, type AssetUploadOperation } from '../../api/document-commands';
 import type { ApiClient } from '../../api/api-client';
 import { ApiError } from '../../api/api-client';
@@ -548,7 +548,7 @@ export function createVisualNodeEditor({
         catch(error){operations.delete(op.key);op.draft.error=errorMessage(error);const entry=automatic.get(op.draft);if(entry)entry.rejected=true;return;}
       }
       const outcome=await op.mutation.execute({request,isCurrent:current,
-        validate:ack=>{if(ack.nodeId!==op.body.nodeId)throw new TypeError('Некорректное подтверждение элемента');},
+        validate:ack=>{if(op.command==='edit-nodes' ? ack.revision!==Number(op.body.expectedRevision)+1 : ack.nodeId!==op.body.nodeId)throw new TypeError('Некорректное подтверждение элемента');},
         synchronize:async ack=>{
           const reveal=adding&&op.body.parentId&&op.body.parentId!==op.screen?[op.body.parentId]:[];
           const selection=adding?{nodeId:op.body.nodeId,previousId:op.selectionId}:undefined;
@@ -622,8 +622,15 @@ export function createVisualNodeEditor({
       canvasDrafts.get(key), settlePreview);
   }
 
+  function editBatch(operations:NodeEdit[], expectedRevision:number, settle:(confirmed:boolean)=>void=()=>{}) {
+    const current=getContext(),key=scopeKey(current);
+    if(!key||!canEdit(current.documentRole)||current.revision!==expectedRevision||operations.length===0||operations.length>128||!current.screen||automatic.size||uploads.size)return false;
+    if(!canvasDrafts.has(key))canvasDrafts.set(key,draft());
+    return begin('edit-nodes',{nodeId:current.selection?.id??current.screen,expectedRevision,operations},canvasDrafts.get(key),settle);
+  }
+
   return {
-    refresh, editGeometry, addFromToolbar,
+    refresh, editGeometry, editBatch, addFromToolbar,
     get editPending() { return operations.has(scopeKey(getContext())??''); },
     clearDocument(id:string) {
       for(const [state,entry] of automatic)if(entry.target.documentId===id)automatic.delete(state);

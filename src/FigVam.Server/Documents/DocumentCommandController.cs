@@ -161,6 +161,42 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
     public async Task<IActionResult> SetNodeProperties(Guid documentId, SetNodePropertiesRequest request, CancellationToken ct) =>
         Result(await handler.HandleAsync(new SetNodePropertiesCommand(documentId, request.CommandId, request.NodeId,
             request.Properties, request.ExpectedParentId, request.ExpectedRevision, request.HistoryGroupId), User.GetDocumentActor(), ct));
+    [HttpPost("edit-nodes"), RequestSizeLimit(1024 * 1024), EndpointSummary("Atomically edit multiple nodes at one document revision")]
+    public async Task<IActionResult> EditNodes(Guid documentId, EditNodesRequest request, [FromServices] DocumentBatchExecutor executor, CancellationToken ct)
+    {
+        var actor = User.GetDocumentActor();
+        const string marker = "{\"kind\":\"edit-nodes\"}";
+        var result = await executor.ExecuteAsync(documentId, request.CommandId, request.ExpectedRevision, actor, async scope =>
+        {
+            if (request.Operations is not { Length: >= 1 and <= 128 })
+                return new BatchExecution("INVALID_REQUEST", marker);
+            foreach (var op in request.Operations)
+            {
+                if (op is null) return new BatchExecution("INVALID_REQUEST", marker);
+                var id = Guid.NewGuid();
+                var revision = scope.State.Revision;
+                CommandResult? step = op.Action switch
+                {
+                    "set" when op.Properties is { Count: > 0 } && op.VariantId is null && op.ScreenId is null =>
+                        await scope.Handler.HandleAsync(new SetNodePropertiesCommand(documentId, id, op.NodeId, op.Properties, op.ExpectedParentId, revision), actor, ct),
+                    "set" when op.Properties is { Count: > 0 } && op.VariantId is Guid variant && op.ScreenId is Guid screen =>
+                        await scope.Handler.HandleAsync(new SetScreenVariantPropertiesCommand(documentId, id, screen, variant, op.NodeId, op.Properties, revision), actor, ct),
+                    "delete" => await scope.Handler.HandleAsync(new DeleteNodeCommand(documentId, id, op.NodeId), actor, ct),
+                    "add" when op.ParentId is Guid parent && !string.IsNullOrWhiteSpace(op.Kind) =>
+                        await scope.Handler.HandleAsync(new AddNodeCommand(documentId, id, parent, op.NodeId, op.Kind, op.Properties, op.Name), actor, ct),
+                    "move" when op.ExpectedParentId is Guid previous && op.ParentId is Guid target && op.Position is int position =>
+                        await scope.Handler.HandleAsync(new MoveNodeCommand(documentId, id, op.NodeId, previous, target, position, revision), actor, ct),
+                    _ => null
+                };
+                if (step is null || !step.Accepted)
+                    return new BatchExecution(step?.Code ?? "INVALID_REQUEST", marker);
+            }
+            return new BatchExecution("ACCEPTED", marker);
+        }, ct);
+        if (result.Accepted && result.BatchResponse != marker)
+            return Conflict(ApiErrors.Create(409, "REVISION_CONFLICT"));
+        return Result(result);
+    }
     [HttpPost("save"), EndpointSummary("Save an immutable document version")]
     public async Task<IActionResult> Save(Guid documentId, SaveDocumentRequest request, CancellationToken ct) => Result(await handler.HandleAsync(new SaveDocumentCommand(documentId, request.CommandId, request.Name), User.GetDocumentActor(), ct));
     [HttpPost("restore"), EndpointSummary("Restore a saved version as a new revision")]
@@ -177,7 +213,7 @@ public sealed class DocumentCommandController(IDocumentCommandHandler handler) :
         if (result.Accepted) return Ok(new CommandResponse(result.Code, result.DocumentId, result.CommandId, result.Revision!.Value, result.PageId, result.ScreenId, result.NodeId, result.VersionId, result.AffectedIds ?? new Guid?[] { result.PageId, result.ScreenId, result.NodeId, result.VersionId }.OfType<Guid>().Distinct().ToArray()));
         var status = result.Code switch
         {
-            "REQUIRED_PROPERTY" or "INVALID_PROFILE_UPGRADE" or "INVALID_PROFILE" or "PROFILE_UNAVAILABLE" or "UNSUPPORTED_PROFILE_VERSION" => 400,
+            "INVALID_REQUEST" or "REQUIRED_PROPERTY" or "INVALID_PROFILE_UPGRADE" or "INVALID_PROFILE" or "PROFILE_UNAVAILABLE" or "UNSUPPORTED_PROFILE_VERSION" => 400,
             "FORBIDDEN" => 403,
             "ASSET_NOT_FOUND" or "DATASET_CONNECTOR_NOT_FOUND" or "SCREEN_NOT_FOUND" or "SCENARIO_NOT_FOUND" or "SCREEN_VARIANT_NOT_FOUND" or "VARIANT_OVERRIDE_NOT_FOUND" or "DATA_BINDING_NOT_FOUND" or "DATASET_NOT_FOUND" or "COMPONENT_NOT_FOUND" or "DOCUMENT_NOT_FOUND" or "TOKEN_NOT_FOUND" or "STYLE_NOT_FOUND" or "PROPERTY_OVERRIDE_NOT_FOUND" or "PAGE_NOT_FOUND" or "NODE_NOT_FOUND" or "PARENT_NOT_FOUND" or "VERSION_NOT_FOUND" => 404,
             "INVALID_SCREEN_STRUCTURE" or "INVALID_DOCUMENT_NAME" or "INVALID_SCREEN_NAME" or "INVALID_SCREEN_DIMENSIONS" or "INVALID_PAGE" or "CONNECTOR_NOT_ALLOWED" or "INVALID_SCENARIO" or "INVALID_SCREEN_VARIANT" or "INVALID_VARIANT_NODE" or "INVALID_TOKEN_IMPORT" or "INVALID_REPEATER" or "DATA_REPEATER_LIMIT" or "INVALID_DATA_BINDING" or "DATA_MISSING_VALUE" or "DATA_INCOMPATIBLE_TYPE" or "DATA_INVALID_FIXTURE" or "DATA_INVALID_PATH" or "INVALID_CSV_FIXTURE" or "INVALID_DATASET" or "INVALID_DATASET_FIXTURE" or "DATASET_LIMIT_EXCEEDED" or "INVALID_COMPONENT_REPLACEMENT" or "INVALID_REVISION" or "INVALID_COMPONENT" or "INVALID_TOKEN" or "INVALID_STYLE" or "INVALID_NODE_METADATA" or "INVALID_ID" or "INVALID_VERSION_NAME" or "INVALID_POSITION" or "INVALID_PROPERTY_TYPE" or "INVALID_PROPERTY_VALUE" or "UNSUPPORTED_PROPERTY" or "UNSUPPORTED_NODE_KIND" => 400,
