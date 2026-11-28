@@ -1,3 +1,4 @@
+using FigVam.Application.Documents;
 using FigVam.Domain.Documents;
 
 namespace FigVam.Server.Mcp;
