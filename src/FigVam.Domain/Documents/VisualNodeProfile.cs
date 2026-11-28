@@ -105,7 +105,8 @@ public sealed class VisualNodeProfile : INodeProfile
             ("linearGradient", new(NodePropertyType.LinearGradient)),
             ("borderWidth", Length(0)),
             ("borderColor", Color(Outline)),
-            ("borderPattern", Options("Solid", "Dashed", "Dotted"))
+            ("borderPattern", Options("Solid", "Dashed", "Dotted")),
+            ("borderStyle", new(NodePropertyType.StyleReference, StyleType: DesignStyleType.BorderStyle))
         ]),
         Kind("Line", NodeSemanticRole.Line, 120, 12, properties:
         [

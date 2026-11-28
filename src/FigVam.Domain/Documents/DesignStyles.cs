@@ -203,7 +203,8 @@ public sealed class DesignStyleResolver
             if (style is null || style.Type != type)
                 throw Invalid("type-mismatch", node.Id, name, reference.StyleId, "Incompatible or absent design style.");
             foreach (var item in Resolve(style.Id, theme))
-                properties[item.Key] = item.Value;
+                if (profile.GetProperty(node.Kind, item.Key) is not null)
+                    properties[item.Key] = item.Value;
         }
         void ApplyTypography(IReadOnlyDictionary<string, NodePropertyValue> source)
         {

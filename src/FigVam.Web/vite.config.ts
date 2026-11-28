@@ -15,7 +15,8 @@ function lucideCatalog(): Plugin {
       const catalog: Record<string, string> = {};
       for (const Icon of Object.values(icons)) {
         const svg = renderToStaticMarkup(createElement(Icon, { width: '100%', height: '100%' }));
-        const name = /\bclass="lucide lucide-([a-z0-9-]+)"/.exec(svg)?.[1];
+        const names = (/\bclass="([^"]+)"/.exec(svg)?.[1] ?? "").split(/\s+/);
+        const name = names.find(value => /^lucide-[a-z0-9-]+$/.test(value) && value !== "lucide-icon")?.slice(7);
         if (name) catalog[name] = svg;
       }
       return 'export default ' + JSON.stringify(catalog);

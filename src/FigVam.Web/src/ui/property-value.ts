@@ -20,6 +20,11 @@ const labels:Record<string,string> = {
   inputType: 'Тип ввода', textStyle: 'Стиль текста', borderStyle: 'Стиль рамки',
   typography: 'Типографика', shadow: 'Drop shadow',
   backgroundColor: 'Цвет фона', borderColor: 'Цвет рамки', borderWidth: 'Толщина рамки', cornerRadius: 'Радиус углов',
+  rotation: 'Поворот (°)', iconName: 'Иконка Lucide', strokeColor: 'Цвет линии', strokeWidth: 'Толщина линии',
+  lineDirection: 'Направление линии', startArrow: 'Начальный наконечник', endArrow: 'Конечный наконечник',
+  borderPattern: 'Тип линии', imageClip: 'Форма обрезки', linearGradient: 'Линейный градиент',
+  radiusTopLeft: 'Верхний левый радиус', radiusTopRight: 'Верхний правый радиус',
+  radiusBottomRight: 'Нижний правый радиус', radiusBottomLeft: 'Нижний левый радиус',
   asset: 'Ассет', altText: 'Альтернативное описание', fit: 'Режим отображения'
 };
 
