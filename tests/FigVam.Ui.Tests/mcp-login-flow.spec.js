@@ -152,11 +152,13 @@ test('MCP builds the login prototype, both editors see changes and restart inval
     for (const [nodeId, event] of [[loginButton, 'Click'], [password, 'Submit']])
       await call('create_scenario', { screenId: loginScreen, nodeId, event, actions: [{ type: 'navigate', screenId: errorScreen }] });
     await call('save_version', { name: 'Login and invalid password' });
+    const finalRevision = (await call('get_document')).revision;
     const snapshot = await read();
     expect(snapshot.screens).toHaveLength(2);
     expect(snapshot.scenarios).toHaveLength(2);
     for (const editor of [page, second]) {
       await show(editor, 'layers');
+      await expect(editor.locator('#revision')).toHaveText('Общий черновик · ревизия ' + finalRevision);
       await expect(editor.locator('#screens .screen-select')).toHaveCount(2);
       await editor.locator('#screens .screen-select[data-screen-id="' + loginScreen + '"]').click();
       await expect(editor.locator('#screen-boundary')).toContainText('Sign in');

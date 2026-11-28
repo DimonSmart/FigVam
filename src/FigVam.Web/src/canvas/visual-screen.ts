@@ -61,7 +61,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
   function documentSignal():AbortSignal{if(!controller)throw new Error('No active screen request');return controller.signal;}
   let previewFrame = 0;
   const previewKey = (documentId:string|null, screen:string, variantId:string|null|undefined) => JSON.stringify([documentId, screen, variantId ?? null]);
-  const visualProperties = new Set(['visible', 'opacity', 'text', 'textColor', 'textAlignment', 'fontSize', 'fontFamily', 'fontFallback', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wrap', 'enabled', 'placeholder', 'value', 'multiline', 'inputType', 'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius', 'shadow', 'altText', 'fit', 'overflow']);
+  const visualProperties = new Set(['visible', 'opacity', 'text', 'textColor', 'textAlignment', 'fontSize', 'fontFamily', 'fontFallback', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wrap', 'enabled', 'placeholder', 'value', 'multiline', 'inputType', 'backgroundColor', 'borderColor', 'borderWidth', 'cornerRadius', 'shadow', 'altText', 'fit', 'overflow', 'rotation', 'iconName', 'strokeColor', 'strokeWidth', 'lineDirection', 'startArrow', 'endArrow', 'borderPattern', 'imageClip', 'linearGradient', 'radiusTopLeft', 'radiusTopRight', 'radiusBottomRight', 'radiusBottomLeft']);
 
   function projected(model:DrawingModel):DrawingModel {
     if (!context || !model) return model;
@@ -378,7 +378,25 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
       const focusedNode = focus?.closest<HTMLElement>('[data-visual-node]')?.dataset.visualNode;
       const selection = inputControl(focus) ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] as const : null;
       if (!previewMode && view.host.hasChildNodes()) reconcileScreen(view.host, content);
-      else view.host.replaceChildren(content);
+      else if (previewMode) {
+        // Reuse screen roots when only size, theme, or revision changes.
+        // Replacing them can detach a focused input or an in-flight screenshot.
+        const previous = [...view.host.children];
+        const next = [...content.children];
+        const sameStack = previous.length === next.length && previous.every((root, index) =>
+          root instanceof HTMLElement && next[index] instanceof HTMLElement &&
+          root.dataset.previewScreen === next[index].dataset.previewScreen);
+        if (sameStack) {
+          for (let index = 0; index < previous.length; index++) {
+            const root = previous[index], fresh = next[index];
+            if (!(root instanceof HTMLElement) || !(fresh instanceof HTMLElement)) continue;
+            root.style.width = fresh.style.width;
+            root.style.height = fresh.style.height;
+            root.inert = fresh.inert;
+            reconcileScreen(root, fresh);
+          }
+        } else view.host.replaceChildren(content);
+      } else view.host.replaceChildren(content);
       view.feedback.patch({diagnostics:[...diagnostics],status:shown ? '' : 'Геометрию экрана не удалось рассчитать.'});
       if (previewMode) {
         activeScenarios = models.at(-1)?.scenarios??[];
@@ -392,7 +410,7 @@ export function createVisualScreens({ chrome, publishMode, element, request, get
         const control = (previewMode ? view.host.lastElementChild : view.host)
           ?.querySelector<HTMLElement>(`[data-visual-node="${CSS.escape(focusedNode)}"] > .visual-surface`);
         if (control && !control.inert && !(('disabled' in control)&&control.disabled)) {
-          control.focus({ preventScroll: true });
+          if (document.activeElement !== control) control.focus({ preventScroll: true });
           if (selection && inputControl(control)) control.setSelectionRange(selection[0],selection[1],selection[2]??undefined);
         } else if (previewMode) document.getElementById('close-preview')?.focus({ preventScroll: true });
       }

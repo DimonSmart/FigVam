@@ -28,6 +28,34 @@ function isInput(element: HTMLElement): element is HTMLInputElement | HTMLTextAr
   return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
 }
 
+// Reconciled Preview surfaces keep their DOM identity. Dispatch through the
+// latest render's interaction context instead of retaining an obsolete closure.
+interface Interaction { id: string; events: readonly number[]; options: RenderOptions }
+const interactions = new WeakMap<HTMLElement, Interaction | undefined>();
+function bindInteraction(surface: HTMLElement, interaction: Interaction | undefined) {
+  const bound = interactions.has(surface);
+  interactions.set(surface, interaction);
+  if (bound || !interaction) return;
+  const trigger = (event: number) => {
+    const current = interactions.get(surface);
+    if (current?.events.includes(event)) current.options.trigger?.(current.id, event);
+  };
+  if (surface instanceof HTMLButtonElement) surface.addEventListener('click', () => trigger(0));
+  if (isInput(surface)) {
+    surface.addEventListener('input', () => {
+      const current = interactions.get(surface);
+      if (current) current.options.setInput?.(current.id, surface.value);
+    });
+    surface.addEventListener('change', () => trigger(1));
+    if (surface instanceof HTMLInputElement) surface.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing && interactions.get(surface)?.events.includes(4)) {
+        event.preventDefault();
+        trigger(4);
+      }
+    });
+  }
+}
+
 const enumStyles: Record<'fontFallback' | 'fontWeight' | 'fontStyle' | 'textAlignment' | 'fit', Record<string, string | undefined>> = {
   fontFallback: { SansSerif: 'sans-serif', Serif: 'serif', Monospace: 'monospace' },
   fontWeight: { Normal: '400', Medium: '500', Semibold: '600', Bold: '700' },
@@ -190,7 +218,6 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       surface = button;
       surface.textContent = string(value('text'));
       if (!surface.textContent) surface.setAttribute('aria-label', node.name || 'Кнопка');
-      if (options.preview && kind.previewEvents.includes(0)) surface.addEventListener('click', () => options.trigger?.(id, 0));
     } else if (role === 'TextInput') {
       const input = value('multiline') ? document.createElement('textarea') : document.createElement('input');
       surface = input;
@@ -201,17 +228,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       const maxLength = kind.properties.value?.maxLength;
       if (finite(maxLength) && Number.isInteger(maxLength)) input.maxLength = maxLength;
       input.setAttribute('aria-label', node.name || input.placeholder || 'Поле ввода');
-      if (options.preview) {
-        input.addEventListener('input', () => options.setInput?.(id, input.value));
-        if (kind.previewEvents.includes(1)) input.addEventListener('change', () => options.trigger?.(id, 1));
-        if (input instanceof HTMLInputElement && kind.previewEvents.includes(4))
-          input.addEventListener('keydown', event => {
-            if (event.key === 'Enter' && !event.isComposing) {
-              event.preventDefault();
-              options.trigger?.(id, 4);
-            }
-          });
-      } else input.readOnly = true;
+      if (!options.preview) input.readOnly = true;
     } else if (role === 'Image') {
       const asset = property('asset');
       const assetId = asset?.type === 'asset' ? asset.assetId : undefined;
@@ -233,6 +250,8 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
       surface = document.createElement('div');
       if (role === 'Text') surface.textContent = string(value('text'));
     }
+    if (options.preview && (isInput(surface) || surface instanceof HTMLButtonElement))
+      bindInteraction(surface, { id, events: kind.previewEvents, options });
     surface.className = 'visual-surface';
     if (options.preview && !rotated.has(id) && !intersects(box)) surface.inert = true;
     if (value('enabled') === false) {
@@ -284,7 +303,7 @@ export function renderScreen(model: RenderModel, options: RenderOptions) {
 
 // Patch a Design view by stable node IDs. The renderer remains the source of
 // appearance and layout; only the DOM reconciliation is incremental.
-export function reconcileScreen(host: HTMLElement, next: DocumentFragment) {
+export function reconcileScreen(host: HTMLElement, next: DocumentFragment | HTMLElement) {
   const existing = new Map([...host.querySelectorAll<HTMLElement>('[data-visual-node]')]
     .map(node => [node.dataset.visualNode, node] as const));
 
@@ -322,6 +341,7 @@ export function reconcileScreen(host: HTMLElement, next: DocumentFragment) {
       else if (before) before.remove();
       else if (after) current.prepend(after);
     } else {
+      if (interactions.has(after)) bindInteraction(before, interactions.get(after));
       const assetChanged = before.dataset.assetId !== after.dataset.assetId;
       attributes(before, after, before.tagName === 'IMG' ? new Set(['src', 'data-loaded-asset']) : new Set());
       if (assetChanged && before.tagName === 'IMG') {

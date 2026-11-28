@@ -259,11 +259,17 @@ test('Design and Preview use the server bounds, clipping, typed styling and loca
   await expect(preview.locator('em')).toHaveCount(0);
   await expect(preview.locator(visual(frame))).toHaveCSS('width', '210px');
   await preview.getByRole('textbox', { name: 'Комментарий' }).fill('Строка 1\nСтрока 2');
+  const originalRoot = await preview.locator(screenRoot).elementHandle();
+  const originalInput = await preview.locator(`${visual(textarea)} textarea`).elementHandle();
   const resized = page.waitForResponse(response => response.url().includes('/layout?') && new URL(response.url()).searchParams.get('previewWidth') === '302');
   await page.setViewportSize({ width: 302, height: 900 });
   const resizedLayout = await (await resized).json();
   expect(new URL((await resized).url()).searchParams.get('variantId')).toBe(variantId);
   await expect(preview.locator(screenRoot)).toHaveCSS('width', '302px');
+  expect(await originalRoot.evaluate(el => el.isConnected)).toBe(true);
+  expect(await originalInput.evaluate(el => el.isConnected)).toBe(true);
+  await originalRoot.dispose();
+  await originalInput.dispose();
   await expectLayout(page, `#preview-viewport ${screenRoot}`, resizedLayout);
   await expect(preview.locator(`${visual(textarea)} textarea`)).toHaveValue('Строка 1\nСтрока 2');
   await expect(preview.locator(visual(cover))).toHaveCSS('clip-path', 'inset(-160px 144px -160px -330px)');
