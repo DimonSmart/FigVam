@@ -400,7 +400,7 @@ function renderScreens() {
   // Only suggest creation on the first empty page. Opening the popover on every
   // navigation obscures the page tree, and closing a user-opened menu mid-command
   // makes the form unusable while the page creation is still being committed.
-  if (selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) editorShell.menu.close('screen-create');
+  if (selectionState.loading || selectionState.selectedScreen || selectionState.screens.length > 0 || selectionState.pages.length > 1) editorShell.menu.close('screen-create');
   else if (selectionState.selectedPage && selectionState.pages.length === 1 &&
       (getDocumentRole() === 'Owner' || getDocumentRole() === 'Editor') &&
       editorShell.menu.getSnapshot()===null && !selectionState.renameDraft('page')) editorShell.menu.publish('screen-create');
@@ -457,7 +457,7 @@ const canvasNodes: ReturnType<typeof createCanvasNodeEditor> = createCanvasNodeE
 });
 function renderCanvas(nodeEdit = false) {
   canvasViewport.render();
-  documentShell.patch({ hasPage: Boolean(selectionState.selectedPage), hasScreen: Boolean(selectionState.selectedScreen), selectedPageEmpty: Boolean(selectionState.selectedPage) && selectionState.screens.length===0 });
+  documentShell.patch({ structureLoading: selectionState.loading, hasPage: Boolean(selectionState.selectedPage), hasScreen: Boolean(selectionState.selectedScreen), selectedPageEmpty: !selectionState.loading && Boolean(selectionState.selectedPage) && selectionState.screens.length===0 });
   visualScreens.refresh(nodeEdit);
   visualNodeEditor.refresh();
 }
@@ -644,8 +644,13 @@ const navigatorView = createDocumentNavigator(views.navigator, {
     else void pageCommand('rename-screen', {screenId:id, name});
   },
   deletePage(item) {
-    if (revisions.revision !== null && confirm('Удалить страницу «' + item.name + '»? Её экраны и их содержимое будут удалены.'))
-      void pageCommand('delete-page', {pageId:item.id, expectedRevision: revisions.revision}, selectionState.selectedPage === item.id ? null : undefined);
+    if (revisions.revision !== null && confirm('Удалить страницу «' + item.name + '»?\nВсе экраны страницы и их содержимое будут удалены.'))
+      void pageCommand('delete-page', {pageId:item.id, expectedRevision: revisions.revision});
+  },
+  deleteScreen(item) {
+    const name = item.name ?? 'Экран ' + (selectionState.screens.indexOf(item) + 1);
+    if (revisions.revision !== null && confirm('Удалить экран «' + name + '»?\nВсе элементы и варианты экрана будут удалены.'))
+      void pageCommand('delete-screen', {screenId:item.id, expectedRevision: revisions.revision});
   },
   duplicateScreen(item) {
     if (revisions.revision === null) return;

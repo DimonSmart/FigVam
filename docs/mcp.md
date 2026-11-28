@@ -46,7 +46,7 @@ AppHost сам подставляет актуальный HTTP loopback endpoin
 В ChatGPT один раз создайте приватный custom MCP plugin: Connection = Tunnel, выберите
 FigVam, Authentication = No authentication, затем установите его. Служебный ключ добавляет сам
 tunnel-client, а не ChatGPT; в плагине не надо вводить ни API key, ни ключ документа.
-Статические схемы 41 инструмента доступны для регистрации ещё до разрешения документа.
+Статические схемы 42 инструмента доступны для регистрации ещё до разрешения документа.
 Без разрешения каждый tools/call отклоняется с MCP_TUNNEL_ACCESS_REQUIRED.
 
 В редакторе откройте нужный документ → **MCP-доступ → ChatGPT Tunnel → Разрешить доступ через ChatGPT**.
@@ -71,7 +71,7 @@ tunnel-client, а не ChatGPT; в плагине не надо вводить �
 
 1. Убедитесь, что без TunnelId AppHost запускается как раньше.
 2. Настройте TunnelId и Runtime API key, запустите Aspire, проверьте, что tunnel-client не запущен автоматически.
-3. Запустите ресурс вручную, проверьте логи подключения и наличие 41 tools при добавлении плагина.
+3. Запустите ресурс вручную, проверьте логи подключения и наличие 42 tools при добавлении плагина.
 4. До разрешения вызов get_document должен вернуть MCP_TUNNEL_ACCESS_REQUIRED.
 5. Разрешите документ A, создайте экран через ChatGPT и проверьте изменения в редакторе.
 6. Попробуйте разрешить B, пока A активен: переключение не должно произойти. Отзовите A, убедитесь,
@@ -92,9 +92,11 @@ REST и MCP используют одну команду, проверку фо�
 
 Чтение: `get_document`, `list_pages`, `list_screens`, `get_screen`, `get_node`, `list_children`, `get_screen_tree`, `list_node_types`, `get_node_schema`, `list_token_types`, `get_token_schema`, `list_tokens`, `get_token_usages`, `list_scenarios`, `get_screen_layout`.
 
-Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `rename_token`, `delete_token`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
+Редактирование: `create_page`, `rename_page`, `create_screen`, `rename_screen`, `resize_screen`, `duplicate_screen`, `delete_screen`, `create_node`, `rename_node`, `set_node_properties`, `remove_node_properties`, `move_node`, `delete_node`, `create_token`, `set_token_value`, `rename_token`, `delete_token`, `create_scenario`, `update_scenario`, `delete_scenario`, `save_version`.
 
 Все инструменты доступны через tools/list со схемами и описаниями. documentId не передаётся. Для постраничного чтения используйте offset, limit (1–100), revision; дерево по умолчанию ограничено глубиной 3. Ответ содержит структурированные данные; ошибки содержат status REJECTED и code. Изменения возвращают commandId, revision и идентификаторы результата. Для повторной доставки используйте тот же commandId. Перед операциями с expectedRevision прочитайте актуальную ревизию. При конфликте обновите состояние, а не перезаписывайте данные вслепую.
+
+`delete_screen` принимает screenId, expectedRevision и необязательный commandId. Удаляет экран и его содержимое; при сохранённых внешних ссылках возвращает SCREEN_IN_USE без изменения ревизии.
 
 Команды create_page, create_screen, create_node и duplicate_screen принимают необязательный параметр name. Имя — метаданные объекта, а не визуальное свойство. Если имя не передано или равно null, сохраняется прежнее поведение; имя проверяется по тем же правилам, что и при переименовании. Создание и именование выполняются одной атомарной операцией.
 

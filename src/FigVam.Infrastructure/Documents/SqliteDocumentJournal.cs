@@ -182,7 +182,7 @@ public sealed partial class SqliteDocumentJournal
             "EXECUTE_BATCH" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is BatchApplied batch
                     ? batch : throw new InvalidDataException("Invalid batch payload."),
-            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "DUPLICATE_SCREEN" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "SET_SCREEN_VARIANT_PROPERTIES" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "DELETE_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "UPSERT_STYLE" or "DELETE_STYLE" or "REMOVE_NODE_PROPERTIES" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
+            "RENAME_DOCUMENT" or "UPLOAD_ASSET" or "DELETE_PAGE" or "DELETE_SCREEN" or "CREATE_SCENARIO" or "UPDATE_SCENARIO" or "DELETE_SCENARIO" or "DUPLICATE_SCREEN" or "ADD_SCREEN_VARIANT" or "SET_SCREEN_VARIANT_OVERRIDE" or "REMOVE_SCREEN_VARIANT_OVERRIDE" or "SET_SCREEN_VARIANT_PROPERTIES" or "IMPORT_DESIGN_TOKENS" or "SET_NODE_REPEATER" or "BIND_NODE_DATA" or "UNBIND_NODE_DATA" or "SET_DATASET_CONNECTOR" or "REMOVE_DATASET_CONNECTOR" or "DELETE_DATASET" or "ADD_DATASET" or "REPLACE_DATASET_FIXTURE" or "DELETE_COMPONENT_DEFINITION" or "SET_COMPONENT_VARIANT_PARAMETER_CHANGE" or "REMOVE_COMPONENT_VARIANT_PARAMETER_CHANGE" or "SET_COMPONENT_PARAMETER_DEFAULT" or "ADD_COMPONENT_SLOT" or "SET_COMPONENT_SLOT_CONTENT" or "ADD_COMPONENT_VARIANT" or "SET_COMPONENT_INSTANCE_VARIANT" or "SET_COMPONENT_PARAMETER_OVERRIDE" or "ADD_COMPONENT_PARAMETER" or "DETACH_COMPONENT_INSTANCE" or "INSERT_COMPONENT_INSTANCE" or "ADD_COMPONENT_DEFINITION" or "ADD_TOKEN" or "DELETE_TOKEN" or "RENAME_TOKEN" or "SET_TOKEN_VALUE" or "UPSERT_STYLE" or "DELETE_STYLE" or "REMOVE_NODE_PROPERTIES" or "SET_NODE_NAME" or "SET_NODE_SEMANTIC_KEY" or "RENAME_PAGE" or "RENAME_SCREEN" or "ADD_SCREEN" or "RESIZE_SCREEN" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) ?? throw new InvalidDataException("Missing event payload."),
             "SET_NODE_PROPERTIES" when !reader.IsDBNull(14)
                 => JsonSerializer.Deserialize<DocumentEvent>(reader.GetString(14)) is NodePropertiesSet properties &&
@@ -298,6 +298,8 @@ public sealed partial class SqliteDocumentJournal
                     AssetAdded asset => ("UPLOAD_ASSET", asset.Asset.Id, (Guid?)null, (Guid?)null, (string?)null),
                     PageDeleted page when change.Result.PageId == page.PageId
                         => ("DELETE_PAGE", page.PageId, (Guid?)null, (Guid?)null, (string?)null),
+                    ScreenDeleted screen when change.Result.ScreenId == screen.ScreenId
+                        => ("DELETE_SCREEN", screen.ScreenId, (Guid?)null, (Guid?)null, (string?)null),
                     PageAdded page when change.Version is null && change.Result.PageId == page.PageId && change.Result.ScreenId is null
                         => ("ADD_PAGE", page.PageId, (Guid?)null, (Guid?)null, (string?)null),
                     ScreenAdded screen when change.Result.PageId == screen.PageId && change.Result.ScreenId == screen.ScreenId
@@ -407,7 +409,7 @@ public sealed partial class SqliteDocumentJournal
                     command.Parameters.AddWithValue("$kind", kind!);
                     command.ExecuteNonQuery();
                 }
-                if (change.Event is BatchApplied or NodeAdded { Properties: not null } or NodeAdded { Name: not null } or PageAdded { Name: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
+                if (change.Event is BatchApplied or NodeAdded { Properties: not null } or NodeAdded { Name: not null } or PageAdded { Name: not null } or NodePropertiesSet or DocumentDeleted or DocumentRenamed or AssetAdded or PageDeleted or ScreenDeleted or ScreenAdded or ScreenDuplicated or ScreenResized or ScreenRenamed or PageRenamed or ScenarioChanged or ScreenVariantChanged or TokensImported or NodeRepeaterSet or NodeDataBindingSet or DatasetConnectorSet or DatasetDeleted or DatasetAdded or DatasetFixtureReplaced or ComponentDefinitionDeleted or ComponentVariantParameterChangeSet or ComponentParameterDefaultSet or ComponentSlotAdded or ComponentSlotContentSet or ComponentVariantAdded or ComponentInstanceVariantSet or ComponentParameterOverrideSet or ComponentParameterAdded or ComponentInstanceDetached or ComponentInstanceInserted or ComponentDefinitionAdded or TokenAdded or TokenDeleted or TokenRenamed or TokenValueSet or StyleUpserted or StyleDeleted or NodePropertiesRemoved or NodeNameSet or NodeSemanticKeySet)
                 {
                     command.CommandText = "INSERT INTO payload_events(revision,payload) VALUES($revision,$metadata)";
                     command.Parameters.AddWithValue("$metadata", change.Event is NodeAdded { Name: null } added
@@ -832,6 +834,9 @@ public sealed partial class SqliteDocumentJournal
                         break;
                     case PageDeleted page:
                         document = DocumentStructureEditor.DeletePage(document, page.PageId);
+                        break;
+                    case ScreenDeleted screen:
+                        document = DocumentStructureEditor.DeleteScreen(document, screen.ScreenId);
                         break;
                     case PageAdded page:
                         if (page.Name is not null && !PageNameValidator.IsValid(page.Name)) throw new InvalidDataException("Invalid page name in creation event.");

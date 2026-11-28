@@ -485,7 +485,7 @@ test('page row actions are inline and target the row without changing the select
   await expect(selected).toHaveAttribute('data-page-id', selectedId);
   await row.locator('.page-select').click({ button: 'right' });
   await expect(row.locator('.navigator-context-body')).toBeVisible();
-  await expect(row.locator('.navigator-context-body input')).toHaveCount(1);
+  await expect(row.locator('.navigator-context-body input')).toHaveCount(2);
   page.once('dialog', dialog => { expect(dialog.message()).toContain('Renamed page'); return dialog.accept(); });
   await row.getByRole('button', { name: 'Удалить страницу', exact: true }).click();
   await expect(page.locator('#pages > li > .page-select')).toHaveCount(1);

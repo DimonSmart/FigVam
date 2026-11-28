@@ -304,9 +304,9 @@ export function EditorShell({shell,views}:{shell:EditorShellController;views:App
           <CanvasCaption shell={shell}/>
           <p id="canvas-help" className="visually-hidden">{"Перетащите слой для перемещения или его нижний правый угол для изменения размера. Стрелки перемещают выбранный слой, Shift со стрелками меняет размер, Delete удаляет. Для панорамирования перетащите фон, удерживайте Alt или нажмите среднюю кнопку мыши. Alt со стрелками панорамирует с клавиатуры. Колесо меняет масштаб."}</p>
           <RenderFeedback model={shell.previewChrome.design} mode="design" retry={shell.retryRender}/>
-          <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen}>
-            <h2>{"Нет выбранного экрана"}</h2>
-            <p>{state.hasPage?"Выберите экран слева или создайте новый, чтобы начать работу.":"Создайте первую страницу, затем добавьте экран."}</p>
+          <div className="canvas-blank" id="canvas-empty" hidden={state.hasScreen || state.structureLoading}>
+            <h2>{state.hasPage?"На странице нет экранов":"В документе нет страниц"}</h2>
+            <p>{state.hasPage?"Создайте экран, чтобы начать работу.":"Создайте первую страницу, затем добавьте экран."}</p>
             <Button type="button" className="primary-action" aria-label="Открыть создание экрана" hidden={!canEdit} onClick={openCreateScreen}>{state.hasPage?"Создать экран":"Создать страницу"}</Button>
           </div>
           <div id="viewport" tabIndex={0} role="region" aria-label="Область холста" aria-describedby="canvas-help">

@@ -90,7 +90,8 @@ test('refreshes the expanded layer tree and selected object, then clears a remot
     await fulfillLayerPage(route, items);
   });
   await expect(page.locator('#screens button.screen-select')).toHaveCount(1);
-  await page.locator('#screens button.screen-select').click();
+  await expect(page.locator('#screens button.screen-select')).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Обновить страницы' }).click();
   await page.locator('#layers [data-id=root] .layer-label').click();
   await page.locator('#layers [data-id=child] .layer-label').click();
   await expect(page.locator('#inspector-selection')).toContainText('Original fixture');

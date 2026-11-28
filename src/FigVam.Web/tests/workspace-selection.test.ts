@@ -10,10 +10,12 @@ describe('workspace selection', () => {
     const state = createWorkspaceSelection();
     expect(state.accept(structure, () => expect(state.selectedScreen).toBeNull())).toEqual({pagesChanged:true,screensChanged:true});
     expect(state.activeScreen?.id).toBe('s');
+    expect(state.loading).toBe(false);
     expect(state.accept(structure, () => { throw Error('unchanged'); })).toEqual({pagesChanged:false,screensChanged:false});
     state.selectPage('other');
     expect(state.selectedScreen).toBeNull();
     expect(state.screens).toEqual([]);
+    expect(state.loading).toBe(true);
   });
   it('keeps valid navigation drafts and discards stale or unauthorized ones', () => {
     const state = createWorkspaceSelection();

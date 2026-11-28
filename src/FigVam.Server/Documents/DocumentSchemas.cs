@@ -79,6 +79,7 @@ public static class DocumentSchemas
         [nameof(FigVam.Domain.Documents.DocumentStructure)] = typeof(FigVam.Domain.Documents.DocumentStructure),
         [nameof(DeleteDocumentRequest)] = typeof(DeleteDocumentRequest),
         [nameof(DeletePageRequest)] = typeof(DeletePageRequest),
+        [nameof(DeleteScreenRequest)] = typeof(DeleteScreenRequest),
         [nameof(RenameDocumentRequest)] = typeof(RenameDocumentRequest),
         [nameof(RenamePageRequest)] = typeof(RenamePageRequest),
         [nameof(RenameScreenRequest)] = typeof(RenameScreenRequest),

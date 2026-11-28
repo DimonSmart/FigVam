@@ -25,7 +25,7 @@ interface NavigatorActions {
   changeDraft(kind: NavigatorKind, value: string): void;
   discardRename(kind: NavigatorKind, id: string): void;
   saveRename(kind: NavigatorKind, id: string, previousName: string, name: string): void;
-  deletePage(item: PageItem): void; duplicateScreen(item: ScreenItem): void;
+  deletePage(item: PageItem): void; deleteScreen(item: ScreenItem): void; duplicateScreen(item: ScreenItem): void;
 }
 
 function RenameForm({ kind, draft, name, actions }: {kind: NavigatorKind; draft: RenameDraft; name: string; actions: NavigatorActions}) {
@@ -131,7 +131,10 @@ function ScreenList({state, actions, hidden = false}: {state: NavigatorState; ac
       return <NavigatorRow key={item.id} kind="screen" id={item.id} name={name}
         canEdit={state.canEdit} selected={item.id === state.selectedScreen} draft={state.editingScreenName} actions={actions}
         label={name + ' · ' + item.dimensions.width + ' × ' + item.dimensions.height}
-        menuActions={[{label:'Дублировать', accessibleLabel:'Дублировать экран «' + name + '»', run:()=>actions.duplicateScreen(item)}]}/>;
+        menuActions={[
+          {label:'Переименовать', accessibleLabel:'Переименовать экран', run:()=>actions.startRename('screen', item.id, name)},
+          {label:'Дублировать', accessibleLabel:'Дублировать экран «' + name + '»', run:()=>actions.duplicateScreen(item)},
+          {label:'Удалить экран', accessibleLabel:'Удалить экран', destructive:true, run:()=>actions.deleteScreen(item)}]}/>;
     })}
   </ul>;
 }
@@ -144,7 +147,9 @@ function NavigatorView({state, actions}: {state: NavigatorState; actions: Naviga
         const selected = item.id === state.selectedPage;
         return <NavigatorRow key={item.id} kind="page" id={item.id} name={item.name} label={item.name}
           canEdit={state.canEdit} selected={selected} expanded={selected && state.pageExpanded} draft={state.editingPageName}
-          actions={actions} menuActions={[{label:'Удалить', accessibleLabel:'Удалить страницу', destructive:true, run:()=>actions.deletePage(item)}]}>
+          actions={actions} menuActions={[
+            {label:'Переименовать', accessibleLabel:'Переименовать страницу', run:()=>actions.startRename('page', item.id, item.name)},
+            {label:'Удалить страницу', accessibleLabel:'Удалить страницу', destructive:true, run:()=>actions.deletePage(item)}]}>
           {selected && nested && <ScreenList state={state} actions={actions}/>}
         </NavigatorRow>;
       })}

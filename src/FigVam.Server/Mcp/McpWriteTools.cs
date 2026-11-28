@@ -94,6 +94,10 @@ public sealed class McpWriteTools(IHttpContextAccessor accessor, IDocumentComman
     public Task<CallToolResult> DuplicateScreen(Guid screenId, long expectedRevision, Guid? commandId = null, Guid? newScreenId = null, string? name = null, CancellationToken ct = default) =>
         Run(commandId, id => handler.HandleAsync(new DuplicateScreenCommand(DocumentId, id, screenId, newScreenId ?? Guid.NewGuid(), expectedRevision, name), Actor, ct));
 
+    [McpServerTool(Name = "delete_screen"), Description("Delete a screen and its contents at the expected revision. Retained references block deletion.")]
+    public Task<CallToolResult> DeleteScreen(Guid screenId, long expectedRevision, Guid? commandId = null, CancellationToken ct = default) =>
+        Run(commandId, id => handler.HandleAsync(new DeleteScreenCommand(DocumentId, id, screenId, expectedRevision), Actor, ct));
+
     [McpServerTool(Name = "create_node"), Description("Create a node with an optional display name and initial properties atomically. Accepts compact or canonical get_node property values, mixed in one request. Use get_node_schema for inputSchema.")]
     public Task<CallToolResult> CreateNode(Guid parentId, string kind, Dictionary<string, JsonElement>? properties = null, Guid? commandId = null, Guid? nodeId = null, string? name = null, CancellationToken ct = default) =>
         Run(commandId, async id =>
