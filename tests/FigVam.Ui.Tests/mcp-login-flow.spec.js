@@ -71,9 +71,9 @@ async function grant(page) {
       return config.mcpServers.figvam.url === endpoint && config.mcpServers.figvam.headers.Authorization === 'Bearer ' + token;
     } catch { return false; }
   }).toBe(true);
-  await page.getByRole('button', { name: 'Показать', exact: true }).click();
+  await page.locator('#mcp-access-menu').getByRole('button', { name: 'Показать', exact: true }).click();
   await expect(secret).toHaveAttribute('type', 'text');
-  await page.getByRole('button', { name: 'Скрыть', exact: true }).click();
+  await page.locator('#mcp-access-menu').getByRole('button', { name: 'Скрыть', exact: true }).click();
   await page.locator('#mcp-access-menu summary').click();
   await expect(secret).toHaveCount(0);
   return { token, endpoint };

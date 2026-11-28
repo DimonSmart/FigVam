@@ -35,8 +35,8 @@ function LayerTree({layerRoots,layerChildren,layerExpanded,interactiveNodes,sele
             <span className="layer-disclosure" aria-hidden="true">{item.childCount ? (expanded ? <ChevronDown size={12}/> : <ChevronRight size={12}/>) : ''}</span>
             <span className="layer-kind-icon" aria-hidden="true" title={item.kind}>{layerKindIcons[item.kind] ?? '◇'}</span>
             <span className="layer-name" data-label-source={source}>{name}</span>
-            <IconButton type="button" className="layer-action" disabled={!editable} label={locked?'Разблокировать':'Заблокировать'} icon={locked?Lock:LockOpen} iconSize={13} onClick={event=>{event.stopPropagation();onProperty(item.id,'editorLocked',!locked);}}/>
-            <IconButton type="button" className="layer-action" disabled={!editable||locked} label={visible?'Скрыть':'Показать'} icon={visible?Eye:EyeOff} iconSize={13} onClick={event=>{event.stopPropagation();onProperty(item.id,'visible',!visible);}}/>
+            <IconButton type="button" className="layer-action" disabled={!editable} label={(locked?'Разблокировать слой: ':'Заблокировать слой: ')+name} icon={locked?Lock:LockOpen} iconSize={13} onClick={event=>{event.stopPropagation();onProperty(item.id,'editorLocked',!locked);}}/>
+            <IconButton type="button" className="layer-action" disabled={!editable||locked} label={(visible?'Скрыть слой: ':'Показать слой: ')+name} icon={visible?Eye:EyeOff} iconSize={13} onClick={event=>{event.stopPropagation();onProperty(item.id,'visible',!visible);}}/>
             {interactive && <span className="layer-interaction" title="Есть взаимодействия" aria-hidden="true"><ArrowUpRight size={12}/></span>}
           </span>
           {item.childCount > 0 && expanded && <div role="group">{renderBranch(layerChildren.get(item.id) ?? [])}</div>}
